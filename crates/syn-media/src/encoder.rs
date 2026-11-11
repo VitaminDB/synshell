@@ -78,7 +78,11 @@ pub fn open(kind: Kind, w: u32, h: u32, hevc: bool, bitrate: u32, fps: u32) -> R
         };
         match r {
             Ok(e) => {
-                tracing::info!("видеокодер {} {w}×{h}", e.name());
+                if errs.is_empty() {
+                    tracing::info!("видеокодер {} {w}×{h}", e.name());
+                } else {
+                    tracing::info!("видеокодер {} {w}×{h} (не подошли: {})", e.name(), errs.join("; "));
+                }
                 return Ok(e);
             }
             Err(e) => errs.push(format!("{k:?}: {e:#}")),
@@ -285,7 +289,9 @@ impl FfEnc {
                 set_opt(&mut opts, "preset", "p4");
                 set_opt(&mut opts, "tune", "ll");
             } else if name.starts_with("libx26") {
-                set_opt(&mut opts, "preset", "veryfast");
+                // слабый процессор (телефон без аппаратного кодера: до 4 ядер) — ultrafast, иначе кадры теряются
+                let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+                set_opt(&mut opts, "preset", if cores <= 4 { "ultrafast" } else { "veryfast" });
                 set_opt(&mut opts, "tune", "zerolatency");
             }
             if vaapi {

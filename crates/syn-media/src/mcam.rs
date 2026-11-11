@@ -744,8 +744,12 @@ pub struct Stream {
     lens: Option<OwnedFd>,
     mplane: bool,
     bufs: Vec<(*mut u8, usize)>,
+    /// Размер выхода (кадр NV12).
     pub width: u32,
     pub height: u32,
+    /// Кадр сенсора.
+    sw: u32,
+    sh: u32,
     stride: usize,
     fmt: RawFmt,
     stop: AtomicBool,
@@ -761,6 +765,7 @@ impl Stream {
     /// Включить конвейер и поток кадров размера сенсора, ближайшего к `w × h`. `video` — держать 30 к/с
     /// (в фото при темноте кадр удлиняется до 15 к/с).
     pub fn open(dev: &Device, w: u32, h: u32, video: bool) -> Result<Stream, OpenError> {
+        let want = (w, h);
         let (w, h) = dev.mode_for(w, h);
         let media = open_rw(&dev.media).map_err(|e| os_err(&dev.media.display().to_string(), e))?;
         let g = Graph::read(media.as_raw_fd()).map_err(|e| os_err("media", e))?;
@@ -777,7 +782,7 @@ impl Stream {
                 break;
             }
             let path = &dev.paths[i];
-            match Self::try_path(dev, &g, media.as_raw_fd(), path, w, h, video) {
+            match Self::try_path(dev, &g, media.as_raw_fd(), path, w, h, want, video) {
                 Ok(s) => {
                     let mut gp = GOOD_PATH.lock().unwrap();
                     gp.retain(|(n, _)| *n != dev.name);
@@ -795,7 +800,8 @@ impl Stream {
         Err(last)
     }
 
-    fn try_path(dev: &Device, g: &Graph, media: i32, path: &[Hop], w: u32, h: u32, video: bool) -> Result<Stream, OpenError> {
+    #[allow(clippy::too_many_arguments)]
+    fn try_path(dev: &Device, g: &Graph, media: i32, path: &[Hop], w: u32, h: u32, want: (u32, u32), video: bool) -> Result<Stream, OpenError> {
         // ссылки: чужие включённые в стоки пути — выключить, свои — включить
         let links = g.data_links();
         for hop in path.iter().filter(|h| !h.immutable) {
@@ -875,7 +881,11 @@ impl Stream {
         let lens = dev.lens_node.as_ref().and_then(|p| open_rw(p).ok());
         let lim = limits(sensor.as_raw_fd(), w, h);
         let focus = lens.as_ref().and_then(|l| query(l.as_raw_fd(), CID_FOCUS_ABSOLUTE));
-        let mut isp = Isp::new(&dev.name, w, h, fmt, lim, focus, video);
+        // сенсор мог дать другой размер (драйвер принимает не все объявленные режимы): соотношение сторон —
+        // кадрированием середины
+        let out = aspect_crop(w, h, want.0, want.1);
+        let mut isp = Isp::new(&dev.name, w, h, out, fmt, lim, focus, video);
+        let (ow, oh) = isp.out_size();
         // начальная экспозиция (прошлая для этой камеры) — до включения потока
         isp.apply_sensor(sensor.as_raw_fd(), lens.as_ref().map(|l| l.as_raw_fd()), true);
         let s = Stream {
@@ -884,8 +894,10 @@ impl Stream {
             lens,
             mplane,
             bufs,
-            width: w,
-            height: h,
+            width: ow,
+            height: oh,
+            sw: w,
+            sh: h,
             stride,
             fmt,
             stop: AtomicBool::new(false),
@@ -960,7 +972,7 @@ impl Stream {
             let used = if self.mplane { planes[0].bytesused } else { b.bytesused } as usize;
             let (ptr, len) = self.bufs[b.index as usize];
             let error = b.flags & 0x40 != 0; // V4L2_BUF_FLAG_ERROR
-            let need = self.stride * self.height as usize;
+            let need = self.stride * self.sh as usize;
             if !error && used.max(need) <= len {
                 // SAFETY: буфер у нас до QBUF
                 let data = unsafe { std::slice::from_raw_parts(ptr, need) };
@@ -972,7 +984,7 @@ impl Stream {
                 isp.apply_sensor(self.sensor.as_raw_fd(), self.lens.as_ref().map(|l| l.as_raw_fd()), false);
                 drop(isp);
                 if self.timing {
-                    eprintln!("isp {w}×{h}: {:.1} мс", t.elapsed().as_secs_f64() * 1e3);
+                    eprintln!("isp {}×{} → {w}×{h}: {:.1} мс", self.sw, self.sh, t.elapsed().as_secs_f64() * 1e3);
                 }
             }
             b.m = if self.mplane { planes.as_mut_ptr() as u64 } else { b.m };
@@ -1025,6 +1037,18 @@ fn new_buf(ty: u32, mplane: bool, planes: &mut [Plane; 1]) -> Buffer {
         b.length = 1;
     }
     b
+}
+
+/// Середина кадра `w × h` с соотношением сторон `aw:ah` (кратно 4), если оно отличается больше чем на 1 %.
+fn aspect_crop(w: u32, h: u32, aw: u32, ah: u32) -> Option<(u32, u32)> {
+    if aw == 0 || ah == 0 || (w as u64 * ah as u64).abs_diff(h as u64 * aw as u64) * 100 <= h as u64 * aw as u64 {
+        return None;
+    }
+    if w as u64 * ah as u64 > h as u64 * aw as u64 {
+        Some(((h as u64 * aw as u64 / ah as u64) as u32 & !3, h & !3))
+    } else {
+        Some((w & !3, (w as u64 * ah as u64 / aw as u64) as u32 & !3))
+    }
 }
 
 fn setup_link(media: i32, se: u32, sp: u16, ke: u32, kp: u16, on: bool) -> io::Result<()> {
@@ -1098,6 +1122,13 @@ mod tests {
         assert_eq!(std::mem::size_of::<FormatSp>(), 208);
         assert_eq!(std::mem::size_of::<Plane>(), 64);
         assert_eq!(fourcc(b"pGAA"), 0x4141_4770);
+    }
+
+    #[test]
+    fn aspect() {
+        assert_eq!(aspect_crop(1632, 1224, 1280, 720), Some((1632, 916)));
+        assert_eq!(aspect_crop(1632, 1224, 1632, 1224), None);
+        assert_eq!(aspect_crop(1632, 1224, 1000, 1000), Some((1224, 1224)));
     }
 
     #[test]

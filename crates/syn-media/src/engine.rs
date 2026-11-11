@@ -276,6 +276,9 @@ fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
 fn run(inner: &Inner, cap: &dyn Capture, gen: u64) {
     let mut pool: Vec<Arc<[u8]>> = Vec::new();
     let timing = std::env::var_os("SYNCAMERA_TIMING").is_some();
+    // слабый процессор: если перевод превью дольше ~25 мс, превью — через пиксель (запись не меняется)
+    let mut min_step = 1usize;
+    let mut slow = 0u32;
     loop {
         let ev = match cap.next() {
             Ok(e) => e,
@@ -300,7 +303,7 @@ fn run(inner: &Inner, cap: &dyn Capture, gen: u64) {
             f.with_src(&mut |src| {
                 // превью не больше ~2,2 Мп: 1080p и 1440×1080 — как есть, 1:1 и 4K — через пиксель
                 let px = src.width * src.height;
-                let step = (1..4).find(|k| px / (k * k) <= 2_200_000).unwrap_or(4);
+                let step = (1..4).find(|k| px / (k * k) <= 2_200_000).unwrap_or(4).max(min_step);
                 let (ow, oh) = convert::out_size(src.width, src.height, rot, step);
                 let need = ow * oh * 4;
                 // буфер из пула, который никто больше не держит
@@ -311,6 +314,16 @@ fn run(inner: &Inner, cap: &dyn Capture, gen: u64) {
                 let data = Arc::get_mut(&mut buf).expect("буфер превью свободен");
                 let t = std::time::Instant::now();
                 convert::to_rgba(src, rot, mirror, step, data);
+                let ms = t.elapsed().as_secs_f64() * 1e3;
+                if ms > 25.0 && min_step < 4 {
+                    slow += 1;
+                    if slow >= 5 {
+                        min_step = step + 1;
+                        slow = 0;
+                    }
+                } else {
+                    slow = 0;
+                }
                 if timing {
                     eprintln!("превью {ow}×{oh} шаг {step}: {:.1} мс", t.elapsed().as_secs_f64() * 1e3);
                 }

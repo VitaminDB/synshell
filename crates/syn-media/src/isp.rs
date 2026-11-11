@@ -28,6 +28,10 @@ const ZY: usize = 12;
 const ZN: usize = ZX * ZY;
 /// Целевая средняя яркость (линейная).
 const AE_TARGET: f32 = 0.18;
+/// Доля S-кривой в тоне (0 — чистая гамма sRGB).
+const CONTRAST: f32 = 0.35;
+/// Общее усиление, после которого в фото кадр удлиняется (до 15 к/с), а не растёт шум.
+const GAIN_BEFORE_SLOW: f32 = 4.0;
 /// Насыщенность цветности (вместо матрицы цвета датчика).
 const SATURATION: f32 = 1.4;
 /// Аналоговое усиление при максимальном коде (у большинства сенсоров ×16).
@@ -255,8 +259,12 @@ struct Af {
 
 pub struct Isp {
     name: String,
+    /// Кадр сенсора.
     w: usize,
     h: usize,
+    /// Выход (середина кадра сенсора с нужным соотношением сторон).
+    ow: usize,
+    oh: usize,
     fmt: RawFmt,
     lim: Limits,
     video: bool,
@@ -270,6 +278,8 @@ pub struct Isp {
     ae: Ae,
     ae_dirty: bool,
     ae_ok: bool,
+    /// Кадров до того, как сенсор применит записанную экспозицию (решать по старым кадрам нельзя).
+    ae_wait: u32,
     ctl: Control,
     frame: u64,
     af: Af,
@@ -280,13 +290,16 @@ pub struct Isp {
 }
 
 impl Isp {
-    pub fn new(name: &str, w: u32, h: u32, fmt: RawFmt, lim: Limits, focus: Option<(i32, i32, i32, i32)>, video: bool) -> Isp {
+    /// `w × h` — кадр сенсора, `out` — размер выхода (середина кадра; `None` — весь кадр).
+    pub fn new(name: &str, w: u32, h: u32, out: Option<(u32, u32)>, fmt: RawFmt, lim: Limits, focus: Option<(i32, i32, i32, i32)>, video: bool) -> Isp {
         let maxv = (1u32 << fmt.bits) - 1;
         let black = if fmt.bits >= 10 { 64 << (fmt.bits - 10) } else { 16 };
         let gamma = (0..4096)
             .map(|i| {
                 let l = i as f32 / 4095.0;
                 let v = if l <= 0.003_130_8 { 12.92 * l } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+                // лёгкая S-кривая: без неё кадр без тоновой обработки плоский
+                let v = v + CONTRAST * (v * v * (3.0 - 2.0 * v) - v);
                 (v * 255.0 + 0.5).clamp(0.0, 255.0) as u8
             })
             .collect();
@@ -313,10 +326,13 @@ impl Isp {
         }
         let af_pos = saved.map(|s| s.focus).or(focus.map(|f| f.3)).unwrap_or(0);
         let (w, h) = (w as usize & !1, h as usize & !1);
+        let (ow, oh) = out.map(|(a, b)| ((a as usize).min(w) & !3, (b as usize).min(h) & !3)).unwrap_or((w, h));
         Isp {
             name: name.to_string(),
             w,
             h,
+            ow,
+            oh,
             fmt,
             lim,
             video,
@@ -330,6 +346,7 @@ impl Isp {
             ae,
             ae_dirty: true,
             ae_ok: false,
+            ae_wait: 3,
             ctl: Control::default(),
             frame: 0,
             af: Af {
@@ -438,7 +455,7 @@ impl Isp {
         if self.ctl.focus >= 0.0 {
             return;
         }
-        let n = 10;
+        let n = 8;
         let st = ((hi - lo) / n).max(step);
         self.af.positions = (0..=n).map(|i| (lo + i * st).min(hi)).collect();
         self.af.positions.dedup();
@@ -448,11 +465,14 @@ impl Isp {
         self.af.state = AfState::Scan;
         self.af.pos = self.af.positions[0];
         self.af.dirty = true;
-        self.af.settle = 3; // первая точка дальше всех — линзе нужно время
+        self.af.settle = 2; // первая точка дальше всех — линзе нужно время
     }
 
     /// Записать экспозицию и фокус в сенсор и линзу (если менялись).
     pub fn apply_sensor(&mut self, sensor: i32, lens: Option<i32>, force: bool) {
+        if self.ae_dirty && !force && self.ae_wait == 0 {
+            self.ae_wait = 3; // ручная экспозиция и прочие записи — тоже ждать
+        }
         if self.ae_dirty || force {
             let a = self.ae;
             let l = &self.lim;
@@ -501,7 +521,12 @@ impl Isp {
         Some(m)
     }
 
-    /// Кадр RAW (`stride` байт на строку) → NV12 `w × h` в `out`; затем 3A по статистике.
+    /// Размер выхода NV12.
+    pub fn out_size(&self) -> (u32, u32) {
+        (self.ow as u32, self.oh as u32)
+    }
+
+    /// Кадр RAW (`stride` байт на строку) → NV12 размера [`Isp::out_size`] в `out`; затем 3A по статистике.
     pub fn process(&mut self, raw: &[u8], stride: usize, out: &mut [u8]) {
         let (w, h) = (self.w, self.h);
         self.build_luts();
@@ -550,13 +575,14 @@ impl Isp {
                 }
             });
         };
-        if cw == w {
+        let (ow, oh) = (self.ow, self.oh);
+        if (cw, ch) == (ow, oh) {
             dem(out);
         } else {
             let mut tmp = std::mem::take(&mut self.zoom_buf);
             tmp.resize(cw * ch * 3 / 2, 0);
             dem(&mut tmp);
-            upscale_nv12(&tmp, cw, ch, out, w, h, self.threads);
+            upscale_nv12(&tmp, cw, ch, out, ow, oh, self.threads);
             self.zoom_buf = tmp;
         }
         self.zones = zones;
@@ -571,14 +597,14 @@ impl Isp {
         }
     }
 
-    /// Обрезка под зум: начало и размер (чётные).
+    /// Обрезка кадра сенсора: середина размера выхода, при зуме — её середина; начало и размер (чётные).
     fn crop(&self) -> (usize, usize, usize, usize) {
         let z = self.ctl.zoom.clamp(1.0, MAX_ZOOM);
-        if z < 1.01 {
-            return (0, 0, self.w, self.h);
-        }
-        let cw = ((self.w as f32 / z) as usize & !3).max(16);
-        let ch = ((self.h as f32 / z) as usize & !3).max(16);
+        let (cw, ch) = if z < 1.01 {
+            (self.ow, self.oh)
+        } else {
+            (((self.ow as f32 / z) as usize & !3).max(16), ((self.oh as f32 / z) as usize & !3).max(16))
+        };
         (((self.w - cw) / 2) & !1, ((self.h - ch) / 2) & !1, cw, ch)
     }
 
@@ -654,9 +680,9 @@ impl Isp {
     }
 
     fn auto_exposure(&mut self) {
-        // сенсор применяет новое через 2–3 кадра: решать раз в 4 кадра (первые — каждые 2)
-        let every = if self.frame < 12 { 2 } else { 4 };
-        if self.frame % every != 0 {
+        // сенсор применяет новую экспозицию через 2–3 кадра: до этого кадры старые
+        if self.ae_wait > 0 {
+            self.ae_wait -= 1;
             return;
         }
         let l = self.lim;
@@ -669,17 +695,21 @@ impl Isp {
             ratio = ratio.min(0.9);
         }
         self.ae_ok = (ratio - 1.0).abs() < 0.15;
+        if std::env::var_os("SYNCAMERA_AE").is_some() {
+            eprintln!("ae: кадр {} яркость {mean:.4} ×isp {:.2} пересвет {sat:.3} ratio {ratio:.2} | строк {} again {} dgain {} vblank {}", self.frame, a.isp, a.lines, a.again, a.dgain, a.vblank);
+        }
         if (ratio - 1.0).abs() < 0.06 {
             return;
         }
         let total = a.lines as f32 * l.again_f(a.again) * l.dgain_f(a.dgain) * a.isp;
-        let want = total * ratio.powf(if self.frame < 12 { 1.0 } else { 0.8 });
+        // сходимость: большие шаги — сразу, у цели — мягко (без раскачки)
+        let want = total * if (ratio - 1.0).abs() > 0.5 { ratio.clamp(0.25, 4.0) } else { ratio.powf(0.7) };
         // выдержка: до кадра 30 к/с, в фото — до 15 к/с
         let fast = l.lines_fast();
         let slow = if self.video { fast } else { l.lines_for_frame(1e9 / 15.0).max(fast) };
         let mut lines = (want as i32).clamp(l.exp_min(), fast);
         let mut rest = want / lines as f32;
-        if rest > 1.0 && slow > fast {
+        if rest > GAIN_BEFORE_SLOW && slow > fast {
             lines = (want as i32).clamp(l.exp_min(), slow);
             rest = want / lines as f32;
         }
@@ -691,6 +721,9 @@ impl Isp {
         let vblank = self.vblank_for(lines);
         self.ae = Ae { lines, again, dgain, vblank, isp };
         self.ae_dirty = a.lines != lines || a.again != again || a.dgain != dgain || a.vblank != vblank;
+        if self.ae_dirty {
+            self.ae_wait = 3;
+        }
     }
 
     /// Резкость в окне: сумма разностей соседей одного цвета, делённая на яркость.
@@ -722,7 +755,8 @@ impl Isp {
         }
         match self.af.state {
             AfState::Idle => {
-                if self.frame >= 6 {
+                // после того, как сошлась экспозиция (или через ~3 с)
+                if (self.ae_ok && self.frame >= 6) || self.frame >= 90 || self.manual() {
                     self.start_af();
                 }
             }
@@ -737,7 +771,7 @@ impl Isp {
                 if self.af.idx < self.af.positions.len() {
                     self.af.pos = self.af.positions[self.af.idx];
                     self.af.dirty = true;
-                    self.af.settle = 2;
+                    self.af.settle = 1;
                     return;
                 }
                 let best = self.af.results.iter().cloned().fold((lo, f64::MIN), |b, r| if r.1 > b.1 { r } else { b });
@@ -753,7 +787,7 @@ impl Isp {
                         self.af.idx = 0;
                         self.af.pos = self.af.positions[0];
                         self.af.dirty = true;
-                        self.af.settle = 2;
+                        self.af.settle = 2; // переход к точному проходу — дальний ход линзы
                         return;
                     }
                 }
@@ -996,7 +1030,7 @@ mod tests {
                 raw[y * stride + q * 5 + 4] = lo;
             }
         }
-        let mut isp = Isp::new("test-flat", w as u32, h as u32, fmt, lim(), None, false);
+        let mut isp = Isp::new("test-flat", w as u32, h as u32, None, fmt, lim(), None, false);
         let mut out = vec![0u8; w * h * 3 / 2];
         for _ in 0..3 {
             isp.process(&raw, stride, &mut out);
@@ -1016,7 +1050,7 @@ mod tests {
     fn zoom_keeps_size_and_gray() {
         let (w, h) = (64u32, 48u32);
         let fmt = RawFmt { order: Bayer::Rggb, bits: 10, packed: false };
-        let mut isp = Isp::new("test-zoom", w, h, fmt, lim(), None, false);
+        let mut isp = Isp::new("test-zoom", w, h, None, fmt, lim(), None, false);
         let raw: Vec<u8> = (0..w * h).flat_map(|_| 300u16.to_le_bytes()).collect();
         let mut out = vec![0u8; (w * h * 3 / 2) as usize];
         let mut c = Control::default();
@@ -1032,15 +1066,28 @@ mod tests {
     }
 
     #[test]
+    fn aspect_crop_16_9() {
+        let fmt = RawFmt { order: Bayer::Gbrg, bits: 10, packed: false };
+        let mut isp = Isp::new("test-aspect", 64, 48, Some((64, 36)), fmt, lim(), None, true);
+        assert_eq!(isp.out_size(), (64, 36));
+        assert_eq!(isp.crop(), (0, 6, 64, 36));
+        let raw: Vec<u8> = (0..64 * 48).flat_map(|_| 300u16.to_le_bytes()).collect();
+        let mut out = vec![0u8; 64 * 36 * 3 / 2];
+        isp.process(&raw, 128, &mut out);
+    }
+
+    #[test]
     fn ae_brightens_dark() {
         let (w, h) = (64u32, 48u32);
         let fmt = RawFmt { order: Bayer::Gbrg, bits: 10, packed: false };
-        let mut isp = Isp::new("test-ae", w, h, fmt, lim(), None, false);
+        let mut isp = Isp::new("test-ae", w, h, None, fmt, lim(), None, false);
         let raw: Vec<u8> = (0..w * h).flat_map(|_| 70u16.to_le_bytes()).collect();
         let mut out = vec![0u8; (w * h * 3 / 2) as usize];
         let before = isp.ae.lines as f32 * isp.lim.again_f(isp.ae.again);
-        isp.process(&raw, w as usize * 2, &mut out);
-        isp.process(&raw, w as usize * 2, &mut out);
+        // первые кадры — ожидание сенсора
+        for _ in 0..5 {
+            isp.process(&raw, w as usize * 2, &mut out);
+        }
         let after = isp.ae.lines as f32 * isp.lim.again_f(isp.ae.again) * isp.lim.dgain_f(isp.ae.dgain) * isp.ae.isp;
         assert!(after > before * 2.0, "{before} → {after}");
     }
