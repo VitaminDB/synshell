@@ -45,6 +45,8 @@ thread_local! {
     /// Контакты по номеру: файлы читаются один раз на номер (сбрасывается с концом звонков).
     static CONTACTS: RefCell<HashMap<String, Option<Contact>>> = RefCell::new(HashMap::new());
     static PILL: std::cell::Cell<Option<syngui_layer::SurfaceId>> = const { std::cell::Cell::new(None) };
+    /// Входящий, ради которого уже включали экран.
+    static WOKE_FOR: std::cell::Cell<Option<u8>> = const { std::cell::Cell::new(None) };
 }
 
 fn sig() -> Sig {
@@ -73,6 +75,15 @@ pub fn start(ctx: ShellCtx) {
         let o = st.as_ref().and_then(ongoing);
         if s.ringing.get_untracked() != r {
             s.ringing.set(r.clone());
+        }
+        // Новый входящий — включить экран, как кнопка питания (погашен простоем, DPMS или датчиком
+        // приближения); заблокирован — сразу видна карточка звонка. Гасится он потом по обычному
+        // таймеру простоя (synwm считает `screen-on` активностью).
+        let new_ring = r.as_ref().is_some_and(|c| Some(c.id) != WOKE_FOR.with(|w| w.get()));
+        WOKE_FOR.with(|w| w.set(r.as_ref().map(|c| c.id)));
+        if new_ring {
+            log::info!("входящий вызов: включаю экран (screen-on)");
+            crate::actions::run(synshell_common::action::Action::ScreenOn);
         }
         let new_call = o.as_ref().map(|c| c.id) != s.ongoing.get_untracked().map(|c| c.id);
         if s.ongoing.get_untracked() != o {
@@ -430,10 +441,16 @@ pub fn pill(vertical: bool) -> impl Widget {
     })
 }
 
+/// Плашка в редакторе панели (звонка нет — показать, где она встанет).
+pub fn pill_placeholder() -> impl Widget {
+    crate::ui::vcenter(DecoratedBox::new().child(icon(CALL).class("call-pill-icon")).class("call-pill call-pill-placeholder"))
+}
+
 // ─── Отладка ─────────────────────────────────────────────────────────────────
 
 /// `SYNSHELL_DEMO_CALL=incoming|waiting|active|dialing|held` — выдуманный звонок вместо модема.
-/// Номер — `SYNSHELL_DEMO_CALL_NUMBER` (пусто — скрытый).
+/// Номер — `SYNSHELL_DEMO_CALL_NUMBER` (пусто — скрытый); `SYNSHELL_DEMO_CALL_DELAY` — через сколько
+/// секунд после запуска звонок появится (проверка пробуждения погашенного экрана).
 pub fn demo_status() -> Option<Status> {
     let kind = std::env::var("SYNSHELL_DEMO_CALL").ok().filter(|v| !v.is_empty())?;
     let state = match kind.as_str() {

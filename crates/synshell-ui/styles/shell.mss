@@ -1959,3 +1959,4 @@ TextField {
 /* Анимация подключения зарядки (телефон) */
 .charge-anim-pct { font-size: 64px; font-weight: bold; color: #ffffff; }
 .charge-anim-label { font-size: 17px; color: rgba(255, 255, 255, 0.72); }
+.call-pill-placeholder { opacity: 0.6; padding: 3px 8px; }

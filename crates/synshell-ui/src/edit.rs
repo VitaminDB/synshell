@@ -639,6 +639,7 @@ const APPLET_KINDS: &[(&str, &str, &str)] = &[
     ("network", n_!("Сеть"), "\u{E63E}"),
     ("battery", n_!("Батарея"), "\u{E1A4}"),
     ("notifications", n_!("Уведомления"), "\u{E7F4}"),
+    ("call", n_!("Идущий звонок"), "\u{E0B0}"),
     ("show-desktop", n_!("Показать рабочий стол"), "\u{E30C}"),
     ("window-title", n_!("Заголовок окна"), "\u{F088}"),
     ("window-buttons", n_!("Кнопки окна"), "\u{E5CD}"),

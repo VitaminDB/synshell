@@ -21,7 +21,16 @@ pub fn start(ctx: ShellCtx) {
     }
     // Отладка без модема: выдуманный звонок (crate::calls::demo_status).
     if let Some(st) = crate::calls::demo_status() {
-        ctx.modem.set(Some(st));
+        let delay = std::env::var("SYNSHELL_DEMO_CALL_DELAY").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        if delay == 0 {
+            ctx.modem.set(Some(st));
+        } else {
+            ctx.modem.set(Some(Status { calls: Vec::new(), ..st.clone() }));
+            syngui_layer::add_timer(Duration::from_secs(delay), move || {
+                ctx.modem.set(Some(st.clone()));
+                None
+            });
+        }
         return;
     }
     std::thread::Builder::new()

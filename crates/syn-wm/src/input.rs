@@ -1626,7 +1626,12 @@ impl State {
                     self.set_monitors_power(false);
                 }
             }
-            Action::ScreenOn => self.set_monitors_power(true),
+            // Явное включение (входящий звонок, скрипт, synlink) — это активность: иначе проверка простоя
+            // через секунду погасила бы экран снова (простой давно больше dpms_after).
+            Action::ScreenOn => {
+                self.core.last_activity = Instant::now();
+                self.set_monitors_power(true);
+            }
             Action::ProximityBlank(true) => {
                 if !self.core.monitors_off {
                     self.core.proximity_blank = true;

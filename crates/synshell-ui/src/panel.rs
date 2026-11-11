@@ -577,7 +577,8 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         if call_at == Some(ai) {
             flex = flex.child(DecoratedBox::new().child(crate::calls::pill(pc.vertical)).class("applet-slot applet-slot-call"));
         }
-        let w = crate::applets::build(a, pc, ai);
+        // Плашка звонка без звонка пуста — в редакторе её видно заглушкой.
+        let w = if editing && a.kind == "call" { Box::new(crate::calls::pill_placeholder()) } else { crate::applets::build(a, pc, ai) };
         // Каждый апплет сообщает свои границы — окна по сочетаниям клавиш
         // открываются у его кнопки.
         let slot = pc.bounds_slot(&a.kind);
