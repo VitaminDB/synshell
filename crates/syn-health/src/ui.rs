@@ -167,7 +167,7 @@ pub fn root(st: St) -> Box<dyn Widget> {
         col = col.child(Button::new(t!("Настройки")).icon("\u{E8B8}").on_click(move || st.settings_open.set(true)));
         Box::new(ScrollView::new().vertical().child(col.class("page")))
     };
-    // Своя рамка окна: заголовок с кнопками окна (на телефоне и во весь экран его нет).
+    // Своя рамка окна: заголовок с кнопками окна (во весь экран его нет).
     let main = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(synshell_common::csd::titlebar(st.window, || t!("Спорт и здоровье").to_string(), Some("\u{E566}")))

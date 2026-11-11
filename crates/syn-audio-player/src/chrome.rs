@@ -1,7 +1,7 @@
 //! Своё окно (CSD): кнопки окна из настроек рабочего стола — в шапке библиотеки и «Сейчас играет» (за
 //! название окно перетаскивается), изменение размера за край, полноэкранный режим: кнопка в шапке, F11,
 //! Esc — выход. Выбор запоминается (`~/.config/synshell/audio-player.toml`); на телефоне — по умолчанию
-//! во весь экран, без кнопок окна и рамки.
+//! во весь экран; в окне на телефоне — кнопки окна есть, рамки и изменения размера нет.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -84,10 +84,16 @@ pub fn follow_window(st: St) {
     });
 }
 
-/// Кнопки окна (свернуть, развернуть, закрыть): не на телефоне и не во весь экран.
+/// Есть ли кнопки окна: везде, где окнами управляет synwm (и в телефонном форм-факторе);
+/// нет только на Android/iPhone.
+pub fn has_controls() -> bool {
+    !cfg!(any(target_os = "android", target_os = "ios"))
+}
+
+/// Кнопки окна (свернуть, развернуть, закрыть); во весь экран их нет.
 pub fn controls(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
-        if is_phone() || st.fs.get() {
+        if !has_controls() || st.fs.get() {
             return vec![];
         }
         let w = st.window.get();
@@ -97,7 +103,7 @@ pub fn controls(st: St) -> W {
 
 /// Растягивающаяся часть шапки, за которую окно перетаскивается.
 pub fn drag(child: impl Widget + 'static) -> W {
-    if is_phone() {
+    if !has_controls() {
         return Box::new(DecoratedBox::new().class("grow drag").child(child));
     }
     Box::new(DecoratedBox::new().class("grow drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("drag-space").child(child))))

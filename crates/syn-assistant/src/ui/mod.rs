@@ -226,17 +226,17 @@ fn phone_bar(st: St) -> W {
     )
 }
 
-/// Телефон (или телефонная сборка): окна во весь экран, кнопок окна нет.
+/// Телефон (или телефонная сборка): окна во весь экран, без рамки и изменения размера.
 fn is_phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 /// Кнопки окна для верхней панели узкой раскладки: узкое окно на компьютере остаётся окном
-/// (свернуть, развернуть, закрыть); на телефоне и во весь экран их нет.
+/// (свернуть, развернуть, закрыть), на телефоне — тоже; во весь экран их нет.
 pub(crate) fn narrow_window_controls(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let w = st.window.get();
-        if is_phone() || w.fullscreen {
+        if !synshell_common::window_controls(w.fullscreen) {
             return vec![];
         }
         vec![boxed(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]

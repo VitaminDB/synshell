@@ -126,8 +126,8 @@ pub fn root(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let mut vp = viewport_size().get();
         // Своя рамка окна на компьютере: заголовок с кнопками окна над видоискателем
-        // (на телефоне и во весь экран его нет).
-        if !csd::is_phone() && !full.get() {
+        // (во весь экран его нет).
+        if csd::show_controls(full.get()) {
             vp.height -= csd::TITLEBAR_H;
         }
         let _ = (st.aspect.get(), st.mode.get(), st.fullscreen.get(), st.dev_rot.get());

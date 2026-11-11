@@ -115,9 +115,14 @@ struct St {
     window: RwSignal<syngui::window::WindowState>,
 }
 
-/// Телефон: окно на весь экран, без своего заголовка и рамки.
+/// Телефон: окно на весь экран, без рамки и изменения размера (заголовок с кнопками окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Свой заголовок с кнопками окна: везде, где окнами управляет synwm (и на телефоне).
+fn has_titlebar() -> bool {
+    synshell_common::window_controls(false)
 }
 
 static CONFIRM_ID: AtomicU64 = AtomicU64::new(1);
@@ -554,12 +559,13 @@ fn pane<M>(st: St, title: &str, body: impl IntoWidget<M>) -> W {
 
 fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
-    // Своя рамка окна: заголовок с кнопками окна над содержимым; на телефоне — только содержимое
+    // Своя рамка окна: заголовок с кнопками окна над содержимым (и на телефоне); на телефоне —
+    // без рамки и изменения размера за края.
     let chrome = !is_phone();
     let body = Reactive::new(move || -> Vec<W> {
         let n = narrow.get();
         let page = if n { phone(st) } else { desktop(st) };
-        if !chrome {
+        if !has_titlebar() {
             return vec![page];
         }
         vec![Box::new(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st, n)).child(DecoratedBox::new().child(page).class("grow")))]
@@ -707,8 +713,8 @@ fn desktop(st: St) -> W {
     let nav = Reactive::new(move || -> Vec<W> {
         let cur = st.tab.get();
         let mut col = Column::new().gap(4.0);
-        // Со своим заголовком знак — в нём, над боковой панелью
-        if is_phone() {
+        // Со своим заголовком знак — в нём, иначе — над боковой панелью
+        if !has_titlebar() {
             col = col.child(DecoratedBox::new().child(brand()).class("side-brand"));
         }
         for t in Tab::ALL {

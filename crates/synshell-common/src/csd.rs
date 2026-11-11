@@ -3,9 +3,11 @@
 //! и изменение размера за края.
 //!
 //! Окно создаётся `App::frameless()` + `transparent(true)` с прозрачным фоном,
-//! состояние окна — `with_window_state(сигнал)`. На телефоне
-//! (`SYNSHELL_FORM_FACTOR=phone`, Android, iPhone) окна во весь экран: кнопок,
-//! рамки и изменения размера нет; во весь экран — тоже нет.
+//! состояние окна — `with_window_state(сигнал)`. В телефонном форм-факторе
+//! (`SYNSHELL_FORM_FACTOR=phone`, режим окон «страницы») рамки, скругления и
+//! изменения размера нет, но заголовок с кнопками окна есть — как на компьютере.
+//! Во весь экран (F11, игры, плееры) кнопок и заголовка нет. На Android и iPhone
+//! окнами управляет сама система — своих кнопок нет никогда.
 //!
 //! Классы MSS ([`MSS`], подключается [`crate::style::AppStyle::csd`]) — с
 //! приставкой `csd-`; программа перекрывает их в своём MSS (цвет заголовка и т. п.).
@@ -25,15 +27,29 @@ type W = Box<dyn Widget>;
 /// Высота заголовка [`titlebar`] с нижней чертой, px (для раскладок, считающих высоту сами).
 pub const TITLEBAR_H: f32 = 41.0;
 
-/// Телефон: окна во весь экран, без кнопок окна и рамки.
+/// Телефон: окна во весь экран, без рамки, скругления и изменения размера
+/// (кнопки окна при этом есть — см. [`has_controls`]).
 pub fn is_phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
-/// Показывать свой заголовок и кнопки окна: не телефон и не во весь экран
-/// (читает сигнал — подписывает текущий Reactive).
+/// Есть ли у окон свои кнопки (свернуть, развернуть, закрыть): везде, где окнами
+/// управляет synwm, в том числе в телефонном форм-факторе; нет только на
+/// Android и iPhone (там окна — дело системы).
+pub const fn has_controls() -> bool {
+    !cfg!(any(target_os = "android", target_os = "ios"))
+}
+
+/// Показывать кнопки окна сейчас: [`has_controls`] и окно не во весь экран
+/// (то же, что [`crate::window_controls`]).
+pub fn show_controls(fullscreen: bool) -> bool {
+    crate::window_controls(fullscreen)
+}
+
+/// Показывать свой заголовок и кнопки окна: не во весь экран (и не Android/iPhone);
+/// читает сигнал — подписывает текущий Reactive.
 pub fn decorated(win: RwSignal<WindowState>) -> bool {
-    !is_phone() && !win.get().fullscreen
+    show_controls(win.get().fullscreen)
 }
 
 /// Сигнал «окно во весь экран» — меняется только с этим режимом (не с фокусом
@@ -50,11 +66,11 @@ pub fn fullscreen(win: RwSignal<WindowState>) -> RwSignal<bool> {
 }
 
 /// Кнопки окна (свернуть, развернуть, закрыть — набор и сторона из настроек
-/// рабочего стола); на телефоне и во весь экран — ничего.
+/// рабочего стола); во весь экран (и на Android/iPhone) — ничего.
 pub fn controls(win: RwSignal<WindowState>) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let w = win.get();
-        if is_phone() || w.fullscreen {
+        if !show_controls(w.fullscreen) {
             return vec![];
         }
         vec![Box::new(DecoratedBox::new().class("csd-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]
@@ -68,7 +84,7 @@ pub fn drag<M>(child: impl syngui::IntoWidget<M>) -> W {
 }
 
 /// Заголовок окна: значок и название (за них перетаскивают) и кнопки окна;
-/// на телефоне и во весь экран его нет.
+/// во весь экран (и на Android/iPhone) его нет.
 pub fn titlebar(win: RwSignal<WindowState>, title: impl Fn() -> String + Send + Sync + 'static, icon: Option<&'static str>) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();

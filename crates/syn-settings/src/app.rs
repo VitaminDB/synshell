@@ -248,7 +248,7 @@ fn phone_list(ctx: Ctx) -> W {
         vec![boxed(col)]
     });
     // Заголовок — он же заголовок узкого окна на компьютере: за него окно перетаскивают,
-    // справа — кнопки окна (на телефоне и во весь экран их нет).
+    // справа — кнопки окна (во весь экран их нет).
     let head = Row::new().cross_axis_alignment(CrossAxisAlignment::Center).class("phone-head").child(csd::drag(Text::new(t!("Параметры")).class("phone-title"))).child(csd::controls(ctx.window));
     boxed(
         Column::new()

@@ -152,11 +152,11 @@ fn title_bar(p: Pane) -> W {
 }
 
 /// Кнопки окна в верхней панели: узкое окно на компьютере остаётся окном (свернуть,
-/// развернуть, закрыть); на телефоне и во весь экран их нет.
+/// развернуть, закрыть), на телефоне — тоже; во весь экран их нет.
 pub(super) fn window_controls() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let w = state::ctx().window.get();
-        if state::phone_device() || w.fullscreen {
+        if !synshell_common::window_controls(w.fullscreen) {
             return vec![];
         }
         vec![bx("pwindow-controls", SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]

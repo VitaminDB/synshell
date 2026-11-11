@@ -136,10 +136,9 @@ fn appbar(st: St) -> W {
             row = row.child(icon_button(icons::STORAGE, t!("База кодов"), "tb-btn", move || st.go(Page::Database)));
         }
         row = row.child(fullscreen_button(st, "tb-btn"));
-        // Узкое окно на компьютере — те же кнопки окна, что у широкого (на телефоне окна во весь
-        // экран, кнопок нет; во весь экран — тоже нет).
+        // Узкое окно — те же кнопки окна, что у широкого (и на телефоне); во весь экран их нет.
         let w = st.window.get();
-        if std::env::var("SYNSHELL_FORM_FACTOR").as_deref() != Ok("phone") && !w.fullscreen {
+        if synshell_common::window_controls(w.fullscreen) {
             row = row.child(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)));
         }
         vec![boxed(DecoratedBox::new().class("appbar").child(row))]

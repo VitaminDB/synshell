@@ -952,7 +952,7 @@ fn build_root(st: St) -> W {
 
 // ─── Своё окно (CSD) ────────────────────────────────────────────────────────
 
-/// Телефон: окно на весь экран, без своего заголовка.
+/// Телефон: окно на весь экран, без рамки и изменения размера (заголовок с кнопками окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
 }
@@ -963,11 +963,12 @@ fn wide_open(st: St, narrow: RwSignal<bool>) -> bool {
 }
 
 /// Рамка, заголовок с кнопками окна из настроек рабочего стола, изменение размера за край.
-/// На телефоне — только содержимое.
+/// На телефоне — без рамки и изменения размера.
 fn window_frame(st: St, inner: impl Widget + 'static) -> W {
-    if is_phone() {
+    if !synshell_common::window_controls(false) {
         return Box::new(inner);
     }
+    let phone = is_phone();
     let narrow = syngui::viewport::viewport_below(760.0);
     let full = use_signal(false);
     create_effect(move || {
@@ -983,8 +984,8 @@ fn window_frame(st: St, inner: impl Widget + 'static) -> W {
         vec![titlebar(st, wide_open(st, narrow))]
     });
     let col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar).child(DecoratedBox::new().class("grow").child(inner));
-    let frame = DecoratedBox::new().class("window-frame").clip(true).child(col);
-    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+    let frame = DecoratedBox::new().class(if phone { "window-frame flat" } else { "window-frame" }).clip(true).child(col);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!phone).child(frame))
 }
 
 /// Заголовок окна. Широкое окно с открытым хранилищем: слева — шапка списка (название, синхронизация,
@@ -1466,8 +1467,8 @@ fn sync_chip(st: St) -> W {
 }
 
 fn list_view(st: St, phone: bool) -> W {
-    // в широком окне шапка списка — в заголовке окна (кроме телефона: там заголовка нет)
-    let header: W = if phone || is_phone() { list_header(st, false) } else { Box::new(DecoratedBox::new()) };
+    // в широком окне шапка списка — в заголовке окна (если своего заголовка нет — здесь)
+    let header: W = if phone || !synshell_common::window_controls(false) { list_header(st, false) } else { Box::new(DecoratedBox::new()) };
     let search = Reactive::new(move || -> Vec<W> {
         vec![Box::new(
             TextField::with_text(st.query.get_untracked())

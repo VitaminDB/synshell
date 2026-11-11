@@ -101,7 +101,8 @@ pub fn root(st: St) -> EventHook {
         }
         let n = narrow.get();
         let page = if n { phone(st) } else { desktop(st) };
-        if is_phone() {
+        // Заголовок с кнопками окна — и на телефоне (там без рамки и изменения размера).
+        if !synshell_common::window_controls(false) {
             return vec![page];
         }
         vec![boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st, n)).child(DecoratedBox::new().class("grow").child(page)))]
@@ -149,7 +150,7 @@ pub fn root(st: St) -> EventHook {
     hook
 }
 
-/// Телефон: окно на весь экран, без своего заголовка.
+/// Телефон: окно на весь экран, без рамки и изменения размера (заголовок с кнопками окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
 }

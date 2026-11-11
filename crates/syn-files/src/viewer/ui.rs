@@ -141,10 +141,10 @@ fn phone_titlebar() -> W {
             v.menu_open.set(true);
         })
         .child(DecoratedBox::new().class("iv-pbtn").child(Icon::new(glyph::MORE).class("icon")));
-    // Узкое окно на компьютере — кнопки окна, как у широкого; на телефоне и во весь экран их нет.
+    // Узкое окно — кнопки окна, как у широкого (и на телефоне); во весь экран их нет.
     let controls = Reactive::new(move || -> Vec<W> {
         let w = v().window.get();
-        if crate::state::phone_device() || w.fullscreen {
+        if !synshell_common::window_controls(w.fullscreen) {
             return vec![];
         }
         vec![boxed(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]

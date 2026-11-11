@@ -383,19 +383,20 @@ pub(crate) fn root() -> impl Widget {
         let w = wide.get();
         let fs = full.get();
         // Узкое окно на компьютере остаётся окном: заголовок с кнопками окна, рамка и изменение
-        // размера; на телефоне и во весь экран их нет.
-        vec![frame(wide, w && !fs, !fs && !is_phone())]
+        // размера; на телефоне — заголовок с кнопками окна без рамки; во весь экран их нет.
+        vec![frame(wide, w && !fs, !fs && !is_phone(), !fs && synshell_common::window_controls(false))]
     })
 }
 
-/// Телефон: окна во весь экран, без заголовка с кнопками окна.
+/// Телефон: окна во весь экран, без рамки и изменения размера.
 fn is_phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 /// `chrome` — широкая раскладка с рамкой и панелью проектов; `window` — своё окно на
-/// компьютере (заголовок с кнопками, рамка, изменение размера) — и в узкой раскладке.
-fn frame(wide: RwSignal<bool>, chrome: bool, window: bool) -> W {
+/// компьютере (заголовок с кнопками, рамка, изменение размера) — и в узкой раскладке;
+/// `title` — заголовок с кнопками окна (и на телефоне).
+fn frame(wide: RwSignal<bool>, chrome: bool, window: bool, title: bool) -> W {
     let app = use_context::<AppCtx>();
     let ctx = use_context::<NotesCtx>();
     let notes_view = DecoratedBox::new().class("grow").child(Stack::new().fit(StackFit::Expand).child(Reactive::new(move || -> Vec<W> {
@@ -414,7 +415,7 @@ fn frame(wide: RwSignal<bool>, chrome: bool, window: bool) -> W {
         row = row.child(rail_view::view());
     }
     let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if chrome || window {
+    if chrome || title {
         // Чтение на весь экран — без заголовка окна (меню читалки — тапом).
         let lib = use_context::<notes::library::Library>();
         col = col.child(Reactive::new(move || -> Vec<W> {

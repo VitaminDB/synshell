@@ -113,7 +113,7 @@ fn desktop(st: St, page: Page) -> W {
         .child(ScrollView::new().vertical().child(nav).class("grow"))
         .class("sidebar")
         .style("width", StyleValue::px(SIDEBAR_W));
-    // Над страницей — место для перетаскивания и кнопки окна (на телефоне и во весь экран их нет).
+    // Над страницей — место для перетаскивания и кнопки окна (во весь экран их нет).
     let top = Reactive::new(move || -> Vec<W> {
         if !synshell_common::csd::decorated(st.window) {
             return vec![];
@@ -177,7 +177,7 @@ fn phone(st: St, page: Page) -> W {
     });
     let chips_box: W = if touch { boxed(ScrollView::new().horizontal().child(chips).class("chips")) } else { boxed(DecoratedBox::new().child(chips).class("chips chips-wrap")) };
     // Шапка — она же заголовок узкого окна на компьютере: за название окно перетаскивают,
-    // справа — кнопки окна (на телефоне и во весь экран их нет).
+    // справа — кнопки окна (во весь экран их нет).
     let title = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)

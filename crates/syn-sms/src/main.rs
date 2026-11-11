@@ -33,7 +33,7 @@ struct St {
     window: RwSignal<syngui::window::WindowState>,
 }
 
-/// Телефон: окно на весь экран, без своих кнопок окна и рамки.
+/// Телефон: окно на весь экран, без рамки и изменения размера (кнопки окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
@@ -398,20 +398,20 @@ fn root(st: St) -> W {
     )
 }
 
-/// Кнопки окна в конце верхней панели (на телефоне их нет).
+/// Кнопки окна в конце верхней панели (и на телефоне; во весь экран их нет).
 fn bar_end(st: St, row: Row) -> Row {
-    if is_phone() {
-        return row;
-    }
     row.child(Reactive::new(move || -> Vec<W> {
         let w = st.window.get();
+        if !synshell_common::window_controls(w.fullscreen) {
+            return vec![];
+        }
         vec![Box::new(DecoratedBox::new().child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)).class("window-controls"))]
     }))
 }
 
-/// Заголовок панели, за который перетаскивается окно (на телефоне — просто текст).
+/// Заголовок панели, за который перетаскивается окно (без своих кнопок окна — просто текст).
 fn drag_title(w: impl Widget + 'static) -> W {
-    if is_phone() {
+    if !synshell_common::window_controls(false) {
         return Box::new(DecoratedBox::new().child(w).class("grow"));
     }
     Box::new(DecoratedBox::new().class("grow drag-box").child(WindowDragRegion::new().child(DecoratedBox::new().child(w).class("drag-fill"))))
@@ -461,7 +461,7 @@ fn desktop(st: St) -> W {
                     .child(Icon::new("\u{E0B7}").class("empty-icon"))
                     .child(Text::new(t!("Выберите переписку")).class("muted")),
             );
-            if !is_phone() {
+            if synshell_common::window_controls(false) {
                 stack = stack.child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar_end(st, Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(drag_title(DecoratedBox::new()))).class("bar")));
             }
             Box::new(stack)

@@ -489,13 +489,14 @@ Button.btn-soft:pressed { transform: scale(0.98); }
     margin-bottom: 8px;
 }
 
-/* ── Своя рамка окна (компьютер; на Android и телефоне её нет) ─────────── */
+/* ── Своя рамка окна (компьютер; на телефоне — плоская, на Android её нет) ─ */
 
 .window-frame {
     border-radius: 12px;
     border: 1px solid var(--border);
     background: var(--bg);
 }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 
 .titlebar { height: 44px; background: var(--bg); }

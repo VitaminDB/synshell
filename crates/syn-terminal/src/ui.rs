@@ -132,7 +132,7 @@ fn phone_root(st: St) -> W {
     boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
 }
 
-/// Телефон: окна во весь экран, без рамки и кнопок окна.
+/// Телефон: окна во весь экран, без рамки и изменения размера (кнопки окна есть).
 fn is_phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
@@ -229,11 +229,11 @@ fn phone_bar(st: St) -> W {
         }
         vec![boxed(row)]
     });
-    // Узкое окно на компьютере: место, за которое окно перетаскивают, и кнопки окна;
-    // на телефоне и во весь экран их нет.
+    // Узкое окно: место, за которое окно перетаскивают, и кнопки окна (и на телефоне);
+    // во весь экран их нет.
     let controls = Reactive::new(move || -> Vec<W> {
         let w = st.window.get();
-        if is_phone() || w.fullscreen {
+        if !synshell_common::window_controls(w.fullscreen) {
             return vec![];
         }
         vec![boxed(

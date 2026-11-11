@@ -6,6 +6,7 @@ Text { color: var(--fg); font-size: 14px; }
 
 /* своё окно: заголовок над картой, рамка */
 .window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 .titlebar { height: 44px; background-color: var(--bg); border-bottom: 1px solid var(--border); }
 .tb-drag { height: 44px; }

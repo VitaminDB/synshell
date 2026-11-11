@@ -51,8 +51,8 @@ pub fn root(st: St) -> Box<dyn Widget> {
         let vp = viewport_size().get();
         let phone = vp.width < 700.0;
         // Узкое окно на компьютере — заголовок с кнопками окна над страницей; в широком кнопки
-        // окна — в строке вкладок; на телефоне и во весь экран их нет.
-        let titlebar = phone && !csd::is_phone() && !full.get();
+        // окна — в строке вкладок; во весь экран их нет.
+        let titlebar = phone && csd::show_controls(full.get());
         let content: Box<dyn Widget> = match st.service.get() {
             Err(e) => Box::new(missing(&e)),
             Ok(s) if !s.present => Box::new(missing(&t!("Контроллер NFC не найден"))),

@@ -846,17 +846,16 @@ fn appbar(st: St) -> W {
             }
         }
         row = row.child(icon_button(icons::SETTINGS, t!("Настройки"), "tb-btn", move || st.sheet.set(Some(Sheet::Settings))));
-        // Узкое окно на компьютере — те же кнопки окна, что у широкого (на телефоне окна во весь
-        // экран, кнопок нет; во весь экран — тоже нет).
+        // Узкое окно — те же кнопки окна, что у широкого (и на телефоне); во весь экран их нет.
         let w = st.window.get();
-        if !is_phone() && !w.fullscreen {
+        if synshell_common::window_controls(w.fullscreen) {
             row = row.child(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)));
         }
         vec![boxed(DecoratedBox::new().class("appbar").child(row))]
     }))
 }
 
-/// Телефон: окна во весь экран, без кнопок окна и рамки.
+/// Телефон: окна во весь экран, без рамки и изменения размера.
 fn is_phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }

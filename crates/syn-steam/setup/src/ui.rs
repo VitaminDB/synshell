@@ -332,7 +332,7 @@ fn titlebar(st: St) -> W {
     )
 }
 
-/// Телефон: окно на весь экран, без своего заголовка.
+/// Телефон: окно на весь экран, без рамки и изменения размера (заголовок с кнопками окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
 }
@@ -341,7 +341,7 @@ fn root(st: St) -> W {
     let w = !is_phone();
     boxed(Reactive::new(move || -> Vec<W> {
         let mut main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
-        if w {
+        if synshell_common::window_controls(false) {
             main = main.child(titlebar(st));
         }
         main = main.child(DecoratedBox::new().class("grow root").child(page(st)));

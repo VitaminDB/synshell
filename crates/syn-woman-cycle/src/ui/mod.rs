@@ -81,15 +81,16 @@ pub fn fullscreen_button(st: St) -> W {
     }))
 }
 
-/// Телефон: окна во весь экран, без заголовка с кнопками окна.
+/// Телефон: окна во весь экран, без рамки и изменения размера.
 fn is_phone() -> bool {
     crate::model::default_fullscreen()
 }
 
-/// Свой заголовок окна (кнопки окна, полный экран): на компьютере — и в узком окне;
-/// на телефоне и во весь экран его нет (полный экран — кнопкой в заголовке страницы).
+/// Свой заголовок окна (кнопки окна, полный экран): и в узком окне, и в телефонном
+/// форм-факторе; во весь экран и в узком окне на Android/iPhone его нет (полный экран —
+/// кнопкой в заголовке страницы).
 pub fn has_titlebar(st: St, wide: bool) -> bool {
-    !st.window.get_untracked().fullscreen && (wide || !is_phone())
+    !st.window.get_untracked().fullscreen && (wide || synshell_common::window_controls(false))
 }
 
 /// Заголовок страницы: дата или подпись сверху, крупное название, справа — действия.
@@ -285,9 +286,10 @@ pub fn root(st: St) -> W {
         let fs = full.get();
         let onboarded = st.data.get().onboarded;
         let mut main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if w { "window" } else { "window phone" });
-        // Узкое окно на компьютере остаётся окном: заголовок с кнопками, рамка, изменение размера.
+        // Узкое окно на компьютере остаётся окном: заголовок с кнопками, рамка, изменение размера;
+        // на телефоне — заголовок с кнопками без рамки.
         let window = !fs && (w || !is_phone());
-        if window {
+        if !fs && (w || synshell_common::window_controls(false)) {
             main = main.child(titlebar(st));
         }
         let body: W = if w && onboarded {

@@ -44,9 +44,14 @@ struct St {
     window: RwSignal<syngui::window::WindowState>,
 }
 
-/// Телефон: окно на весь экран, без своего заголовка (рамку и кнопки окна не рисуем).
+/// Телефон: окно на весь экран, без рамки и изменения размера.
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Свой заголовок с кнопками окна: везде, где окнами управляет synwm (и на телефоне).
+fn has_titlebar() -> bool {
+    synshell_common::window_controls(false)
 }
 
 fn main() {
@@ -297,10 +302,11 @@ fn root(st: St) -> W {
             });
         }
     });
-    // Своя рамка окна: заголовок с кнопками окна; на телефоне — только содержимое во весь экран
+    // Своя рамка окна: заголовок с кнопками окна (и на телефоне); на телефоне — без рамки
+    // и изменения размера за края.
     let chrome = !is_phone();
     let content = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast);
-    let inner: W = if chrome {
+    let inner: W = if has_titlebar() {
         Box::new(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st)).child(DecoratedBox::new().child(content).class("grow")))
     } else {
         Box::new(content)
@@ -427,10 +433,10 @@ fn net_text(st: St) -> (String, bool) {
     }
 }
 
-/// Строка сети над экраном набора — на телефоне; в окне с заголовком она в заголовке.
+/// Строка сети над экраном набора — без своего заголовка; с заголовком она в нём.
 fn network_note(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
-        if !is_phone() {
+        if has_titlebar() {
             return vec![];
         }
         let (text, ok) = net_text(st);

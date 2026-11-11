@@ -115,6 +115,7 @@ Text { color: var(--fg); font-size: 14px; }
 /* ─── список ─── */
 /* своё окно: рамка, заголовок (в широком окне слева — шапка списка), кнопки окна */
 .window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 .titlebar { height: 40px; background: var(--bg); }
 .titlebar.wide { height: 60px; }

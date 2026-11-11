@@ -40,6 +40,14 @@ pub mod xdg;
 pub use action::Action;
 pub use config::Config;
 
+/// Показывать ли свои кнопки окна (свернуть, развернуть, закрыть) у программ на
+/// syngui: везде, где окнами управляет synwm, в том числе в телефонном
+/// форм-факторе (`SYNSHELL_FORM_FACTOR=phone`); нет во весь экран и на
+/// Android/iPhone (там окна — дело системы).
+pub fn window_controls(fullscreen: bool) -> bool {
+    !cfg!(any(target_os = "android", target_os = "ios")) && !fullscreen
+}
+
 #[cfg(feature = "i18n")]
 pub mod i18n;
 

@@ -17,7 +17,7 @@ use crate::sensor::{Cal, Reading, Sensors, State};
 thread_local! {
     /// Последний угол поворота картушки без «перескока» 359° → 0°.
     static SHOWN: Cell<f32> = const { Cell::new(0.0) };
-    /// Высота своего заголовка окна над страницей (0 — на телефоне и во весь экран).
+    /// Высота своего заголовка окна над страницей (0 — во весь экран).
     static TOP: Cell<f32> = const { Cell::new(0.0) };
 }
 
@@ -89,7 +89,7 @@ pub fn root(st: St) -> Box<dyn Widget> {
     let full = csd::fullscreen(st.window);
     let body = move || -> Box<dyn Widget> {
         syngui::i18n::subscribe();
-        let top = if csd::is_phone() || full.get() { 0.0 } else { csd::TITLEBAR_H };
+        let top = if csd::show_controls(full.get()) { csd::TITLEBAR_H } else { 0.0 };
         TOP.with(|t| t.set(top));
         let mut vp = viewport_size().get();
         vp.height -= top;
@@ -129,7 +129,7 @@ pub fn root(st: St) -> Box<dyn Widget> {
             }
         }
     };
-    // Своя рамка окна: заголовок с кнопками окна (на телефоне и во весь экран его нет).
+    // Своя рамка окна: заголовок с кнопками окна (во весь экран его нет).
     let main = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(csd::titlebar(st.window, || t!("Компас").to_string(), Some("\u{E87A}")))

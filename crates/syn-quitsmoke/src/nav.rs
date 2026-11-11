@@ -1,6 +1,7 @@
 //! Корневой каркас: переключение экранов + Heartbeat (+ оверлей частиц — Фаза 3).
 //! На компьютере — своя рамка окна: заголовок со знаком и кнопками окна из настроек
-//! рабочего стола, изменение размера за края; на Android и телефоне synshell — без неё.
+//! рабочего стола, изменение размера за края; на телефоне synshell — заголовок с кнопками окна
+//! без рамки и изменения размера; на Android и iPhone — ничего своего.
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
@@ -28,15 +29,20 @@ pub fn build_app(state: AppState) -> Box<dyn Widget> {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(titlebar(state))
         .child(DecoratedBox::new().child(content).class("grow"));
-    let frame = DecoratedBox::new().class("window-frame").clip(true).child(inner);
-    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+    let phone = synshell_phone();
+    let frame = DecoratedBox::new().class(if phone { "window-frame flat" } else { "window-frame" }).clip(true).child(inner);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!phone).child(frame))
 }
 
-/// Своя рамка окна: на компьютере. На Android и iPhone окно — весь экран системы, на телефоне
-/// synshell (`SYNSHELL_FORM_FACTOR=phone`) — тоже во весь экран, без заголовка.
+/// Свой заголовок с кнопками окна: везде, где окнами управляет synwm (и на телефоне synshell).
+/// На Android и iPhone окно — весь экран системы, заголовка нет.
 pub fn window_chrome() -> bool {
     !cfg!(any(target_os = "android", target_os = "ios"))
-        && !std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Телефон synshell (`SYNSHELL_FORM_FACTOR=phone`): окно во весь экран, без рамки и изменения размера.
+fn synshell_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 /// Заголовок окна в цвет фона экранов: знак и название слева (за них, как и за пустое место,

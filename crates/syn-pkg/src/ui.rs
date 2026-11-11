@@ -358,17 +358,12 @@ pub fn phone(st: St) -> W {
     Box::new(Column::new().child(narrow_titlebar(st)).child(DecoratedBox::new().child(body).class("grow")).child(queue_bar(st)).child(navbar))
 }
 
-/// Телефон: окна во весь экран, без заголовка и кнопок окна.
-fn is_phone() -> bool {
-    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
-}
-
-/// Заголовок узкого окна на компьютере: название (за него окно перетаскивают) и кнопки окна;
-/// на телефоне и во весь экран его нет.
+/// Заголовок узкого окна: название (за него окно перетаскивают) и кнопки окна —
+/// и на телефоне; во весь экран его нет.
 fn narrow_titlebar(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let w = st.window.get();
-        if is_phone() || w.fullscreen {
+        if !synshell_common::window_controls(w.fullscreen) {
             return vec![];
         }
         let brand = Row::new()

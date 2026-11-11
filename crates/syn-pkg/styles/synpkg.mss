@@ -275,6 +275,7 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .tb-drag { height: 52px; }
 .tb-drag-space { flex-grow: 1; height: 52px; min-width: 40px; }
 .window-controls { padding: 0px 6px 0px 8px; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .content { background: var(--content); }
 .nav-section { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 12px 6px 12px; }
 .nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }

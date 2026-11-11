@@ -422,18 +422,19 @@ pub fn root(st: St) -> W {
     window(st, body)
 }
 
-/// Телефон: окно на весь экран, без своего заголовка.
+/// Телефон: окно на весь экран, без рамки и изменения размера (заголовок с кнопками окна есть).
 fn is_phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
 }
 
 /// Своё окно (CSD): над картой — заголовок (знак, название, открытое место; за него окно
 /// перетаскивается) и кнопки окна из настроек рабочего стола, рамка, изменение размера за край.
-/// На телефоне — только карта.
+/// На телефоне — без рамки и изменения размера; во весь экран — только карта.
 fn window(st: St, body: W) -> W {
-    if is_phone() {
+    if !synshell_common::window_controls(false) {
         return body;
     }
+    let phone = is_phone();
     let full = use_signal(false);
     create_effect(move || {
         let v = st.window.get().fullscreen;
@@ -443,8 +444,8 @@ fn window(st: St, body: W) -> W {
     });
     let bar = Reactive::new(move || -> Vec<W> { if full.get() { vec![] } else { vec![titlebar(st)] } });
     let col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar).child(DecoratedBox::new().class("grow map-area").clip(true).child(body));
-    let frame = DecoratedBox::new().class("window-frame").clip(true).child(col);
-    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+    let frame = DecoratedBox::new().class(if phone { "window-frame flat" } else { "window-frame" }).clip(true).child(col);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!phone).child(frame))
 }
 
 fn titlebar(st: St) -> W {
