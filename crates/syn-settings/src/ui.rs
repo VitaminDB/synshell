@@ -406,6 +406,8 @@ pub mod icons {
     pub const ARROW_BACK: &str = "\u{e5c4}";
     pub const ARROW_FORWARD: &str = "\u{e5c8}";
     pub const PALETTE: &str = "\u{e40a}";
+    /// hide_image — «без картинки».
+    pub const HIDE_IMAGE: &str = "\u{f022}";
     pub const WALLPAPER: &str = "\u{e1bc}";
     pub const PANEL: &str = "\u{e06c}";
     pub const WINDOW: &str = "\u{e069}";

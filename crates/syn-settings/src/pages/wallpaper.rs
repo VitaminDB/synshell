@@ -415,6 +415,13 @@ fn controls(s: Sig) -> W {
                 });
             }));
         }
+        // Картинка (или каталог) выбрана — вернуть градиент из цветов «Без картинки» ниже (или обои темы).
+        if !frame.path.trim().is_empty() {
+            buttons = buttons.child(Button::new(t!("Без картинки")).icon(icons::HIDE_IMAGE).class("btn").on_click(move || {
+                set_path(t, "");
+                state::bump();
+            }));
+        }
         if own {
             buttons = buttons.child(Button::new(t!("Как на других столах")).icon(icons::UNDO).class("btn").on_click(move || {
                 if let Target::Workspace(i) = t {

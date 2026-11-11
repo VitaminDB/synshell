@@ -2022,6 +2022,7 @@
 "Настроить кадр" = "Adjust framing"
 "Каталог: картинки сменяются слайд-шоу" = "Folder: images change as a slideshow"
 "Файл…" = "File…"
+"Без картинки" = "No image"
 "Как на других столах" = "Same as other workspaces"
 "Сдвиг на один стол" = "Shift per workspace"
 "Доля ширины экрана, на которую уезжает картинка при переходе на соседний стол" = "Fraction of the screen width the image moves when switching to an adjacent workspace"
