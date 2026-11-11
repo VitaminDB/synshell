@@ -18,6 +18,7 @@ pub struct Core {
     /// E-ядра), дальше быстрее (big, prime, P-ядра). Для цвета на графике —
     /// у Intel каждое ядро своя политика, кластеры там ничего не говорят.
     pub tier: usize,
+    /// Всегда `true`: выключенные ядра в снимок не попадают (их нет в `/proc/stat`).
     pub online: bool,
 }
 
@@ -101,10 +102,15 @@ impl CpuSampler {
             self.last_cores.resize(n, None);
         }
         for i in 0..n {
-            // Выключенного ядра нет в /proc/stat.
+            // Только работающие ядра: выключенного (горячее отключение, или в дереве устройств ядер больше, чем
+            // запущено — SDM429 c деревом msm8937: possible 0-7, online 0-3) нет в /proc/stat — его и не показывать
             let now = per_core.iter().find(|(c, _)| *c == i).map(|(_, t)| *t);
-            let usage = now.map(|t| usage_of(self.last_cores[i], t)).unwrap_or(0.0);
-            self.last_cores[i] = now;
+            let Some(t) = now else {
+                self.last_cores[i] = None;
+                continue;
+            };
+            let usage = usage_of(self.last_cores[i], t);
+            self.last_cores[i] = Some(t);
             let base = format!("/sys/devices/system/cpu/cpu{i}/cpufreq");
             let khz = |f: &str| self.sys.read_num::<u32>(format!("{base}/{f}")).map(|k| k / 1000);
             let cluster = self.clusters.iter().position(|c| c.cpus.contains(&i)).unwrap_or(0);
@@ -117,7 +123,7 @@ impl CpuSampler {
                 max_mhz: khz("cpuinfo_max_freq").or(cl.and_then(|c| c.max_mhz)),
                 cluster,
                 tier: 0,
-                online: now.is_some(),
+                online: true,
             });
         }
         let mut maxes: Vec<u32> = snap.cores.iter().filter_map(|c| c.max_mhz).collect();
@@ -264,6 +270,29 @@ mod tests {
         assert_eq!((snap.cores[0].tier, snap.cores[4].tier, snap.cores[7].tier), (0, 1, 2));
         assert_eq!(snap.cores[7].max_mhz, Some(3187));
         assert_eq!(snap.cores[5].cur_mhz, Some(2745));
+    }
+
+    #[test]
+    fn offline_cores_hidden() {
+        // possible 0-7, а запущены 4 (горячее отключение / лишние ядра в дереве устройств)
+        let dir = phone();
+        let s4 = |busy: u64, idle: u64| {
+            let mut s = format!("cpu  {} 0 0 {} 0 0 0 0 0 0\n", busy * 4, idle * 4);
+            for i in [0, 1, 2, 3] {
+                s += &format!("cpu{i} {busy} 0 0 {idle} 0 0 0 0 0 0\n");
+            }
+            fs::write(dir.path().join("proc/stat"), s).unwrap();
+        };
+        s4(100, 900);
+        let mut s = CpuSampler::new(Sys::at(dir.path()));
+        assert_eq!(s.sample().cores.len(), 4);
+        s4(150, 950);
+        let snap = s.sample();
+        assert_eq!(snap.cores.iter().map(|c| c.index).collect::<Vec<_>>(), [0, 1, 2, 3]);
+        assert!((snap.cores[3].usage - 50.0).abs() < 0.1);
+        // ядро вернулось — снова видно
+        stat(dir.path(), 200, 1000);
+        assert_eq!(s.sample().cores.len(), 8);
     }
 
     #[test]
