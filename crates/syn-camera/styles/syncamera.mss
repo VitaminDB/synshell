@@ -154,3 +154,6 @@ Text { color: #ffffff; font-size: 14px; }
 .csd-title { color: #ffffff; }
 .csd-icon { icon-color: #ffffff; color: #ffffff; }
 SystemWindowControls { color: #ffffff; background-color: #ffffff1f; }
+
+/* во время записи значки верхней строки — справа от времени записи */
+.rec-bar { padding: 0 12px; }

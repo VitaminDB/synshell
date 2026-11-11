@@ -208,7 +208,7 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
     let top = Row::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(top_controls(st, false))
+        .child(top_controls(st, false, w))
         .width(w)
         .height(TOP)
         .class("topbar");
@@ -245,7 +245,7 @@ fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
     let left = Column::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(top_controls(st, true))
+        .child(top_controls(st, true, lw))
         .width(lw)
         .height(h)
         .class("topbar");
@@ -275,7 +275,8 @@ fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
 
 // ─── Верхняя панель ─────────────────────────────────────────────────────────
 
-fn top_controls(st: St, vertical: bool) -> impl Widget {
+/// `width` — ширина строки (во время записи значки прижимаются к её правому краю).
+fn top_controls(st: St, vertical: bool, width: f32) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let mode = st.mode.get();
         let rec = st.rec.get();
@@ -354,6 +355,9 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
         }
         if vertical {
             vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center).gap(10.0).children(items).class("vbar"))]
+        } else if rec != Rec::Idle {
+            // посередине — время записи (rec_badge): оставшиеся значки (сетка, фонарик) — к правому краю
+            vec![Box::new(Row::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).gap(14.0).children(items).width(width).class("rec-bar"))]
         } else {
             vec![Box::new(Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center).gap(14.0).children(items))]
         }
