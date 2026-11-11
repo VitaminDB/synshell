@@ -425,6 +425,29 @@ pub fn local_actions(
     add(ctx, n, false);
 }
 
+/// Как `local_actions`, но со срочностью `urgency` (2 — критическое: видно и в «Не беспокоить», не уходит само);
+/// карточка с кнопками висит до ответа.
+#[allow(clippy::too_many_arguments)]
+pub fn local_alert(
+    ctx: ShellCtx,
+    key: &str,
+    summary: &str,
+    body: &str,
+    icon: &str,
+    urgency: u8,
+    actions: &[(&str, &str)],
+    handler: impl Fn(&str) + 'static,
+) {
+    let mut n = local_note(ctx, key, summary, body, icon, actions, None);
+    n.urgency = urgency;
+    // С кнопками — ждёт ответа (не уходит по таймеру).
+    if !actions.is_empty() {
+        n.timeout_ms = 0;
+    }
+    HANDLERS.with(|h| h.borrow_mut().insert(n.id, std::rc::Rc::new(handler)));
+    add(ctx, n, false);
+}
+
 /// Уведомление оболочки «идёт работа» (полоса без конца) — до замены другим с тем же `key`.
 pub fn local_busy(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: &str) {
     let n = local_note(ctx, key, summary, body, icon, &[], Some(-1));

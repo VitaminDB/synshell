@@ -1,5 +1,5 @@
 //! Питание: аккумулятор подробно, регулятор частоты по кластерам,
-//! гашение экрана и блокировка.
+//! гашение экрана и блокировка, оповещения о заряде, сне и выключении (`[power_alerts]`).
 
 use syngui::prelude::*;
 
@@ -22,6 +22,12 @@ const SLEEP_DELAYS: &[(i64, &str)] = &[
     (3600, n_!("1 час")),
     (synshell_common::config::SLEEP_NEVER as i64, n_!("Никогда")),
 ];
+
+const PERCENTS_LOW: &[(i64, &str)] = &[(0, n_!("Нет")), (10, "10 %"), (15, "15 %"), (20, "20 %"), (25, "25 %"), (30, "30 %")];
+const PERCENTS_CRITICAL: &[(i64, &str)] = &[(0, n_!("Нет")), (5, "5 %"), (7, "7 %"), (10, "10 %"), (15, "15 %")];
+const PERCENTS_ACTION: &[(i64, &str)] = &[(1, "1 %"), (2, "2 %"), (3, "3 %"), (5, "5 %"), (7, "7 %")];
+const DELAYS: &[(i64, &str)] = &[(15, n_!("15 секунд")), (30, n_!("30 секунд")), (60, n_!("1 минута")), (120, n_!("2 минуты"))];
+const SLEEP_WARNINGS: &[(i64, &str)] = &[(0, n_!("Нет")), (30, n_!("30 секунд")), (60, n_!("1 минута")), (120, n_!("2 минуты")), (300, n_!("5 минут"))];
 
 /// Записать регулятор частоты всех политик кластера (нужны права root).
 fn set_governor(policy: &str, gov: &str) {
@@ -121,5 +127,59 @@ pub fn power() -> W {
     }
     screen.push(switch_row(&t!("Блокировать перед сном"), "", op!["lock", "before_sleep"], c.lock.before_sleep));
     body.push(group(&t!("Экран и сон"), screen));
-    page(t!("Питание"), t!("Аккумулятор, частота процессора, гашение экрана и сон."), body)
+
+    // Оповещения: заряд, выключение у нуля, сон, неожиданные выключения, соединённые устройства
+    let a = &c.power_alerts;
+    let has_battery = syn_system::battery::read(&sys).is_some();
+    let mut alerts: Vec<W> = Vec::new();
+    if has_battery {
+        alerts.push(choice_int_row(t!("Низкий заряд"), t!("Уведомление при разряде до этого уровня"), op!["power_alerts", "low"], a.low as i64, PERCENTS_LOW));
+        alerts.push(choice_int_row(
+            t!("Критический заряд"),
+            t!("Срочное уведомление со звуком — видно и в «Не беспокоить»"),
+            op!["power_alerts", "critical"],
+            a.critical as i64,
+            PERCENTS_CRITICAL,
+        ));
+        alerts.push(choice_row(
+            t!("У самого нуля"),
+            t!("Выключиться чисто, пока есть заряд, — файлы не испортятся, а после включения будет видно, почему устройство погасло"),
+            op!["power_alerts", "action"],
+            &a.action,
+            &[("poweroff", t!("Выключить")), ("suspend", t!("Уснуть")), ("none", t!("Ничего"))],
+        ));
+        if a.action != "none" {
+            alerts.push(choice_int_row(t!("Порог"), t!("Заряд, при котором начинается отсчёт"), op!["power_alerts", "action_at"], a.action_at as i64, PERCENTS_ACTION));
+            alerts.push(choice_int_row(
+                t!("Отсчёт"),
+                t!("Время, чтобы отменить или подключить зарядку; экран включается сам"),
+                op!["power_alerts", "action_delay"],
+                a.action_delay as i64,
+                DELAYS,
+            ));
+        }
+    }
+    if c.process_form_factor() != synshell_common::config::FormFactor::Phone && c.idle.suspend_after > 0 {
+        alerts.push(choice_int_row(
+            t!("Предупреждать о сне"),
+            t!("За сколько до сна по простою показать «Сон через…» с кнопкой «Не засыпать»"),
+            op!["power_alerts", "sleep_warning"],
+            a.sleep_warning as i64,
+            SLEEP_WARNINGS,
+        ));
+    }
+    alerts.push(switch_row(
+        t!("Сообщать о неожиданном выключении"),
+        t!("После включения — когда и при каком заряде устройство погасло без завершения работы"),
+        op!["power_alerts", "unexpected"],
+        a.unexpected,
+    ));
+    alerts.push(switch_row(
+        t!("Соединённые устройства"),
+        t!("Показывать, что телефон или компьютер уснул, выключается или пропал при разряде (synlink); свои оповещения о заряде уходят им же"),
+        op!["power_alerts", "linked"],
+        a.linked,
+    ));
+    body.push(group(&t!("Оповещения"), alerts));
+    page(t!("Питание"), t!("Аккумулятор, частота процессора, гашение экрана, сон и оповещения."), body)
 }

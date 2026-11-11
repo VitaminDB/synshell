@@ -53,6 +53,7 @@
 "Надиктовать" = "Ditar"
 "Остановить" = "Parar"
 "Отправить" = "Enviar"
+"Открыть чат в окне ассистента" = "Abrir o chat na janela do assistente"
 "Спросите ассистента…" = "Pergunte ao assistente…"
 "Голосовой разговор" = "Conversa por voz"
 "Закрыть (Esc)" = "Fechar (Esc)"
@@ -106,6 +107,14 @@
 "без отчёта" = "sem relatório"
 "Ассистент выполнил задачу" = "O assistente concluiu uma tarefa"
 "Ассистент не справился с задачей" = "O assistente não conseguiu concluir uma tarefa"
+
+# src/calls.rs
+"Скрытый номер" = "Número oculto"
+"Вызов…" = "Chamando…"
+"Удержание" = "Em espera"
+"Входящий вызов" = "Chamada recebida"
+"Второй вызов" = "Chamada em espera"
+"Ответить" = "Atender"
 
 # src/charge_anim.rs
 "Заряжается" = "Carregando"
@@ -474,6 +483,7 @@
 "Громкость" = "Volume"
 "Батарея" = "Bateria"
 "Уведомления" = "Notificações"
+"Идущий звонок" = "Chamada em andamento"
 "Показать рабочий стол" = "Mostrar área de trabalho"
 "Заголовок окна" = "Título da janela"
 "Кнопки окна" = "Botões da janela"
@@ -601,9 +611,10 @@
 # src/lock.rs
 "ошибка PAM {r}" = "Erro do PAM {r}"
 "Неверный пароль" = "Senha incorreta"
+
+# src/login_screen.rs
 "Проведите вверх, чтобы разблокировать" = "Deslize para cima para desbloquear"
 "Введите PIN-код или пароль" = "Digite o PIN ou a senha"
-"Войти" = "Entrar"
 
 # src/menu_prefs.rs
 "Настройки меню" = "Configurações do menu"
@@ -700,6 +711,7 @@
 "Выйти" = "Sair"
 "Сон" = "Suspender"
 "Перезагрузка" = "Reiniciar"
+"Перезагрузить в Android" = "Reiniciar no Android"
 "Выключить" = "Desligar"
 "Завершение работы" = "Desligamento"
 "Esc — отмена" = "Esc — cancelar"
@@ -719,6 +731,32 @@
 "На стол «{name}»" = "Para a área de trabalho “{name}”"
 "Закрыть принудительно" = "Forçar fechamento"
 "Убить (SIGKILL)" = "Encerrar à força (SIGKILL)"
+
+# src/power_alerts.rs
+"Осталось около {h} ч {m} мин." = "Restam cerca de {h} h {m} min."
+"Осталось около {m} мин." = "Restam cerca de {m} min."
+"Подключите зарядку." = "Conecte o carregador."
+"Низкий заряд: {p} %" = "Bateria fraca: {p}%"
+"При {n} % устройство выключится само." = "Em {n}% o dispositivo desligará sozinho."
+"При {n} % устройство уснёт." = "Em {n}% o dispositivo será suspenso."
+"Критический заряд: {p} %" = "Bateria crítica: {p}%"
+"Заряд {p} % — выключение через {s} с" = "Bateria {p}% — desligando em {s} s"
+"Заряд {p} % — сон через {s} с" = "Bateria {p}% — suspendendo em {s} s"
+"Выключить сейчас" = "Desligar agora"
+"Уснуть сейчас" = "Suspender agora"
+"Отменить" = "Cancelar"
+"Подключите зарядку — отсчёт остановится." = "Conecte o carregador para parar a contagem regressiva."
+"Не засыпать" = "Não suspender"
+"Сон через {s} с" = "Suspendendo em {s} s"
+"Нет действий — устройство уснёт и пропадёт из сети." = "Sem atividade — o dispositivo será suspenso e sumirá da rede."
+"Выключено из-за разряда" = "Desligado por bateria esgotada"
+"Заряд {p} % ({time}) — устройство выключилось само, чтобы не потерять данные." = "Bateria em {p}% ({time}) — o dispositivo desligou sozinho para não perder dados."
+"Во сне заряд упал до {p} % ({time}) — устройство выключилось само." = "Durante a suspensão a bateria caiu para {p}% ({time}) — o dispositivo desligou sozinho."
+"Последняя отметка — {time}, заряд {p} %: аккумулятор разрядился до нуля." = "Último registro: {time}, bateria {p}%: a bateria se esgotou por completo."
+"Последняя отметка — {time}, заряд {p} %. Причина — зависание, сбой питания или долгое нажатие кнопки питания." = "Último registro: {time}, bateria {p}%. Causa: travamento, falha de energia ou pressionamento longo do botão liga/desliga."
+"Последняя отметка — {time}. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "Último registro: {time}. Causa: bateria esgotada, travamento, falha de energia ou pressionamento longo do botão liga/desliga."
+"Система не завершила работу. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "O sistema não foi encerrado corretamente. Causa: bateria esgotada, travamento, falha de energia ou pressionamento longo do botão liga/desliga."
+"Устройство выключилось неожиданно" = "O dispositivo desligou inesperadamente"
 
 # src/recents.rs
 "Нет открытых приложений" = "Nenhum aplicativo aberto"
@@ -842,15 +880,3 @@
 "Подключено USB-устройство" = "Dispositivo USB conectado"
 "Отключено USB-устройство" = "Dispositivo USB desconectado"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · barramento {bus} · dispositivo {dev}"
-
-# src/assistant.rs — переход в чат
-"Открыть чат в окне ассистента" = "Abrir o chat na janela do assistente"
-
-# src/calls.rs — звонок на экране блокировки и плашка разговора
-"Скрытый номер" = "Número oculto"
-"Вызов…" = "Chamando…"
-"Удержание" = "Em espera"
-"Входящий вызов" = "Chamada recebida"
-"Второй вызов" = "Chamada em espera"
-"Ответить" = "Atender"
-"Идущий звонок" = "Chamada em andamento"

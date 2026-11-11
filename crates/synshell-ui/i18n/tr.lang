@@ -53,6 +53,7 @@
 "Надиктовать" = "Dikte et"
 "Остановить" = "Durdur"
 "Отправить" = "Gönder"
+"Открыть чат в окне ассистента" = "Sohbeti asistan penceresinde aç"
 "Спросите ассистента…" = "Asistana sorun…"
 "Голосовой разговор" = "Sesli konuşma"
 "Закрыть (Esc)" = "Kapat (Esc)"
@@ -106,6 +107,14 @@
 "без отчёта" = "rapor yok"
 "Ассистент выполнил задачу" = "Asistan bir görevi tamamladı"
 "Ассистент не справился с задачей" = "Asistan bir görevi tamamlayamadı"
+
+# src/calls.rs
+"Скрытый номер" = "Gizli numara"
+"Вызов…" = "Aranıyor…"
+"Удержание" = "Beklemede"
+"Входящий вызов" = "Gelen arama"
+"Второй вызов" = "Bekleyen arama"
+"Ответить" = "Yanıtla"
 
 # src/charge_anim.rs
 "Заряжается" = "Şarj oluyor"
@@ -474,6 +483,7 @@
 "Громкость" = "Ses düzeyi"
 "Батарея" = "Pil"
 "Уведомления" = "Bildirimler"
+"Идущий звонок" = "Süren arama"
 "Показать рабочий стол" = "Masaüstünü göster"
 "Заголовок окна" = "Pencere başlığı"
 "Кнопки окна" = "Pencere düğmeleri"
@@ -601,9 +611,10 @@
 # src/lock.rs
 "ошибка PAM {r}" = "PAM hatası {r}"
 "Неверный пароль" = "Yanlış parola"
+
+# src/login_screen.rs
 "Проведите вверх, чтобы разблокировать" = "Kilidi açmak için yukarı kaydırın"
 "Введите PIN-код или пароль" = "PIN kodunu ya da parolayı girin"
-"Войти" = "Giriş yap"
 
 # src/menu_prefs.rs
 "Настройки меню" = "Menü ayarları"
@@ -700,6 +711,7 @@
 "Выйти" = "Oturumu kapat"
 "Сон" = "Uyku"
 "Перезагрузка" = "Yeniden başlat"
+"Перезагрузить в Android" = "Android’de yeniden başlat"
 "Выключить" = "Kapat"
 "Завершение работы" = "Kapat"
 "Esc — отмена" = "Esc — iptal"
@@ -719,6 +731,32 @@
 "На стол «{name}»" = "“{name}” masaüstüne"
 "Закрыть принудительно" = "Zorla kapat"
 "Убить (SIGKILL)" = "Sonlandır (SIGKILL)"
+
+# src/power_alerts.rs
+"Осталось около {h} ч {m} мин." = "Yaklaşık {h} sa {m} dk kaldı."
+"Осталось около {m} мин." = "Yaklaşık {m} dk kaldı."
+"Подключите зарядку." = "Şarj aletini takın."
+"Низкий заряд: {p} %" = "Pil zayıf: %{p}"
+"При {n} % устройство выключится само." = "%{n} olduğunda cihaz kendiliğinden kapanacak."
+"При {n} % устройство уснёт." = "%{n} olduğunda cihaz uykuya geçecek."
+"Критический заряд: {p} %" = "Pil kritik: %{p}"
+"Заряд {p} % — выключение через {s} с" = "Pil %{p} — {s} sn sonra kapanıyor"
+"Заряд {p} % — сон через {s} с" = "Pil %{p} — {s} sn sonra uyku"
+"Выключить сейчас" = "Şimdi kapat"
+"Уснуть сейчас" = "Şimdi uyut"
+"Отменить" = "İptal"
+"Подключите зарядку — отсчёт остановится." = "Şarj aletini takın — geri sayım durur."
+"Не засыпать" = "Uyuma"
+"Сон через {s} с" = "{s} sn sonra uyku"
+"Нет действий — устройство уснёт и пропадёт из сети." = "Etkinlik yok — cihaz uykuya geçecek ve ağdan kaybolacak."
+"Выключено из-за разряда" = "Pil bittiği için kapandı"
+"Заряд {p} % ({time}) — устройство выключилось само, чтобы не потерять данные." = "Pil %{p} ({time}) — cihaz veri kaybetmemek için kendiliğinden kapandı."
+"Во сне заряд упал до {p} % ({time}) — устройство выключилось само." = "Uykudayken pil %{p} seviyesine düştü ({time}) — cihaz kendiliğinden kapandı."
+"Последняя отметка — {time}, заряд {p} %: аккумулятор разрядился до нуля." = "Son kayıt: {time}, pil %{p}: pil tamamen bitti."
+"Последняя отметка — {time}, заряд {p} %. Причина — зависание, сбой питания или долгое нажатие кнопки питания." = "Son kayıt: {time}, pil %{p}. Neden: donma, güç kesintisi veya güç düğmesine uzun basma."
+"Последняя отметка — {time}. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "Son kayıt: {time}. Neden: pilin bitmesi, donma, güç kesintisi veya güç düğmesine uzun basma."
+"Система не завершила работу. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "Sistem düzgün kapanmadı. Neden: pilin bitmesi, donma, güç kesintisi veya güç düğmesine uzun basma."
+"Устройство выключилось неожиданно" = "Cihaz beklenmedik şekilde kapandı"
 
 # src/recents.rs
 "Нет открытых приложений" = "Açık uygulama yok"
@@ -842,15 +880,3 @@
 "Подключено USB-устройство" = "USB aygıtı bağlandı"
 "Отключено USB-устройство" = "USB aygıtının bağlantısı kesildi"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · veri yolu {bus} · aygıt {dev}"
-
-# src/assistant.rs — переход в чат
-"Открыть чат в окне ассистента" = "Sohbeti asistan penceresinde aç"
-
-# src/calls.rs — звонок на экране блокировки и плашка разговора
-"Скрытый номер" = "Gizli numara"
-"Вызов…" = "Aranıyor…"
-"Удержание" = "Beklemede"
-"Входящий вызов" = "Gelen arama"
-"Второй вызов" = "Bekleyen arama"
-"Ответить" = "Yanıtla"
-"Идущий звонок" = "Süren arama"

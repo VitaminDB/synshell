@@ -54,6 +54,7 @@ pub mod osd;
 pub mod panel;
 pub mod pins;
 pub mod popup;
+pub mod power_alerts;
 pub mod recents;
 pub mod rotation;
 pub mod autobright;
@@ -184,6 +185,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         auth::start(ctx);
         switcher::install(ctx);
         sounds::start(ctx);
+        power_alerts::start(ctx);
         applets::taskbar::start_minimize_rects();
         watch_config();
         watch_apps();

@@ -295,10 +295,11 @@ pub fn start(ctx: ShellCtx) {
             _ => {}
         }
     });
-    let prev: Cell<Option<(bool, u32)>> = Cell::new(ctx.battery.get_untracked().map(|b| (b.charging, b.percent)));
+    // Низкий заряд звучит вместе с оповещением (power_alerts).
+    let prev: Cell<Option<bool>> = Cell::new(ctx.battery.get_untracked().map(|b| b.charging));
     create_effect(move || {
         let Some(b) = ctx.battery.get() else { return };
-        if let Some((charging, percent)) = prev.get() {
+        if let Some(charging) = prev.get() {
             // Источники питания не видны — судить по статусу батареи.
             if ctx.external_power.get_untracked().is_none() {
                 if b.charging && !charging {
@@ -307,11 +308,8 @@ pub fn start(ctx: ShellCtx) {
                     play(Ev::PowerUnplug);
                 }
             }
-            if !b.charging && percent > 10 && b.percent <= 10 {
-                play(Ev::BatteryLow);
-            }
         }
-        prev.set(Some((b.charging, b.percent)));
+        prev.set(Some(b.charging));
     });
     let theme = Cell::new((ctx.cfg().sound.theme.clone(), ctx.cfg().gameshell.sound_theme.clone()));
     create_effect(move || {

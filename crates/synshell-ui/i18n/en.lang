@@ -53,6 +53,7 @@
 "Надиктовать" = "Dictate"
 "Остановить" = "Stop"
 "Отправить" = "Send"
+"Открыть чат в окне ассистента" = "Open the chat in the assistant window"
 "Спросите ассистента…" = "Ask the assistant…"
 "Голосовой разговор" = "Voice conversation"
 "Закрыть (Esc)" = "Close (Esc)"
@@ -106,6 +107,14 @@
 "без отчёта" = "no report"
 "Ассистент выполнил задачу" = "The assistant finished a task"
 "Ассистент не справился с задачей" = "The assistant could not finish a task"
+
+# src/calls.rs
+"Скрытый номер" = "Unknown number"
+"Вызов…" = "Calling…"
+"Удержание" = "On hold"
+"Входящий вызов" = "Incoming call"
+"Второй вызов" = "Call waiting"
+"Ответить" = "Answer"
 
 # src/charge_anim.rs
 "Заряжается" = "Charging"
@@ -474,6 +483,7 @@
 "Громкость" = "Volume"
 "Батарея" = "Battery"
 "Уведомления" = "Notifications"
+"Идущий звонок" = "Ongoing call"
 "Показать рабочий стол" = "Show desktop"
 "Заголовок окна" = "Window title"
 "Кнопки окна" = "Window buttons"
@@ -601,9 +611,10 @@
 # src/lock.rs
 "ошибка PAM {r}" = "PAM error {r}"
 "Неверный пароль" = "Wrong password"
+
+# src/login_screen.rs
 "Проведите вверх, чтобы разблокировать" = "Swipe up to unlock"
 "Введите PIN-код или пароль" = "Enter PIN or password"
-"Войти" = "Sign in"
 
 # src/menu_prefs.rs
 "Настройки меню" = "Menu settings"
@@ -700,6 +711,7 @@
 "Выйти" = "Log out"
 "Сон" = "Sleep"
 "Перезагрузка" = "Restart"
+"Перезагрузить в Android" = "Reboot into Android"
 "Выключить" = "Power off"
 "Завершение работы" = "Shut down"
 "Esc — отмена" = "Esc to cancel"
@@ -719,6 +731,32 @@
 "На стол «{name}»" = "To desktop “{name}”"
 "Закрыть принудительно" = "Force close"
 "Убить (SIGKILL)" = "Kill (SIGKILL)"
+
+# src/power_alerts.rs
+"Осталось около {h} ч {m} мин." = "About {h} h {m} min left."
+"Осталось около {m} мин." = "About {m} min left."
+"Подключите зарядку." = "Connect the charger."
+"Низкий заряд: {p} %" = "Low battery: {p}%"
+"При {n} % устройство выключится само." = "At {n}% the device will shut down by itself."
+"При {n} % устройство уснёт." = "At {n}% the device will go to sleep."
+"Критический заряд: {p} %" = "Critical battery: {p}%"
+"Заряд {p} % — выключение через {s} с" = "Battery {p}% — shutting down in {s} s"
+"Заряд {p} % — сон через {s} с" = "Battery {p}% — sleeping in {s} s"
+"Выключить сейчас" = "Shut down now"
+"Уснуть сейчас" = "Sleep now"
+"Отменить" = "Cancel"
+"Подключите зарядку — отсчёт остановится." = "Connect the charger to stop the countdown."
+"Не засыпать" = "Stay awake"
+"Сон через {s} с" = "Sleeping in {s} s"
+"Нет действий — устройство уснёт и пропадёт из сети." = "No activity — the device will go to sleep and drop off the network."
+"Выключено из-за разряда" = "Shut down due to low battery"
+"Заряд {p} % ({time}) — устройство выключилось само, чтобы не потерять данные." = "Battery at {p}% ({time}) — the device shut down by itself to avoid losing data."
+"Во сне заряд упал до {p} % ({time}) — устройство выключилось само." = "While asleep, the battery dropped to {p}% ({time}) — the device shut down by itself."
+"Последняя отметка — {time}, заряд {p} %: аккумулятор разрядился до нуля." = "Last record: {time}, battery {p}%: the battery ran down to zero."
+"Последняя отметка — {time}, заряд {p} %. Причина — зависание, сбой питания или долгое нажатие кнопки питания." = "Last record: {time}, battery {p}%. Cause: a freeze, power failure or long press of the power button."
+"Последняя отметка — {time}. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "Last record: {time}. Cause: a drained battery, freeze, power failure or long press of the power button."
+"Система не завершила работу. Причина — разряд, зависание, сбой питания или долгое нажатие кнопки питания." = "The system did not shut down properly. Cause: a drained battery, freeze, power failure or long press of the power button."
+"Устройство выключилось неожиданно" = "The device shut down unexpectedly"
 
 # src/recents.rs
 "Нет открытых приложений" = "No open apps"
@@ -842,15 +880,3 @@
 "Подключено USB-устройство" = "USB device connected"
 "Отключено USB-устройство" = "USB device disconnected"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · bus {bus} · device {dev}"
-
-# src/assistant.rs — переход в чат
-"Открыть чат в окне ассистента" = "Open the chat in the assistant window"
-
-# src/calls.rs — звонок на экране блокировки и плашка разговора
-"Скрытый номер" = "Unknown number"
-"Вызов…" = "Calling…"
-"Удержание" = "On hold"
-"Входящий вызов" = "Incoming call"
-"Второй вызов" = "Call waiting"
-"Ответить" = "Answer"
-"Идущий звонок" = "Ongoing call"

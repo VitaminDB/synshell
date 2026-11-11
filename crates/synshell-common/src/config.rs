@@ -78,6 +78,8 @@ pub struct Config {
     pub x11_apps: Vec<X11App>,
     /// Режимы экрана E Ink (`[eink]`): выбор пользователя, synwm применяет при старте.
     pub eink: EinkSettings,
+    /// Оповещения о питании (`[power_alerts]`): низкий заряд, выключение при разряде, сон, неожиданные выключения.
+    pub power_alerts: PowerAlerts,
 }
 
 impl Default for Config {
@@ -123,6 +125,7 @@ impl Default for Config {
             x11: X11::default(),
             x11_apps: Vec::new(),
             eink: EinkSettings::default(),
+            power_alerts: PowerAlerts::default(),
         }
     }
 }
@@ -2062,6 +2065,41 @@ impl Default for Notifications {
             swipe_dismiss: "both".into(),
             usb_devices: true,
         }
+    }
+}
+
+// ─── power alerts ───────────────────────────────────────────────────────────
+
+/// Оповещения о питании. Устройство не должно пропадать молча: низкий заряд виден заранее, у самого нуля
+/// система выключается сама (чисто, без порчи файлов), перед сном по простою — предупреждение, после
+/// неожиданного выключения — объяснение, а соединённые через synlink устройства узнают, что это устройство
+/// засыпает, выключается или разрядилось.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PowerAlerts {
+    /// «Низкий заряд» при разряде до N %; 0 — нет.
+    pub low: u32,
+    /// «Критический заряд» (срочное, видно и в «Не беспокоить», со звуком) при N %; 0 — нет.
+    pub critical: u32,
+    /// При N % без зарядки — [`Self::action`] после отсчёта [`Self::action_delay`]; 0 — нет.
+    pub action_at: u32,
+    /// `poweroff` — выключить, `suspend` — уснуть, `none` — только предупредить.
+    pub action: String,
+    /// Отсчёт перед действием, секунды (можно отменить или подключить зарядку).
+    pub action_delay: u32,
+    /// Предупредить за N секунд до сна по простою (`[idle] suspend_after`); 0 — нет.
+    pub sleep_warning: u32,
+    /// После неожиданного выключения (разряд, зависание, сбой питания) — сказать при следующем входе, когда и
+    /// при каком заряде это случилось.
+    pub unexpected: bool,
+    /// Показывать, что соединённое устройство засыпает, выключается или пропало при низком заряде, и
+    /// сообщать им о своём сне и выключении (synlink).
+    pub linked: bool,
+}
+
+impl Default for PowerAlerts {
+    fn default() -> Self {
+        Self { low: 20, critical: 10, action_at: 3, action: "poweroff".into(), action_delay: 60, sleep_warning: 60, unexpected: true, linked: true }
     }
 }
 

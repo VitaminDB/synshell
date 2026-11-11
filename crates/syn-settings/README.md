@@ -20,7 +20,7 @@
 - **Workspace** — window behavior, workspaces and their default layout, window rules, launcher, notifications.
 - **Devices** — keyboard and layouts, shortcuts, mouse and touchpad, monitors (scale, HDR), Wi-Fi, Bluetooth, sound (outputs, inputs and per-app volume), USB devices, VPN (NetworkManager, WireGuard with key generation), device link (synlink), game mode, hardware overview with live sensors.
 - **Phone** — mobile network, calls and SMS, modem info, gestures, vibration.
-- **System** — power and CPU governors, neural networks and the assistant, location and camera permissions, language, date and time, lock and idle, autostart, default applications (written to `mimeapps.list`), session, “About”.
+- **System** — power and CPU governors, power alerts (low and critical battery, clean shutdown near 0 %, idle-sleep warning, unexpected power-off report, linked devices going to sleep or off), neural networks and the assistant, location and camera permissions, language, date and time, lock and idle, autostart, default applications (written to `mimeapps.list`), session, “About”.
 - **Search** across all pages, in the interface language and in Russian.
 - **Phone layout** — on a narrow screen the page list and the page open one at a time.
 - **14 languages** — the UI follows the system or the language chosen in settings.

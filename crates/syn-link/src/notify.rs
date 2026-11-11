@@ -313,3 +313,66 @@ pub fn close_prompt(id: &str) {
         }
     });
 }
+
+// ─── Сон, выключение и разряд соединённых устройств ────────────────────────
+
+/// Карточка «уснул / выключается / пропал» по устройству: новая заменяет прежнюю, возвращение убирает.
+static GONE: std::sync::Mutex<Option<HashMap<String, u32>>> = std::sync::Mutex::new(None);
+
+/// Соединение с устройством закрылось: `why` — причина той стороны (`sleep` — телефон погасил экран и
+/// засыпает, `shutdown`/`reboot` — система завершает работу; `timeout` — пропало без слова), `battery` —
+/// последний известный заряд. Сказать, если причина понятна или устройство, похоже, разрядилось.
+pub fn peer_gone(id: &str, name: &str, why: &str, battery: Option<(u8, bool)>) {
+    let charge = battery.map(|(p, c)| if c { t!("Заряд {p} %, заряжается.", p = p) } else { t!("Заряд {p} %.", p = p) }).unwrap_or_default();
+    let low = battery.is_some_and(|(p, c)| !c && p <= 5);
+    let (summary, body, transient) = match why {
+        "sleep" => (t!("{name} уснул", name = name), format!("{} {charge}", t!("Экран погашен — связь вернётся, когда устройство проснётся.")), !low),
+        "shutdown" => (t!("{name} выключается", name = name), charge, false),
+        "reboot" => (t!("{name} перезагружается", name = name), charge, false),
+        _ if low => (t!("{name} пропал из связи", name = name), t!("Последний заряд {p} % — похоже, аккумулятор разрядился.", p = battery.map(|b| b.0).unwrap_or(0)), false),
+        _ => return,
+    };
+    let (id, icon) = (id.to_string(), device_icon(id));
+    std::thread::spawn(move || {
+        let res = (|| -> anyhow::Result<u32> {
+            let conn = zbus::blocking::Connection::session()?;
+            let mut hints: HashMap<&str, Value> = HashMap::new();
+            hints.insert(HINT, Value::from("self"));
+            hints.insert("urgency", Value::U8(if transient { 0 } else { 1 }));
+            if transient {
+                hints.insert("transient", Value::Bool(true));
+            }
+            let old = GONE.lock().unwrap().as_ref().and_then(|m| m.get(&id).copied()).unwrap_or(0);
+            let reply = conn.call_method(
+                Some("org.freedesktop.Notifications"),
+                "/org/freedesktop/Notifications",
+                Some("org.freedesktop.Notifications"),
+                "Notify",
+                &("synlink", old, icon, summary.as_str(), body.trim(), Vec::<&str>::new(), hints, -1i32),
+            )?;
+            Ok(reply.body().deserialize::<u32>()?)
+        })();
+        match res {
+            Ok(nid) => {
+                GONE.lock().unwrap().get_or_insert_with(HashMap::new).insert(id, nid);
+            }
+            Err(e) => tracing::debug!("уведомление об устройстве: {e:#}"),
+        }
+    });
+}
+
+/// Устройство снова на связи — убрать его карточку «уснул / выключается».
+pub fn peer_back(id: &str) {
+    let Some(nid) = GONE.lock().unwrap().as_mut().and_then(|m| m.remove(id)) else { return };
+    std::thread::spawn(move || {
+        if let Ok(conn) = zbus::blocking::Connection::session() {
+            let _ = conn.call_method(
+                Some("org.freedesktop.Notifications"),
+                "/org/freedesktop/Notifications",
+                Some("org.freedesktop.Notifications"),
+                "CloseNotification",
+                &(nid,),
+            );
+        }
+    });
+}

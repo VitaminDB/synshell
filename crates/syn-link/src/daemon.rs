@@ -84,6 +84,8 @@ pub struct Daemon {
     pub auto_mount: std::sync::atomic::AtomicBool,
     /// `[link] clipboard` — общий буфер обмена.
     pub clipboard: std::sync::atomic::AtomicBool,
+    /// `[power_alerts] linked` — показывать, что устройство уснуло, выключается или пропало при разряде.
+    pub power_linked: std::sync::atomic::AtomicBool,
     /// Поток буфера обмена этой машины (`clipboard.rs`).
     pub clip: std::sync::OnceLock<crate::clipboard::Handle>,
     /// Телефон с погашенным экраном засыпает (`/run/syn-sleep/screen-off`, synmobile syn-sleepd):
@@ -152,6 +154,7 @@ impl Daemon {
             notifications: std::sync::atomic::AtomicBool::new(link.notifications),
             auto_mount: std::sync::atomic::AtomicBool::new(link.auto_mount),
             clipboard: std::sync::atomic::AtomicBool::new(link.clipboard),
+            power_linked: std::sync::atomic::AtomicBool::new(cfg.power_alerts.linked),
             clip: std::sync::OnceLock::new(),
             sleeping: std::sync::atomic::AtomicBool::new(false),
             audio: Default::default(),
@@ -637,6 +640,7 @@ impl Daemon {
             gen
         };
         tracing::info!(peer = %hello.name, id = %pid, transport = transport.title(), "соединено");
+        crate::notify::peer_back(&pid);
         if offer_wifi {
             crate::wifi::offer_after_pairing(self.clone(), pid.clone());
         }
@@ -723,18 +727,26 @@ impl Daemon {
         }
         writer.abort();
         calls.abort();
+        // Причина — до своего закрытия: «sleep», «shutdown», «reboot» той стороны, тайм-аут…
+        let why = match conn.close_reason() {
+            Some(quinn::ConnectionError::ApplicationClosed(a)) => String::from_utf8_lossy(&a.reason).into_owned(),
+            Some(quinn::ConnectionError::TimedOut) => "timeout".into(),
+            _ => String::new(),
+        };
         conn.close(0u32.into(), b"end");
         let removed = {
             let mut st = self.st.lock().unwrap();
             if st.sessions.get(&pid).is_some_and(|s| s.gen == gen) {
-                st.sessions.remove(&pid);
-                true
+                st.sessions.remove(&pid)
             } else {
-                false
+                None
             }
         };
-        if removed {
-            tracing::info!(peer = %hello.name, "соединение закрыто");
+        if let Some(sess) = removed {
+            tracing::info!(peer = %hello.name, why, "соединение закрыто");
+            if self.power_linked.load(std::sync::atomic::Ordering::Relaxed) {
+                crate::notify::peer_gone(&pid, &hello.name, &why, sess.battery);
+            }
             crate::fuse::unmount(&self, &pid);
             if let Some(mut info) = self.peer_info(&pid) {
                 info.name = hello.name.clone();
@@ -972,6 +984,7 @@ impl Daemon {
                 self.notifications.store(l.notifications, Relaxed);
                 self.auto_mount.store(l.auto_mount, Relaxed);
                 self.clipboard.store(l.clipboard, Relaxed);
+                self.power_linked.store(cfg.power_alerts.linked, Relaxed);
                 let name = if l.name.trim().is_empty() { crate::identity::default_name() } else { l.name.trim().to_string() };
                 if name != self.self_info().name || l.discoverable != self.self_info().discoverable {
                     tracing::info!(%name, discoverable = l.discoverable, "[link] изменён");

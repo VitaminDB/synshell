@@ -226,13 +226,30 @@ fn run_daemon() -> Result<()> {
             _ = tokio::signal::ctrl_c() => Ok(()),
             _ = term.recv() => Ok(()),
         };
-        tracing::info!("выход");
+        // Система выключается — сказать устройствам причину (они покажут «выключается»), а не просто пропасть.
+        let why = system_stopping().unwrap_or("exit");
+        tracing::info!(why, "выход");
         fuse::unmount_all();
         ssh::stop_user_sshd();
-        d.ep.close(0u32.into(), b"exit");
+        d.ep.close(0u32.into(), why.as_bytes());
+        // Дать кадрам закрытия уйти, иначе та сторона узнает только по тайм-ауту.
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.ep.wait_idle()).await;
         let _ = std::fs::remove_file(link::socket_path());
         res
     })
+}
+
+/// Завершение работы системы: `reboot` или `shutdown`; `None` — система работает (выходит только synlink).
+fn system_stopping() -> Option<&'static str> {
+    let out = |args: &[&str]| std::process::Command::new("systemctl").args(args).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    let jobs = out(&["list-jobs", "--no-legend", "--no-pager"]).unwrap_or_default();
+    if jobs.contains("reboot.target") || jobs.contains("kexec.target") {
+        return Some("reboot");
+    }
+    if jobs.contains("poweroff.target") || jobs.contains("halt.target") || out(&["is-system-running"]).is_some_and(|s| s.trim() == "stopping") {
+        return Some("shutdown");
+    }
+    None
 }
 
 /// Сообщение для `synlink pair УСТР`, если спаривание с этим устройством уже идёт.
