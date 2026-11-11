@@ -161,6 +161,47 @@ fn exec(device: &str, command: &str, cwd: Option<String>, timeout_s: u64) -> Res
     Ok((code, stdout, stderr))
 }
 
+/// Команда с данными на stdin (поток `Request::Exec { stream: true }`): файл любого размера одним потоком,
+/// без предела длины командной строки.
+fn exec_stdin(device: &str, command: &str, data: Vec<u8>, timeout_s: u64) -> Result<(i32, String, String)> {
+    use synshell_common::link::{self, ExecFrame};
+    let mut c = link::Client::connect().with_context(|| t!("synlink не запущен"))?;
+    match c.request(&Request::Exec {
+        device: device.into(),
+        argv: vec!["/bin/sh".into(), "-c".into(), command.into()],
+        cwd: None,
+        stream: true,
+        pty: None,
+        timeout_ms: Some(timeout_s * 1000),
+    })? {
+        Response::Ok => {}
+        Response::Error { message } => bail!("{message}"),
+        other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
+    }
+    let (mut rd, wr) = c.into_parts();
+    let mut w = wr.try_clone()?;
+    let writer = std::thread::spawn(move || -> std::io::Result<()> {
+        for ch in data.chunks(256 << 10) {
+            link::write_frame(&mut w, &serde_json::to_vec(&ExecFrame::Stdin { data: ch.to_vec() })?)?;
+        }
+        link::write_frame(&mut w, &serde_json::to_vec(&ExecFrame::Eof)?)
+    });
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = loop {
+        let Some(f) = link::read_frame(&mut rd)? else { bail!("{}", t!("соединение оборвалось")) };
+        match serde_json::from_slice::<ExecFrame>(&f)? {
+            ExecFrame::Stdout { data } => out.extend(data),
+            ExecFrame::Stderr { data } => err.extend(data),
+            ExecFrame::Exit { code } => break code,
+            ExecFrame::Error { message } => bail!("{message}"),
+            _ => {}
+        }
+    };
+    drop(wr);
+    let _ = writer.join();
+    Ok((code, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned()))
+}
+
 fn clip(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
@@ -335,26 +376,21 @@ impl Server {
                     None => arg_str(a, "content")?.as_bytes().to_vec(),
                 };
                 let path = sh_quote(arg_str(a, "path")?);
-                // кусками (предел длины команды): во временный файл рядом, проверка размера, затем на место
+                // одним потоком через stdin во временный файл рядом (каталог создаётся), проверка размера, затем на место
                 let tmp = sh_quote(&format!("{}.synlink-part", arg_str(a, "path")?));
-                const CHUNK: usize = 768 << 10;
-                let chunks: Vec<&[u8]> = if data.is_empty() { vec![&[][..]] } else { data.chunks(CHUNK).collect() };
-                for (i, c) in chunks.iter().enumerate() {
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(c);
-                    let op = if i == 0 { ">" } else { ">>" };
-                    let (code, _, err) = exec(&device, &format!("printf %s {b64} | base64 -d {op} {tmp}"), None, 60)?;
-                    if code != 0 {
-                        let _ = exec(&device, &format!("rm -f -- {tmp}"), None, 10);
-                        bail!("{err}");
-                    }
+                let len = data.len();
+                let (code, _, err) = exec_stdin(&device, &format!("mkdir -p -- \"$(dirname -- {path})\" && cat > {tmp}"), data, 600)?;
+                if code != 0 {
+                    let _ = exec(&device, &format!("rm -f -- {tmp}"), None, 10);
+                    bail!("{err}");
                 }
                 let mode = a.get("mode").and_then(Value::as_str).filter(|m| !m.is_empty() && m.chars().all(|c| c.is_digit(8)));
                 let chmod = mode.map(|m| format!(" && chmod {m} -- {tmp}")).unwrap_or_default();
-                let (code, out, err) = exec(&device, &format!("test \"$(stat -c %s -- {tmp})\" = {}{chmod} && mv -f -- {tmp} {path} && echo ok || {{ rm -f -- {tmp}; echo size-mismatch >&2; exit 1; }}", data.len()), None, 30)?;
+                let (code, out, err) = exec(&device, &format!("test \"$(stat -c %s -- {tmp})\" = {}{chmod} && mv -f -- {tmp} {path} && echo ok || {{ rm -f -- {tmp}; echo size-mismatch >&2; exit 1; }}", len), None, 30)?;
                 if code != 0 || !out.contains("ok") {
                     bail!("{}", if err.trim().is_empty() { t!("файл записан не целиком").to_string() } else { err });
                 }
-                Ok(text(t!("записано: {n} байт", n = data.len())))
+                Ok(text(t!("записано: {n} байт", n = len)))
             }
             "record" => match a.get("action").and_then(Value::as_str).unwrap_or("start") {
                 "start" => self.record_start(&device, a),
