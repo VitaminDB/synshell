@@ -25,6 +25,9 @@ const CALL: &str = "\u{E0B0}";
 const CALL_END: &str = "\u{E0B1}";
 const PERSON: &str = "\u{E7FD}";
 
+/// Как часто подтверждать активность, пока звонит входящий (меньше любого разумного dpms_after).
+const RING_KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(4);
+
 /// Отладочный звонок (`SYNSHELL_DEMO_CALL`): запросы меняют `ctx.modem`, а не уходят в synmodemd.
 static DEMO: AtomicBool = AtomicBool::new(false);
 
@@ -47,6 +50,8 @@ thread_local! {
     static PILL: std::cell::Cell<Option<syngui_layer::SurfaceId>> = const { std::cell::Cell::new(None) };
     /// Входящий, ради которого уже включали экран.
     static WOKE_FOR: std::cell::Cell<Option<u8>> = const { std::cell::Cell::new(None) };
+    /// Идёт повтор screen-on, пока звонит.
+    static KEEPALIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn sig() -> Sig {
@@ -84,6 +89,19 @@ pub fn start(ctx: ShellCtx) {
         if new_ring {
             log::info!("входящий вызов: включаю экран (screen-on)");
             crate::actions::run(synshell_common::action::Action::ScreenOn);
+            // Пока звонит (до ~60 с), экран не гаснет по простою (dpms_after бывает 30 с): screen-on раз в
+            // RING_KEEPALIVE — для synwm это активность. Ответили, отклонили, звонок кончился — перестаём,
+            // дальше обычный таймер и датчик приближения.
+            if !KEEPALIVE.with(|k| k.replace(true)) {
+                syngui_layer::add_timer(RING_KEEPALIVE, || {
+                    if sig().ringing.get_untracked().is_none() {
+                        KEEPALIVE.with(|k| k.set(false));
+                        return None;
+                    }
+                    crate::actions::run(synshell_common::action::Action::ScreenOn);
+                    Some(RING_KEEPALIVE)
+                });
+            }
         }
         let new_call = o.as_ref().map(|c| c.id) != s.ongoing.get_untracked().map(|c| c.id);
         if s.ongoing.get_untracked() != o {
