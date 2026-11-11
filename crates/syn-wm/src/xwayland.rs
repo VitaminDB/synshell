@@ -412,6 +412,13 @@ impl XwmHandler for State {
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        // Прозрачность 0 (_NET_WM_WINDOW_OPACITY) — окно не для показа: Wine держит так отображённым служебного
+        // родителя своих внеэкранных GL-окон (1×1 в углу), а мы рисовали его содержимое поверх игры — белая полоса
+        // слева у Heroes 3 в режиме 800x600.
+        if window.opacity() == Some(0) {
+            tracing::debug!(id = window.window_id(), "X11: прозрачное override-redirect окно не показываем");
+            return;
+        }
         let id = self.add_window(Window::new_x11_window(window.clone()));
         if let Some(m) = self.core.wm.get_mut(id) {
             m.ssd = false;
