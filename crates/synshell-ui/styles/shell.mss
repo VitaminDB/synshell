@@ -52,6 +52,23 @@ Text {
 .applet-slot-taskbar { flex-grow: 100; }
 .applet-spacer { flex-grow: 1; }
 
+/* Плашка идущего звонка (synshell_ui::calls::pill): в панели после часов, на телефоне без панели —
+ * своей поверхностью вверху экрана. */
+.call-pill {
+    padding: 3px 10px 3px 8px;
+    border-radius: 999px;
+    background-color: var(--success);
+    transition: scale 200ms spring(520, 24);
+}
+.call-pill:active { scale: 0.94; }
+.call-pill-ringing { animation: lock-pulse 1200ms ease-in-out infinite; }
+.call-pill-icon { icon-size: 15px; icon-color: #ffffff; }
+.call-pill-text { font-size: 13px; font-weight: 600; color: #ffffff; }
+.call-pill-float { padding: 4px; }
+.call-pill-float .call-pill { padding: 6px 14px 6px 12px; box-shadow: 0px 2px 10px #00000060; }
+.call-pill-float .call-pill-icon { icon-size: 18px; }
+.call-pill-float .call-pill-text { font-size: 15px; }
+
 .applet {
     padding: 6px 9px;
     border-radius: var(--radius-sm);

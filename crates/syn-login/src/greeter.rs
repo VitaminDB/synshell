@@ -555,6 +555,7 @@ fn phone_password(st: St, u: User) -> impl Widget {
             )
         }),
         footer: Some(Arc::new(move || Box::new(power_row(st)) as Box<dyn Widget>)),
+        banner: None,
         background: Arc::new(background),
         initial: synshell_ui::login_screen::Stage::Cover,
         anim_ms: if eink() { 0 } else { 260 },

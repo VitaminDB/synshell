@@ -293,6 +293,8 @@ fn view(ctx: ShellCtx, _out: OutputInfo) -> impl Widget {
                 .pointer()
                 .on_click(|_, _, _| crate::actions::spawn("systemctl poweroff")),
         );
+    // Идущий разговор — над часами; входящий — карточкой поверх всего (ответ без разблокировки).
+    let top = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Center).child(crate::calls::lock_banner()).child(clock);
     Stack::new()
         .fit(StackFit::Expand)
         .child(DecoratedBox::new().class("wallpaper-color"))
@@ -301,11 +303,12 @@ fn view(ctx: ShellCtx, _out: OutputInfo) -> impl Widget {
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceBetween)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(clock)
+                .child(top)
                 .child(card)
                 .child(power)
                 .class("lock-root"),
         )
+        .child(crate::calls::lock_overlay())
 }
 
 // ─── Телефон ─────────────────────────────────────────────────────────────────
@@ -337,11 +340,17 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
         }),
         extra: None,
         footer: None,
+        banner: Some(std::sync::Arc::new(|| Box::new(crate::calls::lock_banner()) as Box<dyn Widget>)),
         background: std::sync::Arc::new(move || Box::new(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64), None)) as Box<dyn Widget>),
         initial: Stage::Cover,
         anim_ms: crate::anim::group_ms(&ctx, "home", 280),
     };
-    Stack::new().fit(StackFit::Expand).child(login_screen::view(spec)).child(crate::charge_anim::layer())
+    // Входящий звонок — поверх всего: ответить или отклонить можно, не снимая блокировку.
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(login_screen::view(spec))
+        .child(crate::charge_anim::layer())
+        .child(crate::calls::lock_overlay())
 }
 
 thread_local! {
@@ -440,6 +449,7 @@ pub fn preview(stage: &str) {
             }),
             extra: None,
             footer: None,
+            banner: Some(std::sync::Arc::new(|| Box::new(crate::calls::lock_banner()) as Box<dyn Widget>)),
             background: std::sync::Arc::new({
                 let out = out.name.clone();
                 move || Box::new(crate::manager::wallpaper_view(out.clone(), use_signal(0u64), None)) as Box<dyn Widget>
@@ -447,7 +457,7 @@ pub fn preview(stage: &str) {
             initial: stage,
             anim_ms: crate::anim::group_ms(&ctx, "home", 280),
         };
-        Box::new(login_screen::view(spec))
+        Box::new(Stack::new().fit(StackFit::Expand).child(login_screen::view(spec)).child(crate::calls::lock_overlay()))
     });
     PREVIEW.with(|p| p.set(Some(id)));
     syngui_layer::add_timer(PREVIEW_TIMEOUT, move || {

@@ -846,3 +846,11 @@
 
 # src/assistant.rs — переход в чат
 "Открыть чат в окне ассистента" = "Otwórz czat w oknie asystenta"
+
+# src/calls.rs — звонок на экране блокировки и плашка разговора
+"Скрытый номер" = "Numer zastrzeżony"
+"Вызов…" = "Łączenie…"
+"Удержание" = "Wstrzymane"
+"Входящий вызов" = "Połączenie przychodzące"
+"Второй вызов" = "Połączenie oczekujące"
+"Ответить" = "Odbierz"

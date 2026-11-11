@@ -19,7 +19,11 @@ pub fn start(ctx: ShellCtx) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let _ = ctx;
+    // Отладка без модема: выдуманный звонок (crate::calls::demo_status).
+    if let Some(st) = crate::calls::demo_status() {
+        ctx.modem.set(Some(st));
+        return;
+    }
     std::thread::Builder::new()
         .name("shell-modem".into())
         .spawn(move || {
@@ -61,12 +65,14 @@ fn on_event(ev: Event, rung: &mut HashSet<u8>, told_missed: &mut HashSet<u64>) {
             run_on_main_thread(move || ShellCtx::get().modem.set(Some(status)));
         }
         Event::Sms { message } if message.incoming && message.status == SmsStatus::Received && !message.read => {
+            // Имя контакта вместо номера (файлы контактов читаются здесь, в потоке модема).
+            let from = synshell_common::contacts::name_for(&message.number);
             run_on_main_thread(move || {
                 let cmd = format!("synsms --chat '{}'", message.number.replace('\'', ""));
                 crate::notifications::local_command(
                     ShellCtx::get(),
                     &format!("sms:{}", message.number),
-                    &message.number,
+                    &from,
                     &message.text,
                     "mail-message-new",
                     cmd,
@@ -77,12 +83,14 @@ fn on_event(ev: Event, rung: &mut HashSet<u8>, told_missed: &mut HashSet<u64>) {
             let Ok(log) = api::call_log() else { return };
             for c in log.into_iter().filter(|c| c.kind == CallKind::Missed && c.new) {
                 if told_missed.insert(c.id) {
+                    let from = if c.number.trim().is_empty() { String::new() } else { synshell_common::contacts::name_for(&c.number) };
                     run_on_main_thread(move || {
+                        let from = if from.is_empty() { t!("Скрытый номер").to_string() } else { from };
                         crate::notifications::local_command(
                             ShellCtx::get(),
                             "missed-call",
                             &t!("Пропущенный звонок"),
-                            &c.number,
+                            &from,
                             "call-missed",
                             "synphone --log".into(),
                         );
@@ -94,9 +102,14 @@ fn on_event(ev: Event, rung: &mut HashSet<u8>, told_missed: &mut HashSet<u64>) {
     }
 }
 
-/// Входящий звонок: окно «Телефона» — поднять, иначе запустить (экран звонка он покажет сам).
-fn open_phone() {
+/// Входящий звонок (или нажатие на плашку разговора): окно «Телефона» — поднять (свёрнутое
+/// разворачивается, стол переключается), иначе запустить (экран звонка он покажет сам). Шторка,
+/// «Недавние» и всплывающие окна оболочки закрываются — иначе окно оказалось бы под ними.
+pub fn open_phone() {
     let ctx = ShellCtx::get();
+    ctx.close_popup();
+    crate::shade::close();
+    crate::recents::close();
     if let Some(w) = ctx.windows.get_untracked().iter().find(|w| w.app_id == "synphone") {
         crate::actions::window_op(w.id, synshell_common::ipc::WindowOp::Activate);
     } else {

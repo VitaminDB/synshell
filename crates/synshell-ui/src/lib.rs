@@ -20,6 +20,7 @@ pub mod applets;
 pub mod appmenu;
 pub mod clipboard;
 pub mod charge_anim;
+pub mod calls;
 pub mod clock;
 pub mod incall;
 pub mod input_mode;
@@ -172,6 +173,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         clipboard::start(ctx);
         modem::start(ctx);
         incall::start(ctx);
+        calls::start(ctx);
         location::start(ctx);
         access::start(ctx);
         camera::start(ctx);

@@ -47,6 +47,8 @@ pub struct Spec {
     pub extra: Option<(String, Arc<dyn Fn() + Send + Sync>)>,
     /// Низ обложки под подсказкой (экран входа: выключение, перезагрузка, масштаб).
     pub footer: Option<Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>>,
+    /// Полоса над часами и над вводом (блокировка: идущий разговор).
+    pub banner: Option<Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>>,
     /// Фон: обои.
     pub background: Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>,
     pub initial: Stage,
@@ -125,7 +127,13 @@ pub fn view(spec: Spec) -> impl Widget {
             // единственный блок встал бы в начало.
             Stack::new()
                 .fit(StackFit::Expand)
-                .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(part(true)).class("lock-phone"))
+                .child({
+                    let mut top = Column::new().cross_axis_alignment(CrossAxisAlignment::Center);
+                    if let Some(b) = &spec.banner {
+                        top = top.child(b());
+                    }
+                    top.child(part(true)).class("lock-phone")
+                })
                 .child(
                     Column::new()
                         .main_axis_alignment(MainAxisAlignment::End)

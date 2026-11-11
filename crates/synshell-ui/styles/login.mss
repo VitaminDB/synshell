@@ -68,3 +68,54 @@
 /* Подсказка «Пароль» — без разрядки точек. */
 .lock-text-hint { font-size: 16px; color: #ffffffa0; }
 
+
+/* ─── Звонок на экране блокировки (synshell_ui::calls) ──────────────────── */
+
+/* Входящий: во весь экран поверх часов и ввода. */
+.call-lock-scrim { background-color: #000000e0; }
+.call-lock { padding: 88px 24px 72px 24px; }
+.call-lock-label { font-size: 16px; color: #ffffffd0; letter-spacing: 1px; }
+.call-lock-label-icon { icon-size: 18px; icon-color: var(--success); animation: lock-pulse 1200ms ease-in-out infinite; }
+.call-lock-gap { height: 12px; }
+.call-lock-name { font-size: 34px; font-weight: 300; color: #ffffff; text-align: center; text-shadow: 0px 2px 10px #00000080; }
+.call-lock-number { font-size: 16px; color: #ffffffb0; }
+.call-avatar { background-color: var(--accent); }
+.call-avatar-letter { color: var(--accent-fg); font-weight: 300; text-align: center; }
+.call-avatar-icon { icon-color: var(--accent-fg); }
+.call-lock-avatar { width: 132px; height: 132px; border-radius: 66px; }
+.call-lock-avatar .call-avatar-letter { font-size: 58px; }
+.call-lock-avatar .call-avatar-icon { icon-size: 72px; }
+.call-btn {
+    width: 76px; height: 76px; border-radius: 38px;
+    transition: scale 200ms spring(520, 24), opacity 120ms ease-out;
+}
+.call-btn:active { scale: 0.9; opacity: 0.85; }
+.call-btn-red { background-color: var(--danger); }
+.call-btn-green { background-color: var(--success); animation: call-ring 1400ms ease-in-out infinite; }
+@keyframes call-ring { 0% { scale: 1; } 50% { scale: 1.08; } 100% { scale: 1; } }
+.call-btn-icon { icon-size: 36px; icon-color: #ffffff; }
+.call-btn-label { font-size: 14px; color: #ffffff; }
+
+/* Идущий разговор: компактная карточка над часами. */
+.call-banner {
+    padding: 10px 12px;
+    border-radius: 22px;
+    background-color: #00000070;
+    border-width: 1px;
+    border-color: #ffffff22;
+}
+.call-banner-avatar { width: 44px; height: 44px; border-radius: 22px; }
+.call-banner-avatar .call-avatar-letter { font-size: 20px; }
+.call-banner-avatar .call-avatar-icon { icon-size: 26px; }
+.call-banner-name { font-size: 16px; font-weight: 600; color: #ffffff; }
+.call-banner-time { font-size: 13px; color: var(--success); }
+.call-mini {
+    width: 44px; height: 44px; border-radius: 22px;
+    transition: background-color 120ms ease-out, scale 200ms spring(520, 24);
+}
+.call-mini:active { scale: 0.9; }
+.call-mini-soft { background-color: #ffffff22; }
+.call-mini-on { background-color: #ffffff; }
+.call-mini-on .call-mini-icon { icon-color: #000000; }
+.call-mini-red { background-color: var(--danger); }
+.call-mini-icon { icon-size: 22px; icon-color: #ffffff; }

@@ -845,3 +845,11 @@
 
 # src/assistant.rs — переход в чат
 "Открыть чат в окне ассистента" = "Open the chat in the assistant window"
+
+# src/calls.rs — звонок на экране блокировки и плашка разговора
+"Скрытый номер" = "Unknown number"
+"Вызов…" = "Calling…"
+"Удержание" = "On hold"
+"Входящий вызов" = "Incoming call"
+"Второй вызов" = "Call waiting"
+"Ответить" = "Answer"

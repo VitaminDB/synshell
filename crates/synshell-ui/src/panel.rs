@@ -569,7 +569,14 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         .direction(if pc.vertical { FlexDirection::Column } else { FlexDirection::Row })
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center);
+    // Плашка идущего звонка — во всякой панели, где её не поставили апплетом `call`: после часов,
+    // без часов — первой (пока звонка нет, она пустая).
+    let call_at = (!editing && !panel.applets.iter().any(|a| a.kind == "call"))
+        .then(|| panel.applets.iter().position(|a| a.kind == "clock").map_or(0, |i| i + 1));
     for (ai, a) in panel.applets.iter().enumerate() {
+        if call_at == Some(ai) {
+            flex = flex.child(DecoratedBox::new().child(crate::calls::pill(pc.vertical)).class("applet-slot applet-slot-call"));
+        }
         let w = crate::applets::build(a, pc, ai);
         // Каждый апплет сообщает свои границы — окна по сочетаниям клавиш
         // открываются у его кнопки.
@@ -594,6 +601,9 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
                 .child(EventHook::new().report_bounds(item_slot).child(w))
                 .class(format!("applet-slot applet-slot-{}", a.kind)),
         );
+    }
+    if call_at.is_some_and(|i| i >= panel.applets.len()) {
+        flex = flex.child(DecoratedBox::new().child(crate::calls::pill(pc.vertical)).class("applet-slot applet-slot-call"));
     }
     if editing {
         flex = flex.child(crate::edit::edit_controls(pc));
