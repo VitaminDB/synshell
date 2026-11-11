@@ -1,6 +1,7 @@
 //! Камера и запись видео для программ synshell.
 //!
-//! - [`capture`] — источник кадров: служба syncamd телефона ([`syncamd`]) или
+//! - [`capture`] — источник кадров: служба syncamd телефона ([`syncamd`]), сырой
+//!   Bayer через media controller с программным ISP ([`mcam`], [`isp`]; mainline-ядра) или
 //!   камера V4L2 компьютера ([`v4l2`]); [`capture::cameras`] и
 //!   [`capture::front_camera`] находят камеры той машины, где запущена программа.
 //! - [`engine::Engine`] — сеанс камеры в фоне: превью для `syngui::widgets::LiveView`
@@ -18,6 +19,8 @@ pub mod capture;
 pub mod convert;
 pub mod encoder;
 pub mod engine;
+pub mod isp;
+pub mod mcam;
 pub mod media;
 mod mux;
 pub mod recorder;

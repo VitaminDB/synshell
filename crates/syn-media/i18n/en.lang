@@ -53,3 +53,12 @@
 "у камеры нет размеров кадра" = "camera reports no frame sizes"
 "нет подходящего формата кадров" = "no suitable frame format"
 "камера отключилась" = "camera disconnected"
+
+# src/mcam.rs
+"нет пути от сенсора до видеоузла" = "no path from the sensor to a video node"
+"ссылка {a} → {b}" = "link {a} → {b}"
+"сенсор отдал не Bayer" = "sensor did not output Bayer"
+"у видеоузла нет /dev" = "video node has no /dev entry"
+"видеоузел не принял формат Bayer" = "video node rejected the Bayer format"
+"камера не присылает кадры" = "camera sends no frames"
+"ошибка потока камеры" = "camera stream error"

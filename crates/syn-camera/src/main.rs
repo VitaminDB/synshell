@@ -3,8 +3,9 @@
 //! звук, стабилизация, пауза, снимок во время записи, фонарик) и таймлапс; зум щипком и кнопками (переход на
 //! широкоугольную), фокус и экспозиция касанием (удержание — блокировка), смена камеры, просмотр снятого.
 //!
-//! Кадры, снимки и управление — служба камеры syncamd платформы (`syn_media::syncamd`), запись — аппаратный кодер
-//! (`syn_media::recorder`). Снимки — в «Изображения» (XDG_PICTURES_DIR), видео — в «Видео» (XDG_VIDEOS_DIR).
+//! Камеры — `syn_media::cameras()`: служба syncamd платформы (кадры, снимки полного размера и управление HAL),
+//! сырой Bayer через media controller с программным ISP (mainline-ядра) или веб-камера V4L2; у камер без
+//! службы снимок — кадр потока, сжатый в JPEG здесь. Запись — аппаратный кодер (`syn_media::recorder`). Снимки — в «Изображения» (XDG_PICTURES_DIR), видео — в «Видео» (XDG_VIDEOS_DIR).
 
 mod engine;
 mod modules;
@@ -26,7 +27,27 @@ use engine::{Engine, Note, OpenSpec};
 use syn_media::{media, recorder, syncamd as proto};
 use media::Kind;
 use prefs::Prefs;
-use proto::{Camera, Control, Meta};
+use proto::{Control, Meta};
+
+/// Камера и её возможности: у службы syncamd — её описание, у остальных — собранное `syn_media` в том же виде.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Camera {
+    pub src: syn_media::Cam,
+    caps: proto::Camera,
+}
+
+impl Camera {
+    fn new(src: syn_media::Cam) -> Camera {
+        Camera { caps: src.caps(), src }
+    }
+}
+
+impl std::ops::Deref for Camera {
+    type Target = proto::Camera;
+    fn deref(&self) -> &proto::Camera {
+        &self.caps
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -458,17 +479,20 @@ fn start(st: St) {
     orientation::start(move |d| run_on_main_thread(move || st.dev_rot.set(d)));
     // камеры — в фоне (служба могла ещё не подняться)
     std::thread::spawn(move || loop {
-        match proto::cameras() {
-            Ok(c) if !c.is_empty() => {
-                run_on_main_thread(move || st.cams.set(c));
-                break;
-            }
-            Ok(_) => run_on_main_thread(move || st.status.set(t!("Камер нет").into())),
-            Err(e) => {
-                let m = e.to_string();
-                run_on_main_thread(move || st.status.set(m));
-            }
+        let c: Vec<Camera> = syn_media::cameras().into_iter().map(Camera::new).collect();
+        if !c.is_empty() {
+            run_on_main_thread(move || {
+                st.status.set(String::new());
+                st.cams.set(c);
+            });
+            break;
         }
+        let m = if std::path::Path::new(proto::SOCKET).exists() {
+            proto::cameras().err().map(|e| e.to_string()).unwrap_or_else(|| t!("Камер нет").into())
+        } else {
+            t!("Камер нет").into()
+        };
+        run_on_main_thread(move || st.status.set(m));
         std::thread::sleep(Duration::from_secs(2));
     });
     // переоткрыть камеру при смене режима, камеры, объектива, соотношения, качества видео
@@ -635,20 +659,22 @@ pub fn current_cam(st: St) -> Option<Camera> {
 pub fn pick_cam(cams: &[Camera], front: bool, lens: Lens) -> Option<Camera> {
     let phys = cams.iter().filter(|c| c.logical == 0);
     if front {
-        return phys.filter(|c| c.front()).min_by_key(|c| c.id).copied();
+        return phys.filter(|c| c.front()).min_by_key(|c| c.id).cloned();
     }
     let back: Vec<&Camera> = phys.filter(|c| !c.front()).collect();
-    let main = back.iter().max_by_key(|c| (c.focal_um, std::cmp::Reverse(c.id))).copied().copied();
-    let wide = back.iter().filter(|c| Some(c.id) != main.map(|m| m.id)).min_by_key(|c| c.focal_um).copied().copied();
+    let main = back.iter().max_by_key(|c| (c.focal_um, std::cmp::Reverse(c.id))).copied().cloned();
+    let main_id = main.as_ref().map(|m| m.id);
+    let wide = back.iter().filter(|c| Some(c.id) != main_id).min_by_key(|c| c.focal_um).copied().cloned();
+    let wide_id = wide.as_ref().map(|m| m.id);
     match lens {
         Lens::Main => main,
         Lens::Wide => wide.or(main),
         // макро — третий задний модуль, если он есть в HAL (неисправный в HAL не попадает)
         Lens::Macro => back
             .iter()
-            .find(|c| Some(c.id) != main.map(|m| m.id) && Some(c.id) != wide.map(|m| m.id))
+            .find(|c| Some(c.id) != main_id && Some(c.id) != wide_id)
             .copied()
-            .copied()
+            .cloned()
             .or(main),
     }
 }
@@ -724,21 +750,21 @@ fn reopen(st: St) {
         // серия кадров полного размера: снимок собирается из них (night.rs)
         let (aw, ah) = aspect_ratio(st.aspect.get_untracked());
         let (w, h) = cam.yuv_for(aw, ah, 4096).or_else(|| cam.yuv_for(4, 3, 4096)).unwrap_or((1920, 1440));
-        OpenSpec { cam, width: w, height: h, fps: 30, video: false, jpeg: None }
+        OpenSpec { cam: cam.clone(), width: w, height: h, fps: 30, video: false, jpeg: None }
     } else if mode.video() {
         let (w, h) = video_size(st.video_q.get_untracked());
         let ok = cam.sizes().iter().any(|s| s.width == w && s.height == h);
         let (w, h) = if ok { (w, h) } else { cam.yuv_for(16, 9, 1920).unwrap_or((1280, 720)) };
         // снимок во время записи — поток JPEG 16:9 сразу (не больше 1080p: рядом с 4K HAL может не принять)
         let jpeg = if w <= 1920 { cam.jpeg_for(16, 9) } else { None };
-        OpenSpec { cam, width: w, height: h, fps: 30, video: true, jpeg }
+        OpenSpec { cam: cam.clone(), width: w, height: h, fps: 30, video: true, jpeg }
     } else {
         let (aw, ah) = aspect_ratio(st.aspect.get_untracked());
         // превью ≤ 1440 по ширине (1920×1440 — лишние 1,2 Мп пересчёта в RGBA на каждый кадр)
         let max = if aw == ah { 2000 } else if (aw, ah) == (4, 3) { 1440 } else { 1920 };
         let (w, h) = cam.yuv_for(aw, ah, max).or_else(|| cam.yuv_for(4, 3, 1920)).unwrap_or((1280, 960));
         let jpeg = cam.jpeg_for(aw, ah);
-        OpenSpec { cam, width: w, height: h, fps: 30, video: false, jpeg }
+        OpenSpec { cam: cam.clone(), width: w, height: h, fps: 30, video: false, jpeg }
     };
     let digital = (st.zoom.get_untracked() / lens_base(st)).max(1.0);
     let mut c = Control::default();
@@ -1070,6 +1096,10 @@ pub fn take_photo(st: St) {
     haptic();
     let thumb = grab_thumb(st, false);
     st.blink.set(st.blink.get_untracked() + 1);
+    if !cam.src.service_snapshot() {
+        stream_photo(st, cam, thumb);
+        return;
+    }
     let recording = st.rec.get_untracked() != Rec::Idle;
     let (aw, ah) = if recording { (16, 9) } else { aspect_ratio(st.aspect.get_untracked()) };
     let pick = if !recording && st.photo_mp.get_untracked() > 0 && (aw, ah) == (4, 3) && mode != Mode::Night {
@@ -1106,6 +1136,40 @@ pub fn take_photo(st: St) {
                     reload_items(st, false);
                 }
                 Err(e) => st.toast.set(t!("Снимок не получился: {e}", e = e)),
+            }
+        });
+    });
+}
+
+/// Снимок камеры без службы (сырой Bayer, веб-камера): следующий кадр потока → JPEG, поворот — в EXIF.
+fn stream_photo(st: St, cam: Camera, thumb: Option<(u32, u32, Vec<u8>)>) {
+    let Some(e) = st.engine.get_untracked() else {
+        st.busy.set(false);
+        return;
+    };
+    let rot = photo_rot(st, &cam);
+    let rx = e.burst(1);
+    std::thread::spawn(move || {
+        let r = (|| -> anyhow::Result<std::path::PathBuf> {
+            let (mut frames, vu) = rx.recv_timeout(Duration::from_secs(5)).map_err(|_| anyhow::anyhow!(t!("кадр с камеры не пришёл")))?;
+            let f = frames.pop().ok_or_else(|| anyhow::anyhow!(t!("кадр с камеры не пришёл")))?;
+            let jpeg = night::to_jpeg(&f, vu, 94)?;
+            let jpeg = night::add_exif(&jpeg, night::exif_orientation(rot));
+            let path = media::new_path(Kind::Photo);
+            std::fs::write(&path, &jpeg)?;
+            if let Some((w, h, rgba)) = &thumb {
+                media::save_thumb(&path, *w, *h, rgba);
+            }
+            Ok(path)
+        })();
+        run_on_main_thread(move || {
+            st.busy.set(false);
+            match r {
+                Ok(p) => {
+                    tracing::info!("снимок: {}", p.display());
+                    reload_items(st, false);
+                }
+                Err(e) => st.toast.set(t!("Снимок не получился: {e}", e = format!("{:#}", e))),
             }
         });
     });

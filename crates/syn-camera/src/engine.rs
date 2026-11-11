@@ -9,7 +9,9 @@ use anyhow::Result;
 use syngui::widgets::LiveFrame;
 use syn_media::convert::Src;
 use syn_media::recorder;
-use syn_media::syncamd::{Camera, Control, Meta};
+use syn_media::syncamd::{Control, Meta};
+
+use crate::Camera;
 
 use crate::night;
 
@@ -122,7 +124,7 @@ impl Engine {
     }
 
     pub fn open(&self, spec: OpenSpec, ctl: Control) {
-        let s = syn_media::OpenSpec { cam: syn_media::Cam::Syncamd(spec.cam), width: spec.width, height: spec.height, fps: spec.fps, video: spec.video, jpeg: spec.jpeg };
+        let s = syn_media::OpenSpec { cam: spec.cam.src, width: spec.width, height: spec.height, fps: spec.fps, video: spec.video, jpeg: spec.jpeg };
         self.e.open(s, ctl)
     }
 

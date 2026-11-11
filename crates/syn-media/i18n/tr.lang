@@ -53,3 +53,12 @@
 "у камеры нет размеров кадра" = "kamera kare boyutu bildirmiyor"
 "нет подходящего формата кадров" = "uygun kare biçimi yok"
 "камера отключилась" = "kamera bağlantısı kesildi"
+
+# src/mcam.rs
+"нет пути от сенсора до видеоузла" = "sensörden video düğümüne yol yok"
+"ссылка {a} → {b}" = "bağlantı {a} → {b}"
+"сенсор отдал не Bayer" = "sensör Bayer vermedi"
+"у видеоузла нет /dev" = "video düğümünün /dev girişi yok"
+"видеоузел не принял формат Bayer" = "video düğümü Bayer biçimini kabul etmedi"
+"камера не присылает кадры" = "kamera kare göndermiyor"
+"ошибка потока камеры" = "kamera akışı hatası"

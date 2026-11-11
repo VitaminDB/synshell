@@ -53,3 +53,12 @@
 "у камеры нет размеров кадра" = "la cámara no indica tamaños de fotograma"
 "нет подходящего формата кадров" = "no hay un formato de fotograma adecuado"
 "камера отключилась" = "la cámara se desconectó"
+
+# src/mcam.rs
+"нет пути от сенсора до видеоузла" = "no hay ruta del sensor al nodo de vídeo"
+"ссылка {a} → {b}" = "enlace {a} → {b}"
+"сенсор отдал не Bayer" = "el sensor no entrega Bayer"
+"у видеоузла нет /dev" = "el nodo de vídeo no tiene entrada en /dev"
+"видеоузел не принял формат Bayer" = "el nodo de vídeo no aceptó el formato Bayer"
+"камера не присылает кадры" = "la cámara no envía fotogramas"
+"ошибка потока камеры" = "error del flujo de la cámara"

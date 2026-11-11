@@ -31,7 +31,13 @@ The preview and the photos in the screenshots are generated pictures shown throu
 
 ## Requirements
 
-The camera is driven by `syncamd`, the camera service of the synshell phone platform (socket `/run/syncam/syncam.sock`, frames as dma-buf). Without it the app opens and reports why no camera is available.
+Three kinds of cameras share one interface:
+
+- `syncamd`, the camera service of the synshell phone platform (socket `/run/syncam/syncam.sock`, frames as dma-buf, full-size stills and HAL controls);
+- a raw Bayer sensor on a mainline kernel (Qualcomm camss and similar): the pipeline is found in the media graph (`/dev/media*`) and enabled automatically, frames go through a software ISP — black level, demosaic, white balance, gamma, auto exposure via sensor controls, contrast autofocus via the lens motor, digital zoom; a still is a stream frame;
+- a V4L2 webcam (desktop).
+
+Without any camera the app opens and says so.
 
 ## Install
 

@@ -21,6 +21,7 @@
 "Ночной снимок не получился: {e}" = "A foto noturna falhou: {e}"
 "{mp} Мп — снимок займёт до 15 секунд…" = "{mp} MP — a captura pode levar até 15 segundos…"
 "Снимок не получился: {e}" = "A foto falhou: {e}"
+"кадр с камеры не пришёл" = "nenhum quadro chegou da câmera"
 "Запись не началась: {err}" = "A gravação não começou: {err}"
 "Запись прервана: {err}" = "Gravação interrompida: {err}"
 "Видео сохранено" = "Vídeo salvo"

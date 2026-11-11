@@ -1,5 +1,6 @@
 //! Источник кадров: служба камеры syncamd (телефон; кадры — dma-buf службы, возвращаются ей, когда кадр
-//! больше не нужен) или камера V4L2 (компьютер; кадр — свой буфер NV12). Кадр отдаёт данные через
+//! больше не нужен), камера media controller с сырым Bayer и программным ISP (mainline-ядра телефонов,
+//! [`crate::mcam`]) или камера V4L2 (компьютер); у двух последних кадр — свой буфер NV12. Кадр отдаёт данные через
 //! [`CamFrame::with_src`] и возвращает буфер источнику, когда его отпускают (`Drop`).
 
 use std::io;
@@ -7,7 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::convert::Src;
 use crate::syncamd::{self, Control, Meta};
-use crate::v4l2;
+use crate::{mcam, v4l2};
+
+/// Номера камер без службы syncamd (у службы свои, с нуля).
+pub const LOCAL_ID: u32 = 100;
 
 /// Кадр источника.
 pub trait CamFrame: Send {
@@ -39,11 +43,13 @@ pub trait Capture: Send + Sync {
     }
 }
 
-/// Камера: телефона (syncamd) или компьютера (V4L2).
+/// Камера: телефона (syncamd), сырой Bayer через media controller или компьютера (V4L2).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cam {
     Syncamd(syncamd::Camera),
-    V4l2(v4l2::Device),
+    Mcam(mcam::Device),
+    /// Камера V4L2 и её номер.
+    V4l2(v4l2::Device, u32),
 }
 
 impl Cam {
@@ -51,14 +57,62 @@ impl Cam {
     pub fn front(&self) -> bool {
         match self {
             Cam::Syncamd(c) => c.front(),
-            Cam::V4l2(_) => true,
+            Cam::Mcam(d) => d.front,
+            Cam::V4l2(..) => true,
+        }
+    }
+
+    /// Номер камеры (у службы — её, у остальных — от [`LOCAL_ID`]).
+    pub fn id(&self) -> u32 {
+        match self {
+            Cam::Syncamd(c) => c.id,
+            Cam::Mcam(d) => d.caps.id,
+            Cam::V4l2(_, id) => *id,
+        }
+    }
+
+    /// Снимок делает служба (JPEG с датчика полного размера); иначе снимок — кадр потока.
+    pub fn service_snapshot(&self) -> bool {
+        matches!(self, Cam::Syncamd(_))
+    }
+
+    /// Возможности в виде описания камеры syncamd: размеры потока и снимка, EV, ISO, выдержка, фокус…
+    /// (интерфейс камеры один для всех источников).
+    pub fn caps(&self) -> syncamd::Camera {
+        match self {
+            Cam::Syncamd(c) => *c,
+            Cam::Mcam(d) => d.caps,
+            Cam::V4l2(d, id) => {
+                // SAFETY: структура из целых и float, нули допустимы
+                let mut c: syncamd::Camera = unsafe { std::mem::zeroed() };
+                c.id = *id;
+                c.facing = syncamd::FACING_FRONT;
+                let sizes = d.sizes();
+                let n = sizes.len().min(c.sizes.len());
+                c.nsizes = n as u32;
+                for (i, s) in sizes.iter().take(n).enumerate() {
+                    c.sizes[i] = syncamd::Size { width: s.0, height: s.1, min_frame_ns: 33_333_333 };
+                }
+                let nj = sizes.len().min(c.jpeg.len());
+                c.njpeg = nj as u32;
+                for (i, s) in sizes.iter().take(nj).enumerate() {
+                    c.jpeg[i] = [s.0, s.1];
+                }
+                if let Some(&(w, h)) = sizes.first() {
+                    (c.sensor_width, c.sensor_height, c.photo_width, c.photo_height, c.full_width, c.full_height) = (w, h, w, h, w, h);
+                    c.active = [0, 0, w as i32, h as i32];
+                }
+                c.max_zoom = 1.0;
+                c
+            }
         }
     }
 
     pub fn name(&self) -> String {
         match self {
             Cam::Syncamd(c) => format!("{} {}", if c.front() { "front" } else { "back" }, c.id),
-            Cam::V4l2(d) => d.name.clone(),
+            Cam::Mcam(d) => d.name.clone(),
+            Cam::V4l2(d, _) => d.name.clone(),
         }
     }
 
@@ -66,7 +120,8 @@ impl Cam {
     pub fn video_size(&self, aw: u32, ah: u32, max_w: u32) -> Option<(u32, u32)> {
         match self {
             Cam::Syncamd(c) => c.yuv_for(aw, ah, max_w),
-            Cam::V4l2(d) => d.size_for(aw, ah, max_w),
+            Cam::Mcam(d) => d.size_for(aw, ah, max_w),
+            Cam::V4l2(d, _) => d.size_for(aw, ah, max_w),
         }
     }
 
@@ -75,12 +130,13 @@ impl Cam {
     pub fn sensor_rotation(&self) -> u32 {
         match self {
             Cam::Syncamd(c) => c.orientation.rem_euclid(360) as u32,
-            Cam::V4l2(_) => 0,
+            Cam::Mcam(d) => d.rotation,
+            Cam::V4l2(..) => 0,
         }
     }
 }
 
-/// Камеры этой машины: служба syncamd, если она есть, иначе V4L2.
+/// Камеры этой машины: служба syncamd, если она есть, иначе сенсоры media controller и камеры V4L2.
 pub fn cameras() -> Vec<Cam> {
     if std::path::Path::new(syncamd::SOCKET).exists() {
         if let Ok(c) = syncamd::cameras() {
@@ -89,7 +145,10 @@ pub fn cameras() -> Vec<Cam> {
             }
         }
     }
-    v4l2::devices().into_iter().map(Cam::V4l2).collect()
+    let mut v: Vec<Cam> = mcam::devices(LOCAL_ID).into_iter().map(Cam::Mcam).collect();
+    let n = v.len() as u32;
+    v.extend(v4l2::devices().into_iter().enumerate().map(|(i, d)| Cam::V4l2(d, LOCAL_ID + n + i as u32)));
+    v
 }
 
 /// Фронтальная камера (для видео себя), иначе первая.
@@ -117,7 +176,11 @@ pub fn open(cam: &Cam, w: u32, h: u32, fps: u32, flags: u32, jpeg: Option<(u32, 
             }
             r.map(|s| Arc::new(SyncamdCapture(Arc::new(s))) as Arc<dyn Capture>).map_err(|e| OpenError { busy: e.busy, text: e.text })
         }
-        Cam::V4l2(d) => match v4l2::Stream::open(d, w, h, fps) {
+        Cam::Mcam(d) => match mcam::Stream::open(d, w, h, flags & syncamd::OPEN_VIDEO != 0) {
+            Ok(s) => Ok(Arc::new(McamCapture { s, pool: Arc::new(Mutex::new(Vec::new())) })),
+            Err(e) => Err(OpenError { busy: e.busy, text: format!("{}: {}", d.name, e.text) }),
+        },
+        Cam::V4l2(d, _) => match v4l2::Stream::open(d, w, h, fps) {
             Ok(s) => Ok(Arc::new(V4l2Capture { s, pool: Arc::new(Mutex::new(Vec::new())) })),
             Err(e) => Err(OpenError { busy: e.raw_os_error() == Some(libc::EBUSY), text: format!("{}: {e}", d.path.display()) }),
         },
@@ -233,6 +296,38 @@ impl Capture for V4l2Capture {
 
     fn size(&self) -> (u32, u32) {
         (self.s.width, self.s.height)
+    }
+
+    fn shutdown(&self) {
+        self.s.shutdown();
+    }
+}
+
+// ─── media controller (сырой Bayer) ─────────────────────────────────────────
+
+struct McamCapture {
+    s: mcam::Stream,
+    pool: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+impl Capture for McamCapture {
+    fn next(&self) -> io::Result<CapEvent> {
+        if let Some(m) = self.s.take_meta() {
+            return Ok(CapEvent::Meta(m));
+        }
+        let mut buf = self.pool.lock().unwrap().pop().unwrap_or_default();
+        match self.s.next_nv12(&mut buf)? {
+            Some(ts) => Ok(CapEvent::Frame(Box::new(V4l2Frame { data: buf, w: self.s.width, h: self.s.height, ts, pool: Some(self.pool.clone()) }))),
+            None => Ok(CapEvent::Stopped),
+        }
+    }
+
+    fn size(&self) -> (u32, u32) {
+        (self.s.width, self.s.height)
+    }
+
+    fn control(&self, c: &Control) {
+        self.s.control(c);
     }
 
     fn shutdown(&self) {

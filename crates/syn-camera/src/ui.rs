@@ -283,7 +283,7 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
             let _ = (st.cams.get(), st.front.get(), st.lens.get());
             crate::current_cam(st)
         };
-        let has_flash = cam.map(|c| c.flash != 0).unwrap_or(false);
+        let has_flash = cam.as_ref().map(|c| c.flash != 0).unwrap_or(false);
         let mut items: Vec<W> = Vec::new();
         if mode.video() {
             let torch = st.torch.get();

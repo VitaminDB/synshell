@@ -53,3 +53,12 @@
 "у камеры нет размеров кадра" = "kamera nie podaje rozmiarów klatki"
 "нет подходящего формата кадров" = "brak odpowiedniego formatu klatek"
 "камера отключилась" = "kamera została odłączona"
+
+# src/mcam.rs
+"нет пути от сенсора до видеоузла" = "brak ścieżki od czujnika do węzła wideo"
+"ссылка {a} → {b}" = "połączenie {a} → {b}"
+"сенсор отдал не Bayer" = "czujnik nie podaje Bayer"
+"у видеоузла нет /dev" = "węzeł wideo nie ma wpisu w /dev"
+"видеоузел не принял формат Bayer" = "węzeł wideo odrzucił format Bayer"
+"камера не присылает кадры" = "kamera nie przesyła klatek"
+"ошибка потока камеры" = "błąd strumienia kamery"

@@ -53,3 +53,12 @@
 "у камеры нет размеров кадра" = "Kamera meldet keine Bildgrößen"
 "нет подходящего формата кадров" = "kein passendes Bildformat"
 "камера отключилась" = "Kamera getrennt"
+
+# src/mcam.rs
+"нет пути от сенсора до видеоузла" = "kein Pfad vom Sensor zum Videoknoten"
+"ссылка {a} → {b}" = "Verbindung {a} → {b}"
+"сенсор отдал не Bayer" = "Sensor liefert kein Bayer"
+"у видеоузла нет /dev" = "Videoknoten hat keinen /dev-Eintrag"
+"видеоузел не принял формат Bayer" = "Videoknoten akzeptiert das Bayer-Format nicht"
+"камера не присылает кадры" = "Kamera liefert keine Bilder"
+"ошибка потока камеры" = "Fehler im Kamerastream"

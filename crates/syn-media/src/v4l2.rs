@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::convert;
 
-const fn fourcc(s: &[u8; 4]) -> u32 {
+pub(crate) const fn fourcc(s: &[u8; 4]) -> u32 {
     s[0] as u32 | (s[1] as u32) << 8 | (s[2] as u32) << 16 | (s[3] as u32) << 24
 }
 
@@ -17,32 +17,32 @@ pub const MJPG: u32 = fourcc(b"MJPG");
 pub const YUYV: u32 = fourcc(b"YUYV");
 pub const NV12: u32 = fourcc(b"NV12");
 
-const BUF_TYPE_CAPTURE: u32 = 1;
-const MEMORY_MMAP: u32 = 1;
-const CAP_VIDEO_CAPTURE: u32 = 1;
-const CAP_DEVICE_CAPS: u32 = 0x8000_0000;
+pub(crate) const BUF_TYPE_CAPTURE: u32 = 1;
+pub(crate) const MEMORY_MMAP: u32 = 1;
+pub(crate) const CAP_VIDEO_CAPTURE: u32 = 1;
+pub(crate) const CAP_DEVICE_CAPS: u32 = 0x8000_0000;
 const FRMSIZE_DISCRETE: u32 = 1;
 
 #[repr(C)]
-struct Capability {
-    driver: [u8; 16],
-    card: [u8; 32],
-    bus_info: [u8; 32],
-    version: u32,
-    capabilities: u32,
-    device_caps: u32,
-    reserved: [u32; 3],
+pub(crate) struct Capability {
+    pub(crate) driver: [u8; 16],
+    pub(crate) card: [u8; 32],
+    pub(crate) bus_info: [u8; 32],
+    pub(crate) version: u32,
+    pub(crate) capabilities: u32,
+    pub(crate) device_caps: u32,
+    pub(crate) reserved: [u32; 3],
 }
 
 #[repr(C)]
-struct FmtDesc {
-    index: u32,
-    ty: u32,
-    flags: u32,
-    description: [u8; 32],
-    pixelformat: u32,
-    mbus_code: u32,
-    reserved: [u32; 3],
+pub(crate) struct FmtDesc {
+    pub(crate) index: u32,
+    pub(crate) ty: u32,
+    pub(crate) flags: u32,
+    pub(crate) description: [u8; 32],
+    pub(crate) pixelformat: u32,
+    pub(crate) mbus_code: u32,
+    pub(crate) reserved: [u32; 3],
 }
 
 #[repr(C)]
@@ -72,30 +72,30 @@ struct Format {
 }
 
 #[repr(C)]
-struct RequestBuffers {
-    count: u32,
-    ty: u32,
-    memory: u32,
-    capabilities: u32,
-    flags: u32,
+pub(crate) struct RequestBuffers {
+    pub(crate) count: u32,
+    pub(crate) ty: u32,
+    pub(crate) memory: u32,
+    pub(crate) capabilities: u32,
+    pub(crate) flags: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Buffer {
-    index: u32,
-    ty: u32,
-    bytesused: u32,
-    flags: u32,
-    field: u32,
-    timestamp: libc::timeval,
-    timecode: [u32; 4],
-    sequence: u32,
-    memory: u32,
-    m: u64,
-    length: u32,
-    reserved2: u32,
-    request_fd: u32,
+pub(crate) struct Buffer {
+    pub(crate) index: u32,
+    pub(crate) ty: u32,
+    pub(crate) bytesused: u32,
+    pub(crate) flags: u32,
+    pub(crate) field: u32,
+    pub(crate) timestamp: libc::timeval,
+    pub(crate) timecode: [u32; 4],
+    pub(crate) sequence: u32,
+    pub(crate) memory: u32,
+    pub(crate) m: u64,
+    pub(crate) length: u32,
+    pub(crate) reserved2: u32,
+    pub(crate) request_fd: u32,
 }
 
 #[repr(C)]
@@ -119,25 +119,25 @@ struct FrmSizeEnum {
     reserved: [u32; 2],
 }
 
-const fn ioc(dir: u32, nr: u32, size: usize) -> libc::c_ulong {
+pub(crate) const fn ioc(dir: u32, nr: u32, size: usize) -> libc::c_ulong {
     ((dir << 30) | ((size as u32) << 16) | ((b'V' as u32) << 8) | nr) as libc::c_ulong
 }
-const RW: u32 = 3;
-const W: u32 = 1;
-const R: u32 = 2;
-const QUERYCAP: libc::c_ulong = ioc(R, 0, std::mem::size_of::<Capability>());
-const ENUM_FMT: libc::c_ulong = ioc(RW, 2, std::mem::size_of::<FmtDesc>());
-const S_FMT: libc::c_ulong = ioc(RW, 5, std::mem::size_of::<Format>());
-const REQBUFS: libc::c_ulong = ioc(RW, 8, std::mem::size_of::<RequestBuffers>());
-const QUERYBUF: libc::c_ulong = ioc(RW, 9, std::mem::size_of::<Buffer>());
-const QBUF: libc::c_ulong = ioc(RW, 15, std::mem::size_of::<Buffer>());
-const DQBUF: libc::c_ulong = ioc(RW, 17, std::mem::size_of::<Buffer>());
-const STREAMON: libc::c_ulong = ioc(W, 18, 4);
-const STREAMOFF: libc::c_ulong = ioc(W, 19, 4);
+pub(crate) const RW: u32 = 3;
+pub(crate) const W: u32 = 1;
+pub(crate) const R: u32 = 2;
+pub(crate) const QUERYCAP: libc::c_ulong = ioc(R, 0, std::mem::size_of::<Capability>());
+pub(crate) const ENUM_FMT: libc::c_ulong = ioc(RW, 2, std::mem::size_of::<FmtDesc>());
+pub(crate) const S_FMT: libc::c_ulong = ioc(RW, 5, std::mem::size_of::<Format>());
+pub(crate) const REQBUFS: libc::c_ulong = ioc(RW, 8, std::mem::size_of::<RequestBuffers>());
+pub(crate) const QUERYBUF: libc::c_ulong = ioc(RW, 9, std::mem::size_of::<Buffer>());
+pub(crate) const QBUF: libc::c_ulong = ioc(RW, 15, std::mem::size_of::<Buffer>());
+pub(crate) const DQBUF: libc::c_ulong = ioc(RW, 17, std::mem::size_of::<Buffer>());
+pub(crate) const STREAMON: libc::c_ulong = ioc(W, 18, 4);
+pub(crate) const STREAMOFF: libc::c_ulong = ioc(W, 19, 4);
 const S_PARM: libc::c_ulong = ioc(RW, 22, std::mem::size_of::<StreamParm>());
 const ENUM_FRAMESIZES: libc::c_ulong = ioc(RW, 74, std::mem::size_of::<FrmSizeEnum>());
 
-fn xioctl<T>(fd: i32, req: libc::c_ulong, arg: &mut T) -> io::Result<()> {
+pub(crate) fn xioctl<T>(fd: i32, req: libc::c_ulong, arg: &mut T) -> io::Result<()> {
     loop {
         // SAFETY: ioctl с указателем на живую структуру нужного размера
         let r = unsafe { libc::ioctl(fd, req as _, arg as *mut T) };
@@ -151,16 +151,16 @@ fn xioctl<T>(fd: i32, req: libc::c_ulong, arg: &mut T) -> io::Result<()> {
     }
 }
 
-fn zeroed<T>() -> T {
+pub(crate) fn zeroed<T>() -> T {
     // SAFETY: структуры V4L2 — простые данные, нули допустимы
     unsafe { std::mem::zeroed() }
 }
 
-fn cstr(b: &[u8]) -> String {
+pub(crate) fn cstr(b: &[u8]) -> String {
     CStr::from_bytes_until_nul(b).map(|c| c.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-fn open_dev(path: &Path) -> io::Result<OwnedFd> {
+pub(crate) fn open_dev(path: &Path) -> io::Result<OwnedFd> {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).map_err(io::Error::other)?;
     // SAFETY: open с путём C
     let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC | libc::O_NONBLOCK) };
