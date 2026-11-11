@@ -1,0 +1,53 @@
+wow64: NtSuspendThread другого потока своего процесса — через BTCpuSuspendLocalThread эмулятора (как
+Wow64SuspendLocalThread в Windows; в Wine было FIXME). Эмулятор останавливает поток в безопасной точке, а не посреди
+своего кода с захваченной блокировкой. Miles (mss32) обслуживает звук, приостанавливая главный поток, — игра висла
+(Heroes 3: FEX изредка, box64 сразу). У box64 функции нет — для него как раньше.
+
+--- a/dlls/wow64/syscall.c	2026-11-11 20:22:56.754728026 +0500
++++ b/dlls/wow64/syscall.c	2026-11-11 20:22:56.763765979 +0500
+@@ -117,6 +117,7 @@
+ void     (WINAPI *pBTCpuUpdateProcessorInformation)( SYSTEM_CPU_INFORMATION * ) = NULL;
+ void     (WINAPI *pBTCpuSimulate)(void);
+ void     (WINAPI *pBTCpuProcessTerm)( HANDLE, BOOL, NTSTATUS ) = NULL;
++NTSTATUS (WINAPI *pBTCpuSuspendLocalThread)( HANDLE, ULONG * ) = NULL;
+ void     (WINAPI *pBTCpuThreadTerm)( HANDLE, LONG ) = NULL;
+ 
+ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
+@@ -1098,6 +1099,7 @@
+     GET_PTR( BTCpuNotifyUnmapViewOfSection );
+     GET_PTR( BTCpuUpdateProcessorInformation );
+     GET_PTR( BTCpuProcessTerm );
++    GET_PTR( BTCpuSuspendLocalThread );
+     GET_PTR( BTCpuThreadTerm );
+     GET_PTR( __wine_get_unix_opcode );
+ 
+--- a/dlls/wow64/process.c	2026-11-11 20:22:56.752743463 +0500
++++ b/dlls/wow64/process.c	2026-11-11 20:22:56.763843376 +0500
+@@ -1133,6 +1133,17 @@
+ {
+     HANDLE handle = get_handle( &args );
+     ULONG *count = get_ptr( &args );
++    THREAD_BASIC_INFORMATION info;
++
++    /* syn-wine: другой поток своего процесса — через эмулятор (BTCpuSuspendLocalThread, как Wow64SuspendLocalThread
++     * в Windows): он останавливает поток в безопасной точке, а не посреди своего кода с захваченной блокировкой.
++     * Иначе Miles (mss32), которая обслуживает звук, приостанавливая главный поток, вешала игру (Heroes 3: FEX —
++     * изредка, box64 — сразу; у box64 этой функции нет, для него как раньше). */
++    if (pBTCpuSuspendLocalThread &&
++        !NtQueryInformationThread( handle, ThreadBasicInformation, &info, sizeof(info), NULL ) &&
++        info.ClientId.UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess &&
++        info.ClientId.UniqueThread != NtCurrentTeb()->ClientId.UniqueThread)
++        return pBTCpuSuspendLocalThread( handle, count );
+ 
+     return NtSuspendThread( handle, count );
+ }
+--- a/dlls/wow64/wow64_private.h	2026-11-11 20:22:56.752772011 +0500
++++ b/dlls/wow64/wow64_private.h	2026-11-11 20:22:56.763460468 +0500
+@@ -51,6 +51,7 @@
+ extern void     (WINAPI *pBTCpuNotifyUnmapViewOfSection)( void *, BOOL, NTSTATUS );
+ extern void     (WINAPI *pBTCpuUpdateProcessorInformation)( SYSTEM_CPU_INFORMATION * );
+ extern void     (WINAPI *pBTCpuProcessTerm)( HANDLE, BOOL, NTSTATUS );
++extern NTSTATUS (WINAPI *pBTCpuSuspendLocalThread)( HANDLE, ULONG * );
+ extern void     (WINAPI *pBTCpuThreadTerm)( HANDLE, LONG );
+ 
+ struct object_attr64

@@ -24,6 +24,8 @@ syn-wine is a pacman package (not a Cargo crate) built from upstream Wine 11.19 
 ### aarch64 (phones)
 
 - **ARM64EC and WoW64** — native ARM64 code with x86_64 emulated inside Wine by FEX (`libarm64ecfex.dll`) and 32-bit x86 by FEX (`libwow64fex.dll`, own build with fixes for division by zero, `POP` faults and debug registers) or Box64 — DLLs from Hangover; no x86-64 RootFS.
+- **x86 emulator per program** — `HKCU\Software\Wine\AppDefaults\<name.exe>\Wow64`: value `x86` picks the emulator DLL, subkey `Environment` sets its environment (e.g. `FEX_TSOENABLED=0`) before it starts. Heroes of Might and Magic III runs on FEX without TSO out of the box: Box64 deadlocks when the Miles sound thread suspends the game thread, and default FEX mixes sound so slowly the game stutters.
+- **OpenGL below 3.2** (Adreno 504 / freedreno): the framebuffer GL surface uses `glFramebufferTexture2D` — DirectDraw/Direct3D games are no longer black.
 - **Own DXVK ARM64EC build** (DXVK 3.1.1, with shared resources through D3DKMT).
 - **Phone adjustments** — DPI 180 for new prefixes, then taken from `Xft.dpi` of the game's X server; workarounds for the 39-bit address space of Android kernels and the rpcrt4 delay-load; the Wayland driver when Turnip lacks X11 WSI (`SYN_WINE_WAYLAND=1` forces it).
 

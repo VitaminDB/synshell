@@ -1,0 +1,46 @@
+win32u: буфер кадра окна — текстуры через glFramebufferTexture2D (OpenGL 3.0), а не glFramebufferTexture (3.2).
+Mesa freedreno для Adreno 504 даёт OpenGL ниже 3.2: glFramebufferTexture не прикреплял текстуру, FBO 0 был
+incomplete («init_framebuffer_attachment Unexpected type 0») и окно игры оставалось чёрным (Heroes 3, SM-T295).
+Для 2D-текстур это то же самое — на остальных драйверах без изменений.
+
+--- a/dlls/win32u/opengl.c	2026-11-11 20:09:47.508103810 +0500
++++ b/dlls/win32u/opengl.c	2026-11-11 20:09:47.524287637 +0500
+@@ -846,7 +846,7 @@
+         {
+             funcs->p_glGenTextures( 1, &name );
+             init_framebuffer_attachment( drawable, fbo, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE, name, desc, size );
+-            funcs->p_glFramebufferTexture( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, name, 0 );
++            funcs->p_glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, name, 0 );
+         }
+         TRACE( "drawable %p/%u created color buffer %#x/%u, %s\n", drawable, fbo, GL_COLOR_ATTACHMENT0 + i, name, wine_dbgstr_point( (POINT *)&size ) );
+     }
+@@ -1083,23 +1083,23 @@
+             {
+                 funcs->p_glGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &front );
+                 funcs->p_glGetFramebufferAttachmentParameteriv( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &back );
+-                funcs->p_glFramebufferTexture( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, back, 0 );
+-                funcs->p_glFramebufferTexture( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, front, 0 );
++                funcs->p_glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, back, 0 );
++                funcs->p_glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, front, 0 );
+             }
+         }
+ 
+         funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, drawable->read_fbo );
+         funcs->p_glGetFramebufferAttachmentParameteriv( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &front );
+         funcs->p_glGetFramebufferAttachmentParameteriv( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &back );
+-        funcs->p_glFramebufferTexture( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, back, 0 );
+-        funcs->p_glFramebufferTexture( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, front, 0 );
++        funcs->p_glFramebufferTexture2D( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, back, 0 );
++        funcs->p_glFramebufferTexture2D( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, front, 0 );
+ 
+         if (drawable->stereo)
+         {
+             funcs->p_glGetFramebufferAttachmentParameteriv( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &front );
+             funcs->p_glGetFramebufferAttachmentParameteriv( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &back );
+-            funcs->p_glFramebufferTexture( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, back, 0 );
+-            funcs->p_glFramebufferTexture( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, front, 0 );
++            funcs->p_glFramebufferTexture2D( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, back, 0 );
++            funcs->p_glFramebufferTexture2D( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, front, 0 );
+         }
+     }
+ 

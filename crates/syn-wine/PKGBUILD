@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=25
+pkgrel=31
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -79,6 +79,11 @@ source=(
   syn-wine-helper.patch
   winevulkan-host-fd.patch
   winegstreamer-missing-plugin.patch
+  win32u-fbo-texture2d.patch
+  wow64-app-cpu-dll.patch
+  win32u-emulated-margins-black.patch
+  wow64-suspend-local-thread.patch
+  wow64-app-env.patch
   lsteamclient-unix-compat.h
   compatibilitytool.vdf
   toolmanifest.vdf
@@ -101,7 +106,7 @@ noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hang
            "wine-gecko-$_gecko-x86.tar.xz" "wine-gecko-$_gecko-x86_64.tar.xz"
            "wine-mono-$_mono-x86.tar.xz" "wine-mono-$_mono-arm64.tar.xz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP
             '2cfc8d5c948602e21eff8a78613e1826f2d033df9672cace87fed56e8310afb6'
             'fd88fc7e537d058d7a8abf0c1ebc90c574892a466de86706a26d254710a82814')
 sha256sums_x86_64=(SKIP
@@ -263,6 +268,21 @@ prepare() {
     sed -i "s|^\(HKLM,System\\\\CurrentControlSet\\\\Hardware Profiles\\\\Current\\\\Software\\\\Fonts,\"LogPixels\",0x10003,\)0x00000060|\1$(printf '0x%08x' $_dpi)|" loader/wine.inf.in
     grep -q "LogPixels\",0x10003,$(printf '0x%08x' $_dpi)" loader/wine.inf.in
   fi
+
+  # Буфер кадра окна OpenGL — текстуры через glFramebufferTexture2D (GL 3.0), а не glFramebufferTexture (3.2):
+  # Mesa freedreno Adreno 504 ниже 3.2, окно игры было чёрным («FBO 0 is incomplete», Heroes 3 на SM-T295)
+  patch -Np1 -i "$srcdir/win32u-fbo-texture2d.patch"
+  # Эмулятор x86 по программе: HKCU\Software\Wine\AppDefaults\<имя.exe>\Wow64 «x86» (Heroes 3 — FEX: box64 зависает,
+  # когда Miles приостанавливает главный поток посреди кода эмулятора); после sed выше (wowbox64.dll в тексте)
+  patch -Np1 -i "$srcdir/wow64-app-cpu-dll.patch"
+  # Поля эмулированного режима (4:3 на 16:10) — чёрные: вне окна оставалось старое содержимое поверхности (Heroes 3)
+  patch -Np1 -i "$srcdir/win32u-emulated-margins-black.patch"
+  # NtSuspendThread своего потока — через BTCpuSuspendLocalThread эмулятора (FEX): остановка в безопасной точке;
+  # Miles приостанавливает главный поток для звука, и игра висла с захваченной блокировкой эмулятора
+  patch -Np1 -i "$srcdir/wow64-suspend-local-thread.patch"
+  # Окружение эмулятора по программе (AppDefaults\<exe>\Wow64\Environment): Heroes 3 — FEX без TSO, иначе Miles
+  # микширует так медленно, что главный поток стоит приостановленным до 1 с (рывки, рвётся музыка)
+  patch -Np1 -i "$srcdir/wow64-app-env.patch"
 }
 
 build() {

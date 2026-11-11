@@ -1,0 +1,89 @@
+wow64: эмулятор x86 для отдельной программы — HKCU\Software\Wine\AppDefaults\<имя.exe>\Wow64, значение «x86».
+Heroes 3: Miles приостанавливает главный поток (SuspendThread) посреди кода box64, тот держит свою блокировку,
+и звуковой поток зависает на ней навсегда — для неё FEX (libwow64fex.dll). Без ключа — как раньше.
+
+--- a/dlls/wow64/syscall.c	2026-11-11 20:10:38.140246772 +0500
++++ b/dlls/wow64/syscall.c	2026-11-11 20:10:38.154037182 +0500
+@@ -924,8 +924,58 @@
+ /**********************************************************************
+  *           get_cpu_dll_name
+  */
++/* syn-wine: эмулятор x86 для одной программы — HKCU\Software\Wine\AppDefaults\<имя.exe>\Wow64, значение «x86»
++ * (например, libwow64fex.dll для игр, которые box64 не тянет: Heroes 3 — Miles приостанавливает главный поток
++ * SuspendThread посреди кода эмулятора, и box64 зависает на своей блокировке). Нет ключа — как раньше. */
++static BOOL get_app_cpu_dll_name( const WCHAR *machine, WCHAR *out, ULONG out_len )
++{
++    static const WCHAR prefix[] = L"Software\\Wine\\AppDefaults\\";
++    static const WCHAR suffix[] = L"\\Wow64";
++    const UNICODE_STRING *image = &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName;
++    ULONG buffer[64];
++    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
++    WCHAR path[MAX_PATH + 64];
++    const WCHAR *name;
++    UNICODE_STRING nameW;
++    OBJECT_ATTRIBUTES attr;
++    HANDLE root, key;
++    ULONG i, len, size;
++    BOOL ret = FALSE;
++
++    if (!image->Buffer || !image->Length) return FALSE;
++    len = image->Length / sizeof(WCHAR);
++    for (i = len; i > 0; i--) if (image->Buffer[i - 1] == '\\' || image->Buffer[i - 1] == '/') break;
++    name = image->Buffer + i;
++    len -= i;
++    if (!len || wcslen( prefix ) + len + wcslen( suffix ) >= ARRAY_SIZE(path)) return FALSE;
++    wcscpy( path, prefix );
++    memcpy( path + wcslen( prefix ), name, len * sizeof(WCHAR) );
++    path[wcslen( prefix ) + len] = 0;
++    wcscat( path, suffix );
++
++    if (RtlOpenCurrentUser( KEY_READ, &root )) return FALSE;
++    RtlInitUnicodeString( &nameW, path );
++    InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, root, NULL );
++    if (!NtOpenKey( &key, KEY_READ, &attr ))
++    {
++        RtlInitUnicodeString( &nameW, machine );
++        size = sizeof(buffer) - sizeof(WCHAR);
++        if (!NtQueryValueKey( key, &nameW, KeyValuePartialInformation, buffer, size, &size ) &&
++            info->Type == REG_SZ && info->DataLength && info->DataLength < out_len * sizeof(WCHAR))
++        {
++            memcpy( out, info->Data, info->DataLength );
++            out[info->DataLength / sizeof(WCHAR)] = 0;
++            ret = !!out[0];
++        }
++        NtClose( key );
++    }
++    NtClose( root );
++    return ret;
++}
++
+ static const WCHAR *get_cpu_dll_name(void)
+ {
++    static WCHAR app_dll[64];
+     static ULONG buffer[32];
+     KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
+     OBJECT_ATTRIBUTES attr;
+@@ -937,6 +987,7 @@
+     switch (current_machine)
+     {
+     case IMAGE_FILE_MACHINE_I386:
++        if (get_app_cpu_dll_name( L"x86", app_dll, ARRAY_SIZE(app_dll) )) return app_dll;
+         RtlInitUnicodeString( &nameW, L"\\Registry\\Machine\\Software\\Microsoft\\Wow64\\x86" );
+         ret = (native_machine == IMAGE_FILE_MACHINE_ARM64 ? L"wowbox64.dll" : L"wow64cpu.dll");
+         break;
+--- a/loader/wine.inf.in	2026-11-11 20:10:38.141225964 +0500
++++ b/loader/wine.inf.in	2026-11-11 20:10:38.155147136 +0500
+@@ -407,6 +407,13 @@
+ HKLM,Software\Microsoft\Wow64\amd64,,2,"libarm64ecfex.dll"
+ HKLM,Software\Microsoft\Wow64\arm,,2,"wowarmhw.dll"
+ HKLM,Software\Microsoft\Wow64\x86,,2,"wowbox64.dll"
++;; syn-wine: эмулятор x86 по программе (dlls/wow64/syscall.c get_app_cpu_dll_name) — Heroes 3: box64 зависает на SuspendThread из Miles
++HKCU,Software\Wine\AppDefaults\Heroes3.exe\Wow64,"x86",2,"libwow64fex.dll"
++HKCU,Software\Wine\AppDefaults\Heroes3 HD.exe\Wow64,"x86",2,"libwow64fex.dll"
++HKCU,Software\Wine\AppDefaults\Heroes3_HD.exe\Wow64,"x86",2,"libwow64fex.dll"
++HKCU,Software\Wine\AppDefaults\h3hota.exe\Wow64,"x86",2,"libwow64fex.dll"
++HKCU,Software\Wine\AppDefaults\h3hota HD.exe\Wow64,"x86",2,"libwow64fex.dll"
++HKCU,Software\Wine\AppDefaults\h3era.exe\Wow64,"x86",2,"libwow64fex.dll"
+ 
+ [CurrentVersionWow64.ntx86]
+ HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16422%"

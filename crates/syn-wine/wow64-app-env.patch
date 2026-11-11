@@ -1,0 +1,107 @@
+wow64: окружение эмулятора по программе — HKCU\Software\Wine\AppDefaults\<имя.exe>\Wow64\Environment (REG_SZ → переменные
+окружения до BTCpuProcessInit; заданные пользователем не трогаются). Heroes 3 под FEX: FEX_TSOENABLED=0, FEX_MULTIBLOCK=1,
+FEX_X87REDUCEDPRECISION=1 — Miles микширует при приостановленном главном потоке, без них пауза 50 мс в среднем (до 1 с):
+игра дёргается, музыка рвётся; с ними 1,7 мс.
+
+--- a/dlls/wow64/syscall.c	2026-11-11 20:41:33.477269613 +0500
++++ b/dlls/wow64/syscall.c	2026-11-11 20:41:33.472012398 +0500
+@@ -974,6 +974,62 @@
+     return ret;
+ }
+ 
++/* syn-wine: окружение эмулятора для одной программы — значения REG_SZ из
++ * HKCU\Software\Wine\AppDefaults\<имя.exe>\Wow64\Environment становятся переменными окружения процесса до
++ * BTCpuProcessInit (FEX читает настройки FEX_* из окружения при запуске). Переменную, уже заданную
++ * пользователем, не трогаем. Heroes 3: FEX_TSOENABLED=0 и др. — микширование Miles вдесятеро быстрее. */
++static void set_app_environment(void)
++{
++    static const WCHAR prefix[] = L"Software\\Wine\\AppDefaults\\";
++    static const WCHAR suffix[] = L"\\Wow64\\Environment";
++    const UNICODE_STRING *image = &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName;
++    ULONG buffer[256];
++    KEY_VALUE_FULL_INFORMATION *info = (KEY_VALUE_FULL_INFORMATION *)buffer;
++    WCHAR path[MAX_PATH + 64], dummy[2];
++    const WCHAR *name;
++    UNICODE_STRING nameW, valueW, tmpW;
++    OBJECT_ATTRIBUTES attr;
++    HANDLE root, key;
++    ULONG i, len, size;
++
++    if (!image->Buffer || !image->Length) return;
++    len = image->Length / sizeof(WCHAR);
++    for (i = len; i > 0; i--) if (image->Buffer[i - 1] == '\\' || image->Buffer[i - 1] == '/') break;
++    name = image->Buffer + i;
++    len -= i;
++    if (!len || wcslen( prefix ) + len + wcslen( suffix ) >= ARRAY_SIZE(path)) return;
++    wcscpy( path, prefix );
++    memcpy( path + wcslen( prefix ), name, len * sizeof(WCHAR) );
++    path[wcslen( prefix ) + len] = 0;
++    wcscat( path, suffix );
++
++    if (RtlOpenCurrentUser( KEY_READ, &root )) return;
++    RtlInitUnicodeString( &nameW, path );
++    InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, root, NULL );
++    if (!NtOpenKey( &key, KEY_READ, &attr ))
++    {
++        for (i = 0; !NtEnumerateValueKey( key, i, KeyValueFullInformation, buffer,
++                                          sizeof(buffer) - sizeof(WCHAR), &size ); i++)
++        {
++            if (info->Type != REG_SZ || !info->NameLength) continue;
++            nameW.Buffer = info->Name;
++            nameW.Length = nameW.MaximumLength = info->NameLength;
++            tmpW.Buffer = dummy;
++            tmpW.Length = 0;
++            tmpW.MaximumLength = sizeof(dummy);
++            if (RtlQueryEnvironmentVariable_U( NULL, &nameW, &tmpW ) != STATUS_VARIABLE_NOT_FOUND) continue;
++            valueW.Buffer = (WCHAR *)((char *)info + info->DataOffset);
++            valueW.Length = info->DataLength;
++            while (valueW.Length >= sizeof(WCHAR) && !valueW.Buffer[valueW.Length / sizeof(WCHAR) - 1])
++                valueW.Length -= sizeof(WCHAR);
++            valueW.MaximumLength = valueW.Length;
++            RtlSetEnvironmentVariable( NULL, &nameW, &valueW );
++        }
++        NtClose( key );
++    }
++    NtClose( root );
++}
++
+ static const WCHAR *get_cpu_dll_name(void)
+ {
+     static WCHAR app_dll[64];
+@@ -1107,6 +1163,7 @@
+     GET_PTR( sdwhwin32 );
+     syscall_tables[1] = *psdwhwin32;
+ 
++    set_app_environment();
+     pBTCpuProcessInit();
+ 
+     module = (HMODULE)(ULONG_PTR)pLdrSystemDllInitBlock->ntdll_handle;
+--- a/loader/wine.inf.in	2026-11-11 20:41:33.478012353 +0500
++++ b/loader/wine.inf.in	2026-11-11 20:41:33.472931961 +0500
+@@ -414,6 +414,26 @@
+ HKCU,Software\Wine\AppDefaults\h3hota.exe\Wow64,"x86",2,"libwow64fex.dll"
+ HKCU,Software\Wine\AppDefaults\h3hota HD.exe\Wow64,"x86",2,"libwow64fex.dll"
+ HKCU,Software\Wine\AppDefaults\h3era.exe\Wow64,"x86",2,"libwow64fex.dll"
++;; syn-wine: настройки FEX по программе (dlls/wow64/syscall.c set_app_environment) — Heroes 3: без TSO и с многоблочной
++;; трансляцией микширование Miles идёт вдесятеро быстрее (пауза главного потока 50 → 2 мс), звук и игра не дёргаются
++HKCU,Software\Wine\AppDefaults\Heroes3.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\Heroes3.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\Heroes3.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
++HKCU,Software\Wine\AppDefaults\Heroes3 HD.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\Heroes3 HD.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\Heroes3 HD.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
++HKCU,Software\Wine\AppDefaults\Heroes3_HD.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\Heroes3_HD.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\Heroes3_HD.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
++HKCU,Software\Wine\AppDefaults\h3hota.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\h3hota.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\h3hota.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
++HKCU,Software\Wine\AppDefaults\h3hota HD.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\h3hota HD.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\h3hota HD.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
++HKCU,Software\Wine\AppDefaults\h3era.exe\Wow64\Environment,"FEX_TSOENABLED",2,"0"
++HKCU,Software\Wine\AppDefaults\h3era.exe\Wow64\Environment,"FEX_MULTIBLOCK",2,"1"
++HKCU,Software\Wine\AppDefaults\h3era.exe\Wow64\Environment,"FEX_X87REDUCEDPRECISION",2,"1"
+ 
+ [CurrentVersionWow64.ntx86]
+ HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16422%"

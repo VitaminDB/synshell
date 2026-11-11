@@ -1,0 +1,87 @@
+win32u: поля эмулированного режима — чёрные. Окно во весь экран при режиме другого соотношения сторон (800x600 на
+16:10): видимая часть строго шире окна, поля вне окна приложение не рисует, и там оставалось старое содержимое
+поверхности — белая полоса слева у Heroes 3 на SM-T295 (игра залила окно белым в (0,0), потом окно сдвинули на
+середину, а поверхность осталась прежней). При каждом apply_window_pos всё вне прямоугольника окна заливается
+чёрным; патч winex11-present-margins закрывает только путь client surface. Обычные окна — как раньше.
+
+--- a/dlls/win32u/dce.c	2026-11-11 20:56:35.649264103 +0500
++++ b/dlls/win32u/dce.c	2026-11-11 20:56:51.839074344 +0500
+@@ -613,6 +613,49 @@
+     pthread_mutex_unlock( &surface->mutex );
+ }
+ 
++/* syn-wine: поля эмулированного режима — чёрные. Окно во весь экран при режиме другого соотношения сторон
++ * (800x600 на 16:10): видимая часть строго шире окна, поля вне окна приложение не рисует, и там оставалось что
++ * попало — белая полоса слева у Heroes 3 (SM-T295): игра залила окно белым, пока оно стояло в (0,0), потом окно
++ * сдвинули на середину, а поверхность осталась прежней. Масштабирующий монитор показал бы там чёрное.
++ * inner — прямоугольник окна в координатах поверхности; всё вне него заливается чёрным. */
++void window_surface_fill_margins( struct window_surface *surface, const RECT *inner )
++{
++    char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
++    BITMAPINFO *info = (BITMAPINFO *)buffer;
++    RECT bounds, margins[4];
++    int i, y, row, width, height, stride, bpp;
++    char *bits;
++
++    if (!surface || surface == &dummy_surface) return;
++    window_surface_lock( surface );
++    if (!(bits = window_surface_get_color( surface, info ))) goto done;
++    width = info->bmiHeader.biWidth;
++    height = abs( info->bmiHeader.biHeight );
++    bpp = info->bmiHeader.biBitCount;
++    if (!width || !height || bpp < 8) goto done;
++    stride = info->bmiHeader.biSizeImage / height;
++    SetRect( &bounds, 0, 0, min( width, surface->rect.right - surface->rect.left ),
++             min( height, surface->rect.bottom - surface->rect.top ) );
++    SetRect( &margins[0], 0, 0, bounds.right, max( 0, inner->top ) );                      /* сверху */
++    SetRect( &margins[1], 0, min( bounds.bottom, inner->bottom ), bounds.right, bounds.bottom ); /* снизу */
++    SetRect( &margins[2], 0, max( 0, inner->top ), max( 0, inner->left ), min( bounds.bottom, inner->bottom ) );
++    SetRect( &margins[3], min( bounds.right, inner->right ), max( 0, inner->top ), bounds.right,
++             min( bounds.bottom, inner->bottom ) );
++    for (i = 0; i < ARRAY_SIZE(margins); i++)
++    {
++        if (!intersect_rect( &margins[i], &margins[i], &bounds )) continue;
++        for (y = margins[i].top; y < margins[i].bottom; y++)
++        {
++            row = info->bmiHeader.biHeight > 0 ? height - 1 - y : y;
++            memset( bits + row * stride + margins[i].left * bpp / 8, 0,
++                    (margins[i].right - margins[i].left) * bpp / 8 );
++        }
++        add_bounds_rect( &surface->bounds, &margins[i] );
++    }
++done:
++    window_surface_unlock( surface );
++}
++
+ void window_surface_flush( struct window_surface *surface )
+ {
+     char color_buf[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+--- a/dlls/win32u/window.c	2026-11-11 20:56:35.649525750 +0500
++++ b/dlls/win32u/window.c	2026-11-11 20:56:51.839579026 +0500
+@@ -2480,6 +2480,16 @@
+             }
+         }
+ 
++        /* syn-wine: поля эмулированного режима (видимая часть строго шире окна) — чёрные, см. window_surface_fill_margins */
++        if (new_surface && !is_layered && !is_child && !EqualRect( &new_rects->visible, &new_rects->window ) &&
++            new_rects->visible.left <= new_rects->window.left && new_rects->visible.top <= new_rects->window.top &&
++            new_rects->visible.right >= new_rects->window.right && new_rects->visible.bottom >= new_rects->window.bottom)
++        {
++            RECT inner = new_rects->window;
++            OffsetRect( &inner, -new_rects->visible.left, -new_rects->visible.top );
++            window_surface_fill_margins( new_surface, &inner );
++        }
++
+         if (need_icons && (icon = get_window_icon_info( hwnd, ICON_BIG, icon, &ii )))
+         {
+             icon_small = get_window_icon_info( hwnd, ICON_SMALL, icon_small, &ii_small );
+--- a/dlls/win32u/win32u_private.h	2026-11-11 20:56:35.649711292 +0500
++++ b/dlls/win32u/win32u_private.h	2026-11-11 20:56:51.839125065 +0500
+@@ -57,6 +57,7 @@
+                                      struct window_surface *new );
+ 
+ extern void window_surface_lock( struct window_surface *surface );
++extern void window_surface_fill_margins( struct window_surface *surface, const RECT *inner );
+ extern void window_surface_unlock( struct window_surface *surface );
+ extern void window_surface_flush( struct window_surface *surface );
+ extern void window_surface_set_clip( struct window_surface *surface, HRGN clip_region );

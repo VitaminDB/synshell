@@ -1,9 +1,66 @@
---- a/dlls/winex11.drv/init.c
-+++ b/dlls/winex11.drv/init.c
-@@ -378,6 +378,34 @@
-     client_surface_update_offscreen( hwnd, surface );
+winex11: поля эмулированного режима — чёрные (Fable: путь offscreen client surface; Heroes 3: GL в дочернем X-окне
+поверх части полноэкранного окна — остальное хранило белый прямоугольник 800x600, нарисованный до GL).
+
+--- a/dlls/winex11.drv/init.c	2026-11-11 21:19:18.705402550 +0500
++++ b/dlls/winex11.drv/init.c	2026-11-11 21:19:18.717162567 +0500
+@@ -369,13 +369,86 @@
+     }
  }
  
++/* syn-wine: the same for a client window on screen: GL draws into a child X window over part of the fullscreen
++ * toplevel (emulated mode of another aspect), and the rest of the toplevel kept whatever was drawn there before --
++ * a white 800x600 rect in Heroes 3, painted while it had a window surface. A black background and a clear: the X
++ * server paints the margins, the child is not touched. */
++static void clear_onscreen_margins( HWND hwnd, struct x11drv_client_surface *surface )
++{
++    struct x11drv_win_data *data;
++    int w, h;
++
++    if (surface->client.offscreen || NtUserGetAncestor( hwnd, GA_ROOT ) != hwnd) return;
++    if (!(data = get_win_data( hwnd ))) return;
++    w = data->rects.visible.right - data->rects.visible.left;
++    h = data->rects.visible.bottom - data->rects.visible.top;
++    /* margins: the visible rect strictly wider than the window rect -- nothing of the program is drawn there */
++    if (data->whole_window && data->client_window == surface->window &&
++        !EqualRect( &data->rects.visible, &data->rects.window ) &&
++        data->rects.visible.left <= data->rects.window.left && data->rects.visible.top <= data->rects.window.top &&
++        data->rects.visible.right >= data->rects.window.right && data->rects.visible.bottom >= data->rects.window.bottom)
++    {
++        /* a window of a GL format with alpha has a 32-bit visual: black 0 there is transparent, and whatever lies
++         * under the window shows through (Heroes 3: its white 800x600 window) -- opaque black */
++        unsigned long black = data->vis.depth == 32 ? 0xff000000 : BlackPixel( gdi_display, DefaultScreen( gdi_display ) );
++
++        TRACE( "%p/%lx: margins around %d,%d %dx%d of %dx%d black, depth %d\n", hwnd, data->whole_window,
++               surface->changes.x, surface->changes.y, surface->changes.width, surface->changes.height, w, h,
++               data->vis.depth );
++        XSetWindowBackground( gdi_display, data->whole_window, black );
++        XClearWindow( gdi_display, data->whole_window );
++        XFlush( gdi_display );
++    }
++    release_win_data( data );
++}
++
+ static void x11drv_client_surface_update( struct client_surface *client )
+ {
+     struct x11drv_client_surface *surface = impl_from_client_surface( client );
+     HWND hwnd = client->hwnd;
+ 
++    XWindowChanges changes = surface->changes;
++    Window attached = 0;
++    struct x11drv_win_data *data;
++
++    if ((data = get_win_data( hwnd )))
++    {
++        attached = data->client_window;
++        release_win_data( data );
++    }
+     client_surface_update_geometry( hwnd, surface );
+     client_surface_update_offscreen( hwnd, surface );
++    /* only when the child moved or was just attached: not at every frame */
++    if (memcmp( &changes, &surface->changes, sizeof(changes) ) || attached != surface->window)
++        clear_onscreen_margins( hwnd, surface );
++}
++
 +/* An emulated display mode with another aspect presents into part of the fullscreen window: the rest showed
 + * whatever the window surface held there (white in Fable). Paint it black, as a scaling display would. */
 +static void fill_present_margins( Drawable window, HWND toplevel, const RECT *dst )
@@ -30,12 +87,10 @@
 +    if (dst->top > 0) bands[count++] = (XRectangle){ dst->left, 0, dst->right - dst->left, dst->top };
 +    if (dst->bottom < h) bands[count++] = (XRectangle){ dst->left, dst->bottom, dst->right - dst->left, h - dst->bottom };
 +    XFillRectangles( gdi_display, window, gc, bands, count );
-+}
-+
+ }
+ 
  static void X11DRV_client_surface_present( struct client_surface *client, HDC hdc )
- {
-     struct x11drv_client_surface *surface = impl_from_client_surface( client );
-@@ -392,6 +420,7 @@
+@@ -392,6 +465,7 @@
      /* if window is exclusive fullscreen, ignore the window region clipping rules */
      if (hwnd == toplevel && NtUserGetPresentRect( toplevel, &rect, -1 /* raw dpi */ )) region = 0;
      else region = get_dc_monitor_region( hwnd, hdc );

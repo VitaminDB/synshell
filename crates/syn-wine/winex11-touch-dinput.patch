@@ -62,7 +62,7 @@
  }
  
  
-@@ -1424,6 +1437,211 @@
+@@ -1424,6 +1437,216 @@
      if (clipping_cursor) set_window_cursor( x11drv_thread_data()->clip_window, handle );
  }
  
@@ -89,6 +89,9 @@
 + */
 +#define TOUCH_STEP_MS  16   /* between the steps of a touch */
 +#define TOUCH_START_MS 500  /* a finger with no position by then is dropped */
++#define TOUCH_HOVER_MS 50   /* the cursor over the target before the press: frames for a polling game to see it */
++#define TOUCH_CLICK_MS 100  /* the button held as long as a mouse click: Heroes 3 polls the button once a frame
++                             * and misread a 16 ms press (missed, or one tap taken for two clicks) */
 +
 +static struct
 +{
@@ -214,6 +217,8 @@
 +    pthread_mutex_lock( &touch.mutex );
 +    now = NtGetTickCount();
 +    if (touch.active && !touch.started && now - touch.step_tick >= TOUCH_START_MS) touch.active = FALSE;
++    if (!touch.abs_pending && touch.press_pending) min_ms = max( min_ms, TOUCH_HOVER_MS );
++    else if (!touch.abs_pending && touch.release_pending) min_ms = max( min_ms, TOUCH_CLICK_MS );
 +    if (!touch.active || !touch.started || now - touch.step_tick < min_ms)
 +    {
 +        pthread_mutex_unlock( &touch.mutex );
