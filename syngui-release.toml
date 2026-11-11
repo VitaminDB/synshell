@@ -126,6 +126,7 @@ files = [
   { from = "crates/syn-modem/systemd/synmodem.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-nfcd/systemd/synnfc.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-health/autostart/syn-health-tracker.desktop", to = "etc/xdg/autostart/" },
+  { from = "crates/syn-phone/data/synphone-autostart.desktop", to = "etc/xdg/autostart/synphone.desktop" },
 ]
 
 [packages.synshell-game]

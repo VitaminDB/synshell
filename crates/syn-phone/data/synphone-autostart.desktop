@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Phone (background)
+Name[ru]=Телефон (фон)
+Comment=Keeps the dialer ready: incoming calls appear at once, recording continues with the window closed
+Comment[ru]=Держит «Телефон» наготове: входящий появляется сразу, запись идёт и с закрытым окном
+Exec=synphone --background
+Icon=synphone
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications
