@@ -1,6 +1,6 @@
 //! Проверка камер без службы: список, поток через [`syn_media::capture`], 3A, кадр в PNG.
 //!
-//! `cargo run --example mcam -- [кадров=90] [выход.png] [ширина высота] [video]`
+//! `[MCAM_CAM=id] cargo run --example mcam -- [кадров=90] [выход.png] [ширина высота] [video]`
 
 use std::time::Instant;
 
@@ -35,7 +35,9 @@ fn main() {
             println!("  media {} драйвер {} сенсор {} линза {:?}", d.media.display(), d.driver, d.sensor_node.display(), d.lens_node);
         }
     }
-    let Some(cam) = cams.into_iter().find(|c| matches!(c, syn_media::Cam::Mcam(_))) else {
+    // MCAM_CAM=id — какую камеру открыть (по умолчанию — первую media controller)
+    let want: Option<u32> = std::env::var("MCAM_CAM").ok().and_then(|s| s.parse().ok());
+    let Some(cam) = cams.into_iter().find(|c| matches!(c, syn_media::Cam::Mcam(_)) && want.is_none_or(|w| c.id() == w)) else {
         eprintln!("нет камер media controller");
         std::process::exit(1);
     };

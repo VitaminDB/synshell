@@ -770,8 +770,15 @@ impl Stream {
         let media = open_rw(&dev.media).map_err(|e| os_err(&dev.media.display().to_string(), e))?;
         let g = Graph::read(media.as_raw_fd()).map_err(|e| os_err("media", e))?;
         let mut last = OpenError { busy: false, text: t!("нет пути от сенсора до видеоузла").into() };
-        // путь, который уже заработал, — первым
+        // сначала пути, у которых больше связей уже включено (настроенный конвейер; занятые чужим потоком
+        // общие CSID/VFE так обходятся стороной — путей бывают десятки, перебор ограничен), а уже
+        // заработавший — первым
+        let links = g.data_links();
+        let enabled = |p: &[Hop]| {
+            p.iter().filter(|h| links.iter().any(|l| (l.0, l.1, l.2, l.3) == (h.src_ent, h.src_pad, h.sink_ent, h.sink_pad) && l.4 & LNK_FL_ENABLED != 0)).count()
+        };
         let mut order: Vec<usize> = (0..dev.paths.len()).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(enabled(&dev.paths[i])));
         let good = GOOD_PATH.lock().unwrap().iter().find(|(n, _)| *n == dev.name).map(|(_, i)| *i);
         if let Some(i) = good.filter(|i| *i < order.len()) {
             order.retain(|j| *j != i);
@@ -790,10 +797,13 @@ impl Stream {
                     tracing::info!("mcam: {} {}×{} через {}", dev.name, s.width, s.height, path.iter().map(|h| h.name.as_str()).collect::<Vec<_>>().join(" → "));
                     return Ok(s);
                 }
-                Err(e) if e.busy => return Err(e),
+                // путь занят другим потоком (общий CSID/VFE с другой камерой) — пробовать следующий: у передней
+                // и задней бывают свои; «занята» — только если свободного пути не нашлось
                 Err(e) => {
                     tracing::debug!("mcam: путь {i}: {}", e.text);
-                    last = e;
+                    if e.busy || !last.busy {
+                        last = e;
+                    }
                 }
             }
         }
