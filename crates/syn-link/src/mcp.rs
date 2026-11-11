@@ -116,8 +116,10 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"device": {"type": "string"}}), &[])},
         {"name": "read_file", "description": t!("Прочитать текстовый файл на устройстве."),
          "inputSchema": schema(json!({"device": dev, "path": {"type": "string"}}), &["device", "path"])},
-        {"name": "write_file", "description": t!("Записать текстовый файл на устройстве (создаётся или перезаписывается)."),
-         "inputSchema": schema(json!({"device": dev, "path": {"type": "string"}, "content": {"type": "string"}}), &["device", "path", "content"])},
+        {"name": "write_file", "description": t!("Записать файл на устройстве (создаётся или перезаписывается): текст из content или любой файл этой машины из from (двоичный, любого размера — программа, картинка, архив); mode — права (например 755)."),
+         "inputSchema": schema(json!({"device": dev, "path": {"type": "string"}, "content": {"type": "string"},
+             "from": {"type": "string", "description": t!("путь к файлу на этой машине (вместо content)")},
+             "mode": {"type": "string", "description": t!("права в восьмеричном виде, например 755")}}), &["device", "path"])},
         {"name": "record", "description": t!("Запись экрана устройства в видеофайл на этой машине (по умолчанию «Видео/Записи экрана»). \
 start — начать (с duration_s — записать столько секунд и вернуть результат сразу), потом жесты и прочее, stop — закончить: путь, параметры и кадр из середины. \
 Без height/fps/codec/quality — исходные параметры трансляции (родное разрешение, частота экрана, её кодек, высокое качество). status — идущие записи."),
@@ -328,13 +330,31 @@ impl Server {
                 Ok(text(clip(&out, 200_000)))
             }
             "write_file" => {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(arg_str(a, "content")?.as_bytes());
+                let data: Vec<u8> = match a.get("from").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                    Some(from) => std::fs::read(from).with_context(|| from.to_string())?,
+                    None => arg_str(a, "content")?.as_bytes().to_vec(),
+                };
                 let path = sh_quote(arg_str(a, "path")?);
-                let (code, _, err) = exec(&device, &format!("printf %s {b64} | base64 -d > {path}"), None, 30)?;
-                if code != 0 {
-                    bail!("{err}");
+                // кусками (предел длины команды): во временный файл рядом, проверка размера, затем на место
+                let tmp = sh_quote(&format!("{}.synlink-part", arg_str(a, "path")?));
+                const CHUNK: usize = 768 << 10;
+                let chunks: Vec<&[u8]> = if data.is_empty() { vec![&[][..]] } else { data.chunks(CHUNK).collect() };
+                for (i, c) in chunks.iter().enumerate() {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(c);
+                    let op = if i == 0 { ">" } else { ">>" };
+                    let (code, _, err) = exec(&device, &format!("printf %s {b64} | base64 -d {op} {tmp}"), None, 60)?;
+                    if code != 0 {
+                        let _ = exec(&device, &format!("rm -f -- {tmp}"), None, 10);
+                        bail!("{err}");
+                    }
                 }
-                Ok(text(t!("записано")))
+                let mode = a.get("mode").and_then(Value::as_str).filter(|m| !m.is_empty() && m.chars().all(|c| c.is_digit(8)));
+                let chmod = mode.map(|m| format!(" && chmod {m} -- {tmp}")).unwrap_or_default();
+                let (code, out, err) = exec(&device, &format!("test \"$(stat -c %s -- {tmp})\" = {}{chmod} && mv -f -- {tmp} {path} && echo ok || {{ rm -f -- {tmp}; echo size-mismatch >&2; exit 1; }}", data.len()), None, 30)?;
+                if code != 0 || !out.contains("ok") {
+                    bail!("{}", if err.trim().is_empty() { t!("файл записан не целиком").to_string() } else { err });
+                }
+                Ok(text(t!("записано: {n} байт", n = data.len())))
             }
             "record" => match a.get("action").and_then(Value::as_str).unwrap_or("start") {
                 "start" => self.record_start(&device, a),
