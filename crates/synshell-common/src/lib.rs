@@ -6,6 +6,7 @@
 pub mod action;
 pub mod app_theme;
 pub mod config;
+pub mod contacts;
 #[cfg(feature = "style")]
 pub mod csd;
 pub mod config_edit;
