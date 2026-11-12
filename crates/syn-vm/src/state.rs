@@ -237,6 +237,9 @@ pub struct St {
     pub busy: RwSignal<HashMap<String, String>>,
     /// Новый кадр экрана открытой машины.
     pub frame_tick: RwSignal<u64>,
+    /// Перестроить панель экрана: от кадров — не чаще 4 раз в секунду (панель, перестроенная на каждом
+    /// кадре, теряла нажатия — список режимов не закрывался), от действий — сразу ([`poke`]).
+    pub bar_tick: RwSignal<u64>,
     /// Новые миниатюры.
     pub thumb_tick: RwSignal<u64>,
     pub snapshots: RwSignal<Vec<Snapshot>>,
@@ -283,6 +286,7 @@ impl St {
             query: use_signal(String::new()),
             busy: use_signal(HashMap::new()),
             frame_tick: use_signal(0),
+            bar_tick: use_signal(0),
             thumb_tick: use_signal(0),
             snapshots: use_signal(Vec::new()),
             snap_name: use_signal(String::new()),
@@ -473,6 +477,23 @@ fn close_present(id: &str) {
     }
 }
 
+/// Перерисовать экран и панель сразу (действие пользователя, новое состояние).
+pub fn poke(st: St) {
+    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+    st.bar_tick.update(|t| *t = t.wrapping_add(1));
+}
+
+/// Новый кадр: панель — не чаще раза в 250 мс (состояние DLSS, размер кадра, режим).
+fn bar_from_frame(st: St) {
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    if last.is_some_and(|t| t.elapsed() < Duration::from_millis(250)) {
+        return;
+    }
+    *last = Some(std::time::Instant::now());
+    st.bar_tick.update(|t| *t = t.wrapping_add(1));
+}
+
 /// Ограничение частоты кадров гостя (0 — по монитору окна): в настройки машины (`--max-fps` серверу
 /// при следующем запуске) и сразу работающему серверу syn-gpu.
 pub fn set_max_fps(st: St, id: &str, n: u32) {
@@ -483,7 +504,7 @@ pub fn set_max_fps(st: St, id: &str, n: u32) {
     if let Some(p) = presents().lock().unwrap().get(id).cloned() {
         p.set_max_fps(n);
     }
-    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+    poke(st);
 }
 
 /// Частота монитора окна машины (мГц), если клиент syn-gpu её уже знает.
@@ -501,7 +522,7 @@ pub fn set_dlss(st: St, id: &str, on: bool) {
     }
     let p = presents().lock().unwrap().get(id).cloned();
     crate::dlss::set(id, &vm.name, p.as_ref(), on);
-    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+    poke(st);
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
@@ -855,7 +876,10 @@ pub fn attach(st: St, id: &str) {
     }
     let id_s = id.to_string();
     let on_frame: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-        run_on_main_thread(move || st.frame_tick.update(|t| *t = t.wrapping_add(1)));
+        run_on_main_thread(move || {
+            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            bar_from_frame(st);
+        });
     });
     let id_n = id_s.clone();
     let on_note = Arc::new(move |n: Note| {
@@ -920,7 +944,7 @@ pub fn attach(st: St, id: &str) {
                     p2.request_refresh(mhz);
                 }
                 if p2.desktop().is_none() {
-                    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+                    poke(st);
                 }
             });
             std::thread::sleep(Duration::from_secs(2));

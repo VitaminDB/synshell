@@ -144,7 +144,7 @@ pub fn page(st: St, full: bool) -> W {
         }
         let tid = vm.id.clone();
         stack = stack.child(Reactive::new(move || -> Vec<W> {
-            st.frame_tick.get();
+            st.bar_tick.get();
             if super::capture::active(&tid) {
                 return vec![];
             }
@@ -405,13 +405,13 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
             let mut o = bar_offset().lock().unwrap();
             *o = clamp_offset(st, (o.0 + u.delta.x, o.1 + u.delta.y));
             drop(o);
-            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            state::poke(st);
         })
         .on_pan_end(|_| save_bar(*bar_offset().lock().unwrap()))
         .on_double_click(move || {
             *bar_offset().lock().unwrap() = (0.0, 0.0);
             save_bar((0.0, 0.0));
-            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            state::poke(st);
         })
         .child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
     let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip);
@@ -595,7 +595,7 @@ fn mode_button(st: St, id: &str, size: (u32, u32)) -> W {
         .on_click(move || {
             st.keys_menu.set(false);
             st.modes_menu.set(!st.modes_menu.get_untracked());
-            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            state::poke(st);
         })
         .child(face);
     boxed(Tooltip::new(b, t!("Режим экрана и масштаб")).delay_ms(500))
@@ -722,13 +722,13 @@ fn modes_menu(st: St, id: String) -> W {
         for s in [model::ScaleMode::Fit, model::ScaleMode::Integer, model::ScaleMode::Stretch, model::ScaleMode::Native] {
             let f: Box<dyn Fn() + Send + Sync> = Box::new(move || {
                 state::edit(st, |v| v.scale = s);
-                st.frame_tick.update(|t| *t = t.wrapping_add(1));
+                state::poke(st);
             });
             col = col.child(menu_row(syngui::i18n::t(s.title()), vm.scale == s, Some(f)));
         }
         let f: Box<dyn Fn() + Send + Sync> = Box::new(move || {
             state::edit(st, |v| v.smooth = !v.smooth);
-            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            state::poke(st);
         });
         col = col.child(menu_row(t!("Сглаживание"), vm.smooth, Some(f)));
         // Частота кадров гостя (syn-gpu): по монитору окна или не больше N — сразу и со следующего запуска.

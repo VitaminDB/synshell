@@ -280,7 +280,7 @@ fn lock(st: crate::state::St, vm: Vm, own: bool) {
     *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false, own });
     log(&vm, "включён");
     // Панель над экраном — скрыть (перерисовка).
-    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+    crate::state::poke(st);
     crate::state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить"));
 }
 
@@ -289,7 +289,7 @@ pub fn stop(reason: &str) {
     let Some(c) = CAP.lock().unwrap().take() else { return };
     log(&c.vm, &format!("выход: {reason}"));
     let st = c.st;
-    run_on_main_thread(move || st.frame_tick.update(|t| *t = t.wrapping_add(1)));
+    run_on_main_thread(move || crate::state::poke(st));
     syngui::signal::on_raw_motion(None);
     let _ = syngui::signal::set_pointer_lock(false);
     let _ = syngui::signal::inhibit_shortcuts(false);
