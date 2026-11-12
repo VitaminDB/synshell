@@ -49,7 +49,7 @@ Text { color: var(--fg); font-size: 14px; }
 .bubble-in { background: var(--bubble-in); border-bottom-left-radius: 6px; }
 .bubble-out { background: var(--accent); border-bottom-right-radius: 6px; }
 .bubble-failed { background: var(--danger); }
-.bubble-text { font-size: 15px; }
+.bubble-text { font-size: 15px; color: var(--fg); }
 .bubble-text-out { color: #ffffff; }
 .bubble-meta { font-size: 10px; color: var(--muted); }
 .bubble-meta-out { color: #ffffffb0; }
@@ -78,3 +78,6 @@ Text { color: var(--fg); font-size: 14px; }
 .drag-fill { flex-grow: 1; height: 40px; align-items: center; }
 .window-controls { height: 40px; padding: 0px 0px 0px 6px; align-items: center; }
 SystemWindowControls { color: var(--fg); background-color: var(--hover); }
+.bubble-row { padding-bottom: 6px; }
+.bubble-text { --md-link-color: var(--accent); }
+.bubble-text-out { --md-link-color: #ffffff; }

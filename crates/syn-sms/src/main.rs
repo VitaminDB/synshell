@@ -183,6 +183,7 @@ fn demo(st: St) {
         m(alex, tx("The forecast says sunny all day", "Обещают солнце весь день"), 50 * 60, true, true),
         m(alex, tx("Perfect, don't forget water and snacks", "Отлично, не забудь воду и перекус"), 45 * 60, false, true),
         m(alex, tx("Already packed. See you tomorrow!", "Уже собрал. До завтра!"), 12 * 60, true, false),
+        m(alex, tx("Route: https://example.org/trail/42\nCall me at +1 555 014 2000 if lost.\nBalance check: *100#", "Маршрут: https://example.org/trail/42\nЕсли потеряешься — звони +7 701 555 01 42.\nБаланс: *100#"), 10 * 60, true, false),
         m("+1 555 0198", tx("Your table for two is booked for 19:30.", "Столик на двоих забронирован на 19:30."), 3 * 3600, true, false),
         m("+1 555 0117", tx("Thanks, got the files.", "Спасибо, файлы получил."), 27 * 3600, true, true),
         m("+1 555 0117", tx("Sending the draft tonight.", "Черновик пришлю вечером."), 28 * 3600, false, true),
@@ -695,9 +696,16 @@ fn bubble(m: &Sms) -> W {
         SmsStatus::Failed => format!(" · {}", t!("не отправлено")),
         _ => String::new(),
     };
+    // Текст — Markdown из SMS (`sms_markdown`): выделение (долгое нажатие — слово и меню «Копировать»),
+    // ссылки, номера и коды USSD — по касанию.
     let body = Column::new()
         .gap(4.0)
-        .child(Text::new(m.text.clone()).class(if m.incoming { "bubble-text" } else { "bubble-text bubble-text-out" }))
+        .child(
+            syngui::widgets::MarkdownView::new(sms_markdown(&m.text))
+                .selectable(true)
+                .on_link_click(open_link)
+                .class(if m.incoming { "bubble-text" } else { "bubble-text bubble-text-out" }),
+        )
         .child(Text::new(format!("{}{status}", tm::hm(m.time))).class(if m.incoming { "bubble-meta" } else { "bubble-meta bubble-meta-out" }));
     let class = match (m.incoming, m.status) {
         (true, _) => "bubble bubble-in",
@@ -707,8 +715,108 @@ fn bubble(m: &Sms) -> W {
     Box::new(
         Row::new()
             .main_axis_alignment(if m.incoming { MainAxisAlignment::Start } else { MainAxisAlignment::End })
-            .child(DecoratedBox::new().child(body).class(class)),
+            .child(DecoratedBox::new().child(body).class(class))
+            // промежуток между пузырями: они идут одним Reactive, gap колонки между ними не действует
+            .class("bubble-row"),
     )
+}
+
+/// Ссылка из SMS: `tel:` (номер или код USSD) — в «Телефон», остальное — браузеру.
+fn open_link(url: &str) {
+    let mut cmd = match url.strip_prefix("tel:") {
+        Some(n) => {
+            let mut c = std::process::Command::new("synphone");
+            c.arg(n.replace("%23", "#"));
+            c
+        }
+        None => {
+            let mut c = std::process::Command::new("xdg-open");
+            c.arg(url);
+            c
+        }
+    };
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
+
+/// Текст SMS → Markdown: всё как есть (знаки экранированы, переносы строк сохранены), а адреса
+/// (`https://…`), номера телефонов (`+7 701 …`, 11 цифр с 8/7) и коды USSD (`*835#`) — ссылками.
+fn sms_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (b, c) = chars[i];
+        let rest = &text[b..];
+        let prev_alnum = i > 0 && chars[i - 1].1.is_alphanumeric();
+        // адрес
+        if !prev_alnum && (rest.starts_with("https://") || rest.starts_with("http://")) {
+            let mut end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            while end > 0 && rest[..end].ends_with(['.', ',', ';', ':', '!', '?', ')', '»', '"', '\'']) {
+                end -= rest[..end].chars().next_back().map_or(1, char::len_utf8);
+            }
+            let url = &rest[..end];
+            out.push_str(&format!("[{}](<{}>)", md_escape(url), url));
+            i += url.chars().count();
+            continue;
+        }
+        // код USSD: * или #, цифры, *, # … и # в конце
+        if !prev_alnum && (c == '*' || c == '#') {
+            let len = rest.chars().take_while(|ch| ch.is_ascii_digit() || *ch == '*' || *ch == '#').count();
+            let code: String = rest.chars().take(len).collect();
+            if len >= 3 && code.ends_with('#') && code.chars().any(|ch| ch.is_ascii_digit()) {
+                out.push_str(&format!("[{}](tel:{})", md_escape(&code), code.replace('#', "%23")));
+                i += len;
+                continue;
+            }
+        }
+        // номер телефона: +цифры (10–15) или 11 цифр с 8/7, допускаются пробелы и дефисы внутри
+        if !prev_alnum && (c == '+' || c == '8' || c == '7') {
+            let mut digits = 0;
+            let mut len = 0;
+            for (k, ch) in rest.chars().enumerate() {
+                if ch.is_ascii_digit() {
+                    digits += 1;
+                    len = k + 1;
+                } else if (k == 0 && ch == '+') || ((ch == ' ' || ch == '-') && digits > 0) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            let next_alnum = rest.chars().nth(len).is_some_and(|ch| ch.is_alphanumeric());
+            let ok = if c == '+' { (10..=15).contains(&digits) } else { digits == 11 };
+            if ok && !next_alnum {
+                let shown: String = rest.chars().take(len).collect();
+                let number: String = shown.chars().filter(|ch| ch.is_ascii_digit() || *ch == '+').collect();
+                out.push_str(&format!("[{}](tel:{})", md_escape(&shown), number));
+                i += len;
+                continue;
+            }
+        }
+        match c {
+            // перенос строки — жёсткий (в Markdown одиночный перенос склеивает строки)
+            '\n' => out.push_str(if rest.starts_with("\n\n") || (i > 0 && chars[i - 1].1 == '\n') { "\n" } else { "  \n" }),
+            _ => out.push_str(&md_escape(&c.to_string())),
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Знаки Markdown в обычном тексте — экранированными (в CommonMark экранируется любой знак ASCII-пунктуации).
+fn md_escape(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_ascii_punctuation() {
+            o.push('\\');
+        }
+        o.push(c);
+    }
+    o
 }
 
 fn new_view(st: St, phone: bool) -> W {
@@ -737,4 +845,25 @@ fn new_view(st: St, phone: bool) -> W {
             .child(DecoratedBox::new().class("grow"))
             .child(composer(st, move || st.new_number.get_untracked())),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sms_markdown;
+
+    #[test]
+    fn links_codes_numbers() {
+        let md = sms_markdown("Сайт https://reg.altel.kz/ru.\nНаберите *835# или +7 701 555 01 42 (8 800 2000 000).");
+        assert!(md.contains("[https\\:\\/\\/reg\\.altel\\.kz\\/ru](<https://reg.altel.kz/ru>)"), "{md}");
+        assert!(md.contains("](tel:*835%23)"), "{md}");
+        assert!(md.contains("](tel:+77015550142)"), "{md}");
+        assert!(md.contains("](tel:88002000000)"), "{md}");
+        assert!(md.contains("  \n"), "перенос строки жёсткий: {md}");
+    }
+
+    #[test]
+    fn plain_text_escaped() {
+        assert_eq!(sms_markdown("1. *важно* 21:57"), "1\\. \\*важно\\* 21\\:57");
+        assert_eq!(sms_markdown("код 4821"), "код 4821");
+    }
 }
