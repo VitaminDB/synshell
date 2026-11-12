@@ -254,6 +254,8 @@ pub enum ScaleMode {
     /// Вписать с сохранением пропорций (поля — фоном).
     #[default]
     Fit,
+    /// Вписать целым масштабом (2×, 3×…): пиксели гостя одинаковые, поля — фоном.
+    Integer,
     /// Растянуть на всё окно.
     Stretch,
     /// Пиксель в пиксель, по центру.
@@ -261,17 +263,10 @@ pub enum ScaleMode {
 }
 
 impl ScaleMode {
-    pub fn next(self) -> Self {
-        match self {
-            ScaleMode::Fit => ScaleMode::Stretch,
-            ScaleMode::Stretch => ScaleMode::Native,
-            ScaleMode::Native => ScaleMode::Fit,
-        }
-    }
-
     pub fn title(self) -> &'static str {
         match self {
             ScaleMode::Fit => n_!("Вписать с пропорциями"),
+            ScaleMode::Integer => n_!("Целый масштаб"),
             ScaleMode::Stretch => n_!("Растянуть"),
             ScaleMode::Native => n_!("1:1 — пиксель в пиксель"),
         }
@@ -502,6 +497,8 @@ pub struct Vm {
     pub auto_resize: bool,
     /// Как кадр гостя ложится в окно, когда разрешение не под окно.
     pub scale: ScaleMode,
+    /// Сглаживать кадр гостя при увеличении (выключено — чёткие пиксели: DOS, старые игры).
+    pub smooth: bool,
     /// 3D-ускорение: паравиртуальная видеокарта syn-gpu (сервер vfio-user, проект
     /// syn-virt) — Windows с её драйвером; кадры игр — слоем поверх экрана.
     pub gpu3d: bool,
@@ -564,6 +561,7 @@ impl Default for Vm {
             display: DisplayModel::Virtio,
             auto_resize: true,
             scale: ScaleMode::Fit,
+            smooth: true,
             gpu3d: false,
             gpu3d_args: String::new(),
             sound: true,

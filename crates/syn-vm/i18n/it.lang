@@ -323,6 +323,7 @@
 "нет инструмента {name}" = "nessuno strumento {name}"
 
 # src/model.rs
+"Целый масштаб" = "Scala intera"
 "Linux" = "Linux"
 "Windows 11" = "Windows 11"
 "Windows 10 и старше" = "Windows 10 e precedenti"
@@ -441,6 +442,8 @@
 "экран гостя отключился (машина выключена?)" = "lo schermo del guest si è disconnesso (macchina spenta?)"
 
 # src/state.rs
+"Режим экрана не выбран: {e}" = "Modalità schermo non impostata: {e}"
+"Режим экрана не выбран: нет связи с видеокартой syn-gpu" = "Modalità schermo non impostata: nessuna connessione con la scheda video syn-gpu"
 "Выключена" = "Spenta"
 "Работает" = "In esecuzione"
 "Пауза" = "In pausa"
@@ -626,6 +629,27 @@
 "{n} дн. назад" = "{n} giorni fa"
 
 # src/ui/screen.rs
+"2 цвета" = "2 colori"
+"4 цвета" = "4 colori"
+"16 цветов" = "16 colori"
+"256 цветов" = "256 colori"
+"тысячи цветов" = "migliaia di colori"
+"миллионы цветов" = "milioni di colori"
+"{b} бит" = "{b} bit"
+"Текст {w}×{h}" = "Testo {w}×{h}"
+"Windows {w}×{h}" = "Windows {w}×{h}"
+"Под окно ({w}×{h})" = "Adatta alla finestra ({w}×{h})"
+"Графика {w}×{h}, {c}" = "Grafica {w}×{h}, {c}"
+"Графика {w}×{h}" = "Grafica {w}×{h}"
+"По размеру окна" = "Alla dimensione della finestra"
+"Под окно" = "Adatta alla finestra"
+"Режим экрана и масштаб" = "Modalità schermo e scala"
+"Режим экрана DOS" = "Modalità schermo DOS"
+"Разрешение экрана" = "Risoluzione dello schermo"
+"Применится в командной строке DOS — после выхода из программы" = "Verrà applicata al prompt di DOS, all’uscita dal programma"
+"Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка" = "Per cambiare modalità, carica SYNMOUSE: avvia SYNGPU → Mouse e audio → avvio automatico"
+"Масштаб" = "Scala"
+"Сглаживание" = "Smussatura"
 "Подключение к экрану…" = "Connessione allo schermo…"
 "Мышь освобождена" = "Mouse rilasciato"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Cattura del mouse: per le macchine con «Accelerazione 3D (syn-gpu)»"
@@ -639,8 +663,6 @@
 "Разрешение под окно: выключено" = "Risoluzione adattata alla finestra: disattiva"
 "Разрешение гостя подстраивается под окно" = "La risoluzione del guest segue la finestra"
 "Разрешение гостя больше не меняется" = "La risoluzione del guest non cambia più"
-"Масштаб: {m} (нажмите — следующий)" = "Scala: {m} (clic per la successiva)"
-"Масштаб: {m}" = "Scala: {m}"
 "Во весь экран (Ctrl+Alt+F)" = "Schermo intero (Ctrl+Alt+F)"
 "Машина на паузе" = "Macchina in pausa"
 "Ждём изображение с видеокарты syn-gpu…" = "In attesa dell'immagine dalla scheda grafica syn-gpu…"

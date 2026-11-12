@@ -53,9 +53,6 @@ pub mod icons {
     pub const EDIT: &str = "\u{E3C9}";
     pub const SECURITY: &str = "\u{E32A}";
     pub const FIT: &str = "\u{EA10}";
-    pub const ASPECT: &str = "\u{E85B}";
-    pub const STRETCH: &str = "\u{F1CE}";
-    pub const ONE_TO_ONE: &str = "\u{E3C2}";
     pub const MOUSE: &str = "\u{E323}";
     /// drag_indicator — ручка перетаскивания.
     pub const DRAG: &str = "\u{E945}";
@@ -249,6 +246,8 @@ pub struct St {
     pub fullscreen: RwSignal<bool>,
     /// Меню «ещё» на панели экрана.
     pub keys_menu: RwSignal<bool>,
+    /// Открыт выпадающий список режимов экрана и масштаба.
+    pub modes_menu: RwSignal<bool>,
     /// Показать полную командную строку QEMU.
     pub show_cmd: RwSignal<bool>,
     /// Размер области экрана (для разрешения гостя).
@@ -289,6 +288,7 @@ impl St {
             guest_size: use_signal((0, 0)),
             fullscreen: use_signal(false),
             keys_menu: use_signal(false),
+            modes_menu: use_signal(false),
             show_cmd: use_signal(false),
             view_size: use_signal((0, 0)),
             window: use_signal(syngui::window::WindowState::default()),
@@ -338,6 +338,21 @@ pub fn game_layer(id: &str) -> Option<crate::present::Layer> {
 /// Рабочий стол гостя на карте syn-gpu (кадры DESKTOP).
 pub fn desktop_layer(id: &str) -> Option<crate::present::Layer> {
     presents().lock().unwrap().get(id).and_then(|p| p.desktop())
+}
+
+/// Режимы экрана гостя от сервера syn-gpu (DOS — текстовые режимы, Windows — разрешения).
+pub fn guest_modes(id: &str) -> Option<crate::present::GuestModes> {
+    presents().lock().unwrap().get(id).and_then(|p| p.modes())
+}
+
+/// Выбрать режим экрана гостя из списка сервера syn-gpu.
+pub fn set_guest_mode(st: St, id: &str, e: crate::present::ModeEntry) {
+    let p = presents().lock().unwrap().get(id).cloned();
+    match p.map(|p| p.set_mode(e)) {
+        Some(Ok(())) => {}
+        Some(Err(err)) => toast_err(st, t!("Режим экрана не выбран: {e}", e = err.to_string())),
+        None => toast_err(st, t!("Режим экрана не выбран: нет связи с видеокартой syn-gpu")),
+    }
 }
 
 /// Сервер syn-gpu машины открыл сокет кадров, но рабочий стол не пришёл ни разу — сколько ждём.

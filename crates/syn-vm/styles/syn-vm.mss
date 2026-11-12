@@ -277,7 +277,6 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 .float-bar .ibtn-icon { icon-color: #ffffff; icon-size: 19px; }
 .float-bar .ibtn { padding: 7px; &:hover { background-color: #ffffff22; } }
 .float-bar.auto .ibtn-icon { icon-color: #ffffff; }
-.res-label { font-size: 11px; color: #ffffffaa; padding: 0px 6px; }
 .vsep { width: 1px; height: 20px; background-color: #ffffff2a; margin: 0px 4px; }
 .menu {
     padding: 6px;
@@ -289,6 +288,21 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 }
 .menu-item { padding: 8px 12px; border-radius: 9px; &:hover { background-color: #ffffff1c; } }
 .menu-label { color: #ffffff; font-size: 13px; }
+.menu-item.off { opacity: 0.45; &:hover { background-color: #00000000; } }
+.menu-item.checked .menu-label { font-weight: 600; }
+.menu-check { icon-size: 16px; icon-color: var(--accent); }
+.menu-check-gap { width: 16px; height: 16px; }
+.menu-head { font-size: 11px; font-weight: 600; color: #ffffff80; padding: 6px 12px 4px 12px; }
+.menu-col { min-width: 200px; }
+.menu-hint { padding: 8px 12px; margin: 4px 0px 0px 0px; border-radius: 9px; background-color: #ffffff0f; max-width: 300px; }
+.menu-hint-icon { icon-size: 15px; icon-color: #ffb02e; }
+.menu-hint-text { font-size: 12px; color: #ffffffcc; }
+.modes-menu { background-color: #1b1b22; }
+.mode-btn { padding: 5px 8px 5px 10px; border-radius: 999px; &:hover { background-color: #ffffff22; } }
+.mode-btn.open { background-color: #ffffff2a; }
+.mode-btn.pending { border: 1px solid #ffb02e88; }
+.mode-label { font-size: 12px; color: #ffffffdd; }
+.mode-arrow { icon-size: 16px; icon-color: #ffffffaa; }
 .veil { background-color: #000000a6; }
 .veil-icon { icon-size: 44px; icon-color: #ffffff; }
 .veil-title { font-size: 17px; font-weight: 600; color: #ffffff; }

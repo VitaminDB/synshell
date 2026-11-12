@@ -41,6 +41,10 @@ pub struct Notice {
     pub bytes: u64,
     pub free: u64,
 }
+/// Сервер → клиент: режимы экрана гостя (`Modes`: текущий, флаги, список на выбор).
+const MODES: u32 = 7;
+/// Клиент → сервер: выбор режима из списка (`ModeEntry`).
+const SET_MODE: u32 = 21;
 const IMAGE: u32 = 4;
 const RELEASE: u32 = 16;
 const CAPS: u32 = 18;
@@ -88,6 +92,8 @@ pub struct Present {
     desk_size: Mutex<(u32, u32)>,
     /// Курсор гостя для записи экрана: левый верхний угол на экране гостя и картинка RGBA.
     cursor: Mutex<Option<GuestCursor>>,
+    /// Режимы экрана гостя (последний MODES).
+    modes: Mutex<Option<GuestModes>>,
 }
 
 /// Курсор гостя: где он на экране и как выглядит (для записи — в кадре его нет).
@@ -98,6 +104,84 @@ pub struct GuestCursor {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<Vec<u8>>,
+}
+
+/// Вид режима экрана (`ModeEntry.kind`, syn-virt proto `mode_kind`).
+pub mod mode_kind {
+    /// Текст: колонки×строки.
+    pub const TEXT: u16 = 1;
+    /// Графика: точки и бит на точку.
+    pub const GRAPHICS: u16 = 2;
+    /// Под окно: DOS — текст размером с окно, Windows — разрешение следует за окном.
+    pub const WINDOW: u16 = 3;
+}
+
+/// Флаги `Modes.flags` (syn-virt proto `modes_flags`).
+pub mod modes_flags {
+    /// Экран у VGA/VBE (DOS): список — текстовые режимы.
+    pub const DOS: u32 = 1 << 0;
+    /// В DOS загружен SYNMOUSE — выбор применится; без него список только для сведения.
+    pub const AGENT: u32 = 1 << 1;
+    /// Рабочий стол Windows: список — разрешения.
+    pub const DESKTOP: u32 = 1 << 2;
+    /// Разрешение Windows задано вручную (не под окно).
+    pub const FIXED: u32 = 1 << 3;
+    /// Выбор ещё не применён (DOS: ждёт командной строки).
+    pub const PENDING: u32 = 1 << 4;
+}
+
+/// Режим экрана гостя (`ModeEntry`: kind, _pad, width, height, bpp, _pad2 — по u16).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModeEntry {
+    pub kind: u16,
+    pub width: u16,
+    pub height: u16,
+    pub bpp: u16,
+}
+
+impl ModeEntry {
+    const SIZE: usize = 12;
+
+    fn parse(b: &[u8]) -> Self {
+        let u = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+        Self { kind: u(0), width: u(4), height: u(6), bpp: u(8) }
+    }
+
+    fn bytes(&self) -> [u8; Self::SIZE] {
+        let mut b = [0u8; Self::SIZE];
+        b[0..2].copy_from_slice(&self.kind.to_le_bytes());
+        b[4..6].copy_from_slice(&self.width.to_le_bytes());
+        b[6..8].copy_from_slice(&self.height.to_le_bytes());
+        b[8..10].copy_from_slice(&self.bpp.to_le_bytes());
+        b
+    }
+}
+
+/// Режимы экрана гостя из `MODES`: что сейчас, флаги, варианты на выбор.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GuestModes {
+    pub current: ModeEntry,
+    pub flags: u32,
+    pub list: Vec<ModeEntry>,
+}
+
+impl GuestModes {
+    /// `Modes { current, flags, count, list[24] }`.
+    fn parse(b: &[u8]) -> Option<Self> {
+        let n = ModeEntry::SIZE;
+        if b.len() < n + 8 {
+            return None;
+        }
+        let current = ModeEntry::parse(&b[..n]);
+        let flags = u32_at(b, n);
+        let count = (u32_at(b, n + 4) as usize).min(24);
+        let list = (0..count).map(|i| n + 8 + i * n).take_while(|&o| o + n <= b.len()).map(|o| ModeEntry::parse(&b[o..o + n])).collect();
+        Some(Self { current, flags, list })
+    }
+
+    pub fn has(&self, f: u32) -> bool {
+        self.flags & f != 0
+    }
 }
 
 /// Номер указателя syngui (`CursorIcon::Custom`) для курсора гостя машины.
@@ -151,6 +235,19 @@ impl Present {
                 tracing::info!("syn-gpu present: частота монитора {:.3} Гц", mhz as f64 / 1000.0);
             }
         }
+    }
+
+    /// Режимы экрана гостя (последний `MODES` сервера; старый сервер — `None`).
+    pub fn modes(&self) -> Option<GuestModes> {
+        self.modes.lock().unwrap().clone()
+    }
+
+    /// Выбрать режим из списка `MODES` (сервер ответит новым `MODES`).
+    pub fn set_mode(&self, e: ModeEntry) -> Result<()> {
+        let tx = self.tx.lock().unwrap().clone().context("нет связи с сервером syn-gpu")?;
+        send(&mut tx.lock().unwrap(), SET_MODE, &e.bytes())?;
+        tracing::info!("syn-gpu present: выбран режим {e:?}");
+        Ok(())
     }
 
     /// Разрешение экрана гостя под окно (физические пиксели).
@@ -218,7 +315,7 @@ fn view_socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dyn Fn(Notice) + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -251,7 +348,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
                             }
                         }
                     }
-                } else if !me.layers.lock().unwrap().is_empty() {
+                } else if me.modes.lock().unwrap().take().is_some() || !me.layers.lock().unwrap().is_empty() {
                     // Сервера syn-gpu больше нет (машина выключена) — кадры убрать.
                     me.layers.lock().unwrap().clear();
                     on_change();
@@ -268,7 +365,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
 pub fn viewer(id: &str) -> Result<Arc<Present>> {
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
     let p2 = p.clone();
     std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -285,7 +382,7 @@ pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
     // приходят рабочий стол и курсор; кадры игр — `grab(…, false)` (основной сокет).
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -341,7 +438,7 @@ pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     // Кадр рабочего стола — наблюдателем (окно не вытесняется); кадры игр приходят только главному.
     let path = if desktop { view_socket(id) } else { socket(id) };
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -524,6 +621,17 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                 };
                 tracing::info!("syn-gpu present: поверхность {surface:#x}: изображение {index} {}×{}", img.width, img.height);
                 images.insert((surface, index), Arc::new(img));
+            }
+            MODES => {
+                if let Some(m) = GuestModes::parse(&payload) {
+                    let mut cur = p.modes.lock().unwrap();
+                    if cur.as_ref() != Some(&m) {
+                        tracing::info!("syn-gpu present: режимы экрана: сейчас {:?}, флаги {:#x}, вариантов {}", m.current, m.flags, m.list.len());
+                        *cur = Some(m);
+                        drop(cur);
+                        on_change();
+                    }
+                }
             }
             NOTICE if payload.len() >= 24 => {
                 let n = Notice { kind: u32_at(&payload, 0), bytes: u64_at(&payload, 8), free: u64_at(&payload, 16) };
@@ -720,6 +828,7 @@ mod tests {
             id: String::new(),
             desk_size: Mutex::new((0, 0)),
             cursor: Mutex::new(None),
+            modes: Mutex::new(None),
         };
         let mut m = Vec::new();
         m.extend_from_slice(&NOTICE.to_le_bytes());
@@ -761,7 +870,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -815,7 +924,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -857,5 +966,31 @@ mod tests {
             std::ptr::write_unaligned(libc::CMSG_DATA(c) as *mut RawFd, fd);
             assert!(libc::sendmsg(s.as_raw_fd(), &msg, 0) > 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod modes_tests {
+    use super::*;
+
+    /// `Modes` как его шлёт syn-gpu (repr(C), 308 байт): текущий, флаги, count, list[24].
+    #[test]
+    fn modes_parse_and_set_mode_bytes() {
+        let e = |k: u16, w: u16, h: u16, b: u16| ModeEntry { kind: k, width: w, height: h, bpp: b };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&e(mode_kind::GRAPHICS, 640, 480, 8).bytes());
+        buf.extend_from_slice(&(modes_flags::DOS | modes_flags::AGENT | modes_flags::PENDING).to_le_bytes());
+        buf.extend_from_slice(&2u32.to_le_bytes());
+        let list = [e(mode_kind::TEXT, 132, 50, 0), e(mode_kind::WINDOW, 166, 52, 0)];
+        for i in 0..24 {
+            buf.extend_from_slice(&list.get(i).copied().unwrap_or_default().bytes());
+        }
+        assert_eq!(buf.len(), 308);
+        let m = GuestModes::parse(&buf).unwrap();
+        assert_eq!(m.current, e(mode_kind::GRAPHICS, 640, 480, 8));
+        assert!(m.has(modes_flags::PENDING) && !m.has(modes_flags::DESKTOP));
+        assert_eq!(m.list, list.to_vec());
+        // SET_MODE: тот же ModeEntry — kind, _pad, width, height, bpp, _pad2.
+        assert_eq!(list[0].bytes(), [1, 0, 0, 0, 132, 0, 50, 0, 0, 0, 0, 0]);
     }
 }

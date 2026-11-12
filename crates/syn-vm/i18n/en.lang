@@ -323,6 +323,7 @@
 "нет инструмента {name}" = "no tool {name}"
 
 # src/model.rs
+"Целый масштаб" = "Integer scale"
 "Linux" = "Linux"
 "Windows 11" = "Windows 11"
 "Windows 10 и старше" = "Windows 10 and older"
@@ -441,6 +442,8 @@
 "экран гостя отключился (машина выключена?)" = "the guest screen disconnected (machine off?)"
 
 # src/state.rs
+"Режим экрана не выбран: {e}" = "Screen mode not set: {e}"
+"Режим экрана не выбран: нет связи с видеокартой syn-gpu" = "Screen mode not set: no connection to the syn-gpu video card"
 "Выключена" = "Off"
 "Работает" = "Running"
 "Пауза" = "Paused"
@@ -626,6 +629,27 @@
 "{n} дн. назад" = "{n} days ago"
 
 # src/ui/screen.rs
+"2 цвета" = "2 colors"
+"4 цвета" = "4 colors"
+"16 цветов" = "16 colors"
+"256 цветов" = "256 colors"
+"тысячи цветов" = "thousands of colors"
+"миллионы цветов" = "millions of colors"
+"{b} бит" = "{b}-bit"
+"Текст {w}×{h}" = "Text {w}×{h}"
+"Windows {w}×{h}" = "Windows {w}×{h}"
+"Под окно ({w}×{h})" = "Fit to window ({w}×{h})"
+"Графика {w}×{h}, {c}" = "Graphics {w}×{h}, {c}"
+"Графика {w}×{h}" = "Graphics {w}×{h}"
+"По размеру окна" = "Fit to window"
+"Под окно" = "Fit to window"
+"Режим экрана и масштаб" = "Screen mode and scale"
+"Режим экрана DOS" = "DOS screen mode"
+"Разрешение экрана" = "Screen resolution"
+"Применится в командной строке DOS — после выхода из программы" = "Applies at the DOS command prompt — after the program exits"
+"Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка" = "To change the mode, load SYNMOUSE: run SYNGPU → Mouse and sound → autostart"
+"Масштаб" = "Scale"
+"Сглаживание" = "Smoothing"
 "Подключение к экрану…" = "Connecting to the screen…"
 "Мышь освобождена" = "Mouse released"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Mouse capture — for machines with “3D acceleration (syn-gpu)”"
@@ -639,8 +663,6 @@
 "Разрешение под окно: выключено" = "Fit resolution to window: off"
 "Разрешение гостя подстраивается под окно" = "Guest resolution follows the window"
 "Разрешение гостя больше не меняется" = "Guest resolution no longer changes"
-"Масштаб: {m} (нажмите — следующий)" = "Scale: {m} (click for next)"
-"Масштаб: {m}" = "Scale: {m}"
 "Во весь экран (Ctrl+Alt+F)" = "Full screen (Ctrl+Alt+F)"
 "Машина на паузе" = "Machine is paused"
 "Ждём изображение с видеокарты syn-gpu…" = "Waiting for a picture from the syn-gpu graphics card…"

@@ -323,6 +323,7 @@
 "нет инструмента {name}" = "{name} aracı yok"
 
 # src/model.rs
+"Целый масштаб" = "Tam sayı ölçek"
 "Linux" = "Linux"
 "Windows 11" = "Windows 11"
 "Windows 10 и старше" = "Windows 10 ve öncesi"
@@ -441,6 +442,8 @@
 "экран гостя отключился (машина выключена?)" = "konuk ekranının bağlantısı kesildi (makine kapalı mı?)"
 
 # src/state.rs
+"Режим экрана не выбран: {e}" = "Ekran modu ayarlanamadı: {e}"
+"Режим экрана не выбран: нет связи с видеокартой syn-gpu" = "Ekran modu ayarlanamadı: syn-gpu ekran kartıyla bağlantı yok"
 "Выключена" = "Kapalı"
 "Работает" = "Çalışıyor"
 "Пауза" = "Duraklatıldı"
@@ -626,6 +629,27 @@
 "{n} дн. назад" = "{n} gün önce"
 
 # src/ui/screen.rs
+"2 цвета" = "2 renk"
+"4 цвета" = "4 renk"
+"16 цветов" = "16 renk"
+"256 цветов" = "256 renk"
+"тысячи цветов" = "binlerce renk"
+"миллионы цветов" = "milyonlarca renk"
+"{b} бит" = "{b} bit"
+"Текст {w}×{h}" = "Metin {w}×{h}"
+"Windows {w}×{h}" = "Windows {w}×{h}"
+"Под окно ({w}×{h})" = "Pencereye sığdır ({w}×{h})"
+"Графика {w}×{h}, {c}" = "Grafik {w}×{h}, {c}"
+"Графика {w}×{h}" = "Grafik {w}×{h}"
+"По размеру окна" = "Pencere boyutuna göre"
+"Под окно" = "Pencereye sığdır"
+"Режим экрана и масштаб" = "Ekran modu ve ölçek"
+"Режим экрана DOS" = "DOS ekran modu"
+"Разрешение экрана" = "Ekran çözünürlüğü"
+"Применится в командной строке DOS — после выхода из программы" = "DOS komut isteminde uygulanacak — program kapandıktan sonra"
+"Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка" = "Modu değiştirmek için SYNMOUSE'u yükleyin: SYNGPU → Fare ve ses → otomatik başlatma"
+"Масштаб" = "Ölçek"
+"Сглаживание" = "Yumuşatma"
 "Подключение к экрану…" = "Ekrana bağlanılıyor…"
 "Мышь освобождена" = "Fare bırakıldı"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Fare yakalama — “3D hızlandırma (syn-gpu)” olan makineler için"
@@ -639,8 +663,6 @@
 "Разрешение под окно: выключено" = "Çözünürlüğü pencereye uydur: kapalı"
 "Разрешение гостя подстраивается под окно" = "Konuk çözünürlüğü pencereye uyuyor"
 "Разрешение гостя больше не меняется" = "Konuk çözünürlüğü artık değişmiyor"
-"Масштаб: {m} (нажмите — следующий)" = "Ölçek: {m} (sonraki için tıklayın)"
-"Масштаб: {m}" = "Ölçek: {m}"
 "Во весь экран (Ctrl+Alt+F)" = "Tam ekran (Ctrl+Alt+F)"
 "Машина на паузе" = "Makine duraklatıldı"
 "Ждём изображение с видеокарты syn-gpu…" = "syn-gpu ekran kartından görüntü bekleniyor…"

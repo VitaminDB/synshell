@@ -33,6 +33,7 @@ pub fn open(st: St, id: Option<String>, tab: Option<Tab>) {
     if changed {
         st.snapshots.set(Vec::new());
         st.keys_menu.set(false);
+        st.modes_menu.set(false);
         st.show_cmd.set(false);
         st.connected.set(false);
     }
@@ -58,6 +59,7 @@ pub fn open(st: St, id: Option<String>, tab: Option<Tab>) {
 pub fn set_tab(st: St, tab: Tab) {
     st.tab.set(tab);
     st.keys_menu.set(false);
+    st.modes_menu.set(false);
     if tab == Tab::Snapshots {
         state::load_snapshots(st);
     }

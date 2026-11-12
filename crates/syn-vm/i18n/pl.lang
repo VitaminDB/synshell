@@ -326,6 +326,7 @@
 "нет инструмента {name}" = "brak narzędzia {name}"
 
 # src/model.rs
+"Целый масштаб" = "Skala całkowita"
 "Linux" = "Linux"
 "Windows 11" = "Windows 11"
 "Windows 10 и старше" = "Windows 10 i starsze"
@@ -444,6 +445,8 @@
 "экран гостя отключился (машина выключена?)" = "ekran gościa się rozłączył (maszyna wyłączona?)"
 
 # src/state.rs
+"Режим экрана не выбран: {e}" = "Nie ustawiono trybu ekranu: {e}"
+"Режим экрана не выбран: нет связи с видеокартой syn-gpu" = "Nie ustawiono trybu ekranu: brak połączenia z kartą graficzną syn-gpu"
 "Выключена" = "Wyłączona"
 "Работает" = "Uruchomiona"
 "Пауза" = "Wstrzymana"
@@ -629,6 +632,27 @@
 "{n} дн. назад" = "{n} dni temu"
 
 # src/ui/screen.rs
+"2 цвета" = "2 kolory"
+"4 цвета" = "4 kolory"
+"16 цветов" = "16 kolorów"
+"256 цветов" = "256 kolorów"
+"тысячи цветов" = "tysiące kolorów"
+"миллионы цветов" = "miliony kolorów"
+"{b} бит" = "{b} bitów"
+"Текст {w}×{h}" = "Tekst {w}×{h}"
+"Windows {w}×{h}" = "Windows {w}×{h}"
+"Под окно ({w}×{h})" = "Dopasuj do okna ({w}×{h})"
+"Графика {w}×{h}, {c}" = "Grafika {w}×{h}, {c}"
+"Графика {w}×{h}" = "Grafika {w}×{h}"
+"По размеру окна" = "Do rozmiaru okna"
+"Под окно" = "Dopasuj do okna"
+"Режим экрана и масштаб" = "Tryb ekranu i skala"
+"Режим экрана DOS" = "Tryb ekranu DOS"
+"Разрешение экрана" = "Rozdzielczość ekranu"
+"Применится в командной строке DOS — после выхода из программы" = "Zostanie zastosowany w wierszu poleceń DOS — po wyjściu z programu"
+"Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка" = "Aby zmienić tryb, załaduj SYNMOUSE: uruchom SYNGPU → Mysz i dźwięk → autostart"
+"Масштаб" = "Skala"
+"Сглаживание" = "Wygładzanie"
 "Подключение к экрану…" = "Łączenie z ekranem…"
 "Мышь освобождена" = "Mysz zwolniona"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Przechwytywanie myszy — dla maszyn z „Akceleracją 3D (syn-gpu)”"
@@ -642,8 +666,6 @@
 "Разрешение под окно: выключено" = "Dopasowanie rozdzielczości do okna: wyłączone"
 "Разрешение гостя подстраивается под окно" = "Rozdzielczość gościa podąża za oknem"
 "Разрешение гостя больше не меняется" = "Rozdzielczość gościa już się nie zmienia"
-"Масштаб: {m} (нажмите — следующий)" = "Skala: {m} (kliknij — następna)"
-"Масштаб: {m}" = "Skala: {m}"
 "Во весь экран (Ctrl+Alt+F)" = "Pełny ekran (Ctrl+Alt+F)"
 "Машина на паузе" = "Maszyna jest wstrzymana"
 "Ждём изображение с видеокарты syn-gpu…" = "Czekam na obraz z karty graficznej syn-gpu…"

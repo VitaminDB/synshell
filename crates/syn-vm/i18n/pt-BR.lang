@@ -323,6 +323,7 @@
 "нет инструмента {name}" = "nenhuma ferramenta {name}"
 
 # src/model.rs
+"Целый масштаб" = "Escala inteira"
 "Linux" = "Linux"
 "Windows 11" = "Windows 11"
 "Windows 10 и старше" = "Windows 10 e anteriores"
@@ -441,6 +442,8 @@
 "экран гостя отключился (машина выключена?)" = "a tela do convidado foi desconectada (máquina desligada?)"
 
 # src/state.rs
+"Режим экрана не выбран: {e}" = "Modo de tela não definido: {e}"
+"Режим экрана не выбран: нет связи с видеокартой syn-gpu" = "Modo de tela não definido: sem conexão com a placa de vídeo syn-gpu"
 "Выключена" = "Desligada"
 "Работает" = "Em execução"
 "Пауза" = "Pausada"
@@ -626,6 +629,27 @@
 "{n} дн. назад" = "há {n} dias"
 
 # src/ui/screen.rs
+"2 цвета" = "2 cores"
+"4 цвета" = "4 cores"
+"16 цветов" = "16 cores"
+"256 цветов" = "256 cores"
+"тысячи цветов" = "milhares de cores"
+"миллионы цветов" = "milhões de cores"
+"{b} бит" = "{b} bits"
+"Текст {w}×{h}" = "Texto {w}×{h}"
+"Windows {w}×{h}" = "Windows {w}×{h}"
+"Под окно ({w}×{h})" = "Ajustar à janela ({w}×{h})"
+"Графика {w}×{h}, {c}" = "Gráficos {w}×{h}, {c}"
+"Графика {w}×{h}" = "Gráficos {w}×{h}"
+"По размеру окна" = "No tamanho da janela"
+"Под окно" = "Ajustar à janela"
+"Режим экрана и масштаб" = "Modo de tela e escala"
+"Режим экрана DOS" = "Modo de tela do DOS"
+"Разрешение экрана" = "Resolução da tela"
+"Применится в командной строке DOS — после выхода из программы" = "Será aplicado no prompt do DOS — após sair do programa"
+"Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка" = "Para mudar o modo, carregue o SYNMOUSE: execute SYNGPU → Mouse e som → inicialização automática"
+"Масштаб" = "Escala"
+"Сглаживание" = "Suavização"
 "Подключение к экрану…" = "Conectando à tela…"
 "Мышь освобождена" = "Mouse liberado"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Captura do mouse — em máquinas com “Aceleração 3D (syn-gpu)”"
@@ -639,8 +663,6 @@
 "Разрешение под окно: выключено" = "Ajustar resolução à janela: desativado"
 "Разрешение гостя подстраивается под окно" = "A resolução do convidado acompanha a janela"
 "Разрешение гостя больше не меняется" = "A resolução do convidado não muda mais"
-"Масштаб: {m} (нажмите — следующий)" = "Escala: {m} (clique para a próxima)"
-"Масштаб: {m}" = "Escala: {m}"
 "Во весь экран (Ctrl+Alt+F)" = "Tela cheia (Ctrl+Alt+F)"
 "Машина на паузе" = "A máquina está pausada"
 "Ждём изображение с видеокарты syn-gpu…" = "Aguardando imagem da placa de vídeo syn-gpu…"

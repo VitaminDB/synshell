@@ -70,11 +70,15 @@ pub fn page(st: St, full: bool) -> W {
             let s2 = s.clone();
             let id2 = id.clone();
             // Разрешение под окно — кадр и так во всё окно; иначе — как выбрано (по умолчанию с пропорциями).
-            let fit = match st.vm(&id).map(|v| v.scale).unwrap_or_default() {
-                model::ScaleMode::Fit => ImageFit::Contain,
+            let scale = st.vm(&id).map(|v| v.scale).unwrap_or_default();
+            let fit = match scale {
+                model::ScaleMode::Fit | model::ScaleMode::Integer => ImageFit::Contain,
                 model::ScaleMode::Stretch => ImageFit::Fill,
                 model::ScaleMode::Native => ImageFit::None,
             };
+            let integer = scale == model::ScaleMode::Integer;
+            // Сглаживание выключено — чёткие пиксели (DOS, старые игры).
+            let sharp = st.vm(&id).is_some_and(|v| !v.smooth);
             // syn-gpu — основная видеокарта: изображение — рабочий стол с карты (кадры DESKTOP),
             // экран VNC пуст (`-vga none`) и служит только вводу (планшет — в долях кадра).
             // Видеокарта — та, с которой машина запущена (выбранная в настройках вступит после перезапуска).
@@ -90,13 +94,15 @@ pub fn page(st: St, full: bool) -> W {
             let guest_cursor = if syn_display { CursorIcon::Custom(crate::present::cursor_id(&id)) } else { CursorIcon::None };
             let screen = LiveView::new(frame)
                 .fit(fit)
+                .integer_scale(integer)
+                .pixelated(sharp)
                 .cursor(guest_cursor)
                 .on_input(move |e| input(st, &id2, &s2, e))
                 .on_resize(move |sz| on_resize(st, sz))
                 .class("screen");
             // Кадр игры (syn-gpu) — поверх, в месте окна игры на экране гостя, тем же масштабом.
             let Some(layer) = state::game_layer(&id) else { return vec![boxed(screen)] };
-            let Some((x, y, w, h)) = game_rect(st, fit, guest, layer.rect) else { return vec![boxed(screen)] };
+            let Some((x, y, w, h)) = game_rect(st, fit, integer, guest, layer.rect) else { return vec![boxed(screen)] };
             // Ввод над слоем — гостю: доли слоя → доли кадра гостя (окно игры x,y,w,h).
             let (s3, id3) = (s.clone(), id.clone());
             let (gw, gh) = guest;
@@ -104,7 +110,7 @@ pub fn page(st: St, full: bool) -> W {
             let map = move |fx: f32, fy: f32| -> (f32, f32) {
                 ((lx as f32 + fx * lw as f32) / gw.max(1) as f32, (ly as f32 + fy * lh as f32) / gh.max(1) as f32)
             };
-            let game_view = LiveView::new(layer.frame.clone()).fit(ImageFit::Fill).cursor(guest_cursor).on_input(move |e| {
+            let game_view = LiveView::new(layer.frame.clone()).fit(ImageFit::Fill).pixelated(sharp).cursor(guest_cursor).on_input(move |e| {
                 let e = match e {
                     LiveInput::Move { x, y } => {
                         let (x, y) = map(x, y);
@@ -167,7 +173,7 @@ fn try_capture(st: St, id: &str) {
 
 /// Место окна игры (физические пиксели экрана гостя) → координаты в виджете экрана:
 /// как LiveView кладёт кадр гостя (с пропорциями / растянуть / 1:1, по центру).
-fn game_rect(st: St, fit: ImageFit, (gw, gh): (u32, u32), (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
+fn game_rect(st: St, fit: ImageFit, integer: bool, (gw, gh): (u32, u32), (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
     let k = syngui::scale::pixel_ratio();
     let (vw, vh) = st.view_size.get_untracked();
     if vw == 0 || vh == 0 || gw == 0 || gh == 0 || w == 0 || h == 0 {
@@ -181,6 +187,9 @@ fn game_rect(st: St, fit: ImageFit, (gw, gh): (u32, u32), (x, y, w, h): (i32, i3
         ImageFit::None => (1.0, 1.0),
         _ => {
             let s = (bw / gw).min(bh / gh);
+            // Целый масштаб — как LiveView::integer_scale: целое число физических пикселей.
+            let n = (s * k + 1e-3).floor();
+            let s = if integer && n >= 1.0 { n / k } else { s };
             (s, s)
         }
     };
@@ -241,6 +250,9 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
             }
             if st.keys_menu.get_untracked() {
                 st.keys_menu.set(false);
+            }
+            if st.modes_menu.get_untracked() {
+                st.modes_menu.set(false);
             }
         }
         LiveInput::Up { button, x, y } => {
@@ -414,7 +426,10 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     }
     let bar = bar
         .child(icon_btn(icons::KEYBOARD, t!("Ctrl+Alt+Del"), move || combo(&a, keymap::CTRL_ALT_DEL)))
-        .child(icon_btn(icons::MORE, t!("Другие сочетания"), move || st.keys_menu.set(!st.keys_menu.get_untracked())))
+        .child(icon_btn(icons::MORE, t!("Другие сочетания"), move || {
+            st.modes_menu.set(false);
+            st.keys_menu.set(!st.keys_menu.get_untracked());
+        }))
         .child(DecoratedBox::new().class("vsep"))
         .child(icon_btn(icons::PASTE, t!("Напечатать текст из буфера (Ctrl+Alt+V)"), move || type_clipboard(&b)))
         .child(icon_btn(icons::CAMERA, t!("Снимок экрана"), move || state::screenshot(st, &c)))
@@ -429,21 +444,7 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
                 state::toast(st, if on { t!("Разрешение гостя подстраивается под окно") } else { t!("Разрешение гостя больше не меняется") });
             },
         ))
-        .child({
-            // Масштаб кадра в окне (когда разрешение не под окно): с пропорциями / растянуть / 1:1.
-            let scale = st.vm(id).map(|v| v.scale).unwrap_or_default();
-            let ic = match scale {
-                model::ScaleMode::Fit => icons::ASPECT,
-                model::ScaleMode::Stretch => icons::STRETCH,
-                model::ScaleMode::Native => icons::ONE_TO_ONE,
-            };
-            icon_btn(ic, t!("Масштаб: {m} (нажмите — следующий)", m = syngui::i18n::t(scale.title())), move || {
-                state::edit(st, |v| v.scale = v.scale.next());
-                let m = st.vm(&e).map(|v| v.scale).unwrap_or_default();
-                state::toast(st, t!("Масштаб: {m}", m = syngui::i18n::t(m.title())));
-            })
-        })
-        .child(Text::new(if size.0 > 0 { format!("{}×{}", size.0, size.1) } else { String::new() }).class("res-label"))
+        .child(mode_button(st, &e, size))
         .child(DecoratedBox::new().class("vsep"))
         .child(icon_btn(if full { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }, t!("Во весь экран (Ctrl+Alt+F)"), move || toggle_full(st)));
     let bar = DecoratedBox::new().child(bar).class(if auto { "float-bar auto" } else { "float-bar" });
@@ -490,11 +491,175 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(bar)
             .child(menu)
+            .child(modes_menu(st, id.to_string()))
             .class("float-wrap")
             .style("padding-top", StyleValue::px(10.0 + dy))
             .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
             .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
     )
+}
+
+// ─── Режим экрана и масштаб: кнопка и выпадающий список ─────────────────
+// Режимы приходят от сервера syn-gpu (MODES): DOS — текстовые режимы и «под окно», Windows —
+// разрешения и «по размеру окна». У прочих машин в списке только масштаб.
+
+use crate::present::{mode_kind, modes_flags, GuestModes, ModeEntry};
+
+/// Цвета по биту на точку: 8 — «256 цветов», 15/16 — тысячи, 24/32 — миллионы.
+fn colors(bpp: u16) -> String {
+    match bpp {
+        1 => t!("2 цвета"),
+        2 => t!("4 цвета"),
+        4 => t!("16 цветов"),
+        8 => t!("256 цветов"),
+        15 | 16 => t!("тысячи цветов"),
+        24 | 32 => t!("миллионы цветов"),
+        b => t!("{b} бит", b = b),
+    }
+}
+
+/// Подпись текущего режима на кнопке: «Текст 80×25», «Графика 640×480, 256 цветов», «Windows 1920×1080».
+fn current_title(m: &GuestModes) -> String {
+    let c = m.current;
+    match c.kind {
+        mode_kind::TEXT => t!("Текст {w}×{h}", w = c.width, h = c.height),
+        mode_kind::WINDOW if m.has(modes_flags::DESKTOP) => t!("Windows {w}×{h}", w = c.width, h = c.height),
+        mode_kind::WINDOW => t!("Под окно ({w}×{h})", w = c.width, h = c.height),
+        _ if m.has(modes_flags::DESKTOP) => t!("Windows {w}×{h}", w = c.width, h = c.height),
+        _ if c.bpp > 0 => t!("Графика {w}×{h}, {c}", w = c.width, h = c.height, c = colors(c.bpp)),
+        _ => t!("Графика {w}×{h}", w = c.width, h = c.height),
+    }
+}
+
+/// Подпись пункта списка.
+fn entry_label(m: &GuestModes, e: &ModeEntry) -> String {
+    match e.kind {
+        mode_kind::TEXT => t!("Текст {w}×{h}", w = e.width, h = e.height),
+        mode_kind::WINDOW if m.has(modes_flags::DESKTOP) => t!("По размеру окна"),
+        mode_kind::WINDOW if e.width > 0 => t!("Под окно ({w}×{h})", w = e.width, h = e.height),
+        mode_kind::WINDOW => t!("Под окно"),
+        _ if e.bpp > 0 && !m.has(modes_flags::DESKTOP) => format!("{}×{}, {}", e.width, e.height, colors(e.bpp)),
+        _ => format!("{}×{}", e.width, e.height),
+    }
+}
+
+/// Галочка у пункта: Windows — у выбранного разрешения при FIXED, иначе у «по размеру окна»;
+/// DOS — у текущего текстового режима (режим «под окно» — если текущий совпал с ним, а не с готовым).
+fn entry_checked(m: &GuestModes, e: &ModeEntry) -> bool {
+    let c = m.current;
+    if m.has(modes_flags::DESKTOP) {
+        return if m.has(modes_flags::FIXED) { e.kind == mode_kind::GRAPHICS && (e.width, e.height) == (c.width, c.height) } else { e.kind == mode_kind::WINDOW };
+    }
+    let same = (e.width, e.height) == (c.width, c.height);
+    match e.kind {
+        mode_kind::TEXT => c.kind == mode_kind::TEXT && same,
+        mode_kind::WINDOW => c.kind == mode_kind::WINDOW || (c.kind == mode_kind::TEXT && same && !m.list.iter().any(|x| x.kind == mode_kind::TEXT && (x.width, x.height) == (c.width, c.height))),
+        _ => *e == c,
+    }
+}
+
+/// Кнопка панели: текущий режим (или размер кадра, если сервер режимов не шлёт) и стрелка списка.
+fn mode_button(st: St, id: &str, size: (u32, u32)) -> W {
+    let label = match state::guest_modes(id) {
+        Some(m) if m.current.width > 0 => current_title(&m),
+        _ if size.0 > 0 => format!("{}×{}", size.0, size.1),
+        _ => t!("Экран"),
+    };
+    let pending = state::guest_modes(id).is_some_and(|m| m.has(modes_flags::PENDING));
+    let open = st.modes_menu.get_untracked();
+    let face = DecoratedBox::new()
+        .child(
+            Row::new()
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(label).max_lines(1).class("mode-label"))
+                .child(Icon::new(icons::EXPAND).class("mode-arrow")),
+        )
+        .class(match (open, pending) {
+            (true, _) => "mode-btn open",
+            (_, true) => "mode-btn pending",
+            _ => "mode-btn",
+        });
+    let b = GestureDetector::new()
+        .cursor(CursorIcon::Pointer)
+        .on_click(move || {
+            st.keys_menu.set(false);
+            st.modes_menu.set(!st.modes_menu.get_untracked());
+            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+        })
+        .child(face);
+    boxed(Tooltip::new(b, t!("Режим экрана и масштаб")).delay_ms(500))
+}
+
+/// Пункт выпадающего списка: галочка, подпись; `on` — нажатие (`None` — неактивен).
+fn menu_row(label: String, checked: bool, on: Option<Box<dyn Fn() + Send + Sync>>) -> W {
+    let check: W = if checked { boxed(Icon::new(icons::CHECK).class("menu-check")) } else { boxed(DecoratedBox::new().class("menu-check-gap")) };
+    let row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(check).child(Text::new(label).max_lines(1).class("menu-label"));
+    match on {
+        Some(f) => boxed(GestureDetector::new().cursor(CursorIcon::Pointer).on_click(move || f()).child(DecoratedBox::new().child(row).class(if checked { "menu-item checked" } else { "menu-item" }))),
+        None => boxed(DecoratedBox::new().child(row).class(if checked { "menu-item off checked" } else { "menu-item off" })),
+    }
+}
+
+fn menu_head(text: String) -> W {
+    boxed(Text::new(text).class("menu-head"))
+}
+
+fn menu_hint(icon: &str, text: String) -> W {
+    boxed(
+        DecoratedBox::new()
+            .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Start).child(Icon::new(icon).class("menu-hint-icon")).child(Text::new(text).max_lines(3).class("menu-hint-text grow")))
+            .class("menu-hint"),
+    )
+}
+
+fn modes_menu(st: St, id: String) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        if !st.modes_menu.get() {
+            return vec![];
+        }
+        let Some(vm) = st.vm(&id) else { return vec![] };
+        let mut row = Row::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Start);
+        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        if let Some(m) = state::guest_modes(&id).filter(|m| !m.list.is_empty()) {
+            let dos = m.has(modes_flags::DOS);
+            // DOS без SYNMOUSE: список только для сведения.
+            let can = !dos || m.has(modes_flags::AGENT);
+            col = col.child(menu_head(if dos { t!("Режим экрана DOS") } else { t!("Разрешение экрана") }));
+            for e in m.list.iter().copied() {
+                let id2 = id.clone();
+                let on: Option<Box<dyn Fn() + Send + Sync>> = can.then(|| {
+                    Box::new(move || {
+                        state::set_guest_mode(st, &id2, e);
+                        st.modes_menu.set(false);
+                    }) as Box<dyn Fn() + Send + Sync>
+                });
+                col = col.child(menu_row(entry_label(&m, &e), entry_checked(&m, &e), on));
+            }
+            if m.has(modes_flags::PENDING) {
+                col = col.child(menu_hint(icons::INFO, t!("Применится в командной строке DOS — после выхода из программы")));
+            }
+            if dos && !can {
+                col = col.child(menu_hint(icons::INFO, t!("Чтобы менять режим, загрузите SYNMOUSE: запустите SYNGPU → Мышь и звук → автозагрузка")));
+            }
+            row = row.child(col.class("menu-col"));
+            col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        }
+        col = col.child(menu_head(t!("Масштаб")));
+        for s in [model::ScaleMode::Fit, model::ScaleMode::Integer, model::ScaleMode::Stretch, model::ScaleMode::Native] {
+            let f: Box<dyn Fn() + Send + Sync> = Box::new(move || {
+                state::edit(st, |v| v.scale = s);
+                st.frame_tick.update(|t| *t = t.wrapping_add(1));
+            });
+            col = col.child(menu_row(syngui::i18n::t(s.title()), vm.scale == s, Some(f)));
+        }
+        let f: Box<dyn Fn() + Send + Sync> = Box::new(move || {
+            state::edit(st, |v| v.smooth = !v.smooth);
+            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+        });
+        col = col.child(menu_row(t!("Сглаживание"), vm.smooth, Some(f)));
+        vec![boxed(DecoratedBox::new().child(row.child(col.class("menu-col"))).class("menu modes-menu"))]
+    }))
 }
 
 fn paused_veil(st: St, id: &str) -> W {
