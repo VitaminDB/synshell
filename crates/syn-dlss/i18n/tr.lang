@@ -264,3 +264,7 @@
 "Сбросить всё" = "Tümünü sıfırla"
 "Все настройки — по умолчанию; помощник пересоберёт функции" = "Tüm ayarlar varsayılana; yardımcı işlevleri yeniden oluşturur"
 "Сбросить…" = "Sıfırla…"
+"Виртуальная машина обрабатывается" = "Sanal makine işleniyor"
+"Виртуальная машина на паузе" = "Sanal makine duraklatıldı"
+"Профиль виртуальных машин" = "Sanal makine profili"
+"Сейчас кадры даёт окно виртуальной машины: правки здесь сохраняются в её собственный профиль и не меняют настройки игр." = "Kareler şu anda bir sanal makine penceresinden geliyor: buradaki değişiklikler onun kendi profiline kaydedilir ve oyun ayarlarını değiştirmez."

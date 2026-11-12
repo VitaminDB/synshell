@@ -27,7 +27,9 @@ pub const MIN_SIDE: u32 = 64;
 pub enum FrameError {
     /// Помощник не запущен или ещё поднимается.
     NoHelper,
-    /// Помощник жив, но модель не загрузилась (нет nvngx_dlssnr.dll, нет GPU NVIDIA…).
+    /// Модели нет: файлы NGX (nvngx_dlssnr.dll) не импортированы в окне syn-dlss.
+    NoModel,
+    /// Помощник жив, но модель не загрузилась (нет GPU NVIDIA, отказ модели…).
     ModelFailed(String),
     /// Канал занят слоем игры (её имя).
     Busy(String),
@@ -68,6 +70,8 @@ impl Drop for Map {
 pub struct VideoClient {
     map: Map,
     name: String,
+    /// Свой профиль настроек модели (видео, виртуальные машины).
+    profile: crate::config::Profile,
     pid: u32,
     state: Mutex<ClientState>,
     /// Канал наш (то же, что `ClientState::claimed`, но без ожидания кадра под замком).
@@ -84,8 +88,13 @@ struct ClientState {
 
 impl VideoClient {
     /// Отобразить общую память целиком (файл разреженный: пиксели занимают место, только пока идут
-    /// кадры). `name` — что показать в окне DLSS 5 вместо имени игры.
+    /// кадры). `name` — что показать в окне DLSS 5 вместо имени игры. Профиль — видео.
     pub fn open(name: &str) -> std::io::Result<Self> {
+        Self::open_with(name, crate::config::Profile::Video)
+    }
+
+    /// То же со своим профилем настроек модели (`Profile::Vm` — окно виртуальной машины).
+    pub fn open_with(name: &str, profile: crate::config::Profile) -> std::io::Result<Self> {
         let path = paths::shm_path();
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -106,6 +115,7 @@ impl VideoClient {
         let c = Self {
             map: Map { base: p as *mut u8, len },
             name: name.to_string(),
+            profile,
             // SAFETY: getpid не может завершиться ошибкой.
             pid: unsafe { libc::getpid() } as u32,
             state: Mutex::new(ClientState::default()),
@@ -139,7 +149,8 @@ impl VideoClient {
         }
         match h.helper_state.load(SC) {
             shm::HELPER_RUNNING if paths::helper_running() => Ok(()),
-            shm::HELPER_NO_VULKAN | shm::HELPER_NO_BINARIES | shm::HELPER_MODEL_FAILED => {
+            shm::HELPER_NO_BINARIES => Err(FrameError::NoModel),
+            shm::HELPER_NO_VULKAN | shm::HELPER_MODEL_FAILED => {
                 Err(FrameError::ModelFailed(h.helper_reason()))
             }
             _ => Err(FrameError::NoHelper),
@@ -263,15 +274,15 @@ impl VideoClient {
     /// Канал наш: метка видеоплеера (окно DLSS 5 сохраняет настройки в видеопрофиль) и видеопрофиль
     /// в общую память. Пересборка модели — только если он отличается от того, что там уже стоит.
     fn enter_video_profile(&self) {
-        if let Err(e) = std::fs::write(paths::video_lock(), self.pid.to_string()) {
+        if let Err(e) = crate::config::write_lock(self.pid, self.profile) {
             tracing::warn!("метка видеоплеера DLSS 5: {e}");
         }
-        crate::config::apply_if_changed(self.header(), &crate::config::video_profile());
+        crate::config::apply_if_changed(self.header(), &crate::config::profile_ini(self.profile));
     }
 
     fn leave_video_profile(&self, base_passes: Option<u32>) {
         let lock = paths::video_lock();
-        let ours = std::fs::read_to_string(&lock).ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(self.pid);
+        let ours = crate::config::lock_pid() == Some(self.pid);
         if !ours {
             return;
         }
@@ -280,7 +291,7 @@ impl VideoClient {
             // проходы снижали, чтобы успевать — в профиль идёт выбранное пользователем
             h.passes.store(n, SC);
         }
-        crate::config::save_video_profile(h);
+        crate::config::save_profile_from(h, self.profile);
         let _ = std::fs::remove_file(&lock);
         crate::config::apply_if_changed(h, &crate::config::Ini::load());
     }
@@ -290,10 +301,10 @@ impl VideoClient {
         self.claimed_flag.load(SC)
     }
 
-    /// Поменять значения видеопрофиля: в video.ini и, пока канал наш, сразу в общую память.
-    /// `latch` — значение модель читает при сборке функции (стиль, проходы).
+    /// Поменять значения своего профиля: в файл (video.ini, vm.ini) и, пока канал наш, сразу в общую
+    /// память. `latch` — значение модель читает при сборке функции (стиль, проходы).
     pub fn set_profile(&self, pairs: &[(&str, String)], latch: bool) {
-        crate::config::set_video_values(pairs);
+        crate::config::set_profile_values(self.profile, pairs);
         if self.claimed() {
             let ini = crate::config::Ini { entries: pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect() };
             crate::config::apply_pairs(self.header(), &ini, latch);

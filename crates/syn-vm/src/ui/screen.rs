@@ -395,6 +395,8 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
         None => st.guest_size.get_untracked(),
     };
     let gpu3d = st.vm(id).is_some_and(|v| v.gpu_on());
+    // Кадры от syn-gpu (основная видеокарта или 3D) — их можно пропустить через DLSS 5.
+    let syn_gpu = gpu3d || st.vm(id).is_some_and(|v| state::display_now(&v) == model::DisplayModel::SynGpu);
     let cap_id = id.to_string();
     // Ручка: тянуть панель в любое место экрана; двойной щелчок — сверху по центру.
     let grip = GestureDetector::new()
@@ -445,6 +447,7 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
             },
         ))
         .child(mode_button(st, &e, size))
+        .children(syn_gpu.then(|| dlss_button(st, id)))
         .child(DecoratedBox::new().class("vsep"))
         .child(icon_btn(if full { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }, t!("Во весь экран (Ctrl+Alt+F)"), move || toggle_full(st)));
     let bar = DecoratedBox::new().child(bar).class(if auto { "float-bar auto" } else { "float-bar" });
@@ -568,6 +571,10 @@ fn mode_button(st: St, id: &str, size: (u32, u32)) -> W {
         _ if size.0 > 0 => format!("{}×{}", size.0, size.1),
         _ => t!("Экран"),
     };
+    let label = match st.vm(id).and_then(|v| v.gpu_arg("--max-fps")).filter(|v| v != "0") {
+        Some(n) => format!("{label} · {}", t!("{n} к/с", n = n)),
+        None => label,
+    };
     let pending = state::guest_modes(id).is_some_and(|m| m.has(modes_flags::PENDING));
     let open = st.modes_menu.get_untracked();
     let face = DecoratedBox::new()
@@ -592,6 +599,48 @@ fn mode_button(st: St, id: &str, size: (u32, u32)) -> W {
         })
         .child(face);
     boxed(Tooltip::new(b, t!("Режим экрана и масштаб")).delay_ms(500))
+}
+
+/// Кнопка DLSS 5: выключен — «DLSS» приглушённо; включён — состояние модели (запуск, мс на кадр,
+/// не успевает, как есть), причина — в подсказке. Нажатие включает и выключает (запоминается у машины).
+fn dlss_button(st: St, id: &str) -> W {
+    use crate::dlss::{reason, FrameError, Status};
+    let on = st.vm(id).is_some_and(|v| v.dlss);
+    let s = crate::dlss::status(id);
+    let (text, class, tip) = match (&s, on) {
+        (_, false) | (Status::Off, _) => ("DLSS".to_string(), "dlss-btn", t!("DLSS 5: картинка гостя через нейрорендеринг NVIDIA (syn-dlss)")),
+        (Status::Starting, _) => (t!("DLSS 5 · запуск…"), "dlss-btn wait", t!("Помощник DLSS 5 готовит модель")),
+        (Status::Active { total_ms, fps, size, cut: Some(n), .. }, _) => (
+            t!("DLSS 5 · {ms} мс · 1 проход", ms = format!("{total_ms:.0}")),
+            "dlss-btn on",
+            t!("Кадры {w}×{h} идут через DLSS 5 в 1 проход вместо {n}, чтобы успевать: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, n = n, ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+        ),
+        (Status::Active { total_ms, fps, size, .. }, _) => (
+            t!("DLSS 5 · {ms} мс", ms = format!("{total_ms:.0}")),
+            "dlss-btn on",
+            t!("Кадры {w}×{h} идут через DLSS 5: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+        ),
+        (Status::Slow { total_ms, budget_ms }, _) => (
+            t!("DLSS 5 · не успевает"),
+            "dlss-btn warn",
+            t!("Модели нужно {a} мс, а кадр гостя приходит раз в {b} мс: кадры идут как есть, новая попытка — через 20 с или при смене разрешения", a = format!("{total_ms:.0}"), b = format!("{budget_ms:.0}")),
+        ),
+        (Status::Bypass(FrameError::Busy(game)), _) => (t!("DLSS 5 · занят"), "dlss-btn warn", t!("DLSS 5 сейчас занят: {game}", game = game.clone())),
+        (Status::Bypass(e), _) => (t!("DLSS 5 · как есть"), "dlss-btn warn", reason(e)),
+    };
+    let tip = if on { format!("{tip}\n{}", t!("Нажмите, чтобы выключить")) } else { tip };
+    let face = DecoratedBox::new()
+        .child(
+            Row::new()
+                .gap(5.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(icons::DLSS).class("dlss-icon"))
+                .child(Text::new(text).max_lines(1).class("dlss-label")),
+        )
+        .class(class);
+    let id = id.to_string();
+    let b = GestureDetector::new().cursor(CursorIcon::Pointer).on_click(move || state::set_dlss(st, &id, !on)).child(face);
+    boxed(Tooltip::new(b, tip).delay_ms(300))
 }
 
 /// Пункт выпадающего списка: галочка, подпись; `on` — нажатие (`None` — неактивен).
@@ -682,9 +731,33 @@ fn modes_menu(st: St, id: String) -> W {
             st.frame_tick.update(|t| *t = t.wrapping_add(1));
         });
         col = col.child(menu_row(t!("Сглаживание"), vm.smooth, Some(f)));
+        // Частота кадров гостя (syn-gpu): по монитору окна или не больше N — сразу и со следующего запуска.
+        let syn_gpu = vm.gpu_on() || state::display_now(&vm) == model::DisplayModel::SynGpu;
+        if syn_gpu {
+            let cur: u32 = vm.gpu_arg("--max-fps").and_then(|v| v.parse().ok()).unwrap_or(0);
+            col = col.child(menu_head(t!("Частота кадров")));
+            let monitor = match state::monitor_refresh(&id) {
+                Some(mhz) => t!("По монитору ({hz} Гц)", hz = (mhz + 500) / 1000),
+                None => t!("По монитору"),
+            };
+            let mut items: Vec<u32> = FPS_LIMITS.to_vec();
+            if cur > 0 && !items.contains(&cur) {
+                items.push(cur);
+                items.sort_unstable();
+            }
+            for n in std::iter::once(0).chain(items) {
+                let id2 = id.clone();
+                let f: Box<dyn Fn() + Send + Sync> = Box::new(move || state::set_max_fps(st, &id2, n));
+                let label = if n == 0 { monitor.clone() } else { t!("{n} кадров/с", n = n) };
+                col = col.child(menu_row(label, cur == n, Some(f)));
+            }
+        }
         vec![boxed(DecoratedBox::new().child(row.child(col.class("menu-col"))).class("menu modes-menu"))]
     }))
 }
+
+/// Ограничения частоты кадров в списке панели.
+const FPS_LIMITS: [u32; 5] = [30, 60, 75, 120, 144];
 
 fn paused_veil(st: St, id: &str) -> W {
     let id = id.to_string();

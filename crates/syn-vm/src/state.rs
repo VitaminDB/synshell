@@ -28,6 +28,8 @@ pub mod icons {
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
     pub const KEYBOARD: &str = "\u{E312}";
+    /// auto_awesome: DLSS 5
+    pub const DLSS: &str = "\u{E65F}";
     pub const PASTE: &str = "\u{E14F}";
     pub const DELETE: &str = "\u{E872}";
     pub const COPY: &str = "\u{E14D}";
@@ -466,8 +468,40 @@ pub fn install_gpu_driver(st: St, id: &str) {
 
 fn close_present(id: &str) {
     if let Some(p) = presents().lock().unwrap().remove(id) {
+        p.set_dlss(None);
         p.close();
     }
+}
+
+/// Ограничение частоты кадров гостя (0 — по монитору окна): в настройки машины (`--max-fps` серверу
+/// при следующем запуске) и сразу работающему серверу syn-gpu.
+pub fn set_max_fps(st: St, id: &str, n: u32) {
+    let Some(mut vm) = st.vm(id) else { return };
+    let v = (n > 0).then(|| n.to_string());
+    vm.set_gpu_arg("--max-fps", v.as_deref());
+    save_vm(st, vm);
+    if let Some(p) = presents().lock().unwrap().get(id).cloned() {
+        p.set_max_fps(n);
+    }
+    st.frame_tick.update(|t| *t = t.wrapping_add(1));
+}
+
+/// Частота монитора окна машины (мГц), если клиент syn-gpu её уже знает.
+pub fn monitor_refresh(id: &str) -> Option<u32> {
+    presents().lock().unwrap().get(id).and_then(|p| p.monitor_refresh())
+}
+
+/// Включить или выключить DLSS 5 у машины (запоминается в vm.toml) и сразу на её клиенте syn-gpu.
+pub fn set_dlss(st: St, id: &str, on: bool) {
+    let Some(vm) = st.vm(id) else { return };
+    if vm.dlss != on {
+        let mut v = vm.clone();
+        v.dlss = on;
+        save_vm(st, v);
+    }
+    let p = presents().lock().unwrap().get(id).cloned();
+    crate::dlss::set(id, &vm.name, p.as_ref(), on);
+    st.frame_tick.update(|t| *t = t.wrapping_add(1));
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
@@ -869,7 +903,11 @@ pub fn attach(st: St, id: &str) {
     });
     crate::present::set_render_pref(&id_s, vm.glide_res as u16);
     let p = crate::present::start(&id_s, on_frame, on_notice);
-    presents().lock().unwrap().insert(id_s, p.clone());
+    presents().lock().unwrap().insert(id_s.clone(), p.clone());
+    p.set_max_fps(vm.gpu_arg("--max-fps").and_then(|v| v.parse().ok()).unwrap_or(0));
+    if vm.dlss {
+        crate::dlss::set(&id_s, &vm.name, Some(&p), true);
+    }
     // Частота монитора окна — серверу syn-gpu (VSync гостя от хоста); окно ушло на другой
     // монитор — новая частота (проверка раз в 2 с; уходит, только если изменилась).
     // Рабочий стол syn-gpu ещё не пришёл — экран перерисовать (подсказка «нет изображения»

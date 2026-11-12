@@ -345,20 +345,76 @@ fn with_scratch<R>(f: impl FnOnce(&ShmHeader) -> R) -> R {
     }
 }
 
-/// Pid видеоплеера, который сейчас держит канал со своим видеопрофилем.
-pub fn video_owner(h: &ShmHeader) -> Option<u32> {
-    let pid = video_lock_pid()?;
-    (crate::paths::pid_alive(pid) && h.layer_pid.load(std::sync::atomic::Ordering::SeqCst) == pid).then_some(pid)
+/// Чей профиль держит канал без слоя: видеоплеер (video.ini) или окно виртуальной машины (vm.ini) —
+/// у каждого свои настройки модели, отдельно от игр (config.ini).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Profile {
+    #[default]
+    Video,
+    Vm,
 }
 
-fn video_lock_pid() -> Option<u32> {
-    std::fs::read_to_string(crate::paths::video_lock()).ok()?.trim().parse().ok()
+impl Profile {
+    pub fn key(self) -> &'static str {
+        match self {
+            Profile::Video => "video",
+            Profile::Vm => "vm",
+        }
+    }
+
+    fn parse(s: &str) -> Self {
+        if s == "vm" { Profile::Vm } else { Profile::Video }
+    }
+
+    /// Файл профиля в каталоге настроек DLSS 5.
+    pub fn path(self) -> std::path::PathBuf {
+        match self {
+            Profile::Video => crate::paths::video_profile(),
+            Profile::Vm => crate::paths::config_dir().join("vm.ini"),
+        }
+    }
+
+    fn header(self) -> &'static str {
+        match self {
+            Profile::Video => "# DLSS 5: видеопрофиль syn-video-player\n\n",
+            Profile::Vm => "# DLSS 5: профиль виртуальных машин syn-vm\n\n",
+        }
+    }
+}
+
+/// Метка канала (`video.pid`): «pid профиль».
+fn read_lock() -> Option<(u32, Profile)> {
+    let text = std::fs::read_to_string(crate::paths::video_lock()).ok()?;
+    let mut it = text.split_whitespace();
+    let pid = it.next()?.parse().ok()?;
+    Some((pid, it.next().map(Profile::parse).unwrap_or_default()))
+}
+
+/// Записать метку канала: программа `pid` держит его со своим профилем.
+pub fn write_lock(pid: u32, p: Profile) -> std::io::Result<()> {
+    std::fs::write(crate::paths::video_lock(), format!("{pid} {}", p.key()))
+}
+
+/// Pid программы без слоя (видеоплеер, syn-vm), которая сейчас держит канал со своим профилем.
+pub fn video_owner(h: &ShmHeader) -> Option<u32> {
+    video_owner_profile(h).map(|(pid, _)| pid)
+}
+
+/// Программа без слоя, которая держит канал, и её профиль.
+pub fn video_owner_profile(h: &ShmHeader) -> Option<(u32, Profile)> {
+    let (pid, p) = read_lock()?;
+    (crate::paths::pid_alive(pid) && h.layer_pid.load(std::sync::atomic::Ordering::SeqCst) == pid).then_some((pid, p))
+}
+
+/// Pid в метке канала (жив он или нет).
+pub fn lock_pid() -> Option<u32> {
+    read_lock().map(|(pid, _)| pid)
 }
 
 /// Плеер закрылся аварийно, не вернув настройки игр: метка осталась, процесса нет. Вернуть config.ini
 /// в общую память и снять метку. `true` — вернули.
 pub fn restore_after_video(h: &ShmHeader) -> bool {
-    let Some(pid) = video_lock_pid() else { return false };
+    let Some(pid) = lock_pid() else { return false };
     if crate::paths::pid_alive(pid) {
         return false;
     }
@@ -379,18 +435,19 @@ pub fn restore_after_game(h: &ShmHeader) -> bool {
     true
 }
 
-/// Видеопрофиль целиком: video.ini поверх значений по умолчанию; файла нет — настройки игр
-/// (config.ini) со стилем «Естественный».
-pub fn video_profile() -> Ini {
-    let p = crate::paths::video_profile();
+/// Профиль целиком: файл поверх значений по умолчанию; файла нет — настройки игр (config.ini), один
+/// проход (второй вдвое дороже — 4K и игры не успевают), разрешение модели 100% (на скорость не влияет);
+/// видео — ещё и стиль «Естественный».
+pub fn profile_ini(p: Profile) -> Ini {
+    let path = p.path();
     with_scratch(|h| {
-        if p.is_file() {
-            apply_settings(h, &Ini::load_from(&p));
+        if path.is_file() {
+            apply_settings(h, &Ini::load_from(&path));
         } else {
             apply_settings(h, &Ini::load());
-            // видео: стиль «Естественный», один проход (второй вдвое дороже — 4K не успевает),
-            // разрешение модели 100% (на скорость не влияет)
-            h.style.store(VIDEO_DEFAULT_STYLE, std::sync::atomic::Ordering::SeqCst);
+            if p == Profile::Video {
+                h.style.store(VIDEO_DEFAULT_STYLE, std::sync::atomic::Ordering::SeqCst);
+            }
             h.passes.store(1, std::sync::atomic::Ordering::SeqCst);
             h.working_scale_bits.store(crate::shm::f2b(1.0), std::sync::atomic::Ordering::SeqCst);
         }
@@ -398,29 +455,51 @@ pub fn video_profile() -> Ini {
     })
 }
 
-/// Одно значение видеопрофиля: прочитать (`None` — нет такого ключа).
-pub fn video_value(key: &str) -> Option<String> {
-    video_profile().get(key).map(str::to_string)
+/// Одно значение профиля (`None` — нет такого ключа).
+pub fn profile_value(p: Profile, key: &str) -> Option<String> {
+    profile_ini(p).get(key).map(str::to_string)
 }
 
-/// Сохранить видеопрофиль из заголовка (плеер держал канал, настройки могли меняться в окне DLSS 5).
-pub fn save_video_profile(h: &ShmHeader) {
-    write_video(&Ini { entries: settings_pairs(h) });
+/// Поменять значения профиля в файле.
+pub fn set_profile_values(p: Profile, pairs: &[(&str, String)]) {
+    let mut ini = profile_ini(p);
+    for (k, v) in pairs {
+        ini.set(k, v.clone());
+    }
+    write_profile(p, &ini);
+}
+
+/// Сохранить профиль программы, которая держит канал, из заголовка (настройки могли меняться в окне
+/// DLSS 5).
+pub fn save_owner_profile(h: &ShmHeader) {
+    let p = read_lock().map(|(_, p)| p).unwrap_or_default();
+    save_profile_from(h, p);
+}
+
+/// Сохранить профиль `p` из заголовка.
+pub fn save_profile_from(h: &ShmHeader, p: Profile) {
+    write_profile(p, &Ini { entries: settings_pairs(h) });
+}
+
+fn write_profile(p: Profile, ini: &Ini) {
+    if let Err(e) = ini.save_to(&p.path(), p.header()) {
+        tracing::warn!("{}: {e}", p.path().display());
+    }
+}
+
+/// Видеопрофиль целиком (см. [`profile_ini`]).
+pub fn video_profile() -> Ini {
+    profile_ini(Profile::Video)
+}
+
+/// Одно значение видеопрофиля.
+pub fn video_value(key: &str) -> Option<String> {
+    profile_value(Profile::Video, key)
 }
 
 /// Поменять значения видеопрофиля в файле.
 pub fn set_video_values(pairs: &[(&str, String)]) {
-    let mut ini = video_profile();
-    for (k, v) in pairs {
-        ini.set(k, v.clone());
-    }
-    write_video(&ini);
-}
-
-fn write_video(ini: &Ini) {
-    if let Err(e) = ini.save_to(&crate::paths::video_profile(), "# DLSS 5: видеопрофиль syn-video-player\n\n") {
-        tracing::warn!("video.ini: {e}");
-    }
+    set_profile_values(Profile::Video, pairs)
 }
 
 #[cfg(test)]

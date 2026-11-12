@@ -307,3 +307,4 @@
 # src/chrome.rs
 "Во весь экран (F11)" = "Pełny ekran (F11)"
 "Выйти из полноэкранного режима (F11)" = "Zamknij pełny ekran (F11)"
+"Модели DLSS 5 нет — импортируйте её в окне syn-dlss" = "Brak modelu DLSS 5 — zaimportuj go w oknie syn-dlss"

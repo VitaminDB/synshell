@@ -501,6 +501,8 @@ pub struct Vm {
     pub smooth: bool,
     /// Разрешение 3D-игр DOS (Glide, syn-gpu): 0 — по окну, 1 — как в игре, 2 — ×2, 3 — ×3.
     pub glide_res: u8,
+    /// Кадры гостя через DLSS 5 (помощник syn-dlss, профиль виртуальных машин).
+    pub dlss: bool,
     /// 3D-ускорение: паравиртуальная видеокарта syn-gpu (сервер vfio-user, проект
     /// syn-virt) — Windows с её драйвером; кадры игр — слоем поверх экрана.
     pub gpu3d: bool,
@@ -565,6 +567,7 @@ impl Default for Vm {
             scale: ScaleMode::Fit,
             smooth: true,
             glide_res: 0,
+            dlss: false,
             gpu3d: false,
             gpu3d_args: String::new(),
             sound: true,

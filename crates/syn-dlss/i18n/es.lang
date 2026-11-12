@@ -264,3 +264,7 @@
 "Сбросить всё" = "Restablecer todo"
 "Все настройки — по умолчанию; помощник пересоберёт функции" = "Todos los ajustes a sus valores predeterminados; el auxiliar reconstruye las funciones"
 "Сбросить…" = "Restablecer…"
+"Виртуальная машина обрабатывается" = "Procesando la máquina virtual"
+"Виртуальная машина на паузе" = "Máquina virtual en pausa"
+"Профиль виртуальных машин" = "Perfil de máquinas virtuales"
+"Сейчас кадры даёт окно виртуальной машины: правки здесь сохраняются в её собственный профиль и не меняют настройки игр." = "Ahora los fotogramas vienen de la ventana de una máquina virtual: los cambios aquí se guardan en su propio perfil y no cambian los ajustes de los juegos."

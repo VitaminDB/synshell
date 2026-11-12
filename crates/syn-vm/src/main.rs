@@ -11,6 +11,7 @@
 mod agent;
 mod cli;
 mod devices;
+mod dlss;
 mod dostools;
 mod mcp;
 mod qga;
@@ -202,6 +203,8 @@ fn main() {
             }
             Box::new(ui::root(st))
         });
+    // окно закрыто — канал DLSS 5 отпустить (в общую память вернутся настройки игр)
+    dlss::shutdown();
     if !separate {
         let _ = std::fs::remove_file(&sock);
     }

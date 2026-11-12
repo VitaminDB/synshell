@@ -60,6 +60,8 @@ fn titlebar(st: St) -> W {
 fn layer_badge(s: &Status) -> (&'static str, String) {
     let game = if s.game.is_empty() { String::new() } else { format!(" — {}", s.game) };
     match s.layer {
+        Layer::Active if s.vm => ("dot ok", format!("{}{game}", t!("Виртуальная машина обрабатывается"))),
+        Layer::Idle if s.vm => ("dot idle", format!("{}{game}", t!("Виртуальная машина на паузе"))),
         Layer::Active if s.video => ("dot ok", format!("{}{game}", t!("Видео обрабатывается"))),
         Layer::Idle if s.video => ("dot idle", format!("{}{game}", t!("Видео на паузе"))),
         Layer::Active => ("dot ok", format!("{}{game}", t!("Игра обрабатывается"))),
@@ -182,8 +184,16 @@ fn status_card(st: St) -> W {
                             Column::new()
                                 .gap(2.0)
                                 .class("grow")
-                                .child(Text::new(t!("Видеопрофиль")).class("banner-title"))
-                                .child(Text::new(t!("Сейчас кадры даёт видеоплеер: правки здесь сохраняются в его собственный профиль и не меняют настройки игр.")).max_lines(3).class("hint")),
+                                .child(Text::new(if s.vm { t!("Профиль виртуальных машин") } else { t!("Видеопрофиль") }).class("banner-title"))
+                                .child(
+                                    Text::new(if s.vm {
+                                        t!("Сейчас кадры даёт окно виртуальной машины: правки здесь сохраняются в её собственный профиль и не меняют настройки игр.")
+                                    } else {
+                                        t!("Сейчас кадры даёт видеоплеер: правки здесь сохраняются в его собственный профиль и не меняют настройки игр.")
+                                    })
+                                    .max_lines(3)
+                                    .class("hint"),
+                                ),
                         ),
                 ),
             );

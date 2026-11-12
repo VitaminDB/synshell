@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -52,6 +52,10 @@ const CAPS: u32 = 18;
 const MODE: u32 = 19;
 /// Клиент → сервер: частота монитора окна в мГц (`Refresh { millihertz, _pad }`) — VSync гостя от хоста.
 const REFRESH: u32 = 20;
+/// Клиент → сервер: ограничение частоты кадров на ходу (`MaxFps { fps, _pad }`, 0 — нет), как `--max-fps`:
+/// VSync, экран, вывод кадров игр и смена кадра Glide. Старый сервер сообщение пропускает — тогда
+/// ограничение держится частотой из `REFRESH`.
+const MAX_FPS: u32 = 22;
 /// FRAME.flags: кадр в изображении Vulkan (offset — его номер).
 const GPU_IMAGE: u32 = 1 << 2;
 /// FRAME.flags: рабочий стол гостя (DWM на карте syn-gpu, сервер с `--display`).
@@ -94,6 +98,12 @@ pub struct Present {
     cursor: Mutex<Option<GuestCursor>>,
     /// Режимы экрана гостя (последний MODES).
     modes: Mutex<Option<GuestModes>>,
+    /// DLSS 5 включён: кадры, которые показывает экран, — через поток модели.
+    dlss: Mutex<Option<Arc<crate::dlss::Worker>>>,
+    /// Кадры через BAR2, а не общими изображениями GPU (DLSS нужны пиксели в памяти).
+    bar2: AtomicBool,
+    /// Ограничение частоты кадров гостя (0 — по монитору окна).
+    max_fps: AtomicU32,
 }
 
 /// Курсор гостя: где он на экране и как выглядит (для записи — в кадре его нет).
@@ -256,15 +266,69 @@ impl Present {
         }
         *self.refresh.lock().unwrap() = Some(mhz);
         if let Some(tx) = self.tx.lock().unwrap().clone() {
-            if send(&mut tx.lock().unwrap(), REFRESH, &[mhz.to_le_bytes(), 0u32.to_le_bytes()].concat()).is_ok() {
-                tracing::info!("syn-gpu present: частота монитора {:.3} Гц", mhz as f64 / 1000.0);
+            let eff = self.effective_refresh(mhz);
+            if send(&mut tx.lock().unwrap(), REFRESH, &[eff.to_le_bytes(), 0u32.to_le_bytes()].concat()).is_ok() {
+                tracing::info!("syn-gpu present: частота монитора {:.3} Гц, гостю {:.3} Гц", mhz as f64 / 1000.0, eff as f64 / 1000.0);
             }
         }
+    }
+
+    /// Частота для гостя: монитора, но не выше ограничения.
+    fn effective_refresh(&self, mhz: u32) -> u32 {
+        match self.max_fps.load(Ordering::Relaxed) {
+            0 => mhz,
+            n => mhz.min(n * 1000),
+        }
+    }
+
+    /// Частота монитора окна (мГц), если уже известна.
+    pub fn monitor_refresh(&self) -> Option<u32> {
+        *self.refresh.lock().unwrap()
+    }
+
+    /// Ограничить частоту кадров гостя на ходу (0 — по монитору): серверу `MAX_FPS` и частота `REFRESH`
+    /// не выше ограничения.
+    pub fn set_max_fps(&self, n: u32) {
+        if self.max_fps.swap(n, Ordering::Relaxed) == n {
+            return;
+        }
+        let Some(tx) = self.tx.lock().unwrap().clone() else { return };
+        let mut t = tx.lock().unwrap();
+        let _ = send(&mut t, MAX_FPS, &[n.to_le_bytes(), 0u32.to_le_bytes()].concat());
+        if let Some(mhz) = *self.refresh.lock().unwrap() {
+            let eff = self.effective_refresh(mhz);
+            let _ = send(&mut t, REFRESH, &[eff.to_le_bytes(), 0u32.to_le_bytes()].concat());
+        }
+        tracing::info!("syn-gpu present: ограничение частоты кадров {}", if n == 0 { "снято".to_string() } else { format!("{n} кадров/с") });
     }
 
     /// Режимы экрана гостя (последний `MODES` сервера; старый сервер — `None`).
     pub fn modes(&self) -> Option<GuestModes> {
         self.modes.lock().unwrap().clone()
+    }
+
+    /// DLSS 5: `Some` — кадры экрана через поток модели; на это время сервер шлёт кадры через BAR2
+    /// (CAPS без UUID — пиксели сразу в памяти, без чтения с GPU), `None` — снова без копий.
+    pub fn set_dlss(&self, w: Option<Arc<crate::dlss::Worker>>) {
+        let on = w.is_some();
+        *self.dlss.lock().unwrap() = w;
+        if self.bar2.swap(on, Ordering::SeqCst) == on || self.cursor_id == 0 {
+            return;
+        }
+        let Some(tx) = self.tx.lock().unwrap().clone() else { return };
+        let mut b = Vec::with_capacity(40);
+        b.extend_from_slice(&2u32.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        match syngui::gpu::external::device_uuids().filter(|_| !on) {
+            Some((dev, drv)) => {
+                b.extend_from_slice(&dev);
+                b.extend_from_slice(&drv);
+            }
+            None if on => b.extend_from_slice(&[0u8; 32]),
+            None => return,
+        }
+        let _ = send(&mut tx.lock().unwrap(), CAPS, &b);
+        tracing::info!("syn-gpu present: {}", if on { "DLSS 5 — кадры через BAR2" } else { "кадры снова без копий" });
     }
 
     /// Выбрать режим из списка `MODES` (сервер ответит новым `MODES`).
@@ -340,7 +404,7 @@ fn view_socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dyn Fn(Notice) + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -390,7 +454,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
 pub fn viewer(id: &str) -> Result<Arc<Present>> {
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
     let p2 = p.clone();
     std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -407,7 +471,7 @@ pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
     // приходят рабочий стол и курсор; кадры игр — `grab(…, false)` (основной сокет).
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -463,7 +527,7 @@ pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     // Кадр рабочего стола — наблюдателем (окно не вытесняется); кадры игр приходят только главному.
     let path = if desktop { view_socket(id) } else { socket(id) };
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -514,8 +578,13 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
     if let Some((w, h)) = *p.mode.lock().unwrap() {
         send(&mut tx.lock().unwrap(), MODE, &[w.to_le_bytes(), h.to_le_bytes()].concat())?;
     }
+    let max = p.max_fps.load(Ordering::Relaxed);
+    if max > 0 {
+        send(&mut tx.lock().unwrap(), MAX_FPS, &[max.to_le_bytes(), 0u32.to_le_bytes()].concat())?;
+    }
     if let Some(mhz) = *p.refresh.lock().unwrap() {
-        send(&mut tx.lock().unwrap(), REFRESH, &[mhz.to_le_bytes(), 0u32.to_le_bytes()].concat())?;
+        let eff = p.effective_refresh(mhz);
+        send(&mut tx.lock().unwrap(), REFRESH, &[eff.to_le_bytes(), 0u32.to_le_bytes()].concat())?;
     }
     // CAPS уже отправлен (UUID карты окна известен только после создания GPU окна).
     let mut caps_sent = !gpu;
@@ -525,7 +594,7 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
     // Последний поставленный курсор: (seq, видим).
     let mut cursor_state: Option<(u32, bool)> = None;
     while p.alive.load(Ordering::Relaxed) {
-        if !caps_sent {
+        if !caps_sent && !p.bar2.load(Ordering::SeqCst) {
             if let Some((dev, drv)) = syngui::gpu::external::device_uuids() {
                 let mut b = Vec::with_capacity(40);
                 b.extend_from_slice(&2u32.to_le_bytes());
@@ -608,6 +677,9 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                 send(&mut tx.lock().unwrap(), RELEASE, &release)?;
                 if let Some(px) = pixels {
                     let mut layers = p.layers.lock().unwrap();
+                    // Кадр, который показывает экран: видимое окно игры, а без него — рабочий стол.
+                    let primary = if flags & DESKTOP != 0 { !layers.iter().any(|(&k, l)| k != surface && l.show && !l.desktop) } else { flags & 1 != 0 };
+                    let dlss = if primary { p.dlss.lock().unwrap().clone() } else { None };
                     let l = layers.entry(surface).or_insert_with(|| Layer {
                         frame: LiveFrame::new(),
                         rect: (0, 0, 0, 0),
@@ -616,7 +688,10 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                         desktop: false,
                         updated: Instant::now(),
                     });
-                    l.frame.set(width, height, px.into());
+                    match dlss {
+                        Some(worker) => worker.submit(crate::dlss::Job { frame: l.frame.clone(), width, height, rgba: px.into(), on_change: on_change.clone() }),
+                        None => l.frame.set(width, height, px.into()),
+                    }
                     l.rect = (x, y, w, h);
                     l.show = flags & 1 != 0;
                     l.fullscreen = flags & 2 != 0;
@@ -861,6 +936,9 @@ mod tests {
             desk_size: Mutex::new((0, 0)),
             cursor: Mutex::new(None),
             modes: Mutex::new(None),
+            dlss: Mutex::new(None),
+            bar2: AtomicBool::new(false),
+            max_fps: AtomicU32::new(0),
         };
         let mut m = Vec::new();
         m.extend_from_slice(&NOTICE.to_le_bytes());
@@ -902,7 +980,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -956,7 +1034,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});

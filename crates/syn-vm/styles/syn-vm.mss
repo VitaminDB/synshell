@@ -303,6 +303,14 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 .mode-btn.pending { border: 1px solid #ffb02e88; }
 .mode-label { font-size: 12px; color: #ffffffdd; }
 .mode-arrow { icon-size: 16px; icon-color: #ffffffaa; }
+.dlss-btn { padding: 5px 10px 5px 8px; border-radius: 999px; margin: 0px 2px; &:hover { background-color: #ffffff22; } }
+.dlss-btn.on { background-color: #76b90040; border: 1px solid #76b900aa; }
+.dlss-btn.wait { background-color: #ffffff1a; }
+.dlss-btn.warn { background-color: #ffb02e2e; border: 1px solid #ffb02e88; }
+.dlss-icon { icon-size: 16px; icon-color: #ffffff99; }
+.dlss-btn.on .dlss-icon { icon-color: #a6e22e; }
+.dlss-btn.warn .dlss-icon { icon-color: #ffb02e; }
+.dlss-label { font-size: 12px; color: #ffffffcc; }
 .veil { background-color: #000000a6; }
 .veil-icon { icon-size: 44px; icon-color: #ffffff; }
 .veil-title { font-size: 17px; font-weight: 600; color: #ffffff; }

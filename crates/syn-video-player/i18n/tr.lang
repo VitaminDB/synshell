@@ -307,3 +307,4 @@
 # src/chrome.rs
 "Во весь экран (F11)" = "Tam ekran (F11)"
 "Выйти из полноэкранного режима (F11)" = "Tam ekrandan çık (F11)"
+"Модели DLSS 5 нет — импортируйте её в окне syn-dlss" = "DLSS 5 modeli yok — syn-dlss penceresinde içe aktarın"

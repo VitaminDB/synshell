@@ -84,6 +84,8 @@ pub struct Status {
     pub model_missing: bool,
     /// Канал держит видеоплеер со своим видеопрофилем: правки идут в него, игры не трогаются.
     pub video: bool,
+    /// Канал держит окно виртуальной машины (syn-vm) со своим профилем.
+    pub vm: bool,
     /// Модель не поднялась, а видеокарту держат нейросети synaptixd: их id и байты.
     pub vram_hog: Option<(Vec<String>, u64)>,
 }
@@ -231,6 +233,7 @@ impl St {
             hdr: ld(&h.hdr_active) != 0,
             model_missing: self.model_missing(),
             video: config::video_owner(h).is_some(),
+            vm: config::video_owner_profile(h).is_some_and(|(_, p)| p == config::Profile::Vm),
             vram_hog: None,
         };
         let mut st = st;
@@ -317,7 +320,7 @@ impl St {
         let own = video.is_some() || game.is_some();
         config::save_config(if own { None } else { h }, &[("runner_type", rt), ("runner_path", rp), ("profile", profile), ("ui_advanced", adv)]);
         if let Some(h) = video {
-            config::save_video_profile(h);
+            config::save_owner_profile(h);
         } else if let (Some(h), Some(g)) = (h, game) {
             if let Err(e) = config::save_profile(h, &g) {
                 tracing::warn!("профиль игры «{g}»: {e}");

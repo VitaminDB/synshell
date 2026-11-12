@@ -264,3 +264,7 @@
 "Сбросить всё" = "Reset everything"
 "Все настройки — по умолчанию; помощник пересоберёт функции" = "Every setting to its default; the helper rebuilds its features"
 "Сбросить…" = "Reset…"
+"Виртуальная машина обрабатывается" = "Virtual machine is being processed"
+"Виртуальная машина на паузе" = "Virtual machine is paused"
+"Профиль виртуальных машин" = "Virtual machine profile"
+"Сейчас кадры даёт окно виртуальной машины: правки здесь сохраняются в её собственный профиль и не меняют настройки игр." = "Frames now come from a virtual machine window: changes here go to its own profile and don't change game settings."
