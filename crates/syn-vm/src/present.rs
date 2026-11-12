@@ -114,6 +114,8 @@ pub mod mode_kind {
     pub const GRAPHICS: u16 = 2;
     /// Под окно: DOS — текст размером с окно, Windows — разрешение следует за окном.
     pub const WINDOW: u16 = 3;
+    /// Разрешение 3D (Glide): `width` 0 — по окну, 1 — как в игре, 2 — ×2, 3 — ×3; `bpp` = 1 у выбранного.
+    pub const RENDER: u16 = 4;
 }
 
 /// Флаги `Modes.flags` (syn-virt proto `modes_flags`).
@@ -128,6 +130,20 @@ pub mod modes_flags {
     pub const FIXED: u32 = 1 << 3;
     /// Выбор ещё не применён (DOS: ждёт командной строки).
     pub const PENDING: u32 = 1 << 4;
+    /// Идёт 3D (Glide): `GuestModes::game` и `render` — разрешение игры и кадра.
+    pub const GLIDE: u32 = 1 << 5;
+}
+
+/// Выбранное у машины разрешение 3D (vm.toml `glide_res`): сервер syn-gpu его не помнит между запусками —
+/// окно досылает его, когда в `MODES` выбран другой вариант.
+static RENDER_PREF: Mutex<Option<HashMap<String, u16>>> = Mutex::new(None);
+
+pub fn set_render_pref(id: &str, k: u16) {
+    RENDER_PREF.lock().unwrap().get_or_insert_with(HashMap::new).insert(id.to_string(), k);
+}
+
+fn render_pref(id: &str) -> Option<u16> {
+    RENDER_PREF.lock().unwrap().as_ref().and_then(|m| m.get(id).copied())
 }
 
 /// Режим экрана гостя (`ModeEntry`: kind, _pad, width, height, bpp, _pad2 — по u16).
@@ -163,6 +179,9 @@ pub struct GuestModes {
     pub current: ModeEntry,
     pub flags: u32,
     pub list: Vec<ModeEntry>,
+    /// При флаге GLIDE: разрешение игры и кадра хоста (поля после списка, сервер с 2026-11-12).
+    pub game: (u32, u32),
+    pub render: (u32, u32),
 }
 
 impl GuestModes {
@@ -176,7 +195,13 @@ impl GuestModes {
         let flags = u32_at(b, n);
         let count = (u32_at(b, n + 4) as usize).min(24);
         let list = (0..count).map(|i| n + 8 + i * n).take_while(|&o| o + n <= b.len()).map(|o| ModeEntry::parse(&b[o..o + n])).collect();
-        Some(Self { current, flags, list })
+        let tail = n + 8 + 24 * n;
+        let (game, render) = if b.len() >= tail + 16 {
+            ((u32_at(b, tail), u32_at(b, tail + 4)), (u32_at(b, tail + 8), u32_at(b, tail + 12)))
+        } else {
+            ((0, 0), (0, 0))
+        };
+        Some(Self { current, flags, list, game, render })
     }
 
     pub fn has(&self, f: u32) -> bool {
@@ -624,6 +649,13 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
             }
             MODES => {
                 if let Some(m) = GuestModes::parse(&payload) {
+                    // Разрешение 3D машины — серверу, если у него другое (новый запуск машины).
+                    if let Some(k) = render_pref(&p.id) {
+                        if m.list.iter().any(|e| e.kind == mode_kind::RENDER && e.bpp != 0 && e.width != k) {
+                            let e = ModeEntry { kind: mode_kind::RENDER, width: k, height: 0, bpp: 0 };
+                            let _ = send(&mut s, SET_MODE, &e.bytes());
+                        }
+                    }
                     let mut cur = p.modes.lock().unwrap();
                     if cur.as_ref() != Some(&m) {
                         tracing::info!("syn-gpu present: режимы экрана: сейчас {:?}, флаги {:#x}, вариантов {}", m.current, m.flags, m.list.len());

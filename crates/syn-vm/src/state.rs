@@ -867,6 +867,7 @@ pub fn attach(st: St, id: &str) {
         };
         run_on_main_thread(move || toast_err(st, text));
     });
+    crate::present::set_render_pref(&id_s, vm.glide_res as u16);
     let p = crate::present::start(&id_s, on_frame, on_notice);
     presents().lock().unwrap().insert(id_s, p.clone());
     // Частота монитора окна — серверу syn-gpu (VSync гостя от хоста); окно ушло на другой

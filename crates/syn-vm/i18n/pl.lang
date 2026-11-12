@@ -911,3 +911,7 @@
 # src/usb.rs
 "Неверный порт USB: {p}" = "Nieprawidłowy port USB: {p}"
 "Доступ к USB не выдан (pkexec: {c})" = "Nie przyznano dostępu do USB (pkexec: {c})"
+"3D (Voodoo): разрешение" = "3D (Voodoo): rozdzielczość"
+"Как в игре ({w}×{h})" = "Jak w grze ({w}×{h})"
+"Как в игре" = "Jak w grze"
+"3D {w}×{h} → {rw}×{rh}" = "3D {w}×{h} → {rw}×{rh}"

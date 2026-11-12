@@ -521,6 +521,9 @@ fn colors(bpp: u16) -> String {
 /// Подпись текущего режима на кнопке: «Текст 80×25», «Графика 640×480, 256 цветов», «Windows 1920×1080».
 fn current_title(m: &GuestModes) -> String {
     let c = m.current;
+    if m.has(modes_flags::GLIDE) && m.game.0 > 0 {
+        return t!("3D {w}×{h} → {rw}×{rh}", w = m.game.0, h = m.game.1, rw = m.render.0, rh = m.render.1);
+    }
     match c.kind {
         mode_kind::TEXT => t!("Текст {w}×{h}", w = c.width, h = c.height),
         mode_kind::WINDOW if m.has(modes_flags::DESKTOP) => t!("Windows {w}×{h}", w = c.width, h = c.height),
@@ -626,7 +629,7 @@ fn modes_menu(st: St, id: String) -> W {
             // DOS без SYNMOUSE: список только для сведения.
             let can = !dos || m.has(modes_flags::AGENT);
             col = col.child(menu_head(if dos { t!("Режим экрана DOS") } else { t!("Разрешение экрана") }));
-            for e in m.list.iter().copied() {
+            for e in m.list.iter().copied().filter(|e| e.kind != mode_kind::RENDER) {
                 let id2 = id.clone();
                 let on: Option<Box<dyn Fn() + Send + Sync>> = can.then(|| {
                     Box::new(move || {
@@ -635,6 +638,27 @@ fn modes_menu(st: St, id: String) -> W {
                     }) as Box<dyn Fn() + Send + Sync>
                 });
                 col = col.child(menu_row(entry_label(&m, &e), entry_checked(&m, &e), on));
+            }
+            // Разрешение 3D-игр (Voodoo): кадр хоста — по окну, как в игре, ×2, ×3; действует сразу.
+            let render: Vec<ModeEntry> = m.list.iter().copied().filter(|e| e.kind == mode_kind::RENDER).collect();
+            if !render.is_empty() {
+                col = col.child(menu_head(t!("3D (Voodoo): разрешение")));
+                for e in render {
+                    let id2 = id.clone();
+                    let k = e.width;
+                    let label = match k {
+                        0 => t!("По размеру окна"),
+                        1 if m.game.0 > 0 => t!("Как в игре ({w}×{h})", w = m.game.0, h = m.game.1),
+                        1 => t!("Как в игре"),
+                        _ => format!("×{k}"),
+                    };
+                    let f: Box<dyn Fn() + Send + Sync> = Box::new(move || {
+                        state::edit(st, |v| v.glide_res = k as u8);
+                        crate::present::set_render_pref(&id2, k);
+                        state::set_guest_mode(st, &id2, e);
+                    });
+                    col = col.child(menu_row(label, e.bpp != 0, Some(f)));
+                }
             }
             if m.has(modes_flags::PENDING) {
                 col = col.child(menu_hint(icons::INFO, t!("Применится в командной строке DOS — после выхода из программы")));
