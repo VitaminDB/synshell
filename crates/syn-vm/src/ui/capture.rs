@@ -176,18 +176,48 @@ fn lock(st: crate::state::St, vm: Vm, own: bool) {
     std::thread::Builder::new()
         .name("syn-vm-capture".into())
         .spawn(move || {
-            let mut inp = match crate::qmp::RelInput::open(&v) {
-                Ok(i) => i,
-                Err(e) => {
-                    log(&v, &format!("QMP: {e}"));
-                    return;
+            // Окно уже держит соединение с qmp-input.sock (клавиши машин с syn-gpu) — через него же;
+            // иначе своё соединение.
+            let sess = crate::state::session(&v.id).filter(|s| s.has_qmp());
+            let mut inp = if sess.is_some() {
+                None
+            } else {
+                match crate::qmp::RelInput::open(&v) {
+                    Ok(i) => Some(i),
+                    Err(e) => {
+                        log(&v, &format!("QMP: {e}"));
+                        None
+                    }
                 }
+            };
+            if sess.is_none() && inp.is_none() {
+                log(&v, "ввод недоступен — захват снимается");
+                run_on_main_thread(|| stop("нет соединения ввода"));
+                return;
+            }
+            log(&v, if sess.is_some() { "ввод — по соединению окна" } else { "ввод — своё соединение QMP" });
+            let mut send = move |events: serde_json::Value| -> anyhow::Result<()> {
+                if let Some(s) = &sess {
+                    if s.qmp_events(events) {
+                        return Ok(());
+                    }
+                    anyhow::bail!("QMP окна не принял событие");
+                }
+                inp.as_mut().unwrap().events(events)
             };
             // Дробные смещения копятся: на HiDPI мышь даёт доли пикселя.
             let (mut fx, mut fy) = (0.0f64, 0.0f64);
             let mut errs = 0;
             let mut moves = 0u64;
-            while let Ok(ev) = rx.recv() {
+            let mut pending: Option<Ev> = None;
+            loop {
+                let ev = match pending.take() {
+                    Some(e) => e,
+                    None => match rx.recv() {
+                        Ok(e) => e,
+                        Err(_) => break,
+                    },
+                };
                 let r = match ev {
                     Ev::Motion(dx, dy) => {
                         moves += 1;
@@ -196,14 +226,33 @@ fn lock(st: crate::state::St, vm: Vm, own: bool) {
                         }
                         fx += dx;
                         fy += dy;
+                        // Сдвиги, пришедшие, пока шла прошлая отправка, — одной пачкой.
+                        while let Ok(next) = rx.try_recv() {
+                            match next {
+                                Ev::Motion(a, b) => {
+                                    fx += a;
+                                    fy += b;
+                                }
+                                other => {
+                                    pending = Some(other);
+                                    break;
+                                }
+                            }
+                        }
                         let (ix, iy) = (fx.trunc(), fy.trunc());
                         fx -= ix;
                         fy -= iy;
-                        inp.motion(ix as i64, iy as i64)
+                        if ix == 0.0 && iy == 0.0 {
+                            Ok(())
+                        } else {
+                            send(serde_json::json!([
+                                {"type": "rel", "data": {"axis": "x", "value": ix as i64}},
+                                {"type": "rel", "data": {"axis": "y", "value": iy as i64}}]))
+                        }
                     }
                     Ev::Button(b, down) => {
                         log(&v, &format!("кнопка {b} {}", if down { "нажата" } else { "отпущена" }));
-                        inp.button(b, down)
+                        send(serde_json::json!([{"type": "btn", "data": {"down": down, "button": b}}]))
                     }
                     Ev::Stop => break,
                 };
@@ -215,7 +264,7 @@ fn lock(st: crate::state::St, vm: Vm, own: bool) {
                 }
             }
             // Соединение ввода — закрыть до запросов к основному монитору.
-            drop(inp);
+            drop(send);
             if own {
                 log(&v, "выход");
             } else {

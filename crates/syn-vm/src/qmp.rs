@@ -362,19 +362,9 @@ impl RelInput {
         Ok(Self { conn })
     }
 
-    pub fn motion(&mut self, dx: i64, dy: i64) -> Result<()> {
-        if dx == 0 && dy == 0 {
-            return Ok(());
-        }
-        self.conn.call("input-send-event", json!({"events": [
-            {"type": "rel", "data": {"axis": "x", "value": dx}},
-            {"type": "rel", "data": {"axis": "y", "value": dy}}]}))?;
-        Ok(())
-    }
-
-    /// Кнопка: left, middle, right, wheel-up, wheel-down, side, extra.
-    pub fn button(&mut self, button: &str, down: bool) -> Result<()> {
-        self.conn.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": down, "button": button}}]}))?;
+    /// Готовые события `input-send-event`.
+    pub fn events(&mut self, events: Value) -> Result<()> {
+        self.conn.call("input-send-event", json!({ "events": events }))?;
         Ok(())
     }
 }

@@ -232,12 +232,24 @@ impl Session {
 
     /// Клавиша по номеру QEMU через QMP; `false` — не настроено или не вышло (тогда VNC).
     fn qmp_key(&self, qnum: u32, down: bool) -> bool {
-        let mut g = self.qmp_keys.lock().unwrap();
-        let Some((sock, conn)) = g.as_mut() else { return false };
         if qnum == 0 {
             return false;
         }
-        let ev = serde_json::json!({"events": [{"type": "key", "data": {"down": down, "key": {"type": "number", "data": qnum}}}]});
+        self.qmp_events(serde_json::json!([{"type": "key", "data": {"down": down, "key": {"type": "number", "data": qnum}}}]))
+    }
+
+    /// Ввод через QMP окна настроен (`qmp-input.sock`).
+    pub fn has_qmp(&self) -> bool {
+        self.qmp_keys.lock().unwrap().is_some()
+    }
+
+    /// События `input-send-event` по соединению окна с `qmp-input.sock`: у QEMU на сокете один клиент,
+    /// поэтому захват мыши шлёт сдвиги здесь же, а не вторым соединением (оно ждало бы приветствия,
+    /// пока окно держит своё). `false` — не настроено или не вышло.
+    pub fn qmp_events(&self, events: serde_json::Value) -> bool {
+        let mut g = self.qmp_keys.lock().unwrap();
+        let Some((sock, conn)) = g.as_mut() else { return false };
+        let ev = serde_json::json!({ "events": events });
         for _ in 0..2 {
             if conn.is_none() {
                 *conn = crate::qmp::Conn::open(sock, std::time::Duration::from_secs(3)).ok();
