@@ -151,6 +151,14 @@ pub fn page(st: St, full: bool) -> W {
 /// Щелчок по полноэкранной игре (flags&2) у машины с 3D — захват мыши; сам щелчок уходит гостю.
 /// Окно игры не во весь экран — обычный щелчок (меню, лаунчеры): захват — кнопкой или Ctrl+Alt+G.
 fn try_capture(st: St, id: &str) {
+    // Гость сам перевёл мышь в относительную (DOS: игра через SYNMOUSE.COM, или мышь PS/2 без
+    // драйвера) — захват на его мыши.
+    if super::capture::rel_wanted(id) {
+        if let Some(vm) = st.vm(id) {
+            super::capture::start_own(st, &vm);
+        }
+        return;
+    }
     let Some(vm) = st.vm(id).filter(|v| v.gpu_on()) else { return };
     if state::game_layer(id).is_some_and(|l| l.fullscreen) {
         super::capture::start(st, &vm);

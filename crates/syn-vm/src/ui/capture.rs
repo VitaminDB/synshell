@@ -2,6 +2,11 @@
 //! смещения мыши (relative-pointer, без ускорения) и кнопки уходят в относительную мышь
 //! гостя (`usb-mouse`, активная на время захвата), сочетания (Alt+Tab, Win) — гостю.
 //! Выход — Ctrl+Alt; при потере фокуса окна syngui снимает захват сам.
+//!
+//! Второй вид — «своя мышь гостя» (DOS: PS/2 или vmmouse драйвера SYNMOUSE.COM в относительном
+//! режиме): отдельная мышь не подключается, смещения идут активной мыши. Нужен ли он, решает
+//! [`watch_mice`]: активная мышь QEMU (`query-mice`, `current`) стала относительной — подсказка
+//! и захват по щелчку, снова абсолютной — захват снимается сам.
 
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
@@ -23,6 +28,65 @@ struct Cap {
     tx: Sender<Ev>,
     /// Блокировка указателя уже подтверждена (на Wayland — не сразу после запроса).
     locked_seen: bool,
+    /// Своя мышь гостя (без `usb-mouse`): на выходе планшет не возвращается.
+    own: bool,
+}
+
+/// Машины, у которых активная мышь QEMU сейчас относительная (по `query-mice`).
+static REL: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Гостю нужна относительная мышь (захват по щелчку).
+pub fn rel_wanted(id: &str) -> bool {
+    REL.lock().unwrap().iter().any(|x| x == id)
+}
+
+/// Следить за активной мышью машины без планшета (DOS), пока открыт её экран (`alive`): относительная
+/// — подсказать и захватывать по щелчку, абсолютная — снять свой захват. Опрос `query-mice` раз в 0,4 с.
+pub fn watch_mice(st: crate::state::St, vm: Vm, alive: impl Fn() -> bool + Send + 'static) {
+    static WATCHING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    {
+        let mut w = WATCHING.lock().unwrap();
+        if w.contains(&vm.id) {
+            return;
+        }
+        w.push(vm.id.clone());
+    }
+    std::thread::Builder::new()
+        .name("syn-vm-mice".into())
+        .spawn(move || {
+            let mut last: Option<bool> = None;
+            while alive() && crate::qemu::pid(&vm).is_some() {
+                let rel = crate::qmp::call(&vm, "query-mice", serde_json::Value::Null)
+                    .ok()
+                    .and_then(|v| v.as_array().and_then(|a| a.iter().find(|m| m["current"] == true).map(|m| m["absolute"] == false)));
+                if let Some(rel) = rel.filter(|r| last != Some(*r)) {
+                    last = Some(rel);
+                    {
+                        let mut g = REL.lock().unwrap();
+                        g.retain(|x| x != &vm.id);
+                        if rel {
+                            g.push(vm.id.clone());
+                        }
+                    }
+                    log(&vm, if rel { "мышь гостя относительная — нужен захват" } else { "мышь гостя абсолютная" });
+                    let id = vm.id.clone();
+                    run_on_main_thread(move || {
+                        if rel {
+                            if !active(&id) {
+                                crate::state::toast(st, t!("Игра просит захват мыши — щёлкните в окне (Ctrl+Alt — освободить)"));
+                            }
+                        } else if CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == id && c.own) {
+                            stop("мышь гостя снова абсолютная");
+                            crate::state::toast(st, t!("Мышь снова обычная — захват снят"));
+                        }
+                    });
+                }
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            }
+            REL.lock().unwrap().retain(|x| x != &vm.id);
+            WATCHING.lock().unwrap().retain(|x| x != &vm.id);
+        })
+        .ok();
 }
 
 static CAP: Mutex<Option<Cap>> = Mutex::new(None);
@@ -62,12 +126,26 @@ pub fn active(id: &str) -> bool {
 /// Включить захват (в фоне: относительная мышь подключается около секунды): мышь гостя —
 /// относительной, указатель — запереть. Итог и ошибки — уведомлением и в журнал.
 pub fn start(st: crate::state::St, vm: &Vm) {
+    begin(st, vm, false)
+}
+
+/// Захват на своей относительной мыши гостя (DOS: PS/2, vmmouse в относительном режиме).
+pub fn start_own(st: crate::state::St, vm: &Vm) {
+    begin(st, vm, true)
+}
+
+fn begin(st: crate::state::St, vm: &Vm, own: bool) {
     if CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == vm.id) {
         log(vm, "уже включён — повторный вход пропущен");
         return;
     }
     stop("вход у другой машины");
     let v = vm.clone();
+    if own {
+        log(vm, "своя относительная мышь гостя, запираю указатель");
+        lock(st, v, true);
+        return;
+    }
     std::thread::spawn(move || {
         log(&v, "подключаю относительную мышь");
         if let Err(e) = crate::qmp::rel_mouse_on(&v) {
@@ -77,14 +155,16 @@ pub fn start(st: crate::state::St, vm: &Vm) {
             return;
         }
         log(&v, "мышь активна, запираю указатель");
-        run_on_main_thread(move || lock(st, v));
+        run_on_main_thread(move || lock(st, v, false));
     });
 }
 
-fn lock(st: crate::state::St, vm: Vm) {
+fn lock(st: crate::state::St, vm: Vm, own: bool) {
     if let Err(e) = syngui::signal::set_pointer_lock(true) {
         log(&vm, &format!("указатель не заперся: {e}"));
-        std::thread::spawn(move || crate::qmp::rel_mouse_off(&vm));
+        if !own {
+            std::thread::spawn(move || crate::qmp::rel_mouse_off(&vm));
+        }
         crate::state::toast_err(st, e);
         return;
     }
@@ -136,15 +216,19 @@ fn lock(st: crate::state::St, vm: Vm) {
             }
             // Соединение ввода — закрыть до запросов к основному монитору.
             drop(inp);
-            log(&v, "выход, указатель — планшету");
-            crate::qmp::rel_mouse_off(&v);
+            if own {
+                log(&v, "выход");
+            } else {
+                log(&v, "выход, указатель — планшету");
+                crate::qmp::rel_mouse_off(&v);
+            }
         })
         .ok();
     let mtx = tx.clone();
     syngui::signal::on_raw_motion(Some(Box::new(move |dx, dy| {
         let _ = mtx.send(Ev::Motion(dx, dy));
     })));
-    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false });
+    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false, own });
     log(&vm, "включён");
     // Панель над экраном — скрыть (перерисовка).
     st.frame_tick.update(|t| *t = t.wrapping_add(1));

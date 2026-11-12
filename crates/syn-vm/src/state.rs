@@ -819,6 +819,13 @@ pub fn attach(st: St, id: &str) {
         std::thread::spawn(move || crate::qmp::ensure_tablet(&v));
     }
     refresh_launched(&vm);
+    // Машина без планшета (DOS): захват по тому, абсолютная или относительная мышь у гостя сейчас.
+    if crate::dostools::is_dos(&vm) {
+        let idw = id_s.clone();
+        let t0 = std::time::Instant::now();
+        // Пока экран открыт (первые секунды — сеанс ещё подключается).
+        crate::ui::capture::watch_mice(st, vm.clone(), move || session(&idw).is_some() || t0.elapsed() < Duration::from_secs(20));
+    }
     let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
     // syn-gpu — основная видеокарта (`-vga none`): графической консоли нет, VNC клавиши не
     // передаёт — клавиатура через QMP (мышь идёт планшетом и так доходит).
