@@ -318,19 +318,31 @@ fn image_from(dir: &Path, out: &Path) -> Result<PathBuf> {
 /// Аргументы QEMU: диск инструментов на свободном порту AHCI, без bootindex (последний по
 /// счёту жёсткий диск). Записи гостя — во временный слой (`snapshot=on`): IDE-диск не бывает
 /// «только для чтения».
-pub fn qemu_args(vm: &Vm) -> Option<Vec<String>> {
+/// `at` — место на шине у i440fx (`Some(None)` — свободных мест IDE нет), `None` — q35 (порт AHCI
+/// подбирается здесь).
+pub fn qemu_args(vm: &Vm, at: Option<Option<String>>) -> Option<Vec<String>> {
     if !wanted(vm) {
         return None;
     }
+    let at = match at {
+        Some(Some(a)) => a,
+        Some(None) => {
+            tracing::warn!("диск инструментов DOS: у i440fx нет свободного места IDE");
+            return None;
+        }
+        None => {
+            let used: Vec<usize> = if vm.disk_bus == crate::model::DiskBus::Sata { (0..vm.disks.len()).map(|i| i.min(3)).collect() } else { Vec::new() };
+            let port = [0usize, 1, 2, 3, 5].into_iter().find(|p| !used.contains(p) && !(*p == 5 && vm.tools_cd))?;
+            format!("bus=ide.{port}")
+        }
+    };
     let img = image().map_err(|e| tracing::warn!("диск инструментов DOS: {e}")).ok()?;
-    let used: Vec<usize> = if vm.disk_bus == crate::model::DiskBus::Sata { (0..vm.disks.len()).map(|i| i.min(3)).collect() } else { Vec::new() };
-    let port = [0usize, 1, 2, 3, 5].into_iter().find(|p| !used.contains(p) && !(*p == 5 && vm.tools_cd))?;
     let file = img.to_string_lossy().replace(',', ",,");
     Some(vec![
         "-drive".into(),
         format!("file={file},if=none,id={ID},format=raw,snapshot=on"),
         "-device".into(),
-        format!("ide-hd,drive={ID},bus=ide.{port},id={ID}"),
+        format!("ide-hd,drive={ID},{at},id={ID}"),
     ])
 }
 

@@ -47,7 +47,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --wait-boot МАШИНА [--user] [--timeout СЕК]  ждать гостевой агент (300 с); --user — и вход пользователя
   --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]
         [--disk ФАЙЛ …] [--vars ФАЙЛ] [--tpm КАТАЛОГ] [--cpus N] [--memory МБ] [--disk-gb N]
-        [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]
+        [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139|ne2k_pci|pcnet]
         [--fwd [udp:]ХОСТ:ГОСТЬ …] [--public] [--share КАТАЛОГ …] [--set КЛЮЧ=ЗНАЧЕНИЕ …]
                                           новая машина; с --disk — импорт готовой (диск остаётся на месте,
                                           переменные UEFI и TPM копируются в папку машины;
@@ -1306,6 +1306,10 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
         let id = std::mem::take(&mut vm.id);
         vm = set_keys(&vm, &kv)?;
         vm.id = id;
+    }
+    // «Другая» система с BIOS — скорее DOS или Windows 9x: им нужен i440fx (IDE), если чипсет не задан.
+    if vm.os == model::OsKind::Other && vm.firmware == model::Firmware::Bios && !kv.iter().any(|k| k.starts_with("chipset")) {
+        vm.chipset = model::Chipset::I440fx;
     }
     for f in a.all("--fwd") {
         let (udp, rest) = match f.strip_prefix("udp:") {

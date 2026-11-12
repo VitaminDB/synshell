@@ -153,6 +153,36 @@ impl Firmware {
     }
 }
 
+/// Чипсет машины: q35 (ICH9, PCIe, SATA AHCI) — современные системы; i440fx (PIIX, IDE, PCI) —
+/// DOS и Windows 9x: AHCI и ICH9 они не знают (CD не виден, диск — через BIOS), драйверы CD для DOS
+/// понимают только IDE.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Chipset {
+    #[default]
+    #[serde(rename = "q35")]
+    Q35,
+    #[serde(rename = "i440fx")]
+    I440fx,
+}
+
+impl Chipset {
+    pub const ALL: [Chipset; 2] = [Chipset::Q35, Chipset::I440fx];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Chipset::Q35 => n_!("Q35 — современные системы"),
+            Chipset::I440fx => n_!("i440FX — DOS, Windows 9x"),
+        }
+    }
+
+    pub fn short(self) -> &'static str {
+        match self {
+            Chipset::Q35 => "q35",
+            Chipset::I440fx => "i440fx",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiskBus {
@@ -181,16 +211,23 @@ pub enum NicModel {
     Virtio,
     E1000e,
     Rtl8139,
+    /// NE2000 PCI — драйвер есть в Windows 95 и DOS (пакетные драйверы).
+    #[serde(rename = "ne2k_pci")]
+    Ne2kPci,
+    /// AMD PCnet — Windows 9x, старые Linux.
+    Pcnet,
 }
 
 impl NicModel {
-    pub const ALL: [NicModel; 3] = [NicModel::Virtio, NicModel::E1000e, NicModel::Rtl8139];
+    pub const ALL: [NicModel; 5] = [NicModel::Virtio, NicModel::E1000e, NicModel::Rtl8139, NicModel::Ne2kPci, NicModel::Pcnet];
 
     pub fn title(self) -> &'static str {
         match self {
             NicModel::Virtio => n_!("virtio"),
             NicModel::E1000e => n_!("Intel e1000e"),
             NicModel::Rtl8139 => n_!("Realtek 8139"),
+            NicModel::Ne2kPci => n_!("NE2000 PCI"),
+            NicModel::Pcnet => n_!("AMD PCnet"),
         }
     }
 
@@ -199,6 +236,8 @@ impl NicModel {
             NicModel::Virtio => "virtio-net-pci",
             NicModel::E1000e => "e1000e",
             NicModel::Rtl8139 => "rtl8139",
+            NicModel::Ne2kPci => "ne2k_pci",
+            NicModel::Pcnet => "pcnet",
         }
     }
 }
@@ -482,6 +521,8 @@ pub struct Vm {
     /// Размер первого диска при создании, ГБ.
     pub disk_gb: u32,
     pub firmware: Firmware,
+    /// Чипсет: q35 или i440fx (DOS, Windows 9x).
+    pub chipset: Chipset,
     pub tpm: bool,
     pub disk_bus: DiskBus,
     pub disks: Vec<Disk>,
@@ -554,6 +595,7 @@ impl Default for Vm {
             memory_mb: 4096,
             disk_gb: 40,
             firmware: Firmware::Uefi,
+            chipset: Chipset::Q35,
             tpm: false,
             disk_bus: DiskBus::Virtio,
             disks: Vec::new(),
@@ -746,6 +788,9 @@ impl Vm {
         }
         if a.cpus != b.cpus || a.memory_mb != b.memory_mb {
             out.push(t!("процессор и память"));
+        }
+        if a.chipset != b.chipset {
+            out.push(t!("чипсет: {from} → {to}", from = a.chipset.short(), to = b.chipset.short()));
         }
         if a.firmware != b.firmware || a.tpm != b.tpm || a.tpm_host != b.tpm_host || a.os != b.os {
             out.push(t!("прошивка и TPM"));

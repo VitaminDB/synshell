@@ -292,12 +292,14 @@ fn boot(st: St, vm: &Vm) -> W {
     });
     let fw: W = if can { boxed(fw) } else { boxed(Text::new(syngui::i18n::t(vm.firmware.title())).class("value-label")) };
     let fw = DecoratedBox::new().child(fw);
+    let chipset = DecoratedBox::new().child(dropdown(&model::Chipset::ALL, vm.chipset, model::Chipset::title, |c| c.short().to_string(), 240.0, move |c| state::edit(st, |v| v.chipset = c)));
     parts::section(
         icons::SECURITY,
         t!("Загрузка и безопасность"),
         vec![
             row(t!("Сначала с привода"), t!("Включите, чтобы загрузиться с образа, когда на диске уже есть система"), Toggle::with_state(vm.boot_cdrom).on_change(move |b| state::edit(st, |v| v.boot_cdrom = b))),
             row(t!("Прошивка"), t!("Меняется только у выключенной машины; установленная система может перестать загружаться"), fw),
+            row(t!("Чипсет"), t!("i440FX — для DOS и Windows 95/98: диски и привод на IDE, USB 1.1, без PCIe; Q35 — для остальных систем. Вступает со следующего запуска"), chipset),
             row(t!("TPM 2.0"), t!("Нужен Windows 11 и BitLocker; эмулирует swtpm"), Toggle::with_state(vm.tpm).on_change(move |b| state::edit(st, |v| v.tpm = b))),
         ]
         .into_iter()

@@ -71,9 +71,10 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     let mut push = |items: &[&str]| a.extend(items.iter().map(|s| s.to_string()));
     let name = format!("{},process=syn-vm:{}", vm.name.replace(',', ",,"), vm.id);
     push(&["-name", &name]);
-    let mut machine = String::from("q35");
+    let pc = vm.chipset == crate::model::Chipset::I440fx;
+    let mut machine = String::from(if pc { "pc" } else { "q35" });
     machine.push_str(if kvm { ",accel=kvm" } else { ",accel=tcg" });
-    if vm.firmware == Firmware::UefiSecure {
+    if vm.firmware == Firmware::UefiSecure && !pc {
         machine.push_str(",smm=on");
     }
     push(&["-machine", &machine]);
@@ -125,7 +126,13 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         DisplayModel::SynGpu => push(&["-vga", "none"]),
     }
 
-    // Диски.
+    // Диски. i440fx: четыре места PIIX IDE (первичный и вторичный канал, ведущий и ведомый) —
+    // по очереди диски SATA/IDE, привод, гостевые инструменты, диск инструментов DOS.
+    let mut ide_free: std::collections::VecDeque<String> = if pc {
+        ["bus=ide.0,unit=0", "bus=ide.0,unit=1", "bus=ide.1,unit=0", "bus=ide.1,unit=1"].iter().map(|s| s.to_string()).collect()
+    } else {
+        Default::default()
+    };
     let mut boot = 1;
     // «С привода»: первая загрузка — с образа; через полминуты привод уходит в
     // конец очереди (`after_boot`), и перезагрузка установщика попадает на диск.
@@ -145,6 +152,10 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
                 push(&["-object", &format!("iothread,id=io{i}")]);
                 push(&["-device", &format!("virtio-blk-pci,drive=disk{i},iothread=io{i},bootindex={boot}")]);
             }
+            DiskBus::Sata if pc => match ide_free.pop_front() {
+                Some(at) => push(&["-device", &format!("ide-hd,drive=disk{i},{at},bootindex={boot}")]),
+                None => bail!("{}", t!("У чипсета i440fx четыре места IDE: дисков слишком много")),
+            },
             DiskBus::Sata => push(&["-device", &format!("ide-hd,drive=disk{i},bus=ide.{},bootindex={boot}", i.min(3))]),
             DiskBus::Nvme => push(&["-device", &format!("nvme,drive=disk{i},serial=synvm{i},bootindex={boot}")]),
         }
@@ -157,7 +168,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         format!("file={},if=none,id=cd0,media=cdrom,readonly=on", esc(Path::new(&vm.cdrom)))
     };
     push(&["-drive", &cd]);
-    push(&["-device", &format!("ide-cd,drive=cd0,bus=ide.4,id=cdrom,bootindex={cd_boot}")]);
+    let cd_at = if pc { ide_free.pop_front().context(t!("У чипсета i440fx четыре места IDE: для привода места нет"))? } else { "bus=ide.4".to_string() };
+    push(&["-device", &format!("ide-cd,drive=cd0,{cd_at},id=cdrom,bootindex={cd_boot}")]);
     // «Гостевые инструменты» — второй привод: установщику Windows нужны драйверы с него,
     // пока в первом приводе стоит сам установщик.
     if vm.tools_cd {
@@ -167,13 +179,15 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         } else {
             tools_iso()
         };
-        if let Some(iso) = iso {
+        let at = if pc { ide_free.pop_front() } else { Some("bus=ide.5".to_string()) };
+        if let (Some(iso), Some(at)) = (iso, at) {
             push(&["-drive", &format!("file={},if=none,id=cd1,media=cdrom,readonly=on", esc(&iso))]);
-            push(&["-device", "ide-cd,drive=cd1,bus=ide.5,id=toolscd"]);
+            push(&["-device", &format!("ide-cd,drive=cd1,{at},id=toolscd")]);
         }
     }
     // BIOS и syn-gpu: «Диск инструментов DOS» (SYNGPU.COM и GLIDE2X.OVL).
-    if let Some(d) = crate::dostools::qemu_args(vm) {
+    let dos_at = if pc { Some(ide_free.pop_front()) } else { None };
+    if let Some(d) = crate::dostools::qemu_args(vm, dos_at) {
         push(&d.iter().map(String::as_str).collect::<Vec<_>>());
     }
 
@@ -206,7 +220,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     // SeaBIOS опрашивает его ради эмуляции PS/2, и QEMU делает его активной мышью поверх vmmouse
     // (абсолютный указатель драйвера SYNMOUSE.COM, порт 5658h); остаются мышь PS/2 и vmmouse
     // (vmport=auto). Контроллер — для проброса USB.
-    push(&["-device", "qemu-xhci,id=xhci"]);
+    // i440fx — USB 1.1 (PIIX3 UHCI), его знают Windows 9x; имя то же, что у xHCI (на нём и проброс).
+    push(&["-device", if pc { "piix3-usb-uhci,id=xhci" } else { "qemu-xhci,id=xhci" }]);
     if !crate::dostools::is_dos(vm) {
         push(&["-device", "usb-tablet,bus=xhci.0"]);
     }
@@ -295,7 +310,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     }
     // Запасные разъёмы PCIe — для дисков, подключаемых на ходу. В конце, чтобы не сдвигать
     // адреса остальных устройств у уже установленных систем.
-    for i in 0..crate::devices::HOTPLUG_PORTS {
+    for i in 0..if pc { 0 } else { crate::devices::HOTPLUG_PORTS } {
         push(&["-device", &format!("pcie-root-port,id=hp{i},chassis={},slot={}", 20 + i, 20 + i)]);
     }
 
@@ -1036,5 +1051,31 @@ mod tests {
         assert!(crate::dostools::is_dos(&vm));
         let j = args(&vm).unwrap().join(" ");
         assert!(!j.contains("usb-tablet") && j.contains("qemu-xhci,id=xhci"));
+    }
+
+    #[test]
+    fn i440fx_uses_piix_ide_and_no_pcie() {
+        let mut vm = OsKind::Other.preset();
+        vm.id = "w95".into();
+        vm.firmware = Firmware::Bios;
+        vm.tpm = false;
+        vm.tools_cd = false;
+        vm.dos_tools = false;
+        vm.chipset = crate::model::Chipset::I440fx;
+        vm.disk_bus = DiskBus::Sata;
+        vm.nic = crate::model::NicModel::Ne2kPci;
+        let dir = std::env::temp_dir().join(format!("syn-vm-i440fx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let disk = dir.join("c.img");
+        std::fs::write(&disk, b"").unwrap();
+        vm.disks = vec![crate::model::Disk { file: disk.to_string_lossy().into_owned(), ..Default::default() }];
+        let j = args(&vm).unwrap().join(" ");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(j.contains("-machine pc,"), "{j}");
+        assert!(j.contains("ide-hd,drive=disk0,bus=ide.0,unit=0"), "{j}");
+        assert!(j.contains("ide-cd,drive=cd0,bus=ide.0,unit=1"), "{j}");
+        assert!(j.contains("piix3-usb-uhci,id=xhci") && !j.contains("qemu-xhci"), "{j}");
+        assert!(!j.contains("pcie-root-port"), "{j}");
+        assert!(j.contains("ne2k_pci,netdev=net0"), "{j}");
     }
 }
