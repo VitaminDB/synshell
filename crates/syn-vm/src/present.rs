@@ -719,6 +719,7 @@ mod tests {
             started: Instant::now(),
             id: String::new(),
             desk_size: Mutex::new((0, 0)),
+            cursor: Mutex::new(None),
         };
         let mut m = Vec::new();
         m.extend_from_slice(&NOTICE.to_le_bytes());

@@ -173,7 +173,9 @@ fn is_sync_id(v: u64) -> bool {
 }
 
 fn not_configured(vm: &Vm) -> String {
-    if vm.guest_agent {
+    if vm.guest_agent && vm.syn_tools() {
+        t!("«{name}»: у машины свои инструменты — канала qemu-ga нет, команды идут через syn-vm-agent (без --qga)", name = vm.name)
+    } else if vm.guest_agent {
         t!("«{name}»: машина запущена без канала агента — перезапустите её", name = vm.name)
     } else {
         t!("«{name}»: канал гостевого агента выключен в настройках (guest_agent = true)", name = vm.name)

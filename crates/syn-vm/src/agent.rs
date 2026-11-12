@@ -146,12 +146,20 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
     use std::os::fd::AsRawFd;
     std::fs::create_dir_all(vm.run_dir())?;
     let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(vm.run_dir().join("agent-broker.lock"))?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Ok(()); // уже работает другой посредник
+    // Посредник прошлого запуска машины (--restart) уходит сам, заметив новый QEMU, — подождать его.
+    let t0 = Instant::now();
+    while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if t0.elapsed() > Duration::from_secs(8) {
+            return Ok(()); // уже работает посредник этого запуска
+        }
+        std::thread::sleep(Duration::from_millis(200));
     }
-    if crate::qemu::pid(vm).is_none() {
+    // Посредник служит одному процессу QEMU: после перезапуска машины (новый pid, даже если
+    // промежуток короче опроса) уходит, его место занимает новый — иначе потоки связи с гостем,
+    // кончившиеся при остановке, не возвращались, и агент «пропадал» до перезапуска посредника.
+    let Some(qpid) = crate::qemu::pid(vm) else {
         bail!("{}", t!("«{name}» не запущена", name = vm.name));
-    }
+    };
     if let Err(e) = ensure_port(vm) {
         tracing::warn!("агент: порт virtio-serial: {e}");
     }
@@ -178,10 +186,10 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
     // приветствие агента; каждый переподключается сам, пока машина работает.
     for (path, kind) in [(port_path(vm), "virtio"), (net_path(vm), "net")] {
         let (st, vm) = (st.clone(), vm.clone());
-        std::thread::spawn(move || transport(&vm, &st, &path, kind));
+        std::thread::spawn(move || transport(&vm, &st, &path, kind, qpid));
     }
-    while crate::qemu::pid(vm).is_some() {
-        std::thread::sleep(Duration::from_secs(2));
+    while crate::qemu::pid(vm) == Some(qpid) {
+        std::thread::sleep(Duration::from_secs(1));
         // Пакет обновлён (наш exe заменён) — уйти: клиент запустит новый посредник.
         if std::fs::read_link("/proc/self/exe").is_ok_and(|p| p.to_string_lossy().ends_with(" (deleted)")) {
             tracing::info!("агент: syn-vm обновлён — посредник перезапускается");
@@ -191,13 +199,21 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
     }
     st.lock().unwrap().fail_all(&t!("машина выключилась"));
     let _ = std::fs::remove_file(&bp);
+    // Машина уже запущена снова — посредник нового запуска (запуск его ждёт блокировку).
+    if crate::qemu::pid(vm).is_some() {
+        drop(lock);
+        crate::qemu::spawn_watcher(vm, "--agent-broker");
+    }
     Ok(())
 }
 
 /// Один канал к агенту: соединиться, поздороваться, читать кадры; оборвалось — снова.
-fn transport(vm: &Vm, st: &Arc<Mutex<Broker>>, path: &Path, kind: &str) {
+fn transport(vm: &Vm, st: &Arc<Mutex<Broker>>, path: &Path, kind: &str, qpid: i32) {
     let mut last_note = Instant::now() - Duration::from_secs(60);
     loop {
+        if crate::qemu::pid(vm) != Some(qpid) {
+            return;
+        }
         if !path.exists() {
             if kind == "virtio" {
                 let _ = ensure_port(vm);
@@ -237,9 +253,6 @@ fn transport(vm: &Vm, st: &Arc<Mutex<Broker>>, path: &Path, kind: &str) {
                 b.guest = None;
                 b.fail_all(&t!("связь с агентом гостя прервалась"));
             }
-        }
-        if crate::qemu::pid(vm).is_none() {
-            return;
         }
         std::thread::sleep(Duration::from_millis(500));
     }

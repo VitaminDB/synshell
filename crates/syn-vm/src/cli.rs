@@ -263,7 +263,8 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--restart" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let changes = qemu::launched(&vm).map(|l| vm.restart_changes(&l)).unwrap_or_default();
-            let how = stop(&qemu::launched(&vm).unwrap_or(vm.clone()), a.secs("--timeout", 180), a.has("--force"))?;
+            let how = stop(&qemu::launched(&vm).unwrap_or(vm.clone()), a.secs("--timeout", 180), a.has("--force"))
+                .with_context(|| t!("«{name}» не перезапущена — работает прежний запуск", name = vm.name))?;
             println!("{}: {how}", vm.name);
             start(&vm)?;
             if changes.is_empty() {
@@ -942,14 +943,31 @@ pub fn stop(vm: &Vm, timeout: Duration, force: bool) -> Result<String> {
     if qemu::pid(vm).is_none() {
         return Ok(t!("уже выключена"));
     }
-    let how = if qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok() { t!("выключена гостевым агентом") } else {
+    let by_agent = qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok();
+    let mut how = if by_agent { t!("выключена гостевым агентом") } else {
         qmp::powerdown(vm)?;
         t!("выключена (ACPI)")
     };
     let t0 = Instant::now();
+    // Вторая попытка с половины срока: Windows ждёт программы, которые не дают завершить работу
+    // (зависший процесс, «несохранённые данные»), — `shutdown /f` закрывает их; без агента — ACPI ещё раз.
+    let mut retried = false;
     while t0.elapsed() < timeout {
         if qemu::pid(vm).is_none() {
             return Ok(how);
+        }
+        if !retried && t0.elapsed() >= timeout / 2 {
+            retried = true;
+            if by_agent && vm.os.is_windows() && crate::agent::preferred(vm) {
+                let argv: Vec<String> = ["shutdown", "/s", "/f", "/t", "0"].iter().map(|s| s.to_string()).collect();
+                if let Ok(mut c) = crate::agent::Client::connect(vm) {
+                    let _ = c.exec(&argv, false, None, &[], None, Duration::from_secs(10), &mut |_, _| {});
+                }
+                how = t!("выключена гостевым агентом (программы, мешавшие выключению, закрыты)");
+            } else {
+                let _ = qmp::powerdown(vm);
+            }
+            eprintln!("{}", t!("«{name}» не выключилась за {s} с — повторная попытка", name = vm.name, s = t0.elapsed().as_secs()));
         }
         std::thread::sleep(Duration::from_millis(500));
     }
