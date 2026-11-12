@@ -631,9 +631,13 @@ impl State {
                 if fullscreen {
                     // Открытая экранная клавиатура (внизу) — окно над ней, как в Android:
                     // поле ввода не прячется под клавишами.
+                    // X11-окна (игры Wine) — нет: Wine ужимала окно игры до 1024×371 и после скрытия клавиатуры
+                    // его не возвращала — касания ниже прежней клавиатуры пересчитывались мимо (Heroes 3);
+                    // клавиатура и так рисуется поверх полноэкранного окна.
                     let mut geo = self.core.space.output_geometry(output).unwrap_or_default();
                     let kb = crate::ipc::keyboard_height(output);
-                    if kb > 0 && kb < geo.size.h * 7 / 10 {
+                    let x11 = self.core.wm.get(id).is_some_and(|m| m.window.x11_surface().is_some());
+                    if !x11 && kb > 0 && kb < geo.size.h * 7 / 10 {
                         geo.size.h -= kb;
                     }
                     self.configure_content(id, geo, false);
