@@ -450,8 +450,15 @@ pub enum Event {
     /// Хранилище SMS изменилось целиком (удаление, прочтение).
     SmsChanged,
     CallLog,
-    /// Ответ сети на USSD; `reply` — сеть ждёт ответа пользователя.
-    Ussd { text: String, reply: bool, done: bool },
+    /// Ответ сети на USSD; `reply` — сеть ждёт ответа пользователя; `network` — сеть прислала сама или
+    /// продолжила сеанс (USSD_IND), а не ответ на запрос клиента (его ответ видят все подписчики).
+    Ussd {
+        text: String,
+        reply: bool,
+        done: bool,
+        #[serde(default)]
+        network: bool,
+    },
     /// Ход загрузки профиля eSIM: шаг; `done` — закончена (`error` пуст — успешно).
     EsimProgress { step: String, done: bool, error: String },
 }

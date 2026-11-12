@@ -91,6 +91,21 @@ pub struct RecFile {
     pub time: i64,
 }
 
+/// Сеанс USSD (или код телефона вроде `*#06#`): окно поверх приложения.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Ussd {
+    /// Набранный код (заголовок окна).
+    pub code: String,
+    /// Последний ответ сети.
+    pub text: String,
+    /// Ждём ответа сети.
+    pub waiting: bool,
+    /// Сеть ждёт ответа пользователя (меню).
+    pub reply: bool,
+    /// Сеанс закончен (сеть закрыла, отказ) — только «Закрыть».
+    pub done: bool,
+}
+
 #[derive(Clone, Copy)]
 pub struct St {
     pub tab: RwSignal<Tab>,
@@ -121,6 +136,10 @@ pub struct St {
     pub draft: RwSignal<Draft>,
     /// Перестроить список номеров редактора (добавили/убрали поле).
     pub draft_rev: RwSignal<u64>,
+    /// Открытое окно USSD.
+    pub ussd: RwSignal<Option<Ussd>>,
+    /// Ответ в меню USSD (поле ввода; окно за ним не следит — иначе поле пересоздавалось бы на каждой букве).
+    pub ussd_input: RwSignal<String>,
     pub recordings: RwSignal<Vec<RecFile>>,
     /// Окно показано входящим звонком (спрятать снова, когда звонок кончится).
     pub auto_shown: RwSignal<bool>,
@@ -155,6 +174,8 @@ impl St {
             services: use_signal(None),
             draft: use_signal(Draft::default()),
             draft_rev: use_signal(0),
+            ussd: use_signal(None),
+            ussd_input: use_signal(String::new()),
             recordings: use_signal(Vec::new()),
             auto_shown: use_signal(false),
             demo,
@@ -299,6 +320,7 @@ pub fn watch(st: St) {
             match ev {
                 Event::Status { status } => run_on_main_thread(move || on_status(st, status)),
                 Event::CallLog => run_on_main_thread(move || reload_log(st)),
+                Event::Ussd { text, reply, done, network } => run_on_main_thread(move || on_ussd(st, text, reply, done, network)),
                 _ => {}
             }
             true
@@ -378,7 +400,101 @@ pub fn dial(st: St, number: String) {
     if number.is_empty() {
         return;
     }
+    if is_ussd(&number) {
+        ussd_start(st, number);
+        return;
+    }
     act(st, Request::Dial { number });
+}
+
+/// Код, а не номер: `*100#`, `#102#`, `*111*1#` — USSD (и коды телефона вроде `*#06#`).
+pub fn is_ussd(n: &str) -> bool {
+    let n = n.trim();
+    n.len() >= 3 && n.ends_with('#') && (n.starts_with('*') || n.starts_with('#')) && n.chars().all(|c| c.is_ascii_digit() || c == '*' || c == '#' || c == '+')
+}
+
+/// Запрос USSD; `*#06#` — IMEI сразу, без сети.
+pub fn ussd_start(st: St, code: String) {
+    if code == "*#06#" {
+        let imei = st.status.get_untracked().map(|s| s.imei).filter(|i| !i.is_empty()).unwrap_or_else(|| t!("неизвестен").into());
+        st.ussd.set(Some(Ussd { code, text: format!("IMEI\n{imei}"), done: true, ..Default::default() }));
+        return;
+    }
+    st.ussd.set(Some(Ussd { code: code.clone(), waiting: true, ..Default::default() }));
+    if st.demo {
+        return;
+    }
+    std::thread::spawn(move || {
+        if let Err(e) = api::request(&Request::Ussd { code }) {
+            let m = format!("{e:#}");
+            run_on_main_thread(move || on_ussd(st, m, false, true, false));
+        }
+    });
+}
+
+/// Ответ в меню USSD.
+pub fn ussd_reply(st: St) {
+    let Some(u) = st.ussd.get_untracked() else { return };
+    let text = st.ussd_input.get_untracked().trim().to_string();
+    if text.is_empty() || !u.reply {
+        return;
+    }
+    st.ussd_input.set(String::new());
+    hide_keyboard();
+    st.ussd.set(Some(Ussd { waiting: true, reply: false, ..u }));
+    std::thread::spawn(move || {
+        if let Err(e) = api::request(&Request::UssdReply { text }) {
+            let m = format!("{e:#}");
+            run_on_main_thread(move || on_ussd(st, m, false, true, false));
+        }
+    });
+}
+
+/// Закрыть окно; сеанс ещё идёт — отменить его в сети.
+pub fn ussd_close(st: St) {
+    let open = st.ussd.get_untracked().is_some_and(|u| !u.done);
+    st.ussd.set(None);
+    st.ussd_input.set(String::new());
+    hide_keyboard();
+    if open && !st.demo {
+        std::thread::spawn(|| {
+            let _ = api::request(&Request::UssdCancel);
+        });
+    }
+}
+
+/// Экранную клавиатуру ответа USSD (если её открывали) — убрать.
+fn hide_keyboard() {
+    if let Ok(mut c) = std::process::Command::new("synkeyboard").arg("hide").spawn() {
+        std::thread::spawn(move || {
+            let _ = c.wait();
+        });
+    }
+}
+
+/// Событие USSD от демона: ответ на наш запрос или сообщение, которое сеть прислала сама.
+fn on_ussd(st: St, text: String, reply: bool, done: bool, network: bool) {
+    match st.ussd.get_untracked() {
+        Some(mut u) => {
+            if !text.is_empty() {
+                u.text = text;
+            } else if done && u.waiting {
+                u.text = t!("Сеанс завершён").into();
+            }
+            u.waiting = false;
+            u.reply = reply && !done;
+            u.done = done || (!reply && !u.text.is_empty());
+            st.ussd.set(Some(u));
+        }
+        // сеть прислала сама — показать; ответы на чужие запросы (synmodem ussd) — не наше окно
+        None if network && !text.is_empty() => {
+            st.ussd.set(Some(Ussd { text, reply: reply && !done, done: done || !reply, ..Default::default() }));
+            if !syngui::app::main_window_visible() {
+                syngui::app::show_main_window();
+            }
+        }
+        None => {}
+    }
 }
 
 /// Файл записи: «Имя 2026-11-11 10-20-05.ogg».

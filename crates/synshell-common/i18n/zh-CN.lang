@@ -6,7 +6,7 @@
 "synmodemd закрыл соединение" = "synmodemd 关闭了连接"
 
 # ../syn-modem/src/bin/synmodem.rs
-"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 号码 文本… | sms read 号码\n         | dial 号码 | answer ID | hangup ID | dtmf ID 数字 | calls | info | cell | esim | apn\n         | gnss [nmea]（每秒输出位置；命令运行期间接收器保持工作）\n         | req JSON（任意协议请求，例如 {\"request\":\"modes\"}；响应为 JSON）"
+"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | ussd КОД (*100#: ответ сети; меню — ответ здесь же, пустая строка — отмена) | ussd reply ТЕКСТ | ussd cancel\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 号码 文本… | sms read 号码\n         | dial 号码 | answer ID | hangup ID | dtmf ID 数字 | calls | info | cell | esim | apn\n         | ussd 代码 (*100#：网络回复；菜单 — 在此直接回复，空行取消) | ussd reply 文本 | ussd cancel\n         | gnss [nmea]（每秒输出位置；命令运行期间接收器保持工作）\n         | req JSON（任意协议请求，例如 {\"request\":\"modes\"}；响应为 JSON）"
 ", новое" = "，新"
 "{id} поставлено в отправку" = "{id} 已加入发送队列"
 "звонок {id}" = "通话 {id}"
@@ -570,3 +570,7 @@
 "Ретро-будущее 80-х: неоновое свечение, закат над сеткой и хромированный циан." = "80 年代的复古未来：霓虹光晕、网格上的落日和镀铬青色。"
 "Зелёный люминофор старого монитора: моноширинный шрифт, свечение и прямые углы." = "老式显示器的绿色荧光：等宽字体、辉光和直角。"
 "Огни ночного Токио: глубокий индиго, неоновые синий и фиолетовый с подсветкой." = "夜晚的东京：深靛蓝，配发光的霓虹蓝与紫。"
+
+# syn-modem src/bin/synmodem.rs — USSD
+"нет ответа сети" = "网络无响应"
+"(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "（网络等待回复：synmodem ussd reply 文本）"

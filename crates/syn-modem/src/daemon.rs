@@ -864,15 +864,20 @@ impl Daemon {
             (svc::VOICE, 0x43) => {
                 let text = manage::ussd_text(&msg, 0x12, 0x14);
                 let err = msg.get(0x10).is_some() || msg.get(0x11).is_some();
+                if err {
+                    // 0x10 — ошибка QMI, 0x11 — причина отказа сети (u16, voice_call_end_reason / sups failure)
+                    let u16_of = |t: u8| msg.get(t).filter(|b| b.len() >= 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+                    tracing::warn!("USSD: отказ, ошибка QMI {:?}, причина {:?}", u16_of(0x10), u16_of(0x11));
+                }
                 let text = text.unwrap_or_else(|| if err { t!("Запрос не выполнен").into() } else { String::new() });
-                self.emit(Event::Ussd { text, reply: !err, done: err });
+                self.emit(Event::Ussd { text, reply: !err, done: err, network: false });
             }
             (svc::VOICE, 0x3E) => {
                 let reply = msg.get(0x01).and_then(|b| b.first()).is_some_and(|v| *v == 2);
                 let text = manage::ussd_text(&msg, 0x10, 0x11).unwrap_or_default();
-                self.emit(Event::Ussd { text, reply, done: !reply });
+                self.emit(Event::Ussd { text, reply, done: !reply, network: true });
             }
-            (svc::VOICE, 0x3D) => self.emit(Event::Ussd { text: String::new(), reply: false, done: true }),
+            (svc::VOICE, 0x3D) => self.emit(Event::Ussd { text: String::new(), reply: false, done: true, network: true }),
             (svc::DMS, 0x01) => {
                 if let Some(mode) = msg.get(0x14).and_then(|b| b.first()) {
                     self.update(|s| s.radio = *mode == 0);

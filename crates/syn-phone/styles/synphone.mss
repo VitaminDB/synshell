@@ -212,3 +212,20 @@ Text { color: var(--fg); font-size: 14px; }
 .tb-drag-space { flex-grow: 1; height: 44px; min-width: 40px; padding: 0px 8px; align-items: center; justify-content: center; }
 .window-controls { height: 44px; padding: 0px 6px 0px 4px; align-items: center; }
 SystemWindowControls { color: var(--fg); background-color: var(--hover); }
+
+/* Окно USSD поверх приложения */
+.ussd-dim { width: 100%; height: 100%; background: #00000080; padding: 16px; }
+.ussd-card { width: 100%; max-width: 420px; padding: 18px; border-radius: 20px; background: var(--surface); box-shadow: 0 12px 40px var(--shadow); }
+.ussd-title { font-size: 18px; font-weight: 700; }
+.ussd-scroll { max-height: 360px; }
+.ussd-text { font-size: 15px; }
+.ussd-input { width: 100%; }
+.ussd-btn { padding: 10px 18px; border-radius: 999px; background: var(--surface-alt); }
+.ussd-btn-main { background: var(--accent); }
+.ussd-btn-main .ussd-btn-text { color: #ffffff; }
+.ussd-btn-text { font-size: 14px; font-weight: 600; }
+.ussd-answer-row { padding: 10px 14px; border-radius: 14px; background: var(--surface-alt); }
+.ussd-answer { font-size: 22px; font-weight: 600; }
+.ussd-answer-empty { color: var(--muted); font-weight: 400; }
+.ussd-kbd-icon { font-size: 22px; color: var(--accent); }
+.key.key-ussd { width: 72px; height: 52px; border-radius: 26px; }

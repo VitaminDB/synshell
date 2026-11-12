@@ -155,3 +155,13 @@
 "КБ" = "Ko"
 "Записей разговоров нет" = "Aucun enregistrement d’appel"
 "Записи разговоров" = "Enregistrements d’appels"
+
+# src/ui/ussd.rs, src/state.rs — USSD
+"неизвестен" = "inconnu"
+"Сеанс завершён" = "Session terminée"
+"Сообщение сети" = "Message du réseau"
+"Запрос…" = "Requête…"
+"Ответ" = "Réponse"
+"Закрыть" = "Fermer"
+"Отмена" = "Annuler"
+"Отправить" = "Envoyer"

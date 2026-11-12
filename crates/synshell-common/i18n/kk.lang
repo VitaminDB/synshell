@@ -6,7 +6,7 @@
 "synmodemd закрыл соединение" = "synmodemd байланысты жапты"
 
 # ../syn-modem/src/bin/synmodem.rs
-"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НӨМІР МӘТІН… | sms read НӨМІР\n         | dial НӨМІР | answer ID | hangup ID | dtmf ID ЦИФР | calls | info | cell | esim | apn\n         | gnss [nmea] (орналасу секундына бір рет; команда жүріп тұрғанда қабылдағыш жұмыс істейді)\n         | req JSON (протоколдың кез келген сұрауы, мысалы {\"request\":\"modes\"}; жауап — JSON)"
+"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | ussd КОД (*100#: ответ сети; меню — ответ здесь же, пустая строка — отмена) | ussd reply ТЕКСТ | ussd cancel\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НӨМІР МӘТІН… | sms read НӨМІР\n         | dial НӨМІР | answer ID | hangup ID | dtmf ID ЦИФР | calls | info | cell | esim | apn\n         | ussd КОД (*100#: желі жауабы; мәзір — жауап осында, бос жол — бас тарту) | ussd reply МӘТІН | ussd cancel\n         | gnss [nmea] (орналасу секундына бір рет; команда жүріп тұрғанда қабылдағыш жұмыс істейді)\n         | req JSON (протоколдың кез келген сұрауы, мысалы {\"request\":\"modes\"}; жауап — JSON)"
 ", новое" = ", жаңа"
 "{id} поставлено в отправку" = "{id} жіберуге қойылды"
 "звонок {id}" = "қоңырау {id}"
@@ -570,3 +570,7 @@
 "Ретро-будущее 80-х: неоновое свечение, закат над сеткой и хромированный циан." = "80-жылдардың ретро-болашағы: неон жарқылы, тор үстіндегі күн батуы және хром көгілдір."
 "Зелёный люминофор старого монитора: моноширинный шрифт, свечение и прямые углы." = "Ескі монитордың жасыл люминофоры: тең енді қаріп, жарқыл және тік бұрыштар."
 "Огни ночного Токио: глубокий индиго, неоновые синий и фиолетовый с подсветкой." = "Түнгі Токио: терең индиго, жарқыраған неон көк пен күлгін."
+
+# syn-modem src/bin/synmodem.rs — USSD
+"нет ответа сети" = "желіден жауап жоқ"
+"(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(желі жауап күтуде: synmodem ussd reply МӘТІН)"

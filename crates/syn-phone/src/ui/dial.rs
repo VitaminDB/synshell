@@ -79,7 +79,8 @@ pub fn view(st: St) -> W {
     let hints = Reactive::new(move || -> Vec<W> {
         let n = st.number.get();
         let d = contacts::digits(&n);
-        if d.len() < 2 {
+        // код USSD (*100#) — не номер: ни подсказок, ни «Добавить в контакты»
+        if d.len() < 2 || crate::state::is_ussd(&n) {
             return vec![boxed(DecoratedBox::new().class("hints-empty"))];
         }
         let all = st.contacts.get();

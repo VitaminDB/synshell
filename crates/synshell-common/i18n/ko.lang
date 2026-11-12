@@ -6,7 +6,7 @@
 "synmodemd закрыл соединение" = "synmodemd가 연결을 닫았습니다"
 
 # ../syn-modem/src/bin/synmodem.rs
-"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 번호 텍스트… | sms read 번호\n         | dial 번호 | answer ID | hangup ID | dtmf ID 숫자 | calls | info | cell | esim | apn\n         | gnss [nmea](초당 한 번 위치 표시. 명령이 실행되는 동안 수신기가 동작)\n         | req JSON(모든 프로토콜 요청, 예: {\"request\":\"modes\"}. 응답은 JSON)"
+"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | ussd КОД (*100#: ответ сети; меню — ответ здесь же, пустая строка — отмена) | ussd reply ТЕКСТ | ussd cancel\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 번호 텍스트… | sms read 번호\n         | dial 번호 | answer ID | hangup ID | dtmf ID 숫자 | calls | info | cell | esim | apn\n         | ussd 코드 (*100#: 네트워크 응답; 메뉴 — 여기서 답장, 빈 줄은 취소) | ussd reply 텍스트 | ussd cancel\n         | gnss [nmea](초당 한 번 위치 표시. 명령이 실행되는 동안 수신기가 동작)\n         | req JSON(모든 프로토콜 요청, 예: {\"request\":\"modes\"}. 응답은 JSON)"
 ", новое" = ", 새 메시지"
 "{id} поставлено в отправку" = "{id}을(를) 전송 대기열에 넣었습니다"
 "звонок {id}" = "통화 {id}"
@@ -570,3 +570,7 @@
 "Ретро-будущее 80-х: неоновое свечение, закат над сеткой и хромированный циан." = "80년대 레트로 퓨처: 네온 불빛, 격자 위의 노을, 크롬 청록."
 "Зелёный люминофор старого монитора: моноширинный шрифт, свечение и прямые углы." = "옛 모니터의 초록 형광: 고정폭 글꼴, 번지는 빛, 각진 모서리."
 "Огни ночного Токио: глубокий индиго, неоновые синий и фиолетовый с подсветкой." = "밤의 도쿄: 깊은 남색에 빛나는 네온 파랑과 보라."
+
+# syn-modem src/bin/synmodem.rs — USSD
+"нет ответа сети" = "네트워크 응답 없음"
+"(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(네트워크가 답장을 기다림: synmodem ussd reply 텍스트)"

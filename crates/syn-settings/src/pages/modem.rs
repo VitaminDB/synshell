@@ -149,7 +149,7 @@ fn watch_ussd(s: Sigs) {
     std::thread::spawn(move || loop {
         let _ = api::subscribe(|ev| {
             match ev {
-                api::Event::Ussd { text, reply, done } => run_on_main_thread(move || {
+                api::Event::Ussd { text, reply, done, .. } => run_on_main_thread(move || {
                     if !text.is_empty() {
                         s.ussd.update(|l| l.push((false, text)));
                     }

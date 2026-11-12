@@ -7,6 +7,7 @@ mod contacts;
 mod dial;
 mod log;
 mod settings;
+mod ussd;
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
@@ -64,7 +65,7 @@ pub fn root(st: St) -> W {
         }))
         .class("toast-place");
     let chrome = !is_phone();
-    let content = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast);
+    let content = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(ussd::view(st)).child(toast);
     let inner: W = if has_titlebar() {
         boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st)).child(DecoratedBox::new().child(content).class("grow")))
     } else {

@@ -6,7 +6,7 @@
 "synmodemd закрыл соединение" = "synmodemd が接続を閉じました"
 
 # ../syn-modem/src/bin/synmodem.rs
-"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 番号 テキスト… | sms read 番号\n         | dial 番号 | answer ID | hangup ID | dtmf ID 数字 | calls | info | cell | esim | apn\n         | gnss [nmea]（毎秒の位置情報。コマンド実行中は受信機が動作）\n         | req JSON（任意のプロトコル要求。例: {\"request\":\"modes\"}。応答は JSON）"
+"synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | ussd КОД (*100#: ответ сети; меню — ответ здесь же, пустая строка — отмена) | ussd reply ТЕКСТ | ussd cancel\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send 番号 テキスト… | sms read 番号\n         | dial 番号 | answer ID | hangup ID | dtmf ID 数字 | calls | info | cell | esim | apn\n         | ussd コード (*100#: ネットワークの応答; メニュー — ここで返信、空行で取消) | ussd reply テキスト | ussd cancel\n         | gnss [nmea]（毎秒の位置情報。コマンド実行中は受信機が動作）\n         | req JSON（任意のプロトコル要求。例: {\"request\":\"modes\"}。応答は JSON）"
 ", новое" = "、新着"
 "{id} поставлено в отправку" = "{id} を送信キューに追加しました"
 "звонок {id}" = "通話 {id}"
@@ -570,3 +570,7 @@
 "Ретро-будущее 80-х: неоновое свечение, закат над сеткой и хромированный циан." = "80年代のレトロフューチャー：ネオンの輝き、グリッドに沈む夕日、クロームのシアン。"
 "Зелёный люминофор старого монитора: моноширинный шрифт, свечение и прямые углы." = "古いモニターの緑色の蛍光体：等幅フォント、にじむ光、直角の角。"
 "Огни ночного Токио: глубокий индиго, неоновые синий и фиолетовый с подсветкой." = "夜の東京：深い藍色に輝くネオンの青と紫。"
+
+# syn-modem src/bin/synmodem.rs — USSD
+"нет ответа сети" = "ネットワークから応答なし"
+"(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(ネットワークが返信を待っています: synmodem ussd reply テキスト)"

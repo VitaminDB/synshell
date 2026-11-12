@@ -6,6 +6,7 @@ use synshell_tr::{n_, t};
 
 const USAGE: &str = n_!("synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
          | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn
+         | ussd КОД (*100#: ответ сети; меню — ответ здесь же, пустая строка — отмена) | ussd reply ТЕКСТ | ussd cancel
          | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)
          | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)");
 
@@ -22,6 +23,48 @@ fn main() {
 fn print_resp(r: &Request) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&api::request(r)?)?);
     Ok(())
+}
+
+/// Сеанс USSD: запрос, ответы сети; меню (сеть ждёт ответа) — ответ строкой со стандартного ввода
+/// (терминал), пустая строка — отмена. Ответ приходит событием — подписка до запроса, чтобы его не пропустить.
+fn ussd(code: &str) -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    use std::time::Duration;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = api::subscribe(|ev| match ev {
+            api::Event::Ussd { text, reply, done, .. } => tx.send((text, reply, done)).is_ok(),
+            _ => true,
+        });
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    ok(&Request::Ussd { code: code.to_string() })?;
+    let tty = std::io::stdin().is_terminal();
+    loop {
+        let Ok((text, reply, done)) = rx.recv_timeout(Duration::from_secs(90)) else {
+            let _ = ok(&Request::UssdCancel);
+            bail!("{}", t!("нет ответа сети"));
+        };
+        if !text.is_empty() {
+            println!("{text}");
+        }
+        if done || !reply {
+            return Ok(());
+        }
+        if !tty {
+            println!("{}", t!("(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)"));
+            return Ok(());
+        }
+        print!("> ");
+        std::io::stdout().flush()?;
+        let mut line = String::new();
+        std::io::stdin().lock().read_line(&mut line)?;
+        let line = line.trim();
+        if line.is_empty() {
+            return ok(&Request::UssdCancel);
+        }
+        ok(&Request::UssdReply { text: line.to_string() })?;
+    }
 }
 
 fn ok(r: &Request) -> Result<()> {
@@ -56,6 +99,9 @@ fn run() -> Result<()> {
                 println!("{}", t!("звонок {id}", id = id));
             }
         }
+        ["ussd", "reply", text @ ..] if !text.is_empty() => ok(&Request::UssdReply { text: text.join(" ") })?,
+        ["ussd", "cancel"] => ok(&Request::UssdCancel)?,
+        ["ussd", code] => ussd(code)?,
         ["answer", id] => ok(&Request::Answer { id: id.parse()? })?,
         ["hangup", id] => ok(&Request::Hangup { id: id.parse()? })?,
         ["dtmf", id, d] if d.chars().count() == 1 => {

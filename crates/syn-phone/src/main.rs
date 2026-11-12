@@ -6,7 +6,7 @@
 //! закрытие окна его прячет (разговор и запись идут дальше). Повторный запуск (`synphone НОМЕР`, `--log`,
 //! `--contacts`) передаёт команду живому процессу. На экране блокировки звонок показывает оболочка.
 //!
-//! `--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page dial|log|contacts|contact|edit|settings|call|incoming]`
+//! `--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page dial|log|contacts|contact|edit|settings|call|incoming|ussd]`
 //! — снимок окна с придуманными данными (без модема).
 
 mod ipc;
@@ -38,7 +38,7 @@ fn main() {
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("synphone [NUMBER] [--log] [--contacts] [--background] [--screenshot FILE.png [--size WxH] [--scale N] [--page dial|log|contacts|contact|edit|settings|call|incoming]]");
+                println!("synphone [NUMBER] [--log] [--contacts] [--background] [--screenshot FILE.png [--size WxH] [--scale N] [--page dial|log|contacts|contact|edit|settings|call|incoming|ussd]]");
                 return;
             }
             "--log" => cmd = Some(Cmd::Log),
@@ -232,6 +232,15 @@ fn demo(st: St, page: &str) {
             }));
         }
         "call" => st.rec.set(Some((std::path::PathBuf::from("/tmp/demo.ogg"), now - 41))),
+        "ussd" => {
+            st.number.set("*100#".into());
+            st.ussd.set(Some(state::Ussd {
+                code: "*100#".into(),
+                text: "Balance: 1 250.00\n1. Data packages\n2. Minutes\n3. Top up\n0. Exit".into(),
+                reply: true,
+                ..Default::default()
+            }));
+        }
         _ => st.number.set("+1 555 01".into()),
     }
 }

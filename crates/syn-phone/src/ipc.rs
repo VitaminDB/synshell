@@ -80,3 +80,34 @@ mod tests {
         }
     }
 }
+
+/// Буквы ответа USSD от экранной клавиатуры (`synkeyboard show float for synphone-ussd.sock`): строки `text …`,
+/// `key backspace|space|enter|escape`. Сокет поднимается при первом вызове и живёт весь сеанс.
+pub fn ussd_keys(st: crate::state::St) {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let path = dir.join("synphone-ussd.sock");
+        let _ = std::fs::remove_file(&path);
+        let Ok(l) = UnixListener::bind(&path) else { return };
+        std::thread::spawn(move || {
+            for mut s in l.incoming().flatten() {
+                let mut line = String::new();
+                if BufReader::new(&s).read_line(&mut line).is_err() {
+                    continue;
+                }
+                let line = line.trim_end_matches(['\r', '\n']).to_string();
+                syngui::async_runtime::run_on_main_thread(move || match line.split_once(' ') {
+                    Some(("text", t)) => st.ussd_input.update(|s| s.push_str(t)),
+                    Some(("key", "backspace")) => st.ussd_input.update(|s| {
+                        s.pop();
+                    }),
+                    Some(("key", "space")) => st.ussd_input.update(|s| s.push(' ')),
+                    Some(("key", "enter")) => crate::state::ussd_reply(st),
+                    _ => {}
+                });
+                let _ = s.write_all(b"ok\n");
+            }
+        });
+    });
+}
