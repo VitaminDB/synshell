@@ -3,6 +3,11 @@ pub mod flow;
 pub mod params;
 pub mod wire;
 
+/// Сервер службы (движок synaptix): системная служба `synaptixd` и встроенный
+/// режим программ без неё ([`server::embedded`]).
+#[cfg(feature = "daemon")]
+pub mod server;
+
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::PathBuf;
 
@@ -40,7 +45,18 @@ fn current_label() -> Option<String> {
     THREAD_LABEL.with(|l| l.borrow().clone()).or_else(|| LABEL.lock().unwrap_or_else(|e| e.into_inner()).clone())
 }
 
+static SOCKET_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Сокет службы для всех соединений процесса (встроенная служба программы).
+/// Действует раньше `SYNAPTIXD_SOCKET`; задаётся один раз.
+pub fn set_socket_path(path: PathBuf) {
+    let _ = SOCKET_OVERRIDE.set(path);
+}
+
 pub fn socket_path() -> PathBuf {
+    if let Some(p) = SOCKET_OVERRIDE.get() {
+        return p.clone();
+    }
     std::env::var_os("SYNAPTIXD_SOCKET").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(SOCKET))
 }
 

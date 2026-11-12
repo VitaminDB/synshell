@@ -13,10 +13,10 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 
 use synaptix_core::dtype::DType;
-use synaptixd::{AppInfo, DatasetCheck, DeviceKind, Error, ErrorCode, Event, ModelKind, TrainJob, TrainOptions, TrainPoint, TrainState};
+use crate::{AppInfo, DatasetCheck, DeviceKind, Error, ErrorCode, Event, ModelKind, TrainJob, TrainOptions, TrainPoint, TrainState};
 
-use crate::lora;
-use crate::manager::{self, now_ms, Manager};
+use crate::server::lora;
+use crate::server::manager::{self, now_ms, Manager};
 
 struct Job {
     job: TrainJob,
@@ -211,7 +211,7 @@ pub fn check_dataset(mgr: &Manager, model: &str, path: &str, o: &TrainOptions, u
     let id = mgr.resolve_id(model, ModelKind::Llm)?;
     let info = mgr.model_file(&id).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("нет модели {id}")))?;
     let max_len = o.max_len.unwrap_or(2048);
-    crate::as_peer(uid, gid, || {
+    crate::server::as_peer(uid, gid, || {
         let tok = synaptix::facade::llm::load_llm_tokenizer(&info.path).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
         let (_, r) = synaptix::facade::train::load_samples(Path::new(path), &tok, o.thinking, max_len, o.max_samples)
             .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
@@ -280,13 +280,13 @@ fn run(id: u64, job: &TrainJob, model_path: &Path, cancel: Arc<AtomicBool>, uid:
     mgr.make_vram_room("train", DeviceKind::Cuda, need);
 
     let hooks = synaptix::facade::train::TrainHooks {
-        step_guard: Some(Arc::new(|| Box::new(crate::devices::lock(DeviceKind::Cuda)) as Box<dyn std::any::Any>)),
+        step_guard: Some(Arc::new(|| Box::new(crate::server::devices::lock(DeviceKind::Cuda)) as Box<dyn std::any::Any>)),
         cancel: Some(cancel),
     };
     let t0 = Instant::now();
     let mut last_pub = Instant::now();
     let dataset = PathBuf::from(&job.dataset);
-    let report = crate::as_peer(uid, gid, || {
+    let report = crate::server::as_peer(uid, gid, || {
         synaptix::facade::train::train_lora(
             model_path,
             &dataset,
@@ -373,7 +373,7 @@ fn run(id: u64, job: &TrainJob, model_path: &Path, cancel: Arc<AtomicBool>, uid:
         "finished_ms": now_ms(),
         "cancelled": snap.step < snap.total_steps,
     });
-    crate::as_peer(uid, gid, || std::fs::write(out.join(lora::TRAIN_META), serde_json::to_vec_pretty(&meta).unwrap_or_default()))
+    crate::server::as_peer(uid, gid, || std::fs::write(out.join(lora::TRAIN_META), serde_json::to_vec_pretty(&meta).unwrap_or_default()))
         .map_err(|e| format!("{}: {e}", out.display()))?;
     update(id, |j| j.trainable_params = report.trainable_params as u64, true);
     Ok(())

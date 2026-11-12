@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use synaptixd::{Error, ImageParams, ModelKind, Params, VideoParams};
+use crate::{Error, ImageParams, ModelKind, Params, VideoParams};
 
-use crate::manager::{self, Manager};
+use crate::server::manager::{self, Manager};
 
 pub fn random_seed() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007
@@ -50,12 +50,12 @@ pub fn image(mgr: &Arc<Manager>, model: &str, prompt: String, p: ImageParams, pr
         strength: p.strength,
         quant: None,
     };
-    mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация картинки");
+    mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация картинки");
     // `run` может повторить вызов — ход через RefCell.
     let progress = std::cell::RefCell::new(progress);
     let r = mgr.run(&model, |m| m.image(&req, &mut |i, n| (progress.borrow_mut())(i, n)));
     // Этапы пайплайна оставляют гигабайты в CUDA-пулах — вернуть драйверу.
-    manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+    manager::release_vram(Some(crate::DeviceKind::Cuda));
     let (png, out) = r?;
     Ok(ImageResult { png, width: out.width, height: out.height, seed, label: out.label })
 }
@@ -93,9 +93,9 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
         two_stage: p.two_stage,
         strength: p.strength,
     };
-    mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация видео");
+    mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация видео");
     let r = mgr.run(&model, |m| m.video(&req, cancel, progress));
-    manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+    manager::release_vram(Some(crate::DeviceKind::Cuda));
     let (mp4, out) = r?;
     Ok(VideoResult { mp4, out, seed })
 }
@@ -132,10 +132,10 @@ pub fn music(
         guidance: mp.f32("guidance"),
         quant: None,
     };
-    mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация музыки");
+    mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация музыки");
     let progress = std::cell::RefCell::new(progress);
     let r = mgr.run(&model, |m| m.music(&req, cancel.clone(), &mut |i, n| (progress.borrow_mut())(i, n)));
-    manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+    manager::release_vram(Some(crate::DeviceKind::Cuda));
     let (wav, out) = r?;
     Ok(MusicResult { wav, out, seed })
 }

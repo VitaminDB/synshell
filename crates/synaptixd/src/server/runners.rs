@@ -2,9 +2,9 @@ use std::path::Path;
 
 use synaptix_asr_wav2vec2::Wav2Vec2Ctc;
 use synaptix_core::dtype::DType;
-use synaptixd::{Alignment, CtcInfo, DeviceKind, EngineProfile, ModelKind, Params, PhoneSpan};
+use crate::{Alignment, CtcInfo, DeviceKind, EngineProfile, ModelKind, Params, PhoneSpan};
 
-use crate::devices;
+use crate::server::devices;
 
 const SESSION_STEP: usize = 16384;
 /// Сколько токенов эмбеддингов медиа держать в видеопамяти между запросами.
@@ -31,7 +31,7 @@ pub struct LlmSlot {
 }
 
 /// Сессия для метрик: (ключ, программа, токенов, ёмкость, байт, припаркована).
-pub type KvRow = (String, synaptixd::AppInfo, u32, u32, u64, bool);
+pub type KvRow = (String, crate::AppInfo, u32, u32, u64, bool);
 
 /// Сколько KV-сессий держать (на устройстве из них — одна).
 const SESSIONS: usize = 4;
@@ -74,7 +74,7 @@ struct KvEntry {
     /// в RAM (весь буфер ринга, а не только записанные токены).
     parked_bytes: u64,
     /// Программа, чей это контекст.
-    app: synaptixd::AppInfo,
+    app: crate::AppInfo,
 }
 
 impl KvEntry {
@@ -345,7 +345,7 @@ fn silero_voice(p: &synaptix_tts_silero::SileroPipeline, voice: Option<&str>, sp
     let desc = voice.unwrap_or("");
     let female = match speaker {
         Some(s) => Some(s.starts_with("female") || s == "girl"),
-        None => crate::voices::speaker_for_description(desc).map(|s| s.starts_with("female") || s == "girl"),
+        None => crate::server::voices::speaker_for_description(desc).map(|s| s.starts_with("female") || s == "girl"),
     };
     let lang = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| text_language(text).to_string());
     let prefixed = all.iter().any(|s| s.contains('_'));
@@ -674,7 +674,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 // На процессоре машины с малой памятью (телефон) — не больше 32k: таблицы RoPE
                 // на заявленные 256k (LFM3) — это ~270 МБ ОЗУ, а такой контекст на CPU
                 // всё равно не прочитать за разумное время.
-                let cap = if dev == DeviceKind::Cpu && crate::manager::meminfo().0 < (16u64 << 30) { 32768 } else { usize::MAX };
+                let cap = if dev == DeviceKind::Cpu && crate::server::manager::meminfo().0 < (16u64 << 30) { 32768 } else { usize::MAX };
                 synaptix::facade::arch::config_max_seq(path).map(|m| m.min(cap))
             };
             let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -879,8 +879,8 @@ impl Loaded {
     pub fn mfa_align(
         &self,
         pcm16k: &[f32],
-        words: &[synaptixd::AlignWordAlts],
-        options: Option<&synaptixd::AlignOptions>,
+        words: &[crate::AlignWordAlts],
+        options: Option<&crate::AlignOptions>,
     ) -> anyhow::Result<Alignment> {
         use synaptix_align_mfa as mfa;
         let Loaded::Mfa(m) = self else { anyhow::bail!("модель не MFA") };
@@ -1080,16 +1080,16 @@ impl Loaded {
     }
 
     /// Окно, зрение, пресеты сэмплинга и глубины размышлений.
-    pub fn llm_info(&self) -> anyhow::Result<synaptixd::LlmInfo> {
+    pub fn llm_info(&self) -> anyhow::Result<crate::LlmInfo> {
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let profile = synaptix::facade::sampling::sampling_profile(&b.path);
-        Ok(synaptixd::LlmInfo {
+        Ok(crate::LlmInfo {
             window: b.window,
             media: b.llm.supports_media(),
             presets: profile
                 .presets
                 .iter()
-                .map(|p| synaptixd::SamplingPreset {
+                .map(|p| crate::SamplingPreset {
                     id: p.id.to_string(),
                     thinking: p.thinking,
                     temperature: p.temperature,
@@ -1185,35 +1185,35 @@ impl Loaded {
     }
 
     /// Векторы текстов (нормированные, косинус = скалярное произведение).
-    pub fn embed(&self, texts: &[String]) -> anyhow::Result<synaptixd::Embeddings> {
+    pub fn embed(&self, texts: &[String]) -> anyhow::Result<crate::Embeddings> {
         let Loaded::Embed(e) = self else { anyhow::bail!("модель не строит эмбеддинги") };
         let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
         let vectors = e.encode(&refs).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(synaptixd::Embeddings { dim: e.dim(), vectors, max_tokens: e.max_tokens() })
+        Ok(crate::Embeddings { dim: e.dim(), vectors, max_tokens: e.max_tokens() })
     }
 
     /// Оценки пар (запрос, документ).
-    pub fn rerank(&self, pairs: &[(String, String)]) -> anyhow::Result<synaptixd::RerankScores> {
+    pub fn rerank(&self, pairs: &[(String, String)]) -> anyhow::Result<crate::RerankScores> {
         let Loaded::Rerank(r) = self else { anyhow::bail!("модель не переранжирует") };
         let refs: Vec<(&str, &str)> = pairs.iter().map(|(q, d)| (q.as_str(), d.as_str())).collect();
         let scores = r.score_pairs(&refs).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(synaptixd::RerankScores { scores, max_tokens: r.max_tokens() })
+        Ok(crate::RerankScores { scores, max_tokens: r.max_tokens() })
     }
 
     /// `words` — слова с таймкодами: (verbatim, своя подсказка).
-    pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>, words: Option<(bool, Option<String>)>) -> anyhow::Result<synaptixd::Transcript> {
+    pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>, words: Option<(bool, Option<String>)>) -> anyhow::Result<crate::Transcript> {
         let Loaded::Asr(t) = self else { anyhow::bail!("модель не распознаёт речь") };
         let mut t = t.lock().unwrap_or_else(|e| e.into_inner());
         let Some((verbatim, prompt)) = words else {
             let text = t.transcribe_pcm_text(pcm, sample_rate, language).map_err(|e| anyhow::anyhow!("{e}"))?;
-            return Ok(synaptixd::Transcript { text: text.trim().to_string(), ..Default::default() });
+            return Ok(crate::Transcript { text: text.trim().to_string(), ..Default::default() });
         };
         let opts = synaptix::facade::asr::AsrWordsOptions { verbatim, initial_prompt: prompt.filter(|p| !p.trim().is_empty()), ..Default::default() };
         let r = t.transcribe_pcm_words(pcm, sample_rate, language, &opts).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(synaptixd::Transcript {
+        Ok(crate::Transcript {
             text: r.text.trim().to_string(),
             segments: Vec::new(),
-            words: r.words.into_iter().map(|w| synaptixd::Word { text: w.text, start: w.start, end: w.end, conf: w.prob }).collect(),
+            words: r.words.into_iter().map(|w| crate::Word { text: w.text, start: w.start, end: w.end, conf: w.prob }).collect(),
             language: Some(r.language).filter(|l| !l.is_empty()),
         })
     }
@@ -1221,7 +1221,7 @@ impl Loaded {
     /// Привести адаптеры LoRA языковой модели к набору `want`: недостающие
     /// загрузить, силу выставить, остальные выключить. Ничего не меняется —
     /// модель не трогается (смена набора сбрасывает KV-кэш чатов).
-    pub fn apply_loras(&self, want: &crate::lora::Resolved) -> anyhow::Result<()> {
+    pub fn apply_loras(&self, want: &crate::server::lora::Resolved) -> anyhow::Result<()> {
         let Loaded::Llm(b) = self else {
             if want.is_empty() {
                 return Ok(());
@@ -1255,7 +1255,7 @@ impl Loaded {
     }
 
 
-    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<synaptixd::Generated> {
+    pub fn generate(&self, messages: &[crate::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(crate::Event), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<crate::Generated> {
         use synaptix::facade::chat::{history_tokens, prompt_for_model, StreamParser};
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
@@ -1267,15 +1267,15 @@ impl Loaded {
         let mut cache = b.media.lock().unwrap_or_else(|e| e.into_inner());
         let parts: Vec<Vec<MediaPart>> = encode_media(b, &mut cache, messages, params);
         let mut order: Vec<String> = Vec::new();
-        let with_media = |m: &synaptixd::Message, parts: &[MediaPart], order: &mut Vec<String>| -> String {
+        let with_media = |m: &crate::Message, parts: &[MediaPart], order: &mut Vec<String>| -> String {
             if parts.is_empty() {
                 return m.content.clone();
             }
             // Клиент разметил места вложений (подписи у каждого файла): блок —
             // на место своего маркера, по порядку.
-            if m.content.matches(synaptixd::MEDIA_MARK).count() == parts.len() {
+            if m.content.matches(crate::MEDIA_MARK).count() == parts.len() {
                 let mut s = String::new();
-                for (piece, p) in m.content.split(synaptixd::MEDIA_MARK).zip(parts.iter().map(Some).chain(std::iter::once(None))) {
+                for (piece, p) in m.content.split(crate::MEDIA_MARK).zip(parts.iter().map(Some).chain(std::iter::once(None))) {
                     s.push_str(piece);
                     match p {
                         Some(MediaPart::Embed(key)) => {
@@ -1410,18 +1410,18 @@ impl Loaded {
             let (body, think, tool) = parser.borrow_mut().feed(id, piece);
             if !body.is_empty() {
                 text.push_str(&body);
-                on_event(synaptixd::Event::Token { text: body });
+                on_event(crate::Event::Token { text: body });
             }
             if !think.is_empty() {
                 reasoning.borrow_mut().push_str(&think);
-                on_event(synaptixd::Event::Thinking { text: think });
+                on_event(crate::Event::Thinking { text: think });
             }
             if !tool.is_empty() {
-                on_event(synaptixd::Event::ToolText { text: tool });
+                on_event(crate::Event::ToolText { text: tool });
             }
             // Между токенами — пропустить вперёд ждущие карту ASR/TTS
             // (а фоновой генерации — и обычные запросы).
-            crate::devices::yield_point();
+            crate::server::devices::yield_point();
             !parser.borrow().tool_call_ready() && !stopped()
         };
         let need = ids.len() + max_tokens + 16;
@@ -1440,7 +1440,7 @@ impl Loaded {
             }
             all.retain(|e| e.parked);
             if parked_any {
-                crate::manager::release_vram(None);
+                crate::server::manager::release_vram(None);
             }
             mine
         };
@@ -1462,7 +1462,7 @@ impl Loaded {
             if e.kv.ctx_tokens() > want && e.kv.reusable(&ids) * 2 < ids.len() {
                 tracing::info!("generate: кэш «{key}» на {} токенов почти не подходит к ходу — заново на {want}", e.kv.ctx_tokens());
                 entry = None;
-                crate::manager::release_vram(None);
+                crate::server::manager::release_vram(None);
             }
         }
         // Ход длиннее, чем рассчитана сессия, — доращиваем её, посчитанный
@@ -1474,7 +1474,7 @@ impl Loaded {
                 Err(err) => {
                     tracing::warn!("generate: кэш «{key}» не дорос до {want} токенов ({err}) — заново");
                     entry = None;
-                    crate::manager::release_vram(None);
+                    crate::server::manager::release_vram(None);
                 }
             }
         }
@@ -1484,7 +1484,7 @@ impl Loaded {
             match llm.new_kv_session(want, max_tokens) {
                 Ok(Some(kv)) => {
                     tracing::info!("generate: кэш контекста «{key}» на {want} токенов (предел {window})");
-                    let app = crate::activity::current().map(|l| l.app().clone()).unwrap_or_default();
+                    let app = crate::server::activity::current().map(|l| l.app().clone()).unwrap_or_default();
                     entry = Some(KvEntry { key: key.clone(), kv, parked: false, parked_bytes: 0, app });
                 }
                 Ok(None) => {}
@@ -1532,11 +1532,11 @@ impl Loaded {
         let tail = parser.take_tail();
         if !tail.is_empty() {
             text.push_str(&tail);
-            on_event(synaptixd::Event::Token { text: tail });
+            on_event(crate::Event::Token { text: tail });
         }
-        let tool_calls: Vec<synaptixd::ToolCall> =
-            parser.finish().into_iter().map(|c| synaptixd::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
-        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window, cached_tokens: reused, prefill_ms, decode_ms })
+        let tool_calls: Vec<crate::ToolCall> =
+            parser.finish().into_iter().map(|c| crate::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
+        Ok(crate::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window, cached_tokens: reused, prefill_ms, decode_ms })
     }
 
     /// `fresh` — проверка настроек: голос прошлых озвучек не берётся и не
@@ -1548,7 +1548,7 @@ impl Loaded {
         // описание и зерно запроса главнее).
         let preset = params.text("speaker").and_then(synaptix::facade::tts::speaker);
         if params.text("speaker").is_some() && preset.is_none() {
-            anyhow::bail!("неизвестный голос «{}»; есть: {}", params.text("speaker").unwrap_or(""), synaptixd::SPEAKERS.join(", "));
+            anyhow::bail!("неизвестный голос «{}»; есть: {}", params.text("speaker").unwrap_or(""), crate::SPEAKERS.join(", "));
         }
         let is_vox = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Vox(_));
         let preset_voice = preset.map(|(omni, vox, _)| if is_vox { vox } else { omni });
@@ -1638,7 +1638,7 @@ impl Loaded {
                                     let a = a.ok_or_else(|| anyhow::anyhow!("опорная фраза не озвучена"))?;
                                     let miss = match range {
                                         Some((lo, hi)) => {
-                                            let f0 = crate::voices::median_f0(&pcm, p.output_sample_rate() as u32);
+                                            let f0 = crate::server::voices::median_f0(&pcm, p.output_sample_rate() as u32);
                                             if f0 < lo { lo - f0 } else if f0 > hi { f0 - hi } else { 0.0 }
                                         }
                                         None => 0.0,
@@ -1946,7 +1946,7 @@ impl Loaded {
                             let sr = a.sample_rate as u32;
                             let miss = match range {
                                 Some((lo, hi)) => {
-                                    let f0 = crate::voices::median_f0(&a.pcm, sr);
+                                    let f0 = crate::server::voices::median_f0(&a.pcm, sr);
                                     if f0 < lo { lo - f0 } else if f0 > hi { f0 - hi } else { 0.0 }
                                 }
                                 None => 0.0,
@@ -2082,10 +2082,10 @@ fn md5_like(s: &str) -> u64 {
 fn encode_media(
     b: &LlmSlot,
     cache: &mut Vec<(String, synaptix::facade::llm::MediaEmbedding)>,
-    messages: &[synaptixd::Message],
+    messages: &[crate::Message],
     params: &Params,
 ) -> Vec<Vec<MediaPart>> {
-    use synaptixd::MediaKind;
+    use crate::MediaKind;
     let llm = &b.llm;
     // 0 — без предела; не задано — 1024.
     let max_tokens = match params.u32("max_image_tokens") {

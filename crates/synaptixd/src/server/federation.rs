@@ -2,7 +2,7 @@
 //!
 //! Через локальный сокет synlink служба следит, какие спаренные устройства
 //! на связи, открывает к их службам мост (`Request::Synaptix` synlink,
-//! кадры [`synaptixd::bridge::Frame`]) и берёт их список моделей. Удалённые
+//! кадры [`crate::bridge::Frame`]) и берёт их список моделей. Удалённые
 //! модели видны с id `<устройство>:<id>` и `origin: remote`. Запрос к такой
 //! модели (или к модели по умолчанию, если удалённое устройство
 //! предпочтительнее) пересылается целиком: файлы запроса и входы-пути едут
@@ -20,12 +20,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use synaptixd::bridge::{fd_bytes, Frame, BLOB_PATH};
-use synaptixd::wire;
-use synaptixd::{DefaultModel, Envelope, Error, ErrorCode, Event, FederationDevice, FederationInfo, ModelEntry, ModelKind, Origin, Reply, Request};
+use crate::bridge::{fd_bytes, Frame, BLOB_PATH};
+use crate::wire;
+use crate::{DefaultModel, Envelope, Error, ErrorCode, Event, FederationDevice, FederationInfo, ModelEntry, ModelKind, Origin, Reply, Request};
 
-use crate::config::{FedConfig, Prefer};
-use crate::manager::Manager;
+use crate::server::config::{FedConfig, Prefer};
+use crate::server::manager::Manager;
 
 static FED: OnceLock<Arc<Fed>> = OnceLock::new();
 
@@ -639,9 +639,9 @@ impl Fed {
         // Там модель ушла на процессор (видеокарта занята) — своя быстрее, если есть.
         let degraded = |p: &Peer| {
             remote_model(p, model, kind).is_some_and(|m| {
-                use synaptixd::DeviceKind as D;
+                use crate::DeviceKind as D;
                 // CPU, выбранный пользователем, — не резерв.
-                let on_cpu = m.state == synaptixd::LoadState::Loaded && m.device == Some(D::Cpu) && m.settings.device != D::Cpu;
+                let on_cpu = m.state == crate::LoadState::Loaded && m.device == Some(D::Cpu) && m.settings.device != D::Cpu;
                 m.fallback || (on_cpu && m.devices.iter().any(|d| !matches!(d, D::Cpu | D::Auto)))
             })
         };
@@ -714,7 +714,7 @@ impl Fed {
         let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _watch = bridge.handle().ok().map(|h| {
             let gone = gone.clone();
-            crate::hangup::watch(client.as_raw_fd(), move || {
+            crate::server::hangup::watch(client.as_raw_fd(), move || {
                 gone.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = h.shutdown(std::net::Shutdown::Both);
             })
@@ -776,7 +776,7 @@ impl Fed {
 /// Прочитать файл с правами программы-клиента.
 fn read_as(path: &str, cred: Option<wire::Peer>) -> io::Result<Vec<u8>> {
     match cred {
-        Some(c) => crate::as_peer(c.uid, c.gid, || std::fs::read(path)),
+        Some(c) => crate::server::as_peer(c.uid, c.gid, || std::fs::read(path)),
         None => std::fs::read(path),
     }
     .map_err(|e| io::Error::new(e.kind(), format!("{path}: {e}")))
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn generate_keeps_fields() {
-        let req = Request::Generate { model: "".into(), messages: vec![synaptixd::Message::user("hi")], max_tokens: None, temperature: None, params: Default::default(), tools: vec![], loras: None };
+        let req = Request::Generate { model: "".into(), messages: vec![crate::Message::user("hi")], max_tokens: None, temperature: None, params: Default::default(), tools: vec![], loras: None };
         let to = Target { peer: "p".into(), slug: "laptop".into(), name: "L".into(), model: "".into(), explicit: false };
         let f = build_frame(1, &req, &[], &to, None).unwrap();
         let v: Value = serde_json::from_slice(&f.json).unwrap();

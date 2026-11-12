@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::registry::{Manifest, Variant};
+use crate::server::registry::{Manifest, Variant};
 
 pub const CATEGORIES: &[&str] = &["llm", "image", "video", "music", "tts", "asr", "embed", "pronunciation"];
 
@@ -69,12 +69,12 @@ pub fn scan(lib: &Path) -> Vec<Manifest> {
         let Some(main) = main else { continue };
         let components: BTreeMap<String, String> =
             p.components.iter().filter(|(r, _)| r != "model").map(|(r, f)| (r.clone(), f.to_string_lossy().into_owned())).collect();
-        let kind = crate::defaults::kind_of(p.task);
+        let kind = crate::server::defaults::kind_of(p.task);
         // NPU — речь и эмбеддинги: языковые модели на нём на порядки медленнее
         // (граф на каждый токен), картинки, видео и музыка не проверены.
-        let mut devices = vec![synaptixd::DeviceKind::Cuda, synaptixd::DeviceKind::Cpu];
-        if matches!(kind, synaptixd::ModelKind::Tts | synaptixd::ModelKind::Asr | synaptixd::ModelKind::Ctc | synaptixd::ModelKind::Embed | synaptixd::ModelKind::Rerank) {
-            devices.push(synaptixd::DeviceKind::Npu);
+        let mut devices = vec![crate::DeviceKind::Cuda, crate::DeviceKind::Cpu];
+        if matches!(kind, crate::ModelKind::Tts | crate::ModelKind::Asr | crate::ModelKind::Ctc | crate::ModelKind::Embed | crate::ModelKind::Rerank) {
+            devices.push(crate::DeviceKind::Npu);
         }
         out.push(Manifest {
             id: p.id,

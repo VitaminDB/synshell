@@ -9,9 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
-use synaptixd::{Error, ErrorCode, ModelKind, Params};
+use crate::{Error, ErrorCode, ModelKind, Params};
 
-use crate::manager::Manager;
+use crate::server::manager::Manager;
 
 /// Модель, которая озвучивает опорные клипы (голос по описанию).
 const CLIP_MODEL: &str = "omnivoice";

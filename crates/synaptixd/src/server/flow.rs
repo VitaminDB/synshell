@@ -17,10 +17,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use synaptix_flow::{self as sf, Cx, Event, Flow, Outputs, RunOpts, Sandbox, StageCache, Val};
-use synaptixd::{wire, Error, ErrorCode, FlowInput, FlowReply, ModelKind, Params, Reply};
+use crate::{wire, Error, ErrorCode, FlowInput, FlowReply, ModelKind, Params, Reply};
 
-use crate::manager::Manager;
-use crate::{gen, stages};
+use crate::server::manager::Manager;
+use crate::server::{gen, stages};
 
 type R = Result<(), String>;
 
@@ -115,7 +115,7 @@ pub fn sweep(age: Duration) {
     };
     if dropped > 0 {
         tracing::debug!("кэш стадий графа: выброшено {dropped}");
-        crate::manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+        crate::server::manager::release_vram(Some(crate::DeviceKind::Cuda));
     }
 }
 
@@ -145,7 +145,7 @@ struct Inputs {
 
 impl Inputs {
     fn word(&self, w: &str) -> Option<String> {
-        synaptixd::flow::marker_index(w, "@in:").and_then(|i| self.paths.get(i)).map(|p| p.display().to_string())
+        crate::flow::marker_index(w, "@in:").and_then(|i| self.paths.get(i)).map(|p| p.display().to_string())
     }
 
     fn text(&self, s: &str) -> Option<String> {
@@ -188,7 +188,7 @@ struct Sink<'a> {
 }
 
 impl Sink<'_> {
-    fn send(&self, ev: synaptixd::Event, fds: &[OwnedFd]) {
+    fn send(&self, ev: crate::Event, fds: &[OwnedFd]) {
         let r = Reply { id: self.id, event: Some(ev), ..Default::default() };
         let borrowed: Vec<BorrowedFd> = fds.iter().map(|f| unsafe { BorrowedFd::borrow_raw(f.as_raw_fd()) }).collect();
         if wire::send(self.sock, &serde_json::to_vec(&r).unwrap_or_default(), &borrowed).is_err() {
@@ -205,11 +205,11 @@ impl Sink<'_> {
             .map(|(k, v)| {
                 let v = v.map_files(&mut |p| {
                     if let Some(i) = self.inputs.iter().position(|x| x == p) {
-                        return PathBuf::from(synaptixd::flow::in_marker(i));
+                        return PathBuf::from(crate::flow::in_marker(i));
                     }
                     match std::fs::File::open(p) {
                     Ok(f) => {
-                        let m = synaptixd::flow::out_marker(self.next_out);
+                        let m = crate::flow::out_marker(self.next_out);
                         self.next_out += 1;
                         files.push((OwnedFd::from(f), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
                         PathBuf::from(m)
@@ -223,7 +223,7 @@ impl Sink<'_> {
         for chunk in files.chunks_mut(wire::MAX_FDS) {
             let names: Vec<String> = chunk.iter().map(|(_, n)| n.clone()).collect();
             let fds: Vec<OwnedFd> = chunk.iter().filter_map(|(f, _)| f.try_clone().ok()).collect();
-            self.send(synaptixd::Event::FlowFiles { first, names }, &fds);
+            self.send(crate::Event::FlowFiles { first, names }, &fds);
             first += chunk.len();
         }
         mapped
@@ -260,9 +260,9 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
     };
     let _watch = {
         let c = cancel.clone();
-        crate::hangup::watch(sock.as_raw_fd(), move || c.cancel())
+        crate::server::hangup::watch(sock.as_raw_fd(), move || c.cancel())
     };
-    let live = crate::activity::current();
+    let live = crate::server::activity::current();
     if let Some(l) = &live {
         let c = cancel.clone();
         l.on_cancel(move || c.cancel());
@@ -277,7 +277,7 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         if let (Some(l), Event::Progress { step, total, .. }) = (&live, &e) {
             l.progress(*step, *total);
         }
-        sink.send(synaptixd::Event::Flow { node: e }, &[]);
+        sink.send(crate::Event::Flow { node: e }, &[]);
     });
     let _ = std::fs::remove_dir_all(&dir);
     drop(fds);
@@ -340,9 +340,9 @@ fn stopped(cx: &Cx, e: impl ToString) -> String {
 fn llm(cx: &mut Cx) -> R {
     let mut msgs = Vec::new();
     if let Some(sys) = cx.str("system") {
-        msgs.push(synaptixd::Message::system(sys));
+        msgs.push(crate::Message::system(sys));
     }
-    msgs.push(synaptixd::Message::user(cx.need("prompt")?));
+    msgs.push(crate::Message::user(cx.need("prompt")?));
     let mut call = Params::new().with("thinking", cx.bool("think"));
     for k in ["max_tokens", "context"] {
         if let Some(n) = cx.pos(k) {
@@ -377,7 +377,7 @@ fn llm(cx: &mut Cx) -> R {
 fn image(cx: &mut Cx) -> R {
     let mut images = cx.files("images");
     images.retain(|s| !s.is_empty());
-    let p = synaptixd::ImageParams {
+    let p = crate::ImageParams {
         negative: cx.str("negative"),
         width: cx.pos("width").map(|v| v as usize),
         height: cx.pos("height").map(|v| v as usize),
@@ -403,7 +403,7 @@ fn image(cx: &mut Cx) -> R {
 }
 
 /// Модель видео по нужным возможностям (как у инструмента media).
-fn video_model(cx: &Cx, p: &synaptixd::VideoParams) -> String {
+fn video_model(cx: &Cx, p: &crate::VideoParams) -> String {
     if let Some(m) = cx.str("model") {
         return m;
     }
@@ -419,7 +419,7 @@ fn video_model(cx: &Cx, p: &synaptixd::VideoParams) -> String {
 }
 
 fn video(cx: &mut Cx) -> R {
-    let p = synaptixd::VideoParams {
+    let p = crate::VideoParams {
         negative: cx.str("negative"),
         width: cx.pos("width").map(|v| v as usize),
         height: cx.pos("height").map(|v| v as usize),
@@ -511,7 +511,7 @@ fn seed_field(cx: &mut Cx) -> u64 {
 /// Синтез речи нодой с явными параметрами: модель поля, образцы со входов.
 fn tts_node(cx: &mut Cx, text_port: &str, voice_ports: &[&str]) -> R {
     let seed = seed_field(cx);
-    let req = crate::runners::TtsRequest {
+    let req = crate::server::runners::TtsRequest {
         text: cx.need(text_port)?,
         voices: voice_ports.iter().filter_map(|p| cx.file(p)).map(PathBuf::from).collect(),
         ref_text: cx.str("ref_text"),

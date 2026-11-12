@@ -13,10 +13,10 @@ use synaptix_gen::h3_stages as h3;
 use synaptix_gen::ltx_stages as ltx;
 use synaptix_gen::image_stages as img;
 use synaptix_gen::music_stages as mus;
-use synaptixd::{DeviceKind, ModelKind};
+use crate::{DeviceKind, ModelKind};
 
-use crate::flow::{mgr, with_progress};
-use crate::{devices, manager};
+use crate::server::flow::{mgr, with_progress};
+use crate::server::{devices, manager};
 
 type R = Result<(), String>;
 
@@ -63,7 +63,7 @@ pub fn install() {
 /// Стадия на устройстве: другие модели уступают ему место, стадии
 /// идут по одной на устройство (как запросы службы), пулы — драйверу.
 fn on_device<T>(id: &str, dev: DeviceKind, why: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    let live = crate::activity::current();
+    let live = crate::server::activity::current();
     if let Some(l) = &live {
         l.model(id);
         l.waiting();
@@ -97,7 +97,7 @@ fn seed(cx: &mut Cx) -> u64 {
         Some(s) => s as u64,
         None => {
             cx.uncached();
-            crate::gen::random_seed()
+            crate::server::gen::random_seed()
         }
     }
 }
@@ -561,7 +561,7 @@ struct YueModel {
 }
 
 /// Музыкальная модель по полю `model`; пусто — первая подходящая в библиотеке.
-fn music_model(cx: &Cx, family: &str) -> Result<(String, crate::runners::MusicModel, DeviceKind, Option<String>), String> {
+fn music_model(cx: &Cx, family: &str) -> Result<(String, crate::server::runners::MusicModel, DeviceKind, Option<String>), String> {
     let m = mgr();
     let want = match cx.str("model") {
         Some(w) => w,
@@ -584,14 +584,14 @@ fn seed_of(cx: &mut Cx, name: &str) -> u64 {
         Some(s) => s as u64,
         None => {
             cx.uncached();
-            crate::gen::random_seed()
+            crate::server::gen::random_seed()
         }
     }
 }
 
 fn ace_model(cx: &mut Cx) -> R {
     let (id, mm, dev, q) = music_model(cx, "acestep")?;
-    let crate::runners::MusicModel::Ace(mut paths, small) = mm else { return Err(format!("{id} — не ACE-Step")) };
+    let crate::server::runners::MusicModel::Ace(mut paths, small) = mm else { return Err(format!("{id} — не ACE-Step")) };
     if cx.str("lm").as_deref() == Some("1.7b") {
         paths.lm = small.ok_or("у модели нет малой LM кодов (1.7B)")?;
     }
@@ -670,7 +670,7 @@ fn ace_generate(cx: &mut Cx) -> R {
 
 fn yue_model(cx: &mut Cx) -> R {
     let (id, mm, dev, q) = music_model(cx, "yue")?;
-    let crate::runners::MusicModel::Yue { model, vae } = mm else { return Err(format!("{id} — не YuE2")) };
+    let crate::server::runners::MusicModel::Yue { model, vae } = mm else { return Err(format!("{id} — не YuE2")) };
     let quant = quant_field(cx, q);
     let m = mus::yue_open(&model, &vae, devices::device(dev), quant.as_deref())?;
     let label = format!("{} ({id}{})", m.name(), quant.map(|q| format!(", {q}")).unwrap_or_default());

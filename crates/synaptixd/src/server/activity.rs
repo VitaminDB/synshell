@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use synaptixd::{Activity, ActivityState, AppInfo, AppUsage, Generated, MetricsSample};
+use crate::{Activity, ActivityState, AppInfo, AppUsage, Generated, MetricsSample};
 
 const RECENT: usize = 24;
 const HISTORY: usize = 300;

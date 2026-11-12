@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde_json::Value;
-use synaptixd::{DatasetEntry, LoraEntry, LoraUse};
+use crate::{DatasetEntry, LoraEntry, LoraUse};
 
 pub const LORA_DIR: &str = "lora";
 pub const DATASET_DIR: &str = "datasets";

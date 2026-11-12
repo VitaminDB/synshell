@@ -65,7 +65,7 @@ impl Default for Config {
             yield_vram_to: vec!["resolve".into()],
             model_dirs: Vec::new(),
             state: PathBuf::from(STATE),
-            socket: synaptixd::socket_path(),
+            socket: crate::socket_path(),
             federation: FedConfig::default(),
         }
     }
@@ -90,7 +90,7 @@ impl Config {
             cfg.state = PathBuf::from(p);
         }
         if std::env::var_os("SYNAPTIXD_SOCKET").is_some() {
-            cfg.socket = synaptixd::socket_path();
+            cfg.socket = crate::socket_path();
         }
         cfg
     }

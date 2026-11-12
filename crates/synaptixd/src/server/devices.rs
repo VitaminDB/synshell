@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use synaptix_core::device::Device;
-use synaptixd::DeviceKind;
+use crate::DeviceKind;
 
 struct Probe {
     npu: Option<bool>,

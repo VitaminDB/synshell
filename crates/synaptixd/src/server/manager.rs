@@ -5,14 +5,14 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use synaptixd::{DefaultModel, DeviceKind, EngineProfile, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelKind, ModelSettings, Params, SettingsChange, Status};
+use crate::{DefaultModel, DeviceKind, EngineProfile, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelKind, ModelSettings, Params, SettingsChange, Status};
 
-use crate::config::Config;
-use crate::defaults;
-use crate::devices;
-use crate::library;
-use crate::registry::{self, LibraryConf, Manifest, StateFile};
-use crate::runners::{self, Loaded};
+use crate::server::config::Config;
+use crate::server::defaults;
+use crate::server::devices;
+use crate::server::library;
+use crate::server::registry::{self, LibraryConf, Manifest, StateFile};
+use crate::server::runners::{self, Loaded};
 
 pub struct Slot {
     pub manifest: Manifest,
@@ -30,7 +30,7 @@ pub struct Slot {
     pub last_used_ms: i64,
     pub error: Option<String>,
     pub disk_bytes: u64,
-    pub schema: Vec<synaptixd::ParamSpec>,
+    pub schema: Vec<crate::ParamSpec>,
     pub optimal: Params,
     /// Действующий профиль движка LLM по (устройство, точность, правки).
     engine_shown: Mutex<Option<(EngineKey, EngineProfile)>>,
@@ -140,7 +140,7 @@ impl Slot {
             variants: m
                 .variants
                 .iter()
-                .map(|v| synaptixd::VariantInfo {
+                .map(|v| crate::VariantInfo {
                     precision: v.precision.clone(),
                     devices: v.devices.clone(),
                     bytes: std::fs::metadata(m.path(v)).map(|x| x.len()).unwrap_or(0),
@@ -158,7 +158,7 @@ impl Slot {
                 .map(|v| m.path(v).to_string_lossy().into_owned())
                 .unwrap_or_default(),
 
-            origin: synaptixd::Origin::Local,
+            origin: crate::Origin::Local,
         }
     }
 
@@ -187,7 +187,7 @@ pub struct Manager {
     vram_yield: Mutex<Vec<String>>,
     /// Сведения о языковых моделях с прошлой загрузки: `llm_info` для
     /// выгруженной модели отвечает из них, а не поднимает её в память.
-    llm_infos: Mutex<HashMap<String, synaptixd::LlmInfo>>,
+    llm_infos: Mutex<HashMap<String, crate::LlmInfo>>,
 }
 
 fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
@@ -197,7 +197,7 @@ fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
             out.entry(m.id.clone()).or_insert(m);
         }
     }
-    for m in library::scan(&crate::config::system_models()) {
+    for m in library::scan(&crate::server::config::system_models()) {
         out.entry(m.id.clone()).or_insert(m);
     }
     let legacy: Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> = cfg.model_dirs.iter().map(|d| (d.clone(), None)).collect();
@@ -487,7 +487,7 @@ impl Manager {
     }
 
     pub fn set_default(&self, kind: ModelKind, model: Option<String>) -> Result<Vec<DefaultModel>, Error> {
-        let remote = model.as_deref().is_some_and(|id| crate::federation::get().is_some_and(|f| f.knows(id, kind)));
+        let remote = model.as_deref().is_some_and(|id| crate::server::federation::get().is_some_and(|f| f.knows(id, kind)));
         if let Some(id) = model.as_ref().filter(|_| !remote) {
             let ok = self.slots.lock().unwrap().get(id).map(|s| s.manifest.kind == kind).ok_or_else(|| no_model(id))?;
             if !ok {
@@ -510,7 +510,7 @@ impl Manager {
         let (total, avail) = meminfo();
         let slots = self.slots.lock().unwrap();
         Status {
-            version: synaptixd::VERSION,
+            version: crate::VERSION,
             since_ms: self.since_ms,
             mem_total: total,
             mem_available: avail,
@@ -542,7 +542,7 @@ impl Manager {
     /// Сведения о языковой модели. Загруженная отвечает сама (и обновляет
     /// запомненное); выгруженная — из запомненного при прошлой загрузке:
     /// окно и пресеты не стоят того, чтобы поднимать модель на карту.
-    pub fn llm_info(self: &Arc<Self>, id: &str) -> Result<synaptixd::LlmInfo, Error> {
+    pub fn llm_info(self: &Arc<Self>, id: &str) -> Result<crate::LlmInfo, Error> {
         let loaded = self.slots.lock().unwrap().get(id).is_some_and(|s| s.model.is_some());
         if !loaded {
             if let Some(info) = self.llm_infos.lock().unwrap().get(id) {
@@ -561,21 +561,21 @@ impl Manager {
         loaded.fold((0, 0), |(r, v), s| if s.device == Some(DeviceKind::Cuda) { (r, v + s.vram_bytes) } else { (r + s.mem_bytes, v) })
     }
 
-    pub fn metrics(&self, history: bool) -> synaptixd::Metrics {
-        let snap = crate::activity::snapshot(history);
+    pub fn metrics(&self, history: bool) -> crate::Metrics {
+        let snap = crate::server::activity::snapshot(history);
         // Модели — под замком, сессии — уже без него: замок моделей нужен
         // всем запросам, а сессии заняты, пока идёт ход.
         let loaded: Vec<(String, Arc<Loaded>)> = self.slots.lock().unwrap().iter().filter_map(|(id, s)| Some((id.clone(), s.model.clone()?))).collect();
         let mut kv = Vec::new();
         for (id, m) in loaded {
             for (key, app, tokens, capacity, bytes, parked) in m.kv_usage() {
-                kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
+                kv.push(crate::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
             }
         }
         // Удержанный KV выгруженных моделей — тоже память программ.
         for (id, s) in self.slots.lock().unwrap().iter() {
             for (key, app, tokens, capacity, bytes, parked) in s.kept_kv.iter().flat_map(|k| k.kv.rows().iter().cloned()) {
-                kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
+                kv.push(crate::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
             }
         }
         let mut apps = snap.apps;
@@ -583,12 +583,12 @@ impl Manager {
             match apps.iter_mut().find(|u| u.app.pid == k.app.pid && u.app.label == k.app.label) {
                 Some(u) => u.kv_bytes += k.bytes,
                 None if k.app.pid != 0 && std::path::Path::new(&format!("/proc/{}", k.app.pid)).exists() => {
-                    apps.push(synaptixd::AppUsage { app: k.app.clone(), kv_bytes: k.bytes, models: vec![k.model.clone()], ..Default::default() })
+                    apps.push(crate::AppUsage { app: k.app.clone(), kv_bytes: k.bytes, models: vec![k.model.clone()], ..Default::default() })
                 }
                 None => {}
             }
         }
-        synaptixd::Metrics { now_ms: now_ms(), running: snap.running, recent: snap.recent, apps, kv, history: snap.history }
+        crate::Metrics { now_ms: now_ms(), running: snap.running, recent: snap.recent, apps, kv, history: snap.history }
     }
 
     pub fn open(self: &Arc<Self>, id: &str) -> Result<ModelInfo, Error> {
@@ -711,7 +711,7 @@ impl Manager {
     }
 
     /// Набор адаптеров LoRA модели из её настроек.
-    pub fn model_loras(&self, id: &str) -> Vec<synaptixd::LoraUse> {
+    pub fn model_loras(&self, id: &str) -> Vec<crate::LoraUse> {
         self.slots.lock().unwrap().get(id).map(|s| s.settings.loras.clone()).unwrap_or_default()
     }
 
@@ -737,7 +737,7 @@ impl Manager {
         }
     }
 
-    pub fn libraries(&self) -> Vec<synaptixd::LibraryInfo> {
+    pub fn libraries(&self) -> Vec<crate::LibraryInfo> {
         let (libs, def) = self.libraries.lock().unwrap().clone();
         let slots = self.slots.lock().unwrap();
         libs.iter()
@@ -749,7 +749,7 @@ impl Manager {
                 let mut files: Vec<std::path::PathBuf> = mine.iter().flat_map(|s| library::files_of(&s.manifest)).collect();
                 files.sort();
                 files.dedup();
-                synaptixd::LibraryInfo {
+                crate::LibraryInfo {
                     path: l.path.clone(),
                     name: if l.name.is_empty() { l.path.clone() } else { l.name.clone() },
                     online,
@@ -763,7 +763,7 @@ impl Manager {
             .collect()
     }
 
-    pub fn add_library(&self, path: &str, name: Option<String>) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+    pub fn add_library(&self, path: &str, name: Option<String>) -> Result<Vec<crate::LibraryInfo>, Error> {
         let path = path.trim().trim_end_matches('/').to_string();
         if !path.starts_with('/') {
             return Err(Error::new(ErrorCode::Failed, "нужен абсолютный путь к папке"));
@@ -783,7 +783,7 @@ impl Manager {
         Ok(self.libraries())
     }
 
-    pub fn remove_library(&self, path: &str) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+    pub fn remove_library(&self, path: &str) -> Result<Vec<crate::LibraryInfo>, Error> {
         {
             let mut l = self.libraries.lock().unwrap();
             l.0.retain(|x| x.path != path);
@@ -796,7 +796,7 @@ impl Manager {
         Ok(self.libraries())
     }
 
-    pub fn set_default_library(&self, path: &str) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+    pub fn set_default_library(&self, path: &str) -> Result<Vec<crate::LibraryInfo>, Error> {
         {
             let mut l = self.libraries.lock().unwrap();
             if !l.0.iter().any(|x| x.path == path) {
@@ -916,7 +916,7 @@ impl Manager {
     /// генерации нужна вся видеопамять (пайплайн грузит этапы сам).
     pub fn clear_device(&self, except: &str, dev: DeviceKind, why: &str) {
         // DiT и Gemma, что держат стадии LTX графа, — тоже место на карте.
-        crate::stages::release_ltx(Some(except));
+        crate::server::stages::release_ltx(Some(except));
         while self.evict_one_on(except, Some(dev), why) {}
     }
 
@@ -957,7 +957,7 @@ impl Manager {
             // Графы NPU (контексты в ОЗУ) откроются снова из кэша на диске за ~1 с —
             // отпускаем их прежде моделей: иначе две wav2vec2 на NPU выгружали друг друга
             // на каждой фразе (кэш графов съедал запас памяти под соседа).
-            let freed = crate::devices::release_npu_graphs();
+            let freed = crate::server::devices::release_npu_graphs();
             if freed > 0 {
                 tracing::info!("{id}: отпущены графы NPU ({} МБ) ради памяти", freed >> 20);
                 continue;
@@ -993,7 +993,7 @@ impl Manager {
     }
 
     pub fn acquire(self: &Arc<Self>, id: &str) -> Result<Lease, Error> {
-        if let Some(l) = crate::activity::current() {
+        if let Some(l) = crate::server::activity::current() {
             l.model(id);
         }
         loop {
@@ -1033,7 +1033,7 @@ impl Manager {
             let want = force.unwrap_or(s.settings.device);
             (s.manifest.clone(), want, s.settings.quant.clone(), s.settings.engine.clone())
         };
-        match crate::activity::requester() {
+        match crate::server::activity::requester() {
             Some(who) => tracing::info!("{id}: загрузка по запросу {who}"),
             None => tracing::info!("{id}: загрузка (служба сама)"),
         }
@@ -1152,7 +1152,7 @@ impl Manager {
         id: &str,
         f: impl Fn(&Loaded) -> anyhow::Result<T>,
     ) -> Result<T, Error> {
-        let live = crate::activity::current();
+        let live = crate::server::activity::current();
         devices::set_model(id);
         let lease = self.acquire(id)?;
         devices::set_model(id);
@@ -1272,7 +1272,7 @@ impl Manager {
     /// закреплённые), отпустить стадии LTX. Занятая модель вернёт память,
     /// закончив текущую работу; KV-кэш чатов ждёт в RAM.
     fn yield_cuda(&self, who: &str) {
-        crate::stages::release_ltx(None);
+        crate::server::stages::release_ltx(None);
         let ids: Vec<String> = self
             .slots
             .lock()
@@ -1366,7 +1366,7 @@ fn find_process(names: &[String]) -> Option<String> {
         let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else { continue };
         if names.iter().any(|n| n == comm.trim()) {
             let uid = e.metadata().map(|m| m.uid()).unwrap_or(0);
-            return Some(crate::activity::app_of(pid, uid).name);
+            return Some(crate::server::activity::app_of(pid, uid).name);
         }
     }
     None

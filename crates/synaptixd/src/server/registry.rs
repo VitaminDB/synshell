@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use synaptixd::{DeviceKind, ModelKind, ModelSettings, Params};
+use crate::{DeviceKind, ModelKind, ModelSettings, Params};
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Variant {
@@ -138,7 +138,7 @@ impl Manifest {
     }
 
     pub fn npu_cache_dir(&self) -> PathBuf {
-        PathBuf::from(crate::config::NPU_CACHE_RO).join(&self.id)
+        PathBuf::from(crate::server::config::NPU_CACHE_RO).join(&self.id)
     }
 }
 

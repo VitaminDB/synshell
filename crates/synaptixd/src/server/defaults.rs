@@ -1,7 +1,7 @@
 use synaptix::facade::params as sp;
-use synaptixd::{DeviceKind, ModelKind, ParamKind, ParamSpec, ParamValue, Params, QuantOption};
+use crate::{DeviceKind, ModelKind, ParamKind, ParamSpec, ParamValue, Params, QuantOption};
 
-use crate::registry::Manifest;
+use crate::server::registry::Manifest;
 
 pub const SYSTEM_PROMPT: &str = "Ты — помощник, встроенный в операционную систему. Отвечай по делу, кратко и на языке пользователя.";
 
@@ -112,7 +112,7 @@ pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {
     // считаются в выбранной плотной точности (половинная — на ускорителях,
     // F32 — везде).
     if matches!(m.kind, ModelKind::Asr | ModelKind::Tts | ModelKind::Ctc) {
-        for p in crate::runners::AUDIO_PRECISIONS {
+        for p in crate::server::runners::AUDIO_PRECISIONS {
             if out.iter().any(|q| q.id == p) {
                 continue;
             }
