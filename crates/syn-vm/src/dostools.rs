@@ -273,35 +273,46 @@ fn collect(dir: &Path) -> Result<Vec<File>> {
     }
     v.sort_by(|a, b| (a.name != MAIN, &a.name).cmp(&(b.name != MAIN, &b.name)));
     let t = v.iter().map(|f| f.mtime).max().unwrap_or(0);
-    v.push(File { name: "README.TXT".into(), data: README.as_bytes().to_vec(), mtime: t });
+    // Все файлы каталога попадают на диск; неописанные в README — списком в конце.
+    let mut readme = README.to_string();
+    let extra: Vec<&str> = v.iter().map(|f| f.name.as_str()).filter(|n| !README.contains(n)).collect();
+    if !extra.is_empty() {
+        readme += &format!("\r\nAlso here: {}\r\n", extra.join(", "));
+    }
+    v.push(File { name: "README.TXT".into(), data: readme.into_bytes(), mtime: t });
     Ok(v)
 }
 
 /// Собрать (или взять готовый) образ диска из найденных файлов.
 pub fn image() -> Result<PathBuf> {
     let dir = tools_dir().with_context(|| t!("Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt"))?;
-    let mut stamp = format!("v1\n{}\n{}\n", dir.display(), README.len());
-    let mut names: Vec<_> = std::fs::read_dir(&dir)?.filter_map(|e| e.ok()).collect();
-    names.sort_by_key(|e| e.file_name());
-    for e in names {
-        if let Ok(m) = std::fs::metadata(e.path()) {
-            stamp += &format!("{} {} {}\n", e.file_name().to_string_lossy(), m.len(), mtime(&m));
-        }
+    // Отметка — по тем самым файлам, что попадут в образ (содержимое): файл, сменившийся во время
+    // сборки (syn-virt собирает SYNMOUSE.COM), не оставит устаревший образ с «совпавшей» отметкой.
+    image_from(&dir, &image_path())
+}
+
+/// Образ из каталога `dir` в `out` (готовый с той же отметкой — как есть).
+fn image_from(dir: &Path, out: &Path) -> Result<PathBuf> {
+    let files = collect(dir)?;
+    let mut stamp = format!("v2\n{}\n", dir.display());
+    for f in &files {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&f.data, &mut h);
+        stamp += &format!("{} {} {:016x}\n", f.name, f.data.len(), std::hash::Hasher::finish(&h));
     }
-    let out = image_path();
     let stamp_path = out.with_extension("stamp");
     if out.is_file() && std::fs::read_to_string(&stamp_path).is_ok_and(|s| s == stamp) {
-        return Ok(out);
+        return Ok(out.to_path_buf());
     }
-    let img = build_disk(LABEL, "SYNGPU", &collect(&dir)?)?;
+    let img = build_disk(LABEL, "SYNGPU", &files)?;
     std::fs::create_dir_all(out.parent().unwrap())?;
     // Через переименование: работающий QEMU держит прежний файл.
     let tmp = out.with_extension("img.part");
     std::fs::write(&tmp, img)?;
-    std::fs::rename(&tmp, &out)?;
+    std::fs::rename(&tmp, out)?;
     std::fs::write(&stamp_path, stamp)?;
     tracing::info!("диск инструментов DOS: {} из {}", out.display(), dir.display());
-    Ok(out)
+    Ok(out.to_path_buf())
 }
 
 /// Аргументы QEMU: диск инструментов на свободном порту AHCI, без bootindex (последний по
@@ -382,6 +393,27 @@ mod tests {
 
     fn u16at(b: &[u8], a: usize) -> usize {
         u16::from_le_bytes([b[a], b[a + 1]]) as usize
+    }
+
+    /// Все файлы каталога — на диск (новые тоже, например SYNMOUSE.COM), README перечисляет
+    /// неописанные; образ пересобирается при смене содержимого, даже того же размера.
+    #[test]
+    fn all_files_and_rebuild() {
+        let root = std::env::temp_dir().join(format!("syn-vm-dostools-all-{}", std::process::id()));
+        let tools = root.join("tools");
+        std::fs::create_dir_all(&tools).unwrap();
+        std::fs::write(tools.join("SYNGPU.COM"), [0xC3; 100]).unwrap();
+        std::fs::write(tools.join("SYNMOUSE.COM"), [1u8; 50]).unwrap();
+        let files = collect(&tools).unwrap();
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["SYNGPU.COM", "SYNMOUSE.COM", "README.TXT"]);
+        assert!(String::from_utf8_lossy(&files[2].data).contains("Also here: SYNMOUSE.COM"));
+        let out = root.join("cache/tools.img");
+        let a = std::fs::read(image_from(&tools, &out).unwrap()).unwrap();
+        std::fs::write(tools.join("SYNMOUSE.COM"), [2u8; 50]).unwrap();
+        let b = std::fs::read(image_from(&tools, &out).unwrap()).unwrap();
+        assert_ne!(a, b, "тот же размер, другое содержимое — образ должен пересобраться");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

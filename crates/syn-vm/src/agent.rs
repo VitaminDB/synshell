@@ -39,6 +39,12 @@ pub fn broker_path(vm: &Vm) -> PathBuf {
     vm.run_dir().join("agent.sock")
 }
 
+/// pid процесса QEMU, которому служит посредник на `agent.sock`: клиент не подключается к
+/// посреднику прошлого запуска машины (он вот-вот уйдёт — «Broken pipe» сразу после --restart).
+fn broker_qpid_path(vm: &Vm) -> PathBuf {
+    vm.run_dir().join("agent-broker.qpid")
+}
+
 /// Журнал гостя (OutputDebugString, журнал событий, journald).
 pub fn log_path(vm: &Vm) -> PathBuf {
     vm.dir().join("guest.log")
@@ -166,6 +172,7 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
     let bp = broker_path(vm);
     let _ = std::fs::remove_file(&bp);
     let listener = UnixListener::bind(&bp).with_context(|| bp.display().to_string())?;
+    let _ = std::fs::write(broker_qpid_path(vm), qpid.to_string());
     let st = Arc::new(Mutex::new(Broker::default()));
 
     // Клиенты.
@@ -453,7 +460,9 @@ impl Client {
         let mut spawned = false;
         let t0 = Instant::now();
         loop {
-            if let Ok(s) = UnixStream::connect(&bp) {
+            // Посредник прошлого запуска (машину только что перезапустили) — ждать нового.
+            let stale = std::fs::read_to_string(broker_qpid_path(vm)).ok().and_then(|s| s.trim().parse::<i32>().ok()).is_some_and(|p| Some(p) != crate::qemu::pid(vm));
+            if let Ok(s) = UnixStream::connect(&bp).map_err(|_| ()).and_then(|s| if stale { Err(()) } else { Ok(s) }) {
                 let w = s.try_clone()?;
                 return Ok(Client { w, r: BufReader::with_capacity(256 * 1024, s), next: 0 });
             }

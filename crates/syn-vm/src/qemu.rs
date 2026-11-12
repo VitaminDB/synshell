@@ -202,8 +202,14 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         NetMode::None => push(&["-nic", "none"]),
     }
 
-    // USB: планшет — абсолютный указатель, курсор гостя совпадает с мышью.
-    push(&["-device", "qemu-xhci,id=xhci", "-device", "usb-tablet,bus=xhci.0"]);
+    // USB: планшет — абсолютный указатель, курсор гостя совпадает с мышью. У DOS-машин планшета нет:
+    // SeaBIOS опрашивает его ради эмуляции PS/2, и QEMU делает его активной мышью поверх vmmouse
+    // (абсолютный указатель драйвера SYNMOUSE.COM, порт 5658h); остаются мышь PS/2 и vmmouse
+    // (vmport=auto). Контроллер — для проброса USB.
+    push(&["-device", "qemu-xhci,id=xhci"]);
+    if !crate::dostools::is_dos(vm) {
+        push(&["-device", "usb-tablet,bus=xhci.0"]);
+    }
     // Относительная мышь для игр подключается на ходу в режиме захвата (ui::capture): постоянная
     // USB-мышь становится активной после каждого сброса USB гостем и отнимает указатель у планшета.
     for u in &vm.usb {
@@ -1014,5 +1020,21 @@ mod tests {
         vm.guest_tools = crate::model::GuestTools::VirtioWin;
         let j = args(&vm).unwrap().join(" ");
         assert!(j.contains("virtio-balloon") && j.contains("org.qemu.guest_agent.0") && j.contains("com.redhat.spice.0"));
+    }
+
+    #[test]
+    fn dos_has_no_usb_tablet() {
+        // DOS (BIOS, не Windows/Linux): мышь — PS/2 и vmmouse, планшет перехватывал бы указатель у SYNMOUSE.COM
+        let mut vm = OsKind::Windows11.preset();
+        vm.id = "d".into();
+        vm.firmware = Firmware::Bios;
+        vm.tpm = false;
+        vm.tools_cd = false;
+        let j = args(&vm).unwrap().join(" ");
+        assert!(j.contains("usb-tablet"));
+        vm.os = OsKind::Other;
+        assert!(crate::dostools::is_dos(&vm));
+        let j = args(&vm).unwrap().join(" ");
+        assert!(!j.contains("usb-tablet") && j.contains("qemu-xhci,id=xhci"));
     }
 }

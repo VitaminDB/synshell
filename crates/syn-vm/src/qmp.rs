@@ -61,8 +61,15 @@ impl Conn {
     }
 }
 
+/// Ответ на команду. Тайм-аут сокета — на одно чтение, а события QEMU (`event`) пропускаются: идут
+/// они непрерывно — ждали бы вечно (`--click` висел минутами), поэтому общий предел — два тайм-аута.
 fn read_reply(r: &mut BufReader<UnixStream>) -> Result<Value> {
+    let limit = r.get_ref().read_timeout().ok().flatten().unwrap_or(Duration::from_secs(5)) * 2;
+    let t0 = std::time::Instant::now();
     loop {
+        if t0.elapsed() > limit {
+            bail!("QMP: {}", t!("нет ответа за {s} с", s = limit.as_secs()));
+        }
         let mut line = String::new();
         if r.read_line(&mut line)? == 0 {
             bail!("QMP: {}", t!("соединение закрыто"));
@@ -99,7 +106,16 @@ pub fn status(vm: &Vm) -> Option<String> {
 
 /// Команда монитора (HMP): `savevm`, `info snapshots`…
 pub fn hmp(vm: &Vm, line: &str) -> Result<String> {
-    let v = call_at(&vm.qmp_path(), "human-monitor-command", json!({ "command-line": line }), Duration::from_secs(600))?;
+    hmp_for(vm, line, Duration::from_secs(600))
+}
+
+/// Короткая команда монитора (`info mice`, `mouse_set`): ответ за секунды, а не до 10 минут, как `savevm`.
+fn hmp_quick(vm: &Vm, line: &str) -> Result<String> {
+    hmp_for(vm, line, Duration::from_secs(5))
+}
+
+fn hmp_for(vm: &Vm, line: &str, timeout: Duration) -> Result<String> {
+    let v = call_at(&vm.qmp_path(), "human-monitor-command", json!({ "command-line": line }), timeout)?;
     let out = v.as_str().unwrap_or_default().trim().to_string();
     // HMP сообщает об ошибках текстом, а не ошибкой QMP.
     if out.starts_with("Error") || out.contains("Error:") || out.starts_with("Could not") {
@@ -294,13 +310,13 @@ pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
 
 /// Сделать активной мышь по части имени в `info mice` («Tablet», «USB Mouse»). `false` — нет такой.
 pub fn set_mouse(vm: &Vm, name: &str) -> bool {
-    let Ok(list) = hmp(vm, "info mice") else { return false };
+    let Ok(list) = hmp_quick(vm, "info mice") else { return false };
     let Some(line) = list.lines().find(|l| l.contains(name)) else { return false };
     if line.trim_start().starts_with('*') {
         return true;
     }
     let idx = line.split('#').nth(1).and_then(|s| s.split(':').next()).and_then(|s| s.trim().parse::<u32>().ok());
-    idx.is_some_and(|i| hmp(vm, &format!("mouse_set {i}")).is_ok())
+    idx.is_some_and(|i| hmp_quick(vm, &format!("mouse_set {i}")).is_ok())
 }
 
 /// Подключить относительную мышь (usb-mouse, id relmouse) на ходу и сделать активной: ждёт, пока
@@ -325,7 +341,7 @@ pub fn rel_mouse_off(vm: &Vm) {
     let _ = call(vm, "device_del", json!({"id": "relmouse"}));
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
-        if hmp(vm, "info mice").is_ok_and(|l| !l.contains("HID Mouse")) {
+        if hmp_quick(vm, "info mice").is_ok_and(|l| !l.contains("HID Mouse")) {
             break;
         }
     }
@@ -367,14 +383,14 @@ impl RelInput {
 /// с каналом qemu-vdagent без mouse=off, активной становится «vdagent mouse», и указатель
 /// с кликами до гостя не доходит.
 pub fn ensure_tablet(vm: &Vm) {
-    let Ok(list) = hmp(vm, "info mice") else { return };
+    let Ok(list) = hmp_quick(vm, "info mice") else { return };
     let active_ok = list.lines().any(|l| l.trim_start().starts_with('*') && l.contains("Tablet"));
     if active_ok {
         return;
     }
     let idx = list.lines().find(|l| l.contains("Tablet")).and_then(|l| l.split('#').nth(1)).and_then(|s| s.split(':').next()).and_then(|s| s.trim().parse::<u32>().ok());
     if let Some(i) = idx {
-        let _ = hmp(vm, &format!("mouse_set {i}"));
+        let _ = hmp_quick(vm, &format!("mouse_set {i}"));
     }
 }
 
