@@ -235,6 +235,9 @@ pub struct St {
     pub query: RwSignal<String>,
     /// Машины, над которыми идёт действие (запуск, снимок, копия): id → подпись.
     pub busy: RwSignal<HashMap<String, String>>,
+    /// Машины, которые не выключились по кнопке питания за отведённое время (DOS, Windows 9x без
+    /// ACPI, зависший гость): плашка с «Выключить сразу».
+    pub stalled: RwSignal<Vec<String>>,
     /// Новый кадр экрана открытой машины.
     pub frame_tick: RwSignal<u64>,
     /// Перестроить панель экрана: от кадров — не чаще 4 раз в секунду (панель, перестроенная на каждом
@@ -285,6 +288,7 @@ impl St {
             toast: use_signal(None),
             query: use_signal(String::new()),
             busy: use_signal(HashMap::new()),
+            stalled: use_signal(Vec::new()),
             frame_tick: use_signal(0),
             bar_tick: use_signal(0),
             thumb_tick: use_signal(0),
@@ -425,6 +429,7 @@ pub fn restart(st: St, id: &str) {
     let id_s = id.to_string();
     background(st, id, t!("Выключение гостя…"), move || {
         let old = running_vm(&vm);
+        watch_stop(st, &old);
         let changed = !pending_restart(&vm).is_empty();
         crate::cli::stop(&old, Duration::from_secs(180), false)?;
         set_busy(st, &id_s, Some(t!("Запуск…")));
@@ -662,8 +667,50 @@ pub fn shutdown(st: St, id: &str) {
         if let Err(e) = qmp::powerdown(&vm) {
             run_on_main_thread(move || toast_err(st, e.to_string()));
         } else {
+            watch_stop(st, &vm);
             run_on_main_thread(move || toast(st, t!("Машине отправлен сигнал выключения")));
         }
+    });
+}
+
+/// Сколько ждать выключения по кнопке питания, прежде чем предложить «Выключить сразу»: DOS и BIOS-машины
+/// (Windows 9x и др.) ACPI часто не обрабатывают — 10 с; остальным — минута.
+pub fn stop_patience(vm: &Vm) -> Duration {
+    if vm.firmware == model::Firmware::Bios || crate::dostools::is_dos(vm) {
+        Duration::from_secs(10)
+    } else {
+        Duration::from_secs(60)
+    }
+}
+
+/// Следить за выключением: не выключилась за [`stop_patience`] — машина в `stalled` (плашка
+/// «Гость не отвечает на кнопку питания»), выключилась — убрать.
+pub fn watch_stop(st: St, vm: &Vm) {
+    static WATCHED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    {
+        let mut w = WATCHED.lock().unwrap();
+        if w.contains(&vm.id) {
+            return;
+        }
+        w.push(vm.id.clone());
+    }
+    let vm = vm.clone();
+    let patience = stop_patience(&vm);
+    std::thread::spawn(move || {
+        let t0 = std::time::Instant::now();
+        let mut marked = false;
+        // после выключения гостя или через 10 минут — перестать следить
+        while qemu::pid(&vm).is_some() && t0.elapsed() < Duration::from_secs(600) {
+            if !marked && t0.elapsed() >= patience {
+                marked = true;
+                let id = vm.id.clone();
+                run_on_main_thread(move || st.stalled.update(|v| if !v.contains(&id) { v.push(id) }));
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let id = vm.id.clone();
+        WATCHED.lock().unwrap().retain(|x| *x != id);
+        run_on_main_thread(move || st.stalled.update(|v| v.retain(|x| *x != id)));
     });
 }
 

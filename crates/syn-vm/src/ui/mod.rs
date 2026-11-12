@@ -117,8 +117,26 @@ pub fn root(st: St) -> EventHook {
             flat.set(v);
         }
     });
+    // Списки панели экрана закрываются при потере окном фокуса и при смене машины или вкладки.
+    let seen: std::sync::Mutex<Option<(bool, Option<String>, Tab)>> = std::sync::Mutex::new(None);
+    create_effect(move || {
+        let now = (st.window.get().focused, st.sel.get(), st.tab.get());
+        let mut last = seen.lock().unwrap();
+        // меняется и размер окна — закрывать только при смене фокуса, машины или вкладки
+        if last.as_ref().is_some_and(|l| *l != now) {
+            screen::close_menus(st);
+        }
+        *last = Some(now);
+    });
     let hook = EventHook::new()
+        // Esc при открытом списке панели — раньше экрана машины (иначе он уходит гостю).
+        .capture_keys(move |k| k == Key::Escape && (st.modes_menu.get_untracked() || st.keys_menu.get_untracked()))
         .on_key_down(move |k, m| {
+            // Esc закрывает открытый список панели экрана (и тогда гостю не уходит).
+            if k == Key::Escape && (st.modes_menu.get_untracked() || st.keys_menu.get_untracked()) {
+                screen::close_menus(st);
+                return KeyReply::Handled;
+            }
             // Esc закрывает окна поверх; на экране машины клавиши уходят гостю.
             if k == Key::Escape && !syngui::input::keyboard_grab() {
                 if st.confirm.get_untracked().is_some() {
@@ -396,6 +414,14 @@ pub fn power_actions(st: St, id: &str, power: Power, busy: bool, narrow: bool) -
     let mut r = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
     let label = |s: String| if narrow { String::new() } else { s };
     if busy {
+        // Пока идёт выключение или перезапуск — «Выключить сразу» остаётся: гость может не ответить.
+        if power.on() {
+            let f = id.to_string();
+            r = r.child(icon_btn(icons::STOP, t!("Выключить сразу"), move || {
+                st.confirm.set(Some(Confirm::ForceOff(f.clone())));
+                sync_grab(st);
+            }));
+        }
         return boxed(r.child(parts::btn_disabled(icons::HOURGLASS, label(t!("Подождите")), "soft")));
     }
     let (a, b, c, d) = (id.to_string(), id.to_string(), id.to_string(), id.to_string());

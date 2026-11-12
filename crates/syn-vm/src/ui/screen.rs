@@ -154,6 +154,22 @@ pub fn page(st: St, full: bool) -> W {
     }))
 }
 
+/// Закрыть списки панели экрана (режимы, сочетания клавиш), если открыты.
+pub fn close_menus(st: St) {
+    let mut changed = false;
+    if st.modes_menu.get_untracked() {
+        st.modes_menu.set(false);
+        changed = true;
+    }
+    if st.keys_menu.get_untracked() {
+        st.keys_menu.set(false);
+        changed = true;
+    }
+    if changed {
+        state::poke(st);
+    }
+}
+
 /// Щелчок по полноэкранной игре (flags&2) у машины с 3D — захват мыши; сам щелчок уходит гостю.
 /// Окно игры не во весь экран — обычный щелчок (меню, лаунчеры): захват — кнопкой или Ctrl+Alt+G.
 fn try_capture(st: St, id: &str) {
@@ -488,13 +504,13 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     });
     // Сверху по центру со сдвигом: отступ слева/справа сдвигает центр, сверху — вниз.
     let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
+    // Панель и её списки: нажатие в любом месте окна мимо них (шапка, вкладки, список машин,
+    // заголовок) закрывает открытый список; кнопки самой панели — внутри и переключают его сами.
+    let panel = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(bar).child(menu).child(modes_menu(st, id.to_string()));
     boxed(
         Column::new()
-            .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(bar)
-            .child(menu)
-            .child(modes_menu(st, id.to_string()))
+            .child(syngui::widgets::ClickAway::new(panel).on_away(move || close_menus(st)))
             .class("float-wrap")
             .style("padding-top", StyleValue::px(10.0 + dy))
             .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
@@ -844,6 +860,17 @@ pub fn notices(st: St, id: String) -> W {
         let progress = |label: &str| -> W {
             boxed(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(18.0).stroke_width(2.5)).child(Text::new(label.to_string()).max_lines(1).class("muted")))
         };
+        // Гость не выключился по кнопке питания (DOS, Windows 9x без ACPI, завис) — выключить сразу.
+        if st.stalled.get().contains(&id) {
+            let id2 = id.clone();
+            let s = state::stop_patience(vm).as_secs();
+            let text = if busy.is_some() {
+                t!("Машина не выключилась за {s} с, перезапуск ждёт её. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт, затем машина запустится снова.", s = s)
+            } else {
+                t!("Машина не выключилась за {s} с: DOS и старые системы без ACPI кнопку питания не обрабатывают. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт.", s = s)
+            };
+            out.push(bar(icons::WARNING, "warn", t!("Гость не отвечает на кнопку питания"), text, btn(icons::STOP, t!("Выключить сразу"), "danger", move || state::force_off(st, &id2))));
+        }
         let pending = state::pending_restart(vm);
         let launched = state::running_vm(vm);
         if !pending.is_empty() {

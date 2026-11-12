@@ -936,3 +936,6 @@
 "По монитору ({hz} Гц)" = "Match monitor ({hz} Hz)"
 "По монитору" = "Match monitor"
 "{n} к/с" = "{n} fps"
+"Гость не отвечает на кнопку питания" = "The guest doesn't respond to the power button"
+"Машина не выключилась за {s} с, перезапуск ждёт её. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт, затем машина запустится снова." = "The machine didn't shut down in {s} s; the restart is waiting for it. “Force off” is like pulling the plug: unsaved data in the guest is lost, then the machine starts again."
+"Машина не выключилась за {s} с: DOS и старые системы без ACPI кнопку питания не обрабатывают. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт." = "The machine didn't shut down in {s} s: DOS and old systems without ACPI ignore the power button. “Force off” is like pulling the plug: unsaved data in the guest is lost."

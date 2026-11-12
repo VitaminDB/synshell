@@ -936,3 +936,6 @@
 "По монитору ({hz} Гц)" = "Pelo monitor ({hz} Hz)"
 "По монитору" = "Pelo monitor"
 "{n} к/с" = "{n} fps"
+"Гость не отвечает на кнопку питания" = "O convidado não responde ao botão de energia"
+"Машина не выключилась за {s} с, перезапуск ждёт её. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт, затем машина запустится снова." = "A máquina não desligou em {s} s; a reinicialização está esperando. “Forçar desligamento” é como puxar o cabo: o que não foi salvo no convidado se perde, depois a máquina inicia de novo."
+"Машина не выключилась за {s} с: DOS и старые системы без ACPI кнопку питания не обрабатывают. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт." = "A máquina não desligou em {s} s: DOS e sistemas antigos sem ACPI ignoram o botão de energia. “Forçar desligamento” é como puxar o cabo: o que não foi salvo no convidado se perde."

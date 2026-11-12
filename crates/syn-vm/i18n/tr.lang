@@ -936,3 +936,6 @@
 "По монитору ({hz} Гц)" = "Monitöre göre ({hz} Hz)"
 "По монитору" = "Monitöre göre"
 "{n} к/с" = "{n} fps"
+"Гость не отвечает на кнопку питания" = "Konuk güç düğmesine yanıt vermiyor"
+"Машина не выключилась за {s} с, перезапуск ждёт её. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт, затем машина запустится снова." = "Makine {s} sn içinde kapanmadı; yeniden başlatma onu bekliyor. “Zorla kapat” fişi çekmek gibidir: konuktaki kaydedilmemiş veriler kaybolur, ardından makine yeniden başlar."
+"Машина не выключилась за {s} с: DOS и старые системы без ACPI кнопку питания не обрабатывают. «Выключить сразу» — как выдернуть шнур: несохранённое в госте пропадёт." = "Makine {s} sn içinde kapanmadı: DOS ve ACPI olmayan eski sistemler güç düğmesini işlemez. “Zorla kapat” fişi çekmek gibidir: konuktaki kaydedilmemiş veriler kaybolur."
