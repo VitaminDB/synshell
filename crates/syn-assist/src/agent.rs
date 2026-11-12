@@ -337,6 +337,9 @@ impl Agent {
         // churn из почти одинаковых вызовов с разными адресами/диапазонами
         // (hexdump кусков, disasm соседних адресов): структурно это один и тот же приём
         let mut recent_shapes: Vec<String> = Vec::new();
+        // пропущенные повторы подряд: модель не выходит из петли и после подсказки (hexspire:
+        // 25 одинаковых string_refs до лимита шагов) — после трёх ход заканчивается итогом
+        let mut skipped = 0u32;
         for _ in 0..self.max_steps {
             if cancel.load(Ordering::Relaxed) {
                 break;
@@ -394,6 +397,7 @@ impl Agent {
                 // повтор того же вызова (≥2) ИЛИ пятый структурно-одинаковый приём с
                 // другими числами (churn ≥4) — не выполнять, подсказать сменить подход
                 let msg = if repeats >= 2 || churn >= 4 {
+                    skipped += 1;
                     // один и тот же вызов уже делался дважды — не повторять,
                     // подсказать сменить подход (частая петля у малых моделей)
                     on(AgentEvent::ToolStart { name: call.name.clone(), summary: synshell_tr::t!("повтор") });
@@ -405,6 +409,7 @@ impl Agent {
                         Vec::new(),
                     )
                 } else {
+                    skipped = 0;
                     match self.pool_gate(chat, &call.name) {
                         Some(msg) => msg,
                         None => self.execute(&model, &call.name, &call.arguments, confirm, cancel, on),
@@ -412,6 +417,9 @@ impl Agent {
                 };
                 chat.messages.push(msg.clone());
                 on(AgentEvent::Message(msg));
+            }
+            if skipped >= 3 {
+                break;
             }
             if self.over_threshold(chat) && self.compact(chat, Scope::InTurn { keep_tail: 2 })? {
                 on(AgentEvent::Compacted(chat.messages.clone()));
