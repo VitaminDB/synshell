@@ -1,4 +1,4 @@
-winex11: поля эмулированного режима — чёрные (Fable: путь offscreen client surface; Heroes 3: GL в дочернем X-окне
+winex11: поля эмулированного режима — чёрные (Fable: путь offscreen client surface; Heroes 3: оконная поверхность в координатах программы ложится в X-окно без сдвига — её белый фон 800x600 в левом поле; GL в дочернем X-окне
 поверх части полноэкранного окна — остальное хранило белый прямоугольник 800x600, нарисованный до GL).
 
 --- a/dlls/winex11.drv/init.c	2026-11-11 21:19:18.705402550 +0500
@@ -98,3 +98,113 @@ winex11: поля эмулированного режима — чёрные (Fa
  
      rect_src = surface->client.raw ? surface->client.monitor_rect : surface->client.virtual_rect;
      TRACE( "hwnd %p %s to toplevel %p %s region %p\n", hwnd, wine_dbgstr_rect(&rect_src),
+--- a/dlls/winex11.drv/bitblt.c	2026-11-12 08:02:47.679040629 +0500
++++ b/dlls/winex11.drv/bitblt.c	2026-11-12 08:02:59.548607457 +0500
+@@ -1589,6 +1589,10 @@
+     GC                    gc;
+     struct x11drv_image  *image;
+     BOOL                  byteswap;
++    /* syn-wine: margins of an emulated display mode, see x11drv_surface_set_margins */
++    RECT                  margin_inner;   /* the window rect relative to the X window */
++    SIZE                  margin_size;    /* the X window (visible rect) size */
++    BOOL                  has_margins;
+ };
+ 
+ static struct x11drv_window_surface *get_x11_surface( struct window_surface *surface )
+@@ -1788,6 +1792,50 @@
+ /***********************************************************************
+  *           x11drv_surface_flush
+  */
++/* syn-wine: margins of an emulated display mode of another aspect (800x600 on 16:10) -- the visible rect of the
++ * fullscreen window strictly wider than the window rect. The window surface of such a window is in the program's
++ * coordinates and lands at the origin of the X window, unshifted: in Heroes 3 its white 800x600 background showed in
++ * the left margin next to the GL picture. Nothing of the program belongs outside the window rect: black there.
++ * Set from X11DRV_WindowPosChanged (win data held), read at flush (surface lock held) -- no lock taken here. */
++static const struct window_surface_funcs x11drv_surface_funcs;
++
++void x11drv_surface_set_margins( struct window_surface *window_surface, const RECT *window, const RECT *visible )
++{
++    struct x11drv_window_surface *surface;
++    BOOL margins;
++
++    if (!window_surface || window_surface->funcs != &x11drv_surface_funcs) return;
++    surface = get_x11_surface( window_surface );
++    margins = !EqualRect( visible, window ) && visible->left <= window->left && visible->top <= window->top &&
++              visible->right >= window->right && visible->bottom >= window->bottom;
++    if (margins)
++    {
++        surface->margin_inner = *window;
++        OffsetRect( &surface->margin_inner, -visible->left, -visible->top );
++        surface->margin_size.cx = visible->right - visible->left;
++        surface->margin_size.cy = visible->bottom - visible->top;
++    }
++    surface->has_margins = margins;
++}
++
++static void fill_surface_margins( struct x11drv_window_surface *surface )
++{
++    RECT win = surface->margin_inner;
++    int w = surface->margin_size.cx, h = surface->margin_size.cy, count = 0;
++    XRectangle bands[4];
++
++    if (!surface->has_margins) return;
++    if (win.left > 0) bands[count++] = (XRectangle){ 0, 0, win.left, h };
++    if (win.right < w) bands[count++] = (XRectangle){ win.right, 0, w - win.right, h };
++    if (win.top > 0) bands[count++] = (XRectangle){ win.left, 0, win.right - win.left, win.top };
++    if (win.bottom < h) bands[count++] = (XRectangle){ win.left, win.bottom, win.right - win.left, h - win.bottom };
++    if (!count) return;
++    /* opaque black also for a 32-bit visual, where 0 is transparent */
++    XSetForeground( gdi_display, surface->gc, surface->image->ximage->depth == 32 ? 0xff000000 :
++                    BlackPixel( gdi_display, DefaultScreen( gdi_display ) ) );
++    XFillRectangles( gdi_display, surface->window, surface->gc, bands, count );
++}
++
+ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const RECT *rect, const RECT *dirty,
+                                   const BITMAPINFO *color_info, const void *color_bits, BOOL shape_changed,
+                                   const BITMAPINFO *shape_info, const void *shape_bits )
+@@ -1852,6 +1900,7 @@
+         XPutImage( gdi_display, surface->window, surface->gc, ximage, dirty->left,
+                    dirty->top, rect->left + dirty->left, rect->top + dirty->top,
+                    dirty->right - dirty->left, dirty->bottom - dirty->top );
++    fill_surface_margins( surface );
+ 
+     XFlush( gdi_display );
+ 
+--- a/dlls/winex11.drv/window.c	2026-11-12 08:20:18.180100860 +0500
++++ b/dlls/winex11.drv/window.c	2026-11-12 08:20:18.200563430 +0500
+@@ -3062,8 +3062,17 @@
+ 
+     if ((data = get_win_data( top )))
+     {
++        const RECT *vis = &data->rects.visible, *win = &data->rects.window;
++
+         escape.drawable = data->whole_window;
+         escape.visual = data->vis;
++        /* syn-wine: emulated display mode of another aspect (margins: the visible rect strictly wider than the
++         * window rect). The rects come in the program's coordinates (800x600) and the DC landed at the origin of
++         * the X window, in the left margin: Heroes 3 erased its background white there next to the GL picture.
++         * Draw from the window origin instead (unscaled, under the picture). */
++        if (!EqualRect( vis, win ) && vis->left <= win->left && vis->top <= win->top && vis->right >= win->right &&
++            vis->bottom >= win->bottom && top_rect->right - top_rect->left != vis->right - vis->left)
++            OffsetRect( &escape.dc_rect, win->left - vis->left, win->top - vis->top );
+         /* special case: when repainting the root window, clip out top-level windows */
+         if (top == hwnd && data->whole_window == root_window) escape.mode = ClipByChildren;
+         release_win_data( data );
+@@ -3294,6 +3303,7 @@
+     if (!(new_style & WS_MINIMIZE) || is_virtual_desktop()) data->rects = *new_rects;
+     data->is_fullscreen = fullscreen;
+     data->is_resizable = !!(swp_flags & WINE_SWP_RESIZABLE);
++    x11drv_surface_set_margins( surface, &new_rects->window, &new_rects->visible ); /* syn-wine */
+ 
+     TRACE( "win %p/%lx new_rects %s style %08x flags %08x\n", hwnd, data->whole_window,
+            debugstr_window_rects(new_rects), new_style, swp_flags );
+--- a/dlls/winex11.drv/x11drv.h	2026-11-12 08:02:47.680743888 +0500
++++ b/dlls/winex11.drv/x11drv.h	2026-11-12 08:02:47.706920479 +0500
+@@ -252,6 +252,7 @@
+ extern BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UINT *style_mask, UINT *ex_style_mask );
+ extern BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, RECT *rect, HWND *foreground );
+ extern struct client_surface *X11DRV_CreateClientSurface( HWND hwnd, int format, BOOL raw );
++extern void x11drv_surface_set_margins( struct window_surface *surface, const RECT *window, const RECT *visible );
+ extern BOOL X11DRV_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_rect, struct window_surface **surface );
+ extern void X11DRV_MoveWindowBits( HWND hwnd, const struct window_rects *old_rects,
+                                    const struct window_rects *new_rects, const RECT *valid_rects );

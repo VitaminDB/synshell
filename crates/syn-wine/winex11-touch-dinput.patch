@@ -62,7 +62,7 @@
  }
  
  
-@@ -1424,6 +1437,216 @@
+@@ -1424,6 +1437,208 @@
      if (clipping_cursor) set_window_cursor( x11drv_thread_data()->clip_window, handle );
  }
  
@@ -90,8 +90,8 @@
 +#define TOUCH_STEP_MS  16   /* between the steps of a touch */
 +#define TOUCH_START_MS 500  /* a finger with no position by then is dropped */
 +#define TOUCH_HOVER_MS 50   /* the cursor over the target before the press: frames for a polling game to see it */
-+#define TOUCH_CLICK_MS 100  /* the button held as long as a mouse click: Heroes 3 polls the button once a frame
-+                             * and misread a 16 ms press (missed, or one tap taken for two clicks) */
++#define TOUCH_CLICK_MS 100  /* the button held about as long as in a mouse click: programs reading the state
++                             * per frame see it pressed */
 +
 +static struct
 +{
@@ -154,14 +154,6 @@
 +    size->cx = client.right;
 +    size->cy = client.bottom;
 +    return TRUE;
-+}
-+
-+/* the finger's button to raw input (DirectInput): as X11DRV_RawButtonEvent does for a mouse button -- the
-+ * emulated raw buttons of a finger are dropped */
-+static void touch_send_raw_button( DWORD flags )
-+{
-+    struct raw_mouse raw = { .count = 1 };
-+    send_mouse_input( NULL, (POINT){ 0, 0 }, flags, 0, NtGetTickCount(), &raw );
 +}
 +
 +static void touch_send_raw( LONG dx, LONG dy )
@@ -237,8 +229,9 @@
 +        touch.press_pending = FALSE;
 +        pthread_mutex_unlock( &touch.mutex );
 +        TRACE( "press at %s\n", wine_dbgstr_point( &pt ) );
++        /* one input: the server makes its WM_INPUT (raw input, DirectInput) too -- a second, raw-only send made
++         * a second WM_LBUTTONDOWN as well, a double click in Heroes 3 */
 +        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, 0, now, NULL );
-+        touch_send_raw_button( MOUSEEVENTF_LEFTDOWN );
 +        return;
 +    }
 +    if (touch.release_pending)
@@ -248,7 +241,6 @@
 +        pthread_mutex_unlock( &touch.mutex );
 +        TRACE( "release at %s\n", wine_dbgstr_point( &pt ) );
 +        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, 0, now, NULL );
-+        touch_send_raw_button( MOUSEEVENTF_LEFTUP );
 +        return;
 +    }
 +    pthread_mutex_unlock( &touch.mutex );
