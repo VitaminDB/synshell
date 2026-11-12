@@ -107,7 +107,7 @@ pub fn key(pad: Pad, name: &str) {
 }
 
 /// Команда synkeyboard; процесс дожидается своего потока (иначе копились зомби).
-fn spawn_keyboard(args: &[&str]) {
+pub(crate) fn spawn_keyboard(args: &[&str]) {
     match std::process::Command::new("synkeyboard").args(args).spawn() {
         Ok(mut child) => {
             std::thread::spawn(move || {
@@ -255,6 +255,8 @@ fn element_preview(e: &Element, w: f32, h: f32, selected: bool) -> Box<dyn Widge
             _ => "✚".into(),
         },
         Kind::Trackpad => t!("Тачпад").into(),
+        // Режим касания — значок мыши (в игре — SVG с активной кнопкой).
+        Kind::Button if e.bind.starts_with("touch:") => "\u{E323}".into(),
         Kind::Button => e.label.clone(),
     };
     let radius = if e.kind == Kind::Trackpad { 18.0 } else { eh / 2.0 };
@@ -429,12 +431,17 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
                 boxed(btn(t!("+ Тачпад"), move || {
                     add(pad, Element { kind: Kind::Trackpad, size: 0.3, aspect: 1.6, bind: "mouse:left".into(), ..Default::default() })
                 })),
+                boxed(btn(t!("+ Режим касания"), move || {
+                    add(pad, Element { x: 0.95, y: 0.10, size: 0.13, bind: crate::layout::TOUCH_BIND.into(), ..Default::default() })
+                })),
             ]));
             col = col.child(row(vec![
                 boxed(btn(t!("Прозрачнее"), move || pad.ed.draft.update(|l| l.opacity = (l.opacity - OPACITY_STEP).max(0.15)))),
                 boxed(btn(t!("Плотнее"), move || pad.ed.draft.update(|l| l.opacity = (l.opacity + OPACITY_STEP).min(1.0)))),
                 boxed(btn(t!("Сбросить"), move || {
-                    pad.ed.draft.set(crate::layout::standard());
+                    // встроенная раскладка с этим id (своя — к стандартной)
+                    let id = pad.layout_id.get_untracked();
+                    pad.ed.draft.set(crate::layout::builtin(&id).unwrap_or_else(crate::layout::standard));
                     pad.ed.selected.set(None);
                 })),
             ]));
@@ -489,6 +496,11 @@ fn options(kind: Kind) -> Vec<(&'static str, &'static str, &'static str)> {
             (n_!("СКМ"), "mouse:middle", n_!("СКМ")),
             (n_!("Колесо ↑"), "mouse:wheelup", "\u{E5CE}"),
             (n_!("Колесо ↓"), "mouse:wheeldown", "\u{E5CF}"),
+            // Режимы касания по кругу: левая → удержание (долгое — правая) → правая → только курсор
+            // (свой список — в файле раскладки).
+            (n_!("Режим касания"), "touch:left,hold,right,hover", ""),
+            (n_!("Режим касания со средней"), "touch:left,hold,right,middle,hover", ""),
+            (n_!("Клавиатура"), "osk:keyboard", "\u{E312}"),
             (n_!("Пробел"), "key:space", "Space"),
             ("Enter", "key:enter", "\u{E31B}"),
             ("Esc", "key:esc", "Esc"),

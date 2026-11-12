@@ -43,8 +43,17 @@
 "Стандартная" = "Estándar"
 
 # src/main.rs
-"syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  sin argumentos: demonio del mando en pantalla"
+"syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  sin argumentos: demonio del mando en pantalla"
 "syngamepad layout: нужен id раскладки (syngamepad layouts)" = "syngamepad layout: se necesita el id de la distribución (syngamepad layouts)"
 "syngamepad: неизвестная команда «{other}»" = "syngamepad: orden desconocida «{other}»"
 "команда не поддерживается: {other}" = "orden no compatible: {other}"
 "нет ответа от главного потока" = "no hay respuesta del hilo principal"
+
+# src/layout.rs, src/editor.rs, src/main.rs — режим касания, раскладки
+"Сенсорная мышь" = "Ratón táctil"
+"Ретро (стрелки)" = "Retro (flechas)"
+"+ Режим касания" = "+ Modo táctil"
+"Режим касания" = "Modo táctil"
+"Режим касания со средней" = "Modo táctil con central"
+"Клавиатура" = "Teclado"
+"режим касания: left, hold, right, middle или hover" = "modo táctil: left, hold, right, middle o hover"

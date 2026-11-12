@@ -25,7 +25,7 @@
  /**********************************************************************
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
-@@ -1083,3 +1083,124 @@
+@@ -1083,3 +1083,153 @@
  
      return TRUE;
  }
@@ -34,16 +34,44 @@
 + *          Touch handling (single touch emulated as left mouse button)
 + */
 +
++#include <fcntl.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++
 +static struct wl_touch *touch_wl_touch;
 +static int32_t touch_primary_id = -1;
++/* the finger's button, from the touch mode at touch down: 0 -- only moves the cursor */
++static DWORD touch_down_flags = MOUSEEVENTF_LEFTDOWN, touch_up_flags = MOUSEEVENTF_LEFTUP;
 +
 +static void touch_send_button(HWND hwnd, DWORD flags)
 +{
 +    INPUT input = {0};
 +
++    if (!flags) return;
 +    input.type = INPUT_MOUSE;
 +    input.mi.dwFlags = flags;
 +    NtUserSendHardwareInput(hwnd, SEND_HWMSG_RAWINPUT, &input, 0);
++}
++
++/* syn-wine: what a finger does -- $XDG_RUNTIME_DIR/syn-touch-mode, written by the on-screen controller (syngamepad,
++ * the touch mode button): left (default), right, middle, hover (moves the cursor, no button) */
++static void touch_read_mode(void)
++{
++    const char *dir = getenv("XDG_RUNTIME_DIR");
++    char path[512], buf[16] = {0};
++    int fd, len;
++
++    touch_down_flags = MOUSEEVENTF_LEFTDOWN;
++    touch_up_flags = MOUSEEVENTF_LEFTUP;
++    if (!dir || snprintf(path, sizeof(path), "%s/syn-touch-mode", dir) >= sizeof(path)) return;
++    if ((fd = open(path, O_RDONLY | O_CLOEXEC)) == -1) return;
++    len = read(fd, buf, sizeof(buf) - 1);
++    close(fd);
++    if (len <= 0) return;
++    if (!strncmp(buf, "right", 5)) { touch_down_flags = MOUSEEVENTF_RIGHTDOWN; touch_up_flags = MOUSEEVENTF_RIGHTUP; }
++    else if (!strncmp(buf, "middle", 6)) { touch_down_flags = MOUSEEVENTF_MIDDLEDOWN; touch_up_flags = MOUSEEVENTF_MIDDLEUP; }
++    else if (!strncmp(buf, "hover", 5)) touch_down_flags = touch_up_flags = 0;
 +}
 +
 +static void touch_handle_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
@@ -69,7 +97,8 @@
 +    pthread_mutex_unlock(&pointer->mutex);
 +
 +    pointer_handle_motion_internal(x, y);
-+    touch_send_button(hwnd, MOUSEEVENTF_LEFTDOWN);
++    touch_read_mode();
++    touch_send_button(hwnd, touch_down_flags);
 +}
 +
 +static void touch_handle_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
@@ -84,7 +113,7 @@
 +
 +    TRACE("id=%d\n", id);
 +
-+    touch_send_button(wayland_pointer_get_focused_hwnd(), MOUSEEVENTF_LEFTUP);
++    touch_send_button(wayland_pointer_get_focused_hwnd(), touch_up_flags);
 +
 +    pthread_mutex_lock(&pointer->mutex);
 +    pointer->button_serial = 0;
@@ -107,7 +136,7 @@
 +{
 +    if (touch_primary_id == -1) return;
 +    touch_primary_id = -1;
-+    touch_send_button(wayland_pointer_get_focused_hwnd(), MOUSEEVENTF_LEFTUP);
++    touch_send_button(wayland_pointer_get_focused_hwnd(), touch_up_flags);
 +}
 +
 +static void touch_handle_shape(void *data, struct wl_touch *wl_touch, int32_t id,

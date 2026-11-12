@@ -11,6 +11,9 @@
 //! syngamepad layout <id>     # раскладка
 //! syngamepad layouts         # список раскладок
 //! syngamepad status          # shown folded <id>
+//! syngamepad touch [left|hold|right|middle|hover]   # режим касания игры (без аргумента — какой сейчас)
+//! syngamepad keyboard        # вместо контроллера — экранная клавиатура (режим ввода приложения)
+//! syngamepad controller      # обратно: контроллер (кнопка контроллера в synkeyboard)
 //! ```
 //!
 //! По сокету от synkeyboard при вводе имени раскладки (`synkeyboard show float for syngamepad.sock`):
@@ -22,6 +25,7 @@ mod editor;
 mod keys;
 mod layout;
 mod output;
+mod touch;
 mod ui;
 mod uinput;
 
@@ -40,6 +44,7 @@ pub mod icons {
     pub const GAMEPAD: &str = "\u{E338}";
     pub const FOLD: &str = "\u{E8F5}";
     pub const TUNE: &str = "\u{E429}";
+    pub const KEYBOARD: &str = "\u{E312}";
     pub const UP: &str = "\u{E5C7}";
     pub const DOWN: &str = "\u{E5C5}";
     pub const LEFT: &str = "\u{E5DE}";
@@ -59,14 +64,15 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => println!("syngamepad {}", env!("CARGO_PKG_VERSION")),
         Some("--help" | "-h") => {
-            println!("{}", t!("syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера"))
+            println!("{}", t!("syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  без аргументов — демон экранного контроллера"))
         }
         Some("layouts") => {
             for (id, name) in layout::list() {
                 println!("{id}\t{name}");
             }
         }
-        Some(cmd @ ("show" | "hide" | "toggle" | "fold" | "edit" | "status")) => client(cmd),
+        Some(cmd @ ("show" | "hide" | "toggle" | "fold" | "edit" | "status" | "keyboard" | "controller")) => client(cmd),
+        Some("touch") => client(&format!("touch {}", args.get(1).map(String::as_str).unwrap_or(""))),
         Some("layout") => match args.get(1) {
             Some(id) => client(&format!("layout {id}")),
             None => {
@@ -210,6 +216,29 @@ fn listen(pad: ui::Pad) {
                         }
                         "layout" if !arg.trim().is_empty() => {
                             pad.set_layout(arg.trim());
+                            ok()
+                        }
+                        // Режим касания игры; без аргумента — какой сейчас.
+                        "touch" => match arg.trim() {
+                            "" => Ok(touch::signal().get_untracked().as_str().to_string()),
+                            m => match touch::Mode::parse(m) {
+                                Some(mode) => {
+                                    touch::set(mode);
+                                    ok()
+                                }
+                                None => Err(t!("режим касания: left, hold, right, middle или hover").into()),
+                            },
+                        },
+                        // Контроллер ↔ экранная клавиатура: режим ввода приложения в фокусе (оболочка
+                        // показывает одно и прячет другое).
+                        "keyboard" => {
+                            ui::set_input_mode(pad, "keyboard");
+                            editor::spawn_keyboard(&["show"]);
+                            ok()
+                        }
+                        "controller" => {
+                            ui::set_input_mode(pad, "controller");
+                            editor::spawn_keyboard(&["hide"]);
                             ok()
                         }
                         "status" => Ok(format!("{} {} {}", pad.shown.get_untracked(), pad.folded.get_untracked(), pad.layout_id.get_untracked())),

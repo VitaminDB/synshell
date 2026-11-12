@@ -191,6 +191,8 @@ pub fn button(bind: &Bind, pressed: bool) {
                 }
             }
         }
+        // Режим касания и переход на клавиатуру — не устройства ввода (ui.rs).
+        Bind::Touch(_) | Bind::Keyboard => {}
     });
 }
 

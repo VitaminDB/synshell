@@ -62,7 +62,7 @@
  }
  
  
-@@ -1424,6 +1437,208 @@
+@@ -1424,6 +1437,257 @@
      if (clipping_cursor) set_window_cursor( x11drv_thread_data()->clip_window, handle );
  }
  
@@ -90,12 +90,25 @@
 +#define TOUCH_STEP_MS  16   /* between the steps of a touch */
 +#define TOUCH_START_MS 500  /* a finger with no position by then is dropped */
 +#define TOUCH_HOVER_MS 50   /* the cursor over the target before the press: frames for a polling game to see it */
++#define TOUCH_HOLD_MS  450  /* touch mode "hold": a finger lying still that long presses the right button */
++#define TOUCH_HOLD_SLOP 16  /* ... and moved farther (virtual screen px) before that -- the left one (dragging) */
 +#define TOUCH_CLICK_MS 100  /* the button held about as long as in a mouse click: programs reading the state
 +                             * per frame see it pressed */
++
++#include <fcntl.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
 +
 +static struct
 +{
 +    pthread_mutex_t mutex;
++    DWORD down_flags;      /* the finger's button (touch mode at XI_RawTouchBegin): 0 -- only moves the cursor */
++    DWORD up_flags;
++    BOOL  hold;            /* touch mode "hold": the button is chosen at the press -- left for a tap or a drag,
++                            * right for a finger lying still TOUCH_HOLD_MS */
++    POINT start;           /* hold: where the finger came down */
++    DWORD start_tick;      /* hold: when */
 +    BOOL  active;          /* a finger acts as the mouse: from XI_RawTouchBegin until it is released */
 +    BOOL  started;         /* its first position came (emulated pointer motion) */
 +    int   id;              /* its XI2 touch id */
@@ -109,6 +122,30 @@
 +    DWORD step_tick;       /* when the last step was made (the touch began, before any) */
 +    HWND  timer;           /* window with the driver timer making the steps */
 +} touch = { PTHREAD_MUTEX_INITIALIZER };
++
++/* syn-wine: what a finger does -- $XDG_RUNTIME_DIR/syn-touch-mode, a word written by the on-screen controller
++ * (syngamepad, the touch mode button): left (default), right, middle, hover (moves the cursor, no button), hold
++ * (a tap -- left, a finger lying still -- right while it lies). Read at each touch: right-click information in
++ * Heroes 3 is the right button held while the finger lies. */
++static void touch_read_mode( DWORD *down, DWORD *up, BOOL *hold )
++{
++    const char *dir = getenv( "XDG_RUNTIME_DIR" );
++    char path[512], buf[16] = {0};
++    int fd, len = 0;
++
++    *down = MOUSEEVENTF_LEFTDOWN;
++    *up = MOUSEEVENTF_LEFTUP;
++    *hold = FALSE;
++    if (!dir || snprintf( path, sizeof(path), "%s/syn-touch-mode", dir ) >= sizeof(path)) return;
++    if ((fd = open( path, O_RDONLY | O_CLOEXEC )) == -1) return;
++    len = read( fd, buf, sizeof(buf) - 1 );
++    close( fd );
++    if (len <= 0) return;
++    if (!strncmp( buf, "right", 5 )) { *down = MOUSEEVENTF_RIGHTDOWN; *up = MOUSEEVENTF_RIGHTUP; }
++    else if (!strncmp( buf, "middle", 6 )) { *down = MOUSEEVENTF_MIDDLEDOWN; *up = MOUSEEVENTF_MIDDLEUP; }
++    else if (!strncmp( buf, "hover", 5 )) *down = *up = 0;
++    else if (!strncmp( buf, "hold", 4 )) *hold = TRUE;
++}
 +
 +/* steps of the finger are left: mutex held */
 +static BOOL touch_pending_locked(void)
@@ -224,14 +261,26 @@
 +    hwnd = touch.hwnd;
 +    pt = touch.pt;
 +    touch.step_tick = now;
++    if (touch.press_pending && touch.hold && !touch.release_pending &&
++        abs( pt.x - touch.start.x ) <= TOUCH_HOLD_SLOP && abs( pt.y - touch.start.y ) <= TOUCH_HOLD_SLOP)
++    {
++        /* hold: still lying where it came down -- wait; long enough -- the right button */
++        if (now - touch.start_tick < TOUCH_HOLD_MS)
++        {
++            pthread_mutex_unlock( &touch.mutex );
++            return;
++        }
++        touch.down_flags = MOUSEEVENTF_RIGHTDOWN;
++        touch.up_flags = MOUSEEVENTF_RIGHTUP;
++    }
 +    if (touch.press_pending)
 +    {
 +        touch.press_pending = FALSE;
 +        pthread_mutex_unlock( &touch.mutex );
-+        TRACE( "press at %s\n", wine_dbgstr_point( &pt ) );
++        TRACE( "press %#x at %s\n", (UINT)touch.down_flags, wine_dbgstr_point( &pt ) );
 +        /* one input: the server makes its WM_INPUT (raw input, DirectInput) too -- a second, raw-only send made
 +         * a second WM_LBUTTONDOWN as well, a double click in Heroes 3 */
-+        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, 0, now, NULL );
++        if (touch.down_flags) send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | touch.down_flags, 0, now, NULL );
 +        return;
 +    }
 +    if (touch.release_pending)
@@ -239,8 +288,8 @@
 +        touch.release_pending = FALSE;
 +        touch.active = FALSE;
 +        pthread_mutex_unlock( &touch.mutex );
-+        TRACE( "release at %s\n", wine_dbgstr_point( &pt ) );
-+        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, 0, now, NULL );
++        TRACE( "release %#x at %s\n", (UINT)touch.up_flags, wine_dbgstr_point( &pt ) );
++        if (touch.up_flags) send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | touch.up_flags, 0, now, NULL );
 +        return;
 +    }
 +    pthread_mutex_unlock( &touch.mutex );
@@ -333,7 +382,7 @@
      if (!device_mapping || device_mapping->deviceid != event->sourceid)
          update_device_mapping( event->display, event->sourceid );
      if (event->deviceid != thread_data->xinput2_pointer) return FALSE;
-@@ -1804,6 +2042,116 @@
+@@ -1804,6 +2042,119 @@
      return TRUE;
  }
  
@@ -357,6 +406,7 @@
 +        touch.id = event->detail;
 +        touch.press_pending = TRUE;
 +        touch.release_pending = FALSE;
++        touch_read_mode( &touch.down_flags, &touch.up_flags, &touch.hold );
 +        touch.abs_pending = FALSE;
 +        touch.step_tick = NtGetTickCount();
 +        TRACE( "finger %u down\n", event->detail );
@@ -411,6 +461,8 @@
 +        touch.started = TRUE;
 +        touch.hwnd = hwnd;
 +        touch.pt = pt;
++        touch.start = pt;
++        touch.start_tick = NtGetTickCount();
 +        touch.abs_pending = have_pos;
 +        if (have_pos)
 +        {

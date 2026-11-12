@@ -43,8 +43,17 @@
 "Стандартная" = "표준"
 
 # src/main.rs
-"syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  인수 없음 — 화면 컨트롤러 데몬"
+"syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  인수 없음 — 화면 컨트롤러 데몬"
 "syngamepad layout: нужен id раскладки (syngamepad layouts)" = "syngamepad layout: 배치 id가 필요합니다(syngamepad layouts)"
 "syngamepad: неизвестная команда «{other}»" = "syngamepad: 알 수 없는 명령 “{other}”"
 "команда не поддерживается: {other}" = "지원되지 않는 명령: {other}"
 "нет ответа от главного потока" = "메인 스레드의 응답 없음"
+
+# src/layout.rs, src/editor.rs, src/main.rs — режим касания, раскладки
+"Сенсорная мышь" = "터치 마우스"
+"Ретро (стрелки)" = "레트로 (화살표)"
+"+ Режим касания" = "+ 터치 모드"
+"Режим касания" = "터치 모드"
+"Режим касания со средней" = "가운데 버튼 포함 터치 모드"
+"Клавиатура" = "키보드"
+"режим касания: left, hold, right, middle или hover" = "터치 모드: left, hold, right, middle 또는 hover"

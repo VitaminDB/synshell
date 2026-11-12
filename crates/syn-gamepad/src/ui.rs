@@ -71,6 +71,8 @@ enum Target {
     Handle,
     /// Кнопка настройки — редактор раскладки.
     Tune,
+    /// Кнопка клавиатуры — перейти на экранную клавиатуру.
+    Keyboard,
     Element(usize),
 }
 
@@ -86,6 +88,8 @@ struct Finger {
 }
 
 thread_local! {
+    /// Контроллер (для назначений, которым нужен он сам: переход на клавиатуру).
+    static PAD: std::cell::Cell<Option<Pad>> = const { std::cell::Cell::new(None) };
     static SURFACE: std::cell::Cell<Option<SurfaceId>> = const { std::cell::Cell::new(None) };
     static RT: RefCell<Vec<Rt>> = const { RefCell::new(Vec::new()) };
     static FINGERS: RefCell<HashMap<u64, Finger>> = RefCell::new(HashMap::new());
@@ -116,6 +120,31 @@ fn tune_rect(w: f32, _h: f32) -> [f32; 4] {
     [w / 2.0 + HANDLE_GAP / 2.0, 6.0, HANDLE, HANDLE]
 }
 
+/// Кнопка клавиатуры — слева от ручки: вместо контроллера экранная клавиатура (обратно — кнопкой контроллера в ней).
+fn keyboard_rect(w: f32, _h: f32) -> [f32; 4] {
+    [w / 2.0 - 2.0 * HANDLE - 1.5 * HANDLE_GAP, 6.0, HANDLE, HANDLE]
+}
+
+/// Режим ввода приложения в фокусе (`[osk] apps`, без приложения — `[osk] mode`): оболочка следит за конфигом
+/// и показывает контроллер или клавиатуру.
+pub(crate) fn set_input_mode(pad: Pad, mode: &str) {
+    let value = toml_edit::Value::from(mode);
+    let r = match pad.app.get_untracked() {
+        Some(app) => synshell_common::config_edit::set_value(&["osk", "apps", &app], value),
+        None => synshell_common::config_edit::set_value(&["osk", "mode"], value),
+    };
+    if let Err(e) = r {
+        log::warn!("[osk] режим ввода: {e:#}");
+    }
+}
+
+/// Контроллер → экранная клавиатура.
+fn to_keyboard(pad: Pad) {
+    release_all();
+    set_input_mode(pad, "keyboard");
+    crate::editor::spawn_keyboard(&["show"]);
+}
+
 fn contains(r: [f32; 4], p: (f32, f32), slop: f32) -> bool {
     let (dx, dy) = (r[2] * slop, r[3] * slop);
     p.0 >= r[0] - dx && p.0 <= r[0] + r[2] + dx && p.1 >= r[1] - dy && p.1 <= r[1] + r[3] + dy
@@ -140,6 +169,19 @@ pub(crate) fn release_all() {
 }
 
 pub fn install(pad: Pad) {
+    PAD.with(|p| p.set(Some(pad)));
+    // Режим касания — снова левая: контроллер спрятан, другое приложение или раскладка.
+    // Сравнивать с прежним: оболочка шлёт `app`/`layout`/`show` заново и с тем же значением (смена фокуса
+    // на окно той же игры) — режим от этого не сбрасывался бы.
+    let last = std::cell::RefCell::new(None::<(bool, Option<String>, String)>);
+    create_effect(move || {
+        let now = (pad.shown.get(), pad.app.get(), pad.layout_id.get());
+        let mut last = last.borrow_mut();
+        if last.as_ref() != Some(&now) {
+            *last = Some(now);
+            crate::touch::set(crate::touch::Mode::Left);
+        }
+    });
     // Элементы сменились — новое состояние отрисовки.
     create_effect(move || {
         let layout = pad.layout.get();
@@ -192,7 +234,7 @@ fn update_input_region(pad: Pad) {
     } else if editing {
         vec![[0.0, 0.0, w, h]]
     } else {
-        vec![handle_rect(w, h), tune_rect(w, h)]
+        vec![handle_rect(w, h), tune_rect(w, h), keyboard_rect(w, h)]
     };
     if !folded && !editing {
         rects.extend(layout.elements.iter().map(|e| e.rect(w, h)).map(|r| {
@@ -237,6 +279,7 @@ fn view(pad: Pad) -> impl Widget {
         };
         out.push(round(if folded { crate::icons::GAMEPAD } else { crate::icons::FOLD }, handle_rect(w, h)));
         out.push(round(crate::icons::TUNE, tune_rect(w, h)));
+        out.push(round(crate::icons::KEYBOARD, keyboard_rect(w, h)));
         out
     });
     MultiTouch::new()
@@ -248,7 +291,31 @@ fn element_view(e: &crate::layout::Element, st: Rt, w: f32, h: f32, opacity: f32
     let [x, y, ew, eh] = e.rect(w, h);
     let label = e.label.clone();
     let kind = e.kind;
+    let touch = kind == Kind::Button && matches!(Bind::parse(&e.bind), Bind::Touch(_));
     let body: Box<dyn Widget> = match kind {
+        // Режим касания: мышь с зелёной активной кнопкой (SVG), полупрозрачная.
+        Kind::Button if touch => Box::new(Reactive::new(move || {
+            let mode = crate::touch::signal().get();
+            let pressed = st.pressed.get();
+            let icon = eh * 0.78;
+            vec![Box::new(DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(
+                            Image::from_bytes(format!("syngamepad-touch-{}", mode.as_str()), crate::touch::svg(mode).into_bytes())
+                                .style("width", StyleValue::px(icon))
+                                .style("height", StyleValue::px(icon)),
+                        )
+                        .class("gp-fill"),
+                )
+                .class(if pressed { "gp-btn gp-pressed" } else { "gp-btn" })
+                .style("border-radius", StyleValue::px(eh / 2.0))
+                .style("width", StyleValue::px(ew))
+                .style("height", StyleValue::px(eh))
+                .style("opacity", if pressed { (opacity + 0.3).min(1.0) } else { opacity })) as Box<dyn Widget>]
+        })),
         Kind::Button | Kind::Trackpad => Box::new(Reactive::new(move || {
             let pressed = st.pressed.get();
             let class = match (kind, pressed) {
@@ -352,7 +419,7 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
     let p = (t.position.x, t.position.y);
     match t.phase {
         TouchPhase::Down => {
-            for (rect, target) in [(handle_rect(w, h), Target::Handle), (tune_rect(w, h), Target::Tune)] {
+            for (rect, target) in [(handle_rect(w, h), Target::Handle), (tune_rect(w, h), Target::Tune), (keyboard_rect(w, h), Target::Keyboard)] {
                 if contains(rect, p, 0.2) {
                     FINGERS.with(|f| f.borrow_mut().insert(t.id, Finger { target, origin: p, center: p, radius: 1.0, last: p, start: Instant::now(), moved: false }));
                     return true;
@@ -384,7 +451,7 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
                 }
                 match fi.target {
                     Target::Element(i) => Some(i),
-                    Target::Handle | Target::Tune => None,
+                    Target::Handle | Target::Tune | Target::Keyboard => None,
                 }
             }) else {
                 return true;
@@ -409,6 +476,11 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
                 Target::Tune => {
                     if t.phase == TouchPhase::Up {
                         crate::editor::open(pad);
+                    }
+                }
+                Target::Keyboard => {
+                    if t.phase == TouchPhase::Up {
+                        to_keyboard(pad);
                     }
                 }
                 Target::Element(i) => {
@@ -461,6 +533,28 @@ fn press(layout: &Layout, i: usize, down: bool) {
     match e.kind {
         Kind::Button => {
             let bind = Bind::parse(&e.bind);
+            match &bind {
+                // Режим касания — следующий по кругу; переход на клавиатуру — по нажатию.
+                Bind::Touch(list) => {
+                    if down && n == 1 {
+                        let cur = crate::touch::signal().get_untracked();
+                        crate::touch::set(crate::touch::next(list, cur));
+                    }
+                    if let Some(st) = st {
+                        st.pressed.set(n > 0);
+                    }
+                    return;
+                }
+                Bind::Keyboard => {
+                    if down && n == 1 {
+                        if let Some(pad) = PAD.with(|p| p.get()) {
+                            to_keyboard(pad);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
             if e.toggle {
                 if down && n == 1 {
                     let on = TOGGLED.with(|t| {

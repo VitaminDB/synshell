@@ -514,6 +514,15 @@ impl Keyboard {
             Action::Fn => self.fn_rows.set(!self.fn_rows.get_untracked()),
             Action::Hide => self.hide(),
             Action::Float => self.set_floating(!self.floating.get_untracked()),
+            // Контроллер вместо клавиатуры: режим ввода приложения меняет контроллер (он знает приложение в
+            // фокусе), оболочка прячет клавиатуру и показывает его.
+            Action::Controller => {
+                std::thread::spawn(|| {
+                    if let Err(e) = std::process::Command::new("syngamepad").arg("controller").status() {
+                        log::warn!("syngamepad controller: {e}");
+                    }
+                });
+            }
             Action::Spacer => {}
         }
     }

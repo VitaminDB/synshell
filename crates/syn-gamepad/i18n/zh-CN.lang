@@ -43,8 +43,17 @@
 "Стандартная" = "标准"
 
 # src/main.rs
-"syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  无参数——屏幕控制器守护进程"
+"syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  без аргументов — демон экранного контроллера" = "syngamepad [show|hide|toggle|fold|edit|status|layouts|keyboard|controller | layout <id> | touch [left|hold|right|middle|hover]]\n  无参数——屏幕控制器守护进程"
 "syngamepad layout: нужен id раскладки (syngamepad layouts)" = "syngamepad layout：需要布局 id（syngamepad layouts）"
 "syngamepad: неизвестная команда «{other}»" = "syngamepad：未知命令“{other}”"
 "команда не поддерживается: {other}" = "不支持的命令：{other}"
 "нет ответа от главного потока" = "主线程无响应"
+
+# src/layout.rs, src/editor.rs, src/main.rs — режим касания, раскладки
+"Сенсорная мышь" = "触控鼠标"
+"Ретро (стрелки)" = "复古（方向键）"
+"+ Режим касания" = "+ 触控模式"
+"Режим касания" = "触控模式"
+"Режим касания со средней" = "含中键的触控模式"
+"Клавиатура" = "键盘"
+"режим касания: left, hold, right, middle или hover" = "触控模式：left、hold、right、middle 或 hover"

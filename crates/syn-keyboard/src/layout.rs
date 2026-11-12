@@ -85,6 +85,8 @@ pub enum Action {
     Hide,
     /// Плавающая ↔ внизу.
     Float,
+    /// Вместо клавиатуры — экранный контроллер (режим ввода приложения, `syngamepad controller`).
+    Controller,
     /// Пустое место (выравнивание коротких рядов).
     Spacer,
 }
@@ -197,6 +199,8 @@ pub const ENTER_ICON: &str = "\u{E31B}";
 pub const SHIFT_ICON: &str = "\u{E5D8}";
 /// «Вставить» (content_paste).
 pub const PASTE_ICON: &str = "\u{E14F}";
+/// Контроллер (Material Icons `sports_esports`).
+pub const CONTROLLER_ICON: &str = "\u{EA28}";
 const UP_ICON: &str = "\u{E316}";
 const DOWN_ICON: &str = "\u{E313}";
 const LEFT_ICON: &str = "\u{E314}";
@@ -368,7 +372,7 @@ pub fn rows(page: Page, lang: &Lang, number_row: bool) -> Vec<Vec<Key>> {
 }
 
 /// Дополнительная полоса над клавишами (для терминала и программ): Esc, Tab, Ctrl, Alt, стрелки,
-/// «Вставить», ещё ряды (F1–F12…), плавающая ↔ внизу, «Скрыть».
+/// «Вставить», ещё ряды (F1–F12…), контроллер, плавающая ↔ внизу, «Скрыть».
 pub fn toolbar() -> Vec<Key> {
     let k = |label: &str, code: u32, repeat: bool| Key::new(label, Action::Key { code, shift: false, repeat, latin: false }, 1.0, "key key-fn");
     let s = |label: &str, action: Action| Key::new(label, action, 1.0, "key key-fn");
@@ -383,6 +387,7 @@ pub fn toolbar() -> Vec<Key> {
         k(RIGHT_ICON, KEY_RIGHT, true),
         s(PASTE_ICON, Action::Paste),
         s(FN_ICON, Action::Fn),
+        s(CONTROLLER_ICON, Action::Controller),
         s(FLOAT_ICON, Action::Float),
         s(HIDE_ICON, Action::Hide),
     ]
