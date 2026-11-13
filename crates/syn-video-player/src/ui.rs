@@ -111,6 +111,64 @@ pub struct St {
     pub sheet: RwSignal<crate::editor::Sheet>,
     /// Позиция плеера в секундах (от виджета плеера) — шкала кусков монтажа.
     pub pos: RwSignal<f32>,
+    /// Плеер встроен в другую программу ([`crate::embed`]): её шапка, слои, серии и переоткрытие.
+    pub host: Option<&'static dyn crate::embed::Host>,
+}
+
+/// Состояние программы (сигналы — в главном потоке, после запуска syngui).
+pub fn new_state(hw: Option<HwAccel>, direct: bool, window: RwSignal<syngui::window::WindowState>, host: Option<&'static dyn crate::embed::Host>) -> St {
+    let subs = crate::subs::SubSettings::load();
+    let settings = Settings::load();
+    let st = St {
+        hw,
+        settings: use_signal(settings.clone()),
+        info: use_signal(None),
+        settings_open: use_signal(false),
+        tracks_open: use_signal(false),
+        audio_pref: use_signal(None),
+        subs: use_signal(subs.clone()),
+        sub_style: use_signal(subs.style()),
+        subs_open: use_signal(false),
+        filters_open: use_signal(false),
+        filters_rev: use_signal(0),
+        split: use_signal(settings.dlss_split),
+        view_key: use_signal((settings.fill, settings.seek_step)),
+        sub_pref: use_signal(None),
+        sub_last: use_signal(None),
+        sub_rev: use_signal(0),
+        sub_gen: use_signal(0),
+        vram: use_signal(crate::vram::Vram::None),
+        dlss: use_signal(crate::dlss::Status::Off),
+        sr: use_signal(crate::neural::Status::Off),
+        rife: use_signal(crate::interp::Status::Off),
+        cards: use_signal(Vec::new()),
+        siblings: use_signal(Vec::new()),
+        scanning: use_signal(host.is_none()),
+        playing: use_signal(None),
+        opening: use_signal(None),
+        error: use_signal(None),
+        fullscreen: use_signal(crate::chrome::start_fullscreen(&settings)),
+        window,
+        direct,
+        edit: use_signal(None),
+        sheet: use_signal(crate::editor::Sheet::None),
+        pos: use_signal(0.0),
+        host,
+    };
+    syngui::signal::create_detached_effect(move || crate::editor::follow(st));
+    st
+}
+
+/// Закрыть открытую панель плеера (настройки, субтитры, дорожки, фильтры); `false` — их нет.
+pub fn close_panels(st: St) -> bool {
+    let mut any = false;
+    for s in [st.settings_open, st.subs_open, st.tracks_open, st.filters_open] {
+        if s.get_untracked() {
+            s.set(false);
+            any = true;
+        }
+    }
+    any
 }
 
 pub fn root(st: St) -> W {
@@ -134,6 +192,9 @@ pub fn back(st: St) -> bool {
     if crate::editor::back(st) {
         return true;
     }
+    if close_panels(st) {
+        return true;
+    }
     if st.playing.get_untracked().is_some() || st.opening.get_untracked().is_some() {
         close(st);
         if st.direct {
@@ -146,7 +207,11 @@ pub fn back(st: St) -> bool {
 
 /// Ускорение по командной строке или настройкам.
 fn hw_of(st: St) -> HwAccel {
-    st.hw.unwrap_or(if st.settings.get_untracked().hardware { HwAccel::Auto } else { HwAccel::None })
+    let hardware = st.settings.get_untracked().hardware;
+    match st.host {
+        Some(h) => st.hw.unwrap_or_else(|| h.hwaccel(hardware)),
+        None => st.hw.unwrap_or(if hardware { HwAccel::Auto } else { HwAccel::None }),
+    }
 }
 
 pub fn open(st: St, path: PathBuf) {
@@ -226,12 +291,26 @@ fn load_siblings(st: St, path: &std::path::Path) {
 pub fn reopen(st: St) {
     let Some(p) = st.playing.get_untracked() else { return };
     let pos = p.player.lock().map(|pl| pl.position_sec()).unwrap_or(0.0);
-    open_at(st, p.path.clone(), Some(pos), true);
+    reopen_at(st, &p.path, pos);
+}
+
+/// Открыть заново с секунды `pos`: у встроенного плеера — силами программы (свежие адреса потока).
+fn reopen_at(st: St, path: &std::path::Path, pos: f64) {
+    match st.host {
+        Some(h) => h.reopen(pos),
+        None => open_at(st, path.to_path_buf(), Some(pos), true),
+    }
 }
 
 /// `keep_old`: старый плеер закрывается в потоке открытия до нового — у аппаратного
 /// кодека общий лимит сессий (Venus: две сессии 1080p уже не помещаются).
 pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
+    let input = path.to_string_lossy().into_owned();
+    open_with(st, path, start, keep_old, Box::new(move |hw| VideoPlayer::open_with_hwaccel(&input, hw).map_err(|e| e.to_string())));
+}
+
+/// Открыть ролик `path` (имя; у встроенного плеера — ключ программы) своим способом `opener`.
+pub fn open_with(st: St, path: PathBuf, start: Option<f64>, keep_old: bool, opener: crate::embed::Opener) {
     let old = if keep_old { st.playing.get_untracked() } else { None };
     if keep_old {
         st.playing.set(None);
@@ -247,10 +326,10 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
         .name("svp-open".into())
         .spawn(move || {
             if let Some(o) = old {
-                save_progress(&o);
+                save_progress(st.host, &o);
                 drop(o);
             }
-            let r = VideoPlayer::open_with_hwaccel(&path.to_string_lossy(), hw);
+            let r = opener(hw);
             run_on_main_thread(move || {
                 // пока открывали, пользователь ушёл назад или перешёл к другому ролику
                 if st.opening.get_untracked().as_ref() != Some(&path) {
@@ -271,6 +350,9 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                         crate::dlss::attach(st, &p);
                         crate::neural::attach(st, &p);
                         crate::interp::attach(st, &p);
+                        if let Some(h) = st.host {
+                            h.opened(&mut p);
+                        }
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
                         watch(st, &playing);
@@ -278,7 +360,11 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                     }
                     Err(e) => {
                         tracing::warn!("{}: {e}", path.display());
-                        st.error.set(Some(t!("Не удалось открыть «{path}»: {e}", path = path.display(), e = e)));
+                        let text = match st.host {
+                            Some(_) => t!("Не удалось открыть видео: {e}", e = e),
+                            None => t!("Не удалось открыть «{path}»: {e}", path = path.display(), e = e),
+                        };
+                        st.error.set(Some(text));
                     }
                 }
             });
@@ -303,22 +389,44 @@ pub fn close(st: St) {
     if let Some(p) = st.playing.get_untracked() {
         st.playing.set(None);
         // остановка декодера ждёт его потоки — не в главном потоке
+        let host = st.host;
         std::thread::spawn(move || {
-            save_progress(&p);
+            save_progress(host, &p);
             drop(p)
         });
     }
 }
 
 /// Запомнить, где остановились (если включено «продолжать с места остановки»).
-fn save_progress(p: &Playing) {
-    let (pos, dur) = match p.player.lock() {
-        Ok(pl) => (pl.position_sec(), pl.duration_sec()),
+fn save_progress(host: Option<&'static dyn crate::embed::Host>, p: &Playing) {
+    let (pos, dur, ended) = match p.player.lock() {
+        Ok(pl) => (pl.position_sec(), pl.duration_sec(), pl.is_ended()),
         Err(_) => return,
     };
+    if let Some(h) = host {
+        h.progress(pos, dur, true);
+        return;
+    }
     // ролик досмотрен — забыть
-    let pos = if p.player.lock().is_ok_and(|pl| pl.is_ended()) { dur } else { pos };
+    let pos = if ended { dur } else { pos };
     settings::save_position(&p.path, pos, dur);
+}
+
+/// Поток оборвался посреди ролика (сеть: HLS после исчерпанных повторов сегмента дошёл до «конца»):
+/// до настоящего конца больше этого — открыть заново, а не считать ролик досмотренным.
+const ENDED_MARGIN: f64 = 60.0;
+/// Столько буферизации подряд — поток завис (мёртвый узел CDN, сменилась сеть): открыть заново
+/// с той же позиции, как сделал бы выход и повторный запуск.
+const STALL_REOPEN: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// Конец потока раньше настоящего конца ролика — обрыв, а не досмотренный ролик.
+fn broken_end(pos: f64, dur: f64, network: bool) -> bool {
+    network && dur > 0.0 && pos < dur - ENDED_MARGIN
+}
+
+/// Сетевой адрес (у встроенного плеера ролики — потоки программы).
+fn is_network(st: St, path: &std::path::Path) -> bool {
+    st.host.is_some() || path.to_str().is_some_and(|s| s.contains("://"))
 }
 
 /// Ролик дошёл до конца (виджет плеера встал на паузу): повтор или следующий из каталога.
@@ -326,7 +434,21 @@ pub fn ended(st: St, playing: &Playing) {
     if current(st).as_ref() != Some(&playing.path) {
         return;
     }
+    if let Some(h) = st.host {
+        let (pos, dur) = playing.player.lock().map(|p| (p.position_sec(), p.duration_sec())).unwrap_or((0.0, 0.0));
+        if broken_end(pos, dur, true) {
+            tracing::warn!("поток оборвался на {pos:.1} с из {dur:.1} — открываю заново");
+            h.reopen(pos);
+        } else {
+            h.ended();
+        }
+        return;
+    }
     let s = st.settings.get_untracked();
+    if broken_end(playing.player.lock().map(|p| p.position_sec()).unwrap_or(0.0), playing.player.lock().map(|p| p.duration_sec()).unwrap_or(0.0), is_network(st, &playing.path)) {
+        reopen(st);
+        return;
+    }
     if s.repeat {
         if let Ok(mut p) = playing.player.lock() {
             let _ = p.seek(0.0);
@@ -342,19 +464,40 @@ pub fn ended(st: St, playing: &Playing) {
 fn watch(st: St, playing: &Playing) {
     let weak = Arc::downgrade(&playing.player);
     let path = playing.path.clone();
+    let host = st.host;
+    let network = is_network(st, &path);
     std::thread::Builder::new()
         .name("svp-watch".into())
         .spawn(move || {
             let mut last: Option<DecodeInfo> = None;
             let mut tick = 0u32;
+            let mut stall_since: Option<std::time::Instant> = None;
+            let mut recovered = false;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let Some(player) = weak.upgrade() else { break };
                 let s = st_settings(st);
-                let (info, pos, dur) = match player.lock() {
-                    Ok(p) => (p.decode_info(), p.position_sec(), p.duration_sec()),
+                let (info, pos, dur, stalled) = match player.lock() {
+                    Ok(p) => (p.decode_info(), p.position_sec(), p.duration_sec(), p.is_buffering() && !p.is_paused()),
                     Err(_) => break,
                 };
+                drop(player);
+                // Зависший сетевой поток — открыть заново с того же места (один раз на ролик).
+                if network && stalled {
+                    let since = *stall_since.get_or_insert_with(std::time::Instant::now);
+                    if !recovered && since.elapsed() >= STALL_REOPEN {
+                        recovered = true;
+                        tracing::warn!("поток завис на {pos:.1} с — открываю заново");
+                        let path = path.clone();
+                        run_on_main_thread(move || {
+                            if current(st).as_ref() == Some(&path) {
+                                reopen_at(st, &path, pos);
+                            }
+                        });
+                    }
+                } else {
+                    stall_since = None;
+                }
                 if last.as_ref() != Some(&info) {
                     if let (Some(reason), None, true) = (&info.hw_fallback, &info.hardware, info.known) {
                         if last.as_ref().is_none_or(|l| l.hw_fallback.is_none() || !l.known) {
@@ -368,8 +511,12 @@ fn watch(st: St, playing: &Playing) {
                 crate::neural::poll(st);
                 crate::interp::poll(st);
                 tick += 1;
-                if s.resume && tick % 10 == 0 {
-                    settings::save_position(&path, pos, dur);
+                if tick % 10 == 0 {
+                    match host {
+                        Some(h) => h.progress(pos, dur, false),
+                        None if s.resume => settings::save_position(&path, pos, dur),
+                        None => {}
+                    }
                 }
             }
         })

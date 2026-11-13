@@ -81,7 +81,7 @@ pub fn has_controls() -> bool {
 /// Место боковой панели (субтитры, фильтры, настройки…): в окне — ниже строки с кнопками
 /// окна, чтобы панель их не закрывала; во весь экран — во всю высоту.
 pub fn panel_place(st: St) -> &'static str {
-    if has_controls() && !st.fullscreen.get() {
+    if has_controls() && st.host.is_none() && !st.fullscreen.get() {
         "vp-panel-place vp-panel-windowed"
     } else {
         "vp-panel-place"
@@ -97,6 +97,14 @@ pub fn controls(st: St, class: &'static str) -> W {
         let w = st.window.get();
         vec![Box::new(DecoratedBox::new().class(class).child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]
     }))
+}
+
+/// [`drag`] для готового виджета.
+pub fn drag_box(child: W) -> W {
+    if !has_controls() {
+        return Box::new(DecoratedBox::new().class("grow drag").child(child));
+    }
+    Box::new(DecoratedBox::new().class("grow drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("drag-space").child(child))))
 }
 
 /// Растягивающаяся часть шапки, за которую окно перетаскивается.

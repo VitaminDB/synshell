@@ -11,23 +11,7 @@
 //!
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
 
-mod bench;
-mod chrome;
-mod edit;
-mod editor;
-mod library;
-mod chain;
-mod dlss;
-mod filters;
-mod interp;
-mod neural;
-mod player;
-mod settings;
-mod subs;
-mod tracks;
-mod ui;
-mod vram;
-
+use syn_video_player::{bench, chrome, dlss, editor, settings, ui};
 use syngui::prelude::*;
 use syngui::video::HwAccel;
 use synshell_common::Config;
@@ -163,7 +147,7 @@ fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "syn_video_player=info,syngui::video=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
+    synshell_common::i18n::init(&syn_video_player::catalogs());
     let args = parse_args();
     if args.bench {
         let Some(file) = args.file.as_deref() else {
@@ -215,47 +199,8 @@ fn main() {
         });
 }
 
-/// Состояние программы (сигналы — в главном потоке, после запуска syngui).
 fn new_state(hw: Option<HwAccel>, direct: bool, window: RwSignal<syngui::window::WindowState>) -> ui::St {
-    let subs = subs::SubSettings::load();
-    let settings = settings::Settings::load();
-    let st = ui::St {
-        hw,
-        settings: use_signal(settings.clone()),
-        info: use_signal(None),
-        settings_open: use_signal(false),
-        tracks_open: use_signal(false),
-        audio_pref: use_signal(None),
-        subs: use_signal(subs.clone()),
-        sub_style: use_signal(subs.style()),
-        subs_open: use_signal(false),
-        filters_open: use_signal(false),
-        filters_rev: use_signal(0),
-        split: use_signal(settings.dlss_split),
-        view_key: use_signal((settings.fill, settings.seek_step)),
-        sub_pref: use_signal(None),
-        sub_last: use_signal(None),
-        sub_rev: use_signal(0),
-        sub_gen: use_signal(0),
-        vram: use_signal(vram::Vram::None),
-        dlss: use_signal(dlss::Status::Off),
-        sr: use_signal(neural::Status::Off),
-        rife: use_signal(interp::Status::Off),
-        cards: use_signal(Vec::new()),
-        siblings: use_signal(Vec::new()),
-        scanning: use_signal(true),
-        playing: use_signal(None),
-        opening: use_signal(None),
-        error: use_signal(None),
-        fullscreen: use_signal(chrome::start_fullscreen(&settings)),
-        window,
-        direct,
-        edit: use_signal(None),
-        sheet: use_signal(editor::Sheet::None),
-        pos: use_signal(0.0),
-    };
-    syngui::signal::create_detached_effect(move || editor::follow(st));
-    st
+    ui::new_state(hw, direct, window, None)
 }
 
 /// `--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]`:
@@ -345,7 +290,7 @@ fn screenshot(args: &Args, shot: &Shot) -> std::result::Result<(u32, u32), Strin
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syn-video-player").font_selector("Text, Button").base(include_str!("../styles/syn-video-player.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syn-video-player").font_selector("Text, Button").base(include_str!("../styles/syn-video-player.mss")).push(syn_video_player::PLAYER_STYLE).build()
 }
 
 /// HDR: окно плеера — FP16 (если композитор умеет управление цветом), а пока монитор в HDR-режиме,

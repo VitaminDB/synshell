@@ -13,38 +13,71 @@ use syngui::widgets::*;
 use crate::settings::{Settings, SEEK_STEPS};
 use crate::ui::{back, ended, go, icons, reopen, step, Card, St};
 
+/// Раздел панели настроек (значок, заголовок, строки) — и для разделов программы-хозяина.
+pub fn settings_section(icon: &'static str, title: &str, rows: Vec<W>) -> W {
+    section(icon, title, rows)
+}
+
+/// Подсказка под строкой настроек.
+pub fn settings_hint(text: &str) -> W {
+    hint(text)
+}
+
 type W = Box<dyn Widget>;
 
 pub fn view(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let Some(p) = st.playing.get() else {
-            return vec![if let Some(e) = st.error.get() {
+            let center = if let Some(e) = st.error.get() {
                 centered(Box::new(Text::new(e).max_lines(6).class("player-error-text")))
             } else {
                 centered(Box::new(CircularProgress::new().indeterminate().size(48.0).stroke_width(4.0)))
-            }];
+            };
+            // Пока ролика нет (открывается, ошибка), панели плеера нет — «назад» отдельно.
+            let top = Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(ToolButton::new(icons::ARROW_BACK).tooltip(t!("Назад")).on_click(move || go_back(st)).class("vp-btn"))
+                .class("player-wait-top");
+            return vec![Box::new(Stack::new().fit(StackFit::Expand).child(center).child(Column::new().child(top)))];
         };
         // масштаб и шаг перемотки — свойства виджета: сменились — пересобрать
         let (fill, seek_step) = st.view_key.get();
         let full = st.fullscreen.get();
-        let fs = FullscreenCtl {
-            active: full,
-            toggle: Arc::new(move || crate::chrome::toggle_fullscreen(st)),
+        let fs = match st.host {
+            Some(h) => h.fullscreen(),
+            None => Some(FullscreenCtl {
+                active: full,
+                toggle: Arc::new(move || crate::chrome::toggle_fullscreen(st)),
+            }),
         };
         let done = p.clone();
         let title = p.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let mut view = VideoPlayerView::file(p.player.clone())
-            .fullscreen(fs)
+        let mut view = VideoPlayerView::file(p.player.clone());
+        if let Some(fs) = fs {
+            view = view.fullscreen(fs);
+        }
+        if let Some((sig, max)) = st.host.and_then(|h| h.volume()) {
+            view = view.volume_signal(sig).volume_max(max);
+        }
+        let host_keys = st.host.map(|h| h.keys()).unwrap_or_default();
+        let mut view = view
             .fit(if fill { ImageFit::Cover } else { ImageFit::Contain })
             .seek_step(seek_step as f64)
             .subtitles(st.sub_style)
-            .keys(crate::subs::KEYS.iter().copied().chain([crate::filters::COMPARE_KEY]).collect(), move |k, m| {
-                crate::subs::on_key(st, k, m) || crate::filters::on_key(st, k, m)
+            .keys(crate::subs::KEYS.iter().copied().chain([crate::filters::COMPARE_KEY]).chain(host_keys).collect(), move |k, m| {
+                st.host.is_some_and(|h| h.on_key(k, m)) || crate::subs::on_key(st, k, m) || crate::filters::on_key(st, k, m)
             })
             .header(move || header(st, title.clone()))
             .on_ended(move || ended(st, &done));
         // в каталоге есть другие ролики — листание, как в просмотрщике картинок
-        if st.siblings.with(|v| v.len() > 1) {
+        if let Some(h) = st.host {
+            if h.has_neighbor(-1) {
+                view = view.on_prev(move || h.neighbor(-1));
+            }
+            if h.has_neighbor(1) {
+                view = view.on_next(move || h.neighbor(1));
+            }
+        } else if st.siblings.with(|v| v.len() > 1) {
             let path = p.path.clone();
             view = view.on_prev(move || step(st, -1)).on_next(move || step(st, 1)).footer(move || filmstrip(st, &path));
         }
@@ -67,8 +100,22 @@ pub fn view(st: St) -> W {
             .child(crate::tracks::panel(st))
             .child(crate::subs::panel(st))
             .child(crate::filters::panel(st))
-            .child(crate::vram::dialog(st)),
+            .child(crate::vram::dialog(st))
+            .child(Reactive::new(move || -> Vec<W> { st.host.map(|h| h.overlay(st)).unwrap_or_default() })),
     )
+}
+
+/// «Назад» из шапки: у встроенного плеера — программе.
+fn go_back(st: St) {
+    match st.host {
+        Some(h) => {
+            crate::ui::close_panels(st);
+            h.back();
+        }
+        None => {
+            back(st);
+        }
+    }
 }
 
 fn header(st: St, title: String) -> W {
@@ -80,36 +127,51 @@ fn header(st: St, title: String) -> W {
             _ => dlss.map(|d| -> W { Box::new(DecoratedBox::new().child(d).class("info-chip info-chip-dlss")) }).into_iter().collect(),
         }
     });
-    let top = Row::new()
+    let (title, caption) = match st.host {
+        Some(h) => (h.title(), h.caption()),
+        None => (title, String::new()),
+    };
+    let name: W = if caption.is_empty() {
+        Box::new(Text::new(title).max_lines(1).elide(Elide::End).class("player-title"))
+    } else {
+        Box::new(
+            Column::new()
+                .gap(2.0)
+                .child(Text::new(title).max_lines(1).elide(Elide::End).class("player-title"))
+                .child(Text::new(caption).max_lines(1).elide(Elide::End).class("player-caption")),
+        )
+    };
+    let mut top = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(
-            ToolButton::new(icons::ARROW_BACK)
-                .tooltip(t!("Назад"))
-                .on_click(move || {
-                    back(st);
-                })
-                .class("vp-btn"),
-        )
-        .child(crate::chrome::drag(Text::new(title).max_lines(1).elide(Elide::End).class("player-title")))
+        .child(ToolButton::new(icons::ARROW_BACK).tooltip(t!("Назад")).on_click(move || go_back(st)).class("vp-btn"))
+        .child(crate::chrome::drag_box(name))
+        .children(st.host.map(|h| h.header(st)).unwrap_or_default())
         .child(crate::filters::button(st))
         .child(crate::subs::button(st))
-        .child(crate::tracks::button(st))
-        .child(
+        .child(crate::tracks::button(st));
+    if st.host.is_none() {
+        top = top.child(
             ToolButton::new(icons::CUT)
                 .tooltip(t!("Монтаж: резать и склеивать"))
                 .on_click(move || crate::editor::start(st))
                 .class("vp-btn"),
-        )
-        .child(
-            ToolButton::new(icons::SETTINGS)
-                .tooltip(t!("Настройки"))
-                .on_click(move || st.settings_open.set(true))
-                .class("vp-btn"),
         );
-    // шапка плеера — она же заголовок окна: во весь экран (на телефоне хватает кнопки внизу) и кнопки окна
-    let top = if crate::chrome::has_controls() { top.child(crate::chrome::fullscreen_button(st, true)) } else { top };
-    let top = top.child(crate::chrome::controls(st, "window-controls vp-wc"));
+    }
+    top = top.child(
+        ToolButton::new(icons::SETTINGS)
+            .tooltip(t!("Настройки"))
+            .on_click(move || st.settings_open.set(true))
+            .class("vp-btn"),
+    );
+    // шапка плеера — она же заголовок окна: во весь экран (на телефоне хватает кнопки внизу) и кнопки окна;
+    // у встроенного плеера окно — забота программы
+    if st.host.is_none() {
+        if crate::chrome::has_controls() {
+            top = top.child(crate::chrome::fullscreen_button(st, true));
+        }
+        top = top.child(crate::chrome::controls(st, "window-controls vp-wc"));
+    }
     // Чип — под строкой с названием, по центру: на телефоне в портрете рядом с названием ему тесно.
     Box::new(
         Column::new()
@@ -159,6 +221,12 @@ fn info_chip(i: &DecodeInfo, dlss: Option<W>) -> W {
 
 /// «✦ DLSS 5 · 8 мс» — зелёный, пока кадры идут через модель; серый — запуск; янтарный — кадры как
 /// есть (причина — во всплывающей подсказке). Выключен — чипа нет.
+#[cfg(not(feature = "desktop"))]
+fn dlss_chip(_s: &crate::dlss::Status) -> Option<W> {
+    None
+}
+
+#[cfg(feature = "desktop")]
 fn dlss_chip(s: &crate::dlss::Status) -> Option<W> {
     use crate::dlss::Status;
     let (text, class, tip) = match s {
@@ -365,7 +433,7 @@ fn settings_panel(st: St) -> W {
         ],
     );
 
-    let dlss = filters_section(st);
+    let dlss: Option<W> = if cfg!(feature = "desktop") { Some(filters_section(st)) } else { None };
 
     let picture = section(
         icons::ASPECT,
@@ -434,7 +502,7 @@ fn settings_panel(st: St) -> W {
         &t!("Интерфейс"),
         {
             let mut rows = Vec::new();
-            if !cfg!(any(target_os = "android", target_os = "ios")) {
+            if !cfg!(any(target_os = "android", target_os = "ios")) && st.host.is_none() {
                 rows.push(language_row());
             }
             rows.push(toggle_row(
@@ -465,11 +533,13 @@ fn settings_panel(st: St) -> W {
                     Column::new()
                         .gap(10.0)
                         .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .children(st.host.map(|h| h.settings(st)).unwrap_or_default())
                         .child(decoding)
-                        .child(dlss)
+                        .children(dlss)
                         .child(picture)
                         .child(seek)
-                        .child(playback)
+                        // продолжение, повтор и следующий ролик у встроенного плеера ведёт программа
+                        .children(st.host.is_none().then_some(playback))
                         .child(subtitles)
                         .child(view)
                         .class("set-body"),

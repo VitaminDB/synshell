@@ -40,6 +40,10 @@ Depends on `ffmpeg`. Neural filters need an NVIDIA card: DLSS 5 — the `syn-win
 
 The player is part of the `synshell` metapackage — the whole desktop: `yay -S synshell-bin`. **From source:** `cargo build --release -p syn-video-player` in the [synshell](../../README.md) repository.
 
+## Embedding
+
+The player is also a library (`syn_video_player::embed`): other programs embed the same player screen — header with the playback chip, audio tracks, subtitles with styling, settings — and add their own chips, overlays, settings sections, neighbouring videos and stream reopening through the `Host` trait. Without the default `desktop` feature (DLSS 5, neural filters, desktop services) it builds for Android too. Used by tv_rezka: improvements here reach it automatically.
+
 ## Command line
 
 ```sh

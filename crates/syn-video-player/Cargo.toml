@@ -6,25 +6,38 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+# Библиотека — плеер целиком (шапка с чипом, субтитры, звуковые дорожки, настройки): его
+# встраивают другие программы (tv_rezka, `embed`). Без фичи `desktop` — без DLSS 5, нейрофильтров
+# и служб рабочего стола: так он собирается и под Android.
+[lib]
+name = "syn_video_player"
+path = "src/lib.rs"
+
 [[bin]]
 name = "syn-video-player"
 path = "src/main.rs"
+required-features = ["desktop"]
+
+[features]
+default = ["desktop"]
+# Программа рабочего стола synshell: DLSS 5 (syn-dlss), нейрофильтры synaptix, synaptixd, HDR.
+desktop = ["dep:synaptixd", "dep:syn-dlss", "dep:synaptix-vfx", "dep:synaptix-bundle", "dep:tracing-subscriber", "syngui/wayland-dnd"]
 
 [dependencies]
-synaptixd.workspace = true
+synaptixd = { workspace = true, optional = true }
 synshell-common = { workspace = true, features = ["i18n", "style"] }
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "wayland-dnd"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
 anyhow.workspace = true
 libc.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
-syn-dlss.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+syn-dlss = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
 # нейросетевые фильтры (synaptix-vfx: ядра CUDA) — только на компьютере
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-synaptix-vfx.workspace = true
-synaptix-bundle.workspace = true
+synaptix-vfx = { workspace = true, optional = true }
+synaptix-bundle = { workspace = true, optional = true }
