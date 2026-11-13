@@ -32,6 +32,8 @@ pub struct Slot {
     pub disk_bytes: u64,
     pub schema: Vec<crate::ParamSpec>,
     pub optimal: Params,
+    /// Сэмплинг хода с размышлениями поверх `optimal` (пресет размышлений модели).
+    pub thinking_sampling: Params,
     /// Действующий профиль движка LLM по (устройство, точность, правки).
     engine_shown: Mutex<Option<(EngineKey, EngineProfile)>>,
     /// KV-кэш чатов, удержанный в RAM после выгрузки (см. [`KeptSlot`]).
@@ -55,6 +57,7 @@ impl Slot {
         let disk_bytes = manifest.disk_bytes();
         let schema = defaults::schema(&manifest);
         let optimal = defaults::optimal(&schema);
+        let thinking_sampling = defaults::thinking_sampling(&manifest);
         let settings = ModelSettings { params: settings.params.sanitize(&schema), ..settings };
         Self {
             manifest,
@@ -74,6 +77,7 @@ impl Slot {
             disk_bytes,
             schema,
             optimal,
+            thinking_sampling,
             engine_shown: Mutex::new(None),
             kept_kv: None,
         }
@@ -164,6 +168,17 @@ impl Slot {
 
     fn params(&self) -> Params {
         self.optimal.over(&self.settings.params)
+    }
+
+    /// Параметры вызова: умолчания (под ход с размышлениями — пресет
+    /// размышлений), поверх — настройки пользователя, поверх — запрос.
+    fn call_params(&self, call: &Params) -> Params {
+        let call = call.sanitize(&self.schema);
+        let plain = self.params().over(&call);
+        if plain.bool("thinking") != Some(true) || self.thinking_sampling.is_empty() {
+            return plain;
+        }
+        self.optimal.over(&self.thinking_sampling).over(&self.settings.params).over(&call)
     }
 }
 
@@ -362,6 +377,7 @@ impl Manager {
                         s.disk_bytes = m.disk_bytes();
                         s.schema = defaults::schema(&m);
                         s.optimal = defaults::optimal(&s.schema);
+                        s.thinking_sampling = defaults::thinking_sampling(&m);
                         s.manifest = m;
                     }
                     None => {
@@ -383,7 +399,7 @@ impl Manager {
     }
 
     pub fn params(&self, id: &str, call: &Params) -> Params {
-        self.slots.lock().unwrap().get(id).map(|s| s.params().over(&call.sanitize(&s.schema))).unwrap_or_default()
+        self.slots.lock().unwrap().get(id).map(|s| s.call_params(call)).unwrap_or_default()
     }
 
     /// Стартовый промпт, который пользователь сам вписал в настройки модели
@@ -1417,5 +1433,40 @@ impl synaptix_core::memory::reclaim::Reclaimable for IdleEvictor {
             (synaptix_core::device::Device::Cuda(_), Some(m)) => m.idle_vram() as usize,
             _ => 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod thinking_sampling_tests {
+    use super::*;
+
+    /// `SYNAPTIX_TEST_QWEN4EXP=<бандл Qwen3.8-Flash-Next>`: ход с размышлениями
+    /// получает пресет размышлений, без них — прежний; заданное пользователем
+    /// в настройках и в самом запросе главнее.
+    #[test]
+    fn call_params_follow_thinking() {
+        let Some(path) = std::env::var_os("SYNAPTIX_TEST_QWEN4EXP") else { return };
+        let path = std::path::PathBuf::from(path);
+        let toml = format!(
+            "id = \"q\"\ntitle = \"q\"\nkind = \"llm\"\narch = \"qwen4_exp\"\n[[variant]]\nfile = \"{}\"\ndevices = [\"cuda\"]\n",
+            path.file_name().unwrap().to_string_lossy()
+        );
+        let mut m: Manifest = toml::from_str(&toml).unwrap();
+        m.dir = path.parent().unwrap().to_path_buf();
+        let s = Slot::new(m.clone(), ModelSettings::default());
+        let plain = s.call_params(&Params::new());
+        assert_eq!(plain.f32("presence_penalty"), Some(1.5));
+        assert_eq!(plain.f32("temperature"), Some(0.7));
+        let think = s.call_params(&Params::new().with("thinking", true));
+        assert_eq!(think.f32("presence_penalty"), Some(0.0));
+        assert_eq!(think.f32("temperature"), Some(1.0));
+        assert_eq!(think.bool("thinking"), Some(true));
+        // запрос задал свою температуру — она и остаётся
+        let own = s.call_params(&Params::new().with("thinking", true).with("temperature", 0.3));
+        assert_eq!(own.f32("temperature"), Some(0.3));
+        // штраф из настроек пользователя главнее пресета
+        let settings = ModelSettings { params: Params::new().with("presence_penalty", 0.5), ..Default::default() };
+        let s = Slot::new(m, settings);
+        assert_eq!(s.call_params(&Params::new().with("thinking", true)).f32("presence_penalty"), Some(0.5));
     }
 }

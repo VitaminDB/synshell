@@ -78,6 +78,22 @@ pub fn optimal(schema: &[ParamSpec]) -> Params {
     Params::from_schema(schema)
 }
 
+/// Умолчания сэмплинга под ход с размышлениями (у Qwen3.5+ иные, чем без них);
+/// значения, заданные в `model.toml` модели, не трогаются.
+pub fn thinking_sampling(m: &Manifest) -> Params {
+    let mut out = Params::new();
+    if m.kind != ModelKind::Llm {
+        return out;
+    }
+    let Some(path) = m.variants.first().map(|v| m.path(v)) else { return out };
+    for (k, v) in sp::llm_thinking_sampling(&path) {
+        if m.defaults.get(k).is_none() {
+            out = out.with(k, value(v));
+        }
+    }
+    out
+}
+
 pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {
     let devices = m.devices();
     let mut out = vec![QuantOption { id: "auto".into(), devices: devices.clone() }];
