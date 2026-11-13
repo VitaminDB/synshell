@@ -57,6 +57,7 @@ unsafe extern "system" {
     fn GetCommandLineA() -> *const u8;
     fn GetSystemTime(t: *mut SystemTime);
     fn GetCurrentProcessId() -> u32;
+    fn CreateMutexA(sa: *const u8, owner: i32, name: *const u8) -> isize;
 }
 
 /// Каталог установки на системном диске (`C:\SYNVM`).
@@ -381,17 +382,52 @@ fn join_argv(argv: &[String]) -> String {
 
 // ─── канал COM2 ─────────────────────────────────────────────────────────
 
+/// Порт COM2 для прямой работы с UART.
+const UART: u16 = 0x2F8;
+
+fn outb(port: u16, v: u8) {
+    unsafe { core::arch::asm!("out dx, al", in("dx") port, in("al") v, options(nomem, nostack)) }
+}
+
+fn inb(port: u16) -> u8 {
+    let v: u8;
+    unsafe { core::arch::asm!("in al, dx", in("dx") port, out("al") v, options(nomem, nostack)) };
+    v
+}
+
 struct Port {
+    /// Дескриптор COM2 Windows; `INVALID` — UART напрямую (Windows 9x, которая порта не знает).
     h: HANDLE,
     buf: Vec<u8>,
 }
 
 impl Port {
+    /// UART 0x2F8 напрямую: у Windows 9x, установленной без этого порта, VCOMM его не держит, и
+    /// программе Win32 IN/OUT к нему разрешены. Есть ли там UART — по регистру scratch.
+    fn open_raw() -> Option<Port> {
+        if is_nt() {
+            return None;
+        }
+        outb(UART + 7, 0x5A);
+        if inb(UART + 7) != 0x5A {
+            return None;
+        }
+        outb(UART + 1, 0);
+        outb(UART + 3, 0x80);
+        outb(UART, 1); // 115200
+        outb(UART + 1, 0);
+        outb(UART + 3, 0x03);
+        outb(UART + 2, 0xC7);
+        outb(UART + 4, 0x03);
+        log("COM2: Windows порта не знает — UART 0x2F8 напрямую");
+        Some(Port { h: INVALID, buf: Vec::new() })
+    }
+
     fn open() -> Option<Port> {
         unsafe {
             let h = CreateFileA(b"COM2\0".as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, core::ptr::null(), OPEN_EXISTING, 0, 0);
             if h == INVALID {
-                return None;
+                return Port::open_raw();
             }
             SetupComm(h, 65536, 65536);
             let mut d: Dcb = core::mem::zeroed();
@@ -413,6 +449,13 @@ impl Port {
 
     fn send(&mut self, f: &Frame) {
         let b = f.encode();
+        if self.h == INVALID {
+            for &c in &b {
+                while inb(UART + 5) & 0x20 == 0 {}
+                outb(UART, c);
+            }
+            return;
+        }
         let mut off = 0;
         while off < b.len() {
             let mut w = 0u32;
@@ -426,10 +469,37 @@ impl Port {
 
     /// Следующий кадр, если пришёл за ~200 мс.
     fn poll(&mut self) -> Option<Frame> {
-        let mut tmp = [0u8; 4096];
-        let mut got = 0u32;
-        unsafe { ReadFile(self.h, tmp.as_mut_ptr(), tmp.len() as u32, &mut got, core::ptr::null_mut()) };
-        self.buf.extend_from_slice(&tmp[..got as usize]);
+        if self.h == INVALID {
+            // Опрос: байты, пока идут; ничего за ~200 мс — вернуться (спим по 1 мс).
+            let t0 = unsafe { GetTickCount() };
+            loop {
+                let mut any = false;
+                while inb(UART + 5) & 1 != 0 {
+                    self.buf.push(inb(UART));
+                    any = true;
+                }
+                if any && self.buf.windows(4).any(|w| w == MAGIC) && self.buf.len() >= 8 {
+                    let i = self.buf.windows(4).position(|w| w == MAGIC).unwrap_or(0);
+                    if self.buf.len() >= i + 8 {
+                        let len = u32::from_le_bytes([self.buf[i + 4], self.buf[i + 5], self.buf[i + 6], self.buf[i + 7]]) as usize;
+                        if self.buf.len() >= i + 8 + len {
+                            break;
+                        }
+                    }
+                }
+                if !any {
+                    if unsafe { GetTickCount() }.wrapping_sub(t0) > 200 {
+                        break;
+                    }
+                    unsafe { Sleep(1) };
+                }
+            }
+        } else {
+            let mut tmp = [0u8; 4096];
+            let mut got = 0u32;
+            unsafe { ReadFile(self.h, tmp.as_mut_ptr(), tmp.len() as u32, &mut got, core::ptr::null_mut()) };
+            self.buf.extend_from_slice(&tmp[..got as usize]);
+        }
         loop {
             let Some(i) = self.buf.windows(4).position(|w| w == MAGIC) else {
                 let keep = self.buf.len().min(3);
@@ -528,6 +598,21 @@ struct Upload {
 
 /// Рабочий цикл: шаги установки, затем кадры с COM2.
 fn run() -> u32 {
+    // Один агент на систему: второй (автозапуск и ручной run, обновление) за COM2 не борется.
+    // Прежний может как раз уходить (обновление) — подождать его до 15 с.
+    let mut tries = 0;
+    loop {
+        let m = unsafe { CreateMutexA(core::ptr::null(), 1, b"syn-vm-agent-9x\0".as_ptr()) };
+        if unsafe { GetLastError() } != 183 {
+            break; // ERROR_ALREADY_EXISTS — нет
+        }
+        unsafe { CloseHandle(m) };
+        tries += 1;
+        if tries > 15 {
+            return 0;
+        }
+        unsafe { Sleep(1000) };
+    }
     continue_setup();
     let mut port = loop {
         match Port::open() {

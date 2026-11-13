@@ -177,7 +177,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     // пока в первом приводе стоит сам установщик.
     if vm.tools_cd {
         // Свои инструменты — образ syn-vm (собирается из установленных частей), иначе virtio-win.
-        let iso = if vm.syn_tools() {
+        // Не Windows (DOS, 9x/XP — os = "other") — тоже свой диск: virtio-win им ни к чему.
+        let iso = if vm.syn_tools() || (vm.guest_tools == crate::model::GuestTools::SynVm && !vm.os.is_windows()) {
             crate::guesttools::iso().map_err(|e| tracing::warn!("гостевые инструменты syn-vm: {e}")).ok()
         } else {
             tools_iso()
