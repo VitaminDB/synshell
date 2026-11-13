@@ -88,8 +88,10 @@ pub fn device(sys: &Sys, sysname: &str) -> Option<UsbDev> {
         sysname: sysname.to_string(),
         vid,
         pid,
-        vendor: ids_vendor.or_else(|| r("manufacturer")),
-        product: ids_product.or_else(|| r("product")),
+        // Строки самого устройства точнее базы usb.ids: общие ID (fastboot 18d1:d00d у lk2nd и любых
+        // загрузчиков) там подписаны одной моделью («Xiaomi Mi/Redmi 2 (fastboot)»); база — только если строк нет
+        vendor: r("manufacturer").or(ids_vendor),
+        product: r("product").or(ids_product),
         busnum: num("busnum").unwrap_or(0),
         devnum: num("devnum").unwrap_or(0),
         speed_mbps: r("speed").and_then(|s| s.split('.').next()?.parse().ok()),
@@ -160,7 +162,7 @@ mod tests {
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].lsusb_line(), "ID 17ef:f006 Lenovo Idea5003");
         assert_eq!(v[0].max_ma, Some(100));
-        assert_eq!(v[1].lsusb_line(), "ID 2717:ff40 Xiaomi Inc. Mi/Redmi series (MTP)");
+        assert_eq!(v[1].lsusb_line(), "ID 2717:ff40 Xiaomi Redmi Note 14 Pro");
         assert_eq!(v[1].max_ma, None);
         assert_eq!(v[1].speed_mbps, Some(480));
         assert_eq!(v[1].key(), "3-1#7");
