@@ -1094,7 +1094,15 @@ impl Manager {
         };
         let variant = m.variant_quant(dev, quant).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для устройства"))?;
         let path = m.path(variant);
-        self.make_room(&m.id, m.ram_estimate(dev, quant))?;
+        // Карта уступлена программе, а без неё модели не хватает памяти — назвать
+        // настоящую причину: «нужно 247 ГБ» без неё выглядит как поломка службы.
+        self.make_room(&m.id, m.ram_estimate(dev, quant)).map_err(|e| match devices::cuda_yielded() {
+            Some(who) if dev != DeviceKind::Cuda && supported.contains(&DeviceKind::Cuda) => Error::new(
+                e.code,
+                format!("видеокарта отдана программе «{who}» — модель вернётся на неё, когда программа закроется; без карты {}", e.message),
+            ),
+            _ => e,
+        })?;
         self.make_vram_room(&m.id, dev, m.vram_estimate(dev, quant));
         let before = rss();
         let vram_before = synaptix_core::memory::cuda_pool::cuda_allocated_bytes() as u64;
