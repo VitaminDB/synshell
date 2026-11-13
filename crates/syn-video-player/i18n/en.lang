@@ -308,3 +308,15 @@
 "Во весь экран (F11)" = "Full screen (F11)"
 "Выйти из полноэкранного режима (F11)" = "Exit full screen (F11)"
 "Модели DLSS 5 нет — импортируйте её в окне syn-dlss" = "No DLSS 5 model — import it in the syn-dlss window"
+
+# src/player.rs — «Плавность» без нейросетей, встроенный плеер
+"Плавность" = "Smoothness"
+"Промежуточные кадры" = "In-between frames"
+"Ролик идёт с большей частотой кадров: движение плавнее." = "The video plays at a higher frame rate: motion looks smoother."
+"×2" = "×2"
+"{n} к/с" = "{n} fps"
+"Промежуточные кадры строятся по движению в кадре, как в SVP, — без нейросетей, на процессоре. На смене сцены их нет." = "In-between frames are built from the motion in the picture, like SVP — no neural networks, on the CPU. None at scene cuts."
+"Работает: {fps} к/с на выходе, {ms} мс из {b} мс кадра ролика." = "Running: {fps} fps out, {ms} ms of a {b} ms video frame."
+"Включается…" = "Starting…"
+"Не успевает ({ms} мс при {b} мс на кадр): кадры идут как есть до перемотки. Попробуйте частоту ниже." = "Can't keep up ({ms} ms for a {b} ms frame): frames play as they are until you seek. Try a lower rate."
+"Не удалось открыть видео: {e}" = "Couldn't open the video: {e}"

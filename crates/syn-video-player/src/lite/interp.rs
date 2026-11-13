@@ -10,3 +10,4 @@ pub enum Status {
 
 pub fn attach(_st: crate::ui::St, _p: &VideoPlayer) {}
 pub fn poll(_st: crate::ui::St) {}
+pub fn apply(_st: crate::ui::St) {}

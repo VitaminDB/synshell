@@ -45,11 +45,15 @@ pub struct Settings {
     pub rife_mode: String,
     /// Во весь экран (F11, кнопки в шапке и в плеере); `None` — на телефоне да, иначе нет.
     pub fullscreen: Option<bool>,
+    /// «Плавность» без нейросетей: промежуточные кадры по оценке движения (как SVP).
+    pub smooth: bool,
+    /// Частота: "x2" — вдвое, "60", "120" — кадров в секунду.
+    pub smooth_mode: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new(), sr_anime: false, rife: false, rife_model: String::new(), rife_mode: "x2".into(), fullscreen: None }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new(), sr_anime: false, rife: false, rife_model: String::new(), rife_mode: "x2".into(), fullscreen: None, smooth: false, smooth_mode: "60".into() }
     }
 }
 

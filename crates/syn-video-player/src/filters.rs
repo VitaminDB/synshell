@@ -426,7 +426,14 @@ fn rife_card(st: St) -> W {
     use crate::interp::Status as Rf;
     let s = st.settings.get_untracked();
     let toggle = Toggle::with_state(s.rife).on_change(move |on| {
-        crate::player::update(st, |s| s.rife = on);
+        // RIFE и «плавность» без нейросетей — одна ступень цепочки: включили одно — другое выключается
+        crate::player::update(st, |s| {
+            s.rife = on;
+            if on {
+                s.smooth = false;
+            }
+        });
+        crate::smooth::apply(st);
         crate::interp::apply(st);
         st.filters_rev.update(|r| *r += 1);
     });

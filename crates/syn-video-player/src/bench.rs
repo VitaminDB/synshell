@@ -36,6 +36,12 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
     } else {
         None
     };
+    // SVP_BENCH_SMOOTH=x2|60|120 — через «плавность» без нейросетей (кадров на выходе больше)
+    let smooth = std::env::var("SVP_BENCH_SMOOTH").ok().map(|m| {
+        let f = crate::smooth::SmoothFilter::new(crate::smooth::target_of(&m));
+        dec.set_frame_filter(Some(f.clone()));
+        f
+    });
     let meta = dec.meta().clone();
     println!("{file}: {}x{} {:.1} с", meta.width, meta.height, meta.duration_sec);
     let cpu0 = cpu_time();
@@ -96,6 +102,9 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
         }
+    }
+    if let Some(f) = &smooth {
+        println!("плавность: {:?}", f.status());
     }
     if let Some(f) = &filter {
         println!("DLSS 5: {:?}", f.status());

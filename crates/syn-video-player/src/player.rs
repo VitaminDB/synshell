@@ -464,6 +464,8 @@ fn settings_panel(st: St) -> W {
         ],
     );
 
+    let smooth = smooth_section(st);
+
     let playback = section(
         icons::PLAY_CIRCLE,
         &t!("Воспроизведение"),
@@ -537,6 +539,7 @@ fn settings_panel(st: St) -> W {
                         .child(decoding)
                         .children(dlss)
                         .child(picture)
+                        .child(smooth)
                         .child(seek)
                         // продолжение, повтор и следующий ролик у встроенного плеера ведёт программа
                         .children(st.host.is_none().then_some(playback))
@@ -560,6 +563,61 @@ fn settings_panel(st: St) -> W {
                         .class(crate::chrome::panel_place(st))
                     .child(GestureDetector::new().on_click(|| {}).child(panel)),
             ),
+    )
+}
+
+/// «Плавность» без нейросетей: промежуточные кадры по оценке движения (как SVP), частота на выходе.
+fn smooth_section(st: St) -> W {
+    use crate::smooth::{Status, MODES};
+    let s = st.settings.get_untracked();
+    let toggle = move |on: bool| {
+        update(st, |s| {
+            s.smooth = on;
+            if on {
+                s.rife = false;
+            }
+        });
+        // На телефоне кадры по умолчанию показывает сам кодек (мимо памяти): плавности нужны
+        // пиксели — ролик открывается заново с того же места.
+        if st.host.is_some() {
+            reopen(st);
+        } else {
+            crate::interp::apply(st);
+            crate::smooth::apply(st);
+        }
+    };
+    let labels: Vec<String> = MODES.iter().map(|(k, _)| match *k {
+        "x2" => t!("×2").to_string(),
+        k => t!("{n} к/с", n = k).to_string(),
+    }).collect();
+    let mode = SegmentedButton::new(labels)
+        .selected(MODES.iter().position(|(k, _)| *k == s.smooth_mode).unwrap_or(1))
+        .on_change(move |i| {
+            let m = MODES[i.min(MODES.len() - 1)].0.to_string();
+            if st.settings.get_untracked().smooth_mode != m {
+                update(st, |s| s.smooth_mode = m);
+                crate::smooth::apply(st);
+            }
+        });
+    let state = Reactive::new(move || -> Vec<W> {
+        let text = match st.smooth.get() {
+            Status::Off => t!("Промежуточные кадры строятся по движению в кадре, как в SVP, — без нейросетей, на процессоре. На смене сцены их нет.").to_string(),
+            Status::Active { ms, budget_ms, fps } if budget_ms > 0.0 => {
+                t!("Работает: {fps} к/с на выходе, {ms} мс из {b} мс кадра ролика.", fps = format!("{fps:.0}"), ms = format!("{ms:.0}"), b = format!("{budget_ms:.0}")).to_string()
+            }
+            Status::Active { .. } => t!("Включается…").to_string(),
+            Status::Slow { ms, budget_ms } => t!("Не успевает ({ms} мс при {b} мс на кадр): кадры идут как есть до перемотки. Попробуйте частоту ниже.", ms = format!("{ms:.0}"), b = format!("{budget_ms:.0}")).to_string(),
+        };
+        vec![Box::new(Text::new(text).max_lines(4).class("set-hint"))]
+    });
+    section(
+        icons::SMOOTH,
+        &t!("Плавность"),
+        vec![
+            toggle_row(&t!("Промежуточные кадры"), &t!("Ролик идёт с большей частотой кадров: движение плавнее."), s.smooth, toggle),
+            Box::new(mode),
+            Box::new(state),
+        ],
     )
 }
 

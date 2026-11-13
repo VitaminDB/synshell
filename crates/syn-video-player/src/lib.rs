@@ -12,6 +12,7 @@ pub mod library;
 pub mod chain;
 pub mod player;
 pub mod settings;
+pub mod smooth;
 pub mod subs;
 pub mod tracks;
 pub mod ui;

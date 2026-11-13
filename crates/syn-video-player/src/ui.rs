@@ -91,6 +91,8 @@ pub struct St {
     pub sr: RwSignal<crate::neural::Status>,
     /// Состояние промежуточных кадров RIFE.
     pub rife: RwSignal<crate::interp::Status>,
+    /// Состояние «плавности» без нейросетей.
+    pub smooth: RwSignal<crate::smooth::Status>,
     pub cards: RwSignal<Vec<Card>>,
     /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
     pub siblings: RwSignal<Vec<Card>>,
@@ -141,6 +143,7 @@ pub fn new_state(hw: Option<HwAccel>, direct: bool, window: RwSignal<syngui::win
         dlss: use_signal(crate::dlss::Status::Off),
         sr: use_signal(crate::neural::Status::Off),
         rife: use_signal(crate::interp::Status::Off),
+        smooth: use_signal(crate::smooth::Status::Off),
         cards: use_signal(Vec::new()),
         siblings: use_signal(Vec::new()),
         scanning: use_signal(host.is_none()),
@@ -209,7 +212,7 @@ pub fn back(st: St) -> bool {
 fn hw_of(st: St) -> HwAccel {
     let hardware = st.settings.get_untracked().hardware;
     match st.host {
-        Some(h) => st.hw.unwrap_or_else(|| h.hwaccel(hardware)),
+        Some(h) => st.hw.unwrap_or_else(|| h.hwaccel(hardware, crate::smooth::needs_cpu_frames(st))),
         None => st.hw.unwrap_or(if hardware { HwAccel::Auto } else { HwAccel::None }),
     }
 }
@@ -350,6 +353,7 @@ pub fn open_with(st: St, path: PathBuf, start: Option<f64>, keep_old: bool, open
                         crate::dlss::attach(st, &p);
                         crate::neural::attach(st, &p);
                         crate::interp::attach(st, &p);
+                        crate::smooth::attach(st, &p);
                         if let Some(h) = st.host {
                             h.opened(&mut p);
                         }
@@ -510,6 +514,7 @@ fn watch(st: St, playing: &Playing) {
                 crate::dlss::poll(st);
                 crate::neural::poll(st);
                 crate::interp::poll(st);
+                crate::smooth::poll(st);
                 tick += 1;
                 if tick % 10 == 0 {
                     match host {
