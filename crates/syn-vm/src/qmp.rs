@@ -22,6 +22,50 @@ pub fn call_at(sock: &Path, cmd: &str, args: Value, timeout: Duration) -> Result
     Conn::open(sock, timeout)?.call(cmd, args)
 }
 
+/// Подключиться к сокету монитора, не дольше `timeout`. QEMU держит одного клиента и слушает с
+/// очередью в одно место; соединение, брошенное в очереди (прошлый вызов не дождался приветствия,
+/// пока окно держит qmp-input.sock), так в ней и лежит — обычный `connect` следующего вызова
+/// ждал места вечно (`--key` висел без вывода). Неблокирующий connect: очередь полна — EAGAIN.
+pub fn connect_timeout(path: &Path, timeout: Duration) -> std::io::Result<UnixStream> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::FromRawFd;
+    let bytes = path.as_os_str().as_bytes();
+    // SAFETY: обычные вызовы сокетов; адрес заполняется в пределах sun_path, дескриптор
+    // переходит в UnixStream или закрывается.
+    unsafe {
+        let mut addr: libc::sockaddr_un = std::mem::zeroed();
+        if bytes.len() >= addr.sun_path.len() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "путь сокета слишком длинный"));
+        }
+        addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (d, s) in addr.sun_path.iter_mut().zip(bytes) {
+            *d = *s as libc::c_char;
+        }
+        let len = (std::mem::size_of::<libc::sa_family_t>() + bytes.len() + 1) as libc::socklen_t;
+        let t0 = std::time::Instant::now();
+        loop {
+            let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0);
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, len) == 0 {
+                let fl = libc::fcntl(fd, libc::F_GETFL);
+                libc::fcntl(fd, libc::F_SETFL, fl & !libc::O_NONBLOCK);
+                return Ok(UnixStream::from_raw_fd(fd));
+            }
+            let e = std::io::Error::last_os_error();
+            libc::close(fd);
+            if e.raw_os_error() != Some(libc::EAGAIN) {
+                return Err(e);
+            }
+            if t0.elapsed() >= timeout {
+                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, t!("монитор QEMU занят другим клиентом")));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
 /// Соединение на несколько команд подряд (ввод текста, проверки): QEMU держит одного
 /// клиента, так что соединение не стоит держать дольше, чем нужно.
 pub struct Conn {
@@ -31,7 +75,7 @@ pub struct Conn {
 
 impl Conn {
     pub fn open(sock: &Path, timeout: Duration) -> Result<Conn> {
-        let s = UnixStream::connect(sock)?;
+        let s = connect_timeout(sock, timeout)?;
         s.set_read_timeout(Some(timeout))?;
         s.set_write_timeout(Some(timeout))?;
         let w = s.try_clone()?;
