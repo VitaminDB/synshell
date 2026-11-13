@@ -109,7 +109,9 @@ pub struct Agent {
     pub recipes: Option<std::path::PathBuf>,
 }
 
-const TOOL_RESULT_LIMIT: usize = 12_000;
+/// Сколько символов результата инструмента видит модель: декомпиляция и дампы строк в реверсе — десятки
+/// тысяч символов; 12 000 резали их втрое, и агент работал по обрезку.
+const TOOL_RESULT_LIMIT: usize = 32_000;
 const SUBAGENT: &str = "subagent";
 const LIMIT_PROMPT: &str = "Лимит шагов исчерпан. Больше не вызывай инструменты. Подведи итог ПО КАЖДОМУ пункту запроса: что удалось и где результат (сохранённые файлы, найденные значения), что осталось нерешённым. Если что-то получил, но не сохранил — так и скажи. Без вступления.";
 const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь одну узкую подзадачу инструментами и возвращаешь только краткий итог в 1–3 абзаца, без вступления. Истории основного разговора у тебя нет — опирайся только на текст задачи.";
@@ -213,7 +215,11 @@ impl Agent {
             system.push_str(&summaries.join("\n\n"));
         }
         let mut out = vec![Message::system(system)];
-        for m in chat.messages.iter().filter(|m| !m.compacted) {
+        // Размышления модели — только для ответов текущего хода (после последнего сообщения
+        // пользователя): без них на следующем шаге она теряет план и повторяет те же вызовы, а
+        // размышления прошлых ходов шаблон Qwen3 тоже оставил бы и раздул контекст.
+        let last_user = chat.messages.iter().rposition(|m| m.role == Role::User && !m.compacted);
+        for (i, m) in chat.messages.iter().enumerate().filter(|(_, m)| !m.compacted) {
             match m.role {
                 Role::User => {
                     let (extra, media) = crate::attach::describe(&m.files);
@@ -229,6 +235,9 @@ impl Agent {
                 Role::Assistant => {
                     let mut msg = Message::assistant(m.text.clone());
                     msg.tool_calls = m.tool_calls.clone();
+                    if last_user.is_some_and(|u| i > u) && !m.thinking.trim().is_empty() {
+                        msg.reasoning = Some(m.thinking.clone());
+                    }
                     out.push(msg);
                 }
                 Role::Tool => {
@@ -714,6 +723,20 @@ mod tests {
     use super::*;
     use crate::tools::{ToolOutput, ToolResult};
     use std::sync::Mutex;
+
+    #[test]
+    fn history_keeps_reasoning_of_current_turn_only() {
+        let agent = Agent::new(Arc::new(Script::new(vec![])), vec![]);
+        let mut chat = Chat::new();
+        chat.messages.push(ChatMsg::user("первый"));
+        chat.messages.push(ChatMsg::assistant("ответ 1", "думал раньше".into(), vec![]));
+        chat.messages.push(ChatMsg::user("второй"));
+        chat.messages.push(ChatMsg::assistant("шаг", "план хода".into(), vec![]));
+        let h = agent.history(&chat);
+        let assist: Vec<&Message> = h.iter().filter(|m| m.role == "assistant").collect();
+        assert_eq!(assist[0].reasoning, None, "размышления прошлого хода не переносятся");
+        assert_eq!(assist[1].reasoning.as_deref(), Some("план хода"));
+    }
 
     struct Echo;
     impl Tool for Echo {

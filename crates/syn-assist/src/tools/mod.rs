@@ -71,7 +71,7 @@ pub fn truncate(s: &str, max: usize) -> String {
         return s.to_string();
     }
     let cut: String = s.chars().take(max).collect();
-    format!("{cut}\n… [обрезано: всего {} символов]", s.chars().count())
+    format!("{cut}\n… [вывод усечён: показано {max} из {} символов — остальное запроси частями, если инструмент это умеет (part/offset)]", s.chars().count())
 }
 
 /// Ход выполнения инструмента (долгая генерация): `(шаг, всего, подпись)`.
