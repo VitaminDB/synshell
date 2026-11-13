@@ -1,0 +1,32 @@
+{
+  "abi-return-struct-as-int": true,
+  "arch": "x86",
+  "archive-format": "coff",
+  "binary-format": "coff",
+  "cpu": "pentium",
+  "features": "-sse,-sse2,-mmx,+x87",
+  "data-layout": "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32",
+  "dll-prefix": "",
+  "dll-suffix": ".dll",
+  "dynamic-linking": true,
+  "env": "msvc",
+  "exe-suffix": ".exe",
+  "is-like-msvc": true,
+  "is-like-windows": true,
+  "linker": "rust-lld",
+  "linker-flavor": "msvc-lld",
+  "linker-is-gnu": false,
+  "lld-flavor": "link",
+  "llvm-target": "i586-pc-windows-msvc",
+  "max-atomic-width": 64,
+  "no-default-libraries": true,
+  "os": "windows",
+  "panic-strategy": "abort",
+  "staticlib-prefix": "",
+  "staticlib-suffix": ".lib",
+  "target-family": [
+    "windows"
+  ],
+  "target-pointer-width": 32,
+  "vendor": "pc"
+}

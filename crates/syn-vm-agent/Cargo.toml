@@ -12,18 +12,24 @@ path = "src/lib.rs"
 [[bin]]
 name = "syn-vm-agent"
 path = "src/main.rs"
+required-features = ["std"]
+
+# Протокол (lib) собирается и без std — для агентов старых систем (legacy/: Windows 9x/XP, DOS).
+[features]
+default = ["std"]
+std = ["serde/std", "serde_json/std", "sha2/std", "dep:png", "dep:windows-sys", "dep:libc"]
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
-sha2 = "0.10"
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.10", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
-libc.workspace = true
+libc = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-png = "0.17"
-windows-sys = { version = "0.60", features = [
+png = { version = "0.17", optional = true }
+windows-sys = { version = "0.60", optional = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",

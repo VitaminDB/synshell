@@ -296,6 +296,10 @@ cross = [
   { bin = "syn-vm-agent", target = "x86_64-win7-windows-gnu", to = "usr/lib/syn-vm/agent/", build_std = true },
   { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/lib/syn-vm/agent/" },
 ]
+# Агент Windows 95/98/ME и XP (без CRT, цель i586-win9x, nightly): канал COM2.
+files = [
+  { run = "crates/syn-vm-agent/legacy/build.sh win9x release", to = "usr/lib/syn-vm/agent/SYNAGENT.EXE" },
+]
 groups = ["synshell-apps"]
 optdepends = [
   "qemu-desktop: сами виртуальные машины",

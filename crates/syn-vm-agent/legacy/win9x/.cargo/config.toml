@@ -1,0 +1,10 @@
+[build]
+target = "i586-win9x.json"
+
+[unstable]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+json-target-spec = true
+
+[target.i586-win9x]
+rustflags = ["-C", "link-args=/NODEFAULTLIB /ENTRY:start /SUBSYSTEM:WINDOWS,4.0 /MACHINE:X86 /BASE:0x400000 /FIXED:NO /STACK:1048576"]

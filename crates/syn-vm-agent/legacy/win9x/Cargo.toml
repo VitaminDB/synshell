@@ -1,0 +1,37 @@
+# Гостевой агент syn-vm для Windows 95/98/ME и XP (SYNAGENT.EXE): без CRT и std, цель i586-win9x (Pentium,
+# x87 без SSE; цель и служебные функции MSVC — из syn-virt guest/win9x-tools). Протокол — общий с агентом
+# Windows 7–11 и Linux (крейт syn-vm-agent без std). Канал — COM2 (isa-serial → сокет agent-com.sock у syn-vm).
+# Сборка: build.sh → target/i586-win9x/<профиль>/synagent.exe.
+[package]
+name = "syn-vm-agent-win9x"
+version = "0.2.0"
+edition = "2024"
+license = "GPL-3.0-only"
+authors = ["Alexeyev Vitaly"]
+
+[workspace]
+
+[[bin]]
+name = "synagent"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+syn-vm-agent = { path = "../..", default-features = false }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.fast-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
+[profile.dev]
+panic = "abort"

@@ -35,6 +35,21 @@ pub fn net_path(vm: &Vm) -> PathBuf {
     vm.run_dir().join("agent-net.sock")
 }
 
+/// Сокет канала агента старых систем через COM2 (isa-serial).
+pub fn com_path(vm: &Vm) -> PathBuf {
+    vm.run_dir().join("agent-com.sock")
+}
+
+/// Аргументы QEMU: COM2 (0x2F8, IRQ 3) — канал агента DOS и Windows 9x/XP, драйверы не нужны.
+pub fn com_args(vm: &Vm) -> Vec<String> {
+    vec![
+        "-chardev".into(),
+        format!("socket,id=synagentcom,path={},server=on,wait=off", com_path(vm).display()),
+        "-device".into(),
+        "isa-serial,chardev=synagentcom,index=1,id=synagentcom".into(),
+    ]
+}
+
 pub fn broker_path(vm: &Vm) -> PathBuf {
     vm.run_dir().join("agent.sock")
 }
@@ -73,6 +88,10 @@ pub fn qemu_args(vm: &Vm) -> Vec<String> {
 fn ensure_port(vm: &Vm) -> Result<()> {
     if port_path(vm).exists() {
         return Ok(());
+    }
+    // У i440fx шины virtio-serial нет (старые системы — через COM2).
+    if crate::state::running_vm(vm).chipset == crate::model::Chipset::I440fx {
+        bail!("i440fx: без virtio-serial");
     }
     let path = port_path(vm).to_string_lossy().into_owned();
     let mut q = crate::qmp::Conn::of(vm)?;
@@ -191,7 +210,7 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
 
     // Гость: два канала — порт virtio-serial и сеть (guestfwd). Рабочий — тот, откуда пришло
     // приветствие агента; каждый переподключается сам, пока машина работает.
-    for (path, kind) in [(port_path(vm), "virtio"), (net_path(vm), "net")] {
+    for (path, kind) in [(port_path(vm), "virtio"), (net_path(vm), "net"), (com_path(vm), "com")] {
         let (st, vm) = (st.clone(), vm.clone());
         std::thread::spawn(move || transport(&vm, &st, &path, kind, qpid));
     }
@@ -797,6 +816,26 @@ pub fn online(vm: &Vm) -> bool {
 }
 
 /// Образ агента для гостя: Windows — syn-vm-agent.exe, Linux — syn-vm-agent.
+/// Агент Windows 95/98/ME и XP (SYNAGENT.EXE): SYN_VM_AGENT_9X, пакет, сборка из исходников
+/// (`crates/syn-vm-agent/legacy/win9x/target/i586-win9x/<профиль>/synagent.exe` рядом с target/ syn-vm).
+pub fn agent_9x() -> Option<PathBuf> {
+    let mut c: Vec<PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("SYN_VM_AGENT_9X") {
+        c.push(PathBuf::from(p));
+    }
+    c.push(PathBuf::from("/usr/lib/syn-vm/agent/SYNAGENT.EXE"));
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        // target/<профиль>/syn-vm → корень рабочего пространства
+        if let (Some(profile), Some(root)) = (dir.file_name(), dir.parent().and_then(Path::parent)) {
+            let base = root.join("crates/syn-vm-agent/legacy/win9x/target/i586-win9x");
+            c.push(base.join(profile).join("synagent.exe"));
+            c.push(base.join("release/synagent.exe"));
+            c.push(base.join("fast-release/synagent.exe"));
+        }
+    }
+    c.into_iter().find(|p| p.is_file())
+}
+
 pub fn agent_binary(windows: bool) -> Option<PathBuf> {
     let name = if windows { "syn-vm-agent.exe" } else { "syn-vm-agent" };
     let mut c: Vec<PathBuf> = Vec::new();

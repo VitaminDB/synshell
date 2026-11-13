@@ -263,24 +263,33 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         push(&["-tpmdev", "emulator,id=tpm0,chardev=chrtpm", "-device", "tpm-tis,tpmdev=tpm0"]);
     }
 
-    if vm.clipboard || vm.guest_agent {
+    // Старые системы (i440fx: DOS, Windows 9x/XP) virtio не знают — каждое такое устройство при загрузке
+    // просит драйвер; их агент ходит через COM2.
+    let virtio_ok = !pc;
+    if (vm.clipboard || vm.guest_agent) && virtio_ok {
         push(&["-device", "virtio-serial-pci,id=vser"]);
     }
     // Свои инструменты: в госте нет spice-agent и qemu-ga — их портов нет (буфер обмена — позже
     // через агента syn-vm).
-    if vm.clipboard && !vm.syn_tools() {
+    if vm.clipboard && !vm.syn_tools() && virtio_ok {
         // mouse=off: канал — только для буфера обмена; иначе он регистрирует свою «мышь» и
         // становится активной, а клики и VNC-указатель уходят в неё (Windows их теряет).
         push(&["-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on,mouse=off"]);
         push(&["-device", "virtserialport,bus=vser.0,chardev=vdagent,name=com.redhat.spice.0"]);
     }
-    if vm.guest_agent {
+    if vm.guest_agent && virtio_ok {
         if !vm.syn_tools() {
             push(&["-chardev", &format!("socket,id=qga0,path={},server=on,wait=off", vm.qga_path().display())]);
             push(&["-device", "virtserialport,bus=vser.0,chardev=qga0,name=org.qemu.guest_agent.0"]);
         }
         // Свой агент syn-vm (syn-vm-agent) — отдельный порт; посредник запускается после QEMU.
         for x in crate::agent::qemu_args(vm) {
+            push(&[&x]);
+        }
+    }
+    // Агент старых систем (SYNAGENT.EXE у Windows 9x/XP, агент DOS) — COM2, сокет agent-com.sock.
+    if vm.guest_agent && vm.firmware == Firmware::Bios {
+        for x in crate::agent::com_args(vm) {
             push(&[&x]);
         }
     }
@@ -309,7 +318,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         push(&["-device", "virtio-rng-pci"]);
     }
     // Без virtio-win у balloon в Windows нет драйвера.
-    if !vm.syn_tools() {
+    if !vm.syn_tools() && !pc {
         push(&["-device", "virtio-balloon-pci"]);
     }
     // Запасные разъёмы PCIe — для дисков, подключаемых на ходу. В конце, чтобы не сдвигать

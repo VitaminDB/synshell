@@ -123,13 +123,14 @@ fn mtime(p: &Path) -> u64 {
 pub fn iso() -> Result<PathBuf> {
     let agent = crate::agent::agent_binary(true).context(t!("нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)"))?;
     let agent_linux = crate::agent::agent_binary(false);
+    let agent_9x = crate::agent::agent_9x();
     let systems = systems_root();
     // Прежние части (пока syn-virt не кладёт каталоги систем): драйвер и образ syn-gpu.
     let serial = if systems.as_ref().is_some_and(|r| r.join("win10/syn-vm-serial").is_dir()) { None } else { serial_dir() };
     let gpu = if systems.as_ref().is_some_and(|r| r.join("win10/syn-gpu").is_dir()) { None } else { crate::gputools::iso() };
     // Отпечаток частей: пути, времена изменения, скрипты.
     let mut stamp = format!("v2\n{}\n{}\n", agent.display(), mtime(&agent));
-    if let Some(a) = &agent_linux {
+    for a in [&agent_linux, &agent_9x].into_iter().flatten() {
         stamp += &format!("{}\n{}\n", a.display(), mtime(a));
     }
     if let Some(r) = &systems {
@@ -159,6 +160,13 @@ pub fn iso() -> Result<PathBuf> {
     if let Some(a) = &agent_linux {
         std::fs::create_dir_all(stage.join("linux/agent"))?;
         std::fs::copy(a, stage.join("linux/agent/syn-vm-agent"))?;
+    }
+    // Windows 95/98/ME и XP — SYNAGENT.EXE (имя 8.3: диск читают и без длинных имён).
+    if let Some(a) = &agent_9x {
+        for sys in ["win9x", "winxp"] {
+            std::fs::create_dir_all(stage.join(sys).join("AGENT"))?;
+            std::fs::copy(a, stage.join(sys).join("AGENT/SYNAGENT.EXE"))?;
+        }
     }
     if let Some(r) = &systems {
         for sys in SYSTEMS {
@@ -210,7 +218,7 @@ pub fn iso() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    /// Сборка образа по каталогам систем (нужны xorriso и сборка агента: SYN_VM_AGENT_EXE,
+    /// Сборка образа по каталогам систем (нужны xorriso и сборки агентов: SYN_VM_AGENT_EXE, SYN_VM_AGENT_9X,
     /// SYN_VM_GUEST_TOOLS — каталог систем, XDG_CACHE_HOME — куда класть образ).
     #[test]
     #[ignore]
@@ -218,7 +226,7 @@ mod tests {
         let iso = super::iso().unwrap();
         let out = std::process::Command::new("xorriso").args(["-indev"]).arg(&iso).args(["-find", "/", "-type", "f"]).output().unwrap();
         let list = String::from_utf8_lossy(&out.stdout);
-        for f in ["/win10/agent/syn-vm-agent.exe", "/win7/agent/syn-vm-agent.exe", "/win9x/SYNGPU.INF", "/win7/install.cmd", "/dos/SYNGPU.COM", "/install.cmd", "/README.txt"] {
+        for f in ["/win10/agent/syn-vm-agent.exe", "/win7/agent/syn-vm-agent.exe", "/win9x/AGENT/SYNAGENT.EXE", "/winxp/AGENT/SYNAGENT.EXE", "/win9x/SYNGPU.INF", "/win7/install.cmd", "/dos/SYNGPU.COM", "/install.cmd", "/README.txt"] {
             assert!(list.contains(f), "{f} нет в образе:\n{list}");
         }
     }

@@ -8,6 +8,14 @@
 //! данные (вывод команд, куски файлов, строки журналов). Метка кадра позволяет найти начало
 //! следующего кадра после обрыва посреди передачи.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
@@ -174,7 +182,21 @@ impl Frame {
     }
 }
 
+/// Разобрать тело кадра (после метки и длины): `None` — негодный кадр (сообщение новой версии).
+pub fn decode_body(body: &[u8]) -> Option<Frame> {
+    if body.len() < 4 {
+        return None;
+    }
+    let jl = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
+    if jl > body.len() - 4 {
+        return None;
+    }
+    let msg = serde_json::from_slice::<Msg>(&body[4..4 + jl]).ok()?;
+    Some(Frame { msg, data: body[4 + jl..].to_vec() })
+}
+
 /// Записать кадр целиком.
+#[cfg(feature = "std")]
 pub fn write_frame(w: &mut impl Write, f: &Frame) -> io::Result<()> {
     w.write_all(&f.encode())?;
     w.flush()
@@ -182,6 +204,7 @@ pub fn write_frame(w: &mut impl Write, f: &Frame) -> io::Result<()> {
 
 /// Прочитать кадр. Мусор до метки пропускается; негодный JSON — кадр пропускается
 /// (сообщение новой версии), а конец потока — `UnexpectedEof`.
+#[cfg(feature = "std")]
 pub fn read_frame(r: &mut impl Read) -> io::Result<Frame> {
     loop {
         // Найти метку.
@@ -199,19 +222,21 @@ pub fn read_frame(r: &mut impl Read) -> io::Result<Frame> {
         }
         let mut body = vec![0u8; len];
         r.read_exact(&mut body)?;
-        let jl = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
-        if jl > len - 4 {
-            continue;
+        if let Some(f) = decode_body(&body) {
+            return Ok(f);
         }
-        let Ok(msg) = serde_json::from_slice::<Msg>(&body[4..4 + jl]) else { continue };
-        let data = body[4 + jl..].to_vec();
-        return Ok(Frame { msg, data });
     }
 }
 
 /// SHA-256 в шестнадцатеричном виде.
 pub fn hex(d: &[u8]) -> String {
-    d.iter().map(|b| format!("{b:02x}")).collect()
+    const H: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(d.len() * 2);
+    for b in d {
+        s.push(H[(b >> 4) as usize] as char);
+        s.push(H[(b & 15) as usize] as char);
+    }
+    s
 }
 
 pub use sha2::{Digest, Sha256};
