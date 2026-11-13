@@ -4,6 +4,11 @@
 //! ipam; регистрирует его `ipanetm`, а API IPA во фреймворке появляется только с `ipa_clientsm`), поверх —
 //! `rmnet_data0` драйвера rmnet_core (QMAP, мукс 1). Каналы IPA настраиваются ioctl'ами `rmnet_ipa0`, как это
 //! делает netmgrd Android. Модему: DPM — пара каналов IPA, WDA — формат QMAP, WDS — привязка мукса и сеанс.
+//!
+//! Mainline msm8916/msm8937 (SM-T295): BAM-DMUX — драйвер `qcom_bam_dmux` создаёт `wwan0…7`, когда модем
+//! поднимет линию и откроет каналы; модем msm8937 делает это только после DPM open port с портом BAM_DMUX
+//! (ep_type 5) — так netmgrd стока (`netmgr_config.xml`, раздел `feero`: DPM, WDA QMAP, `rmnet0` = канал 0).
+//! Поверх `wwan0` — тот же `rmnet_data0` (rmnet, QMAP, мукс 1).
 //! Сеанс WDS живёт, пока открыт сокет клиента: клиент держит [`Session`].
 
 use std::net::Ipv4Addr;
@@ -16,8 +21,24 @@ use anyhow::{bail, Context, Result};
 
 use crate::qmi::{svc, Client, Indication, Message};
 
-pub const IFACE: &str = "rmnet_data0";
+/// Интерфейс сеанса у IPA: rmnet поверх rmnet_ipa0 (QMAP, мукс 1).
+const IPA_IFACE: &str = "rmnet_data0";
+
+/// Интерфейс, по которому идут пакеты сеанса: `rmnet_data0` (IPA) или `wwan0` (BAM-DMUX, raw IP без QMAP).
+pub fn iface() -> &'static str {
+    match Transport::detect() {
+        Transport::Ipa => IPA_IFACE,
+        Transport::Bam => BAM_DEV,
+    }
+}
 const IPA_DEV: &str = "rmnet_ipa0";
+/// Канал 0 BAM-DMUX (mainline `qcom_bam_dmux`).
+const BAM_DEV: &str = "wwan0";
+/// Тип конечной точки BAM_DMUX и номер интерфейса (канал 0) — как у netmgrd стока msm8937.
+const BAM_EP_TYPE: u32 = 5;
+const BAM_EP_IFACE: u32 = 0;
+/// Управляющий канал данных (SMD) — `single_qmux_ch_name` netmgrd стока.
+const BAM_CTL_PORT: &str = "DATA5_CNTL";
 const MUX_ID: u8 = 1;
 /// Тип конечной точки «встроенная» (EMBEDDED) и её номер у rmnet_ipa (RMNET_IOCTL_GET_EPID — всегда 1).
 const EP_TYPE: u32 = 4;
@@ -87,9 +108,102 @@ fn exists(iface: &str) -> bool {
     std::path::Path::new("/sys/class/net").join(iface).exists()
 }
 
+/// Путь пакетов к модему.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    /// downstream: rmnet_ipa (Xiaomi, SM8450)
+    Ipa,
+    /// mainline: qcom_bam_dmux (SM-T295)
+    Bam,
+}
+
+impl Transport {
+    pub fn detect() -> Transport {
+        // привязанное устройство драйвера bam-dmux — запись «…:bam-dmux» в каталоге драйвера
+        let bam = std::fs::read_dir("/sys/bus/platform/drivers/bam-dmux")
+            .map(|rd| rd.flatten().any(|e| e.file_name().to_string_lossy().contains("bam-dmux")))
+            .unwrap_or(false);
+        if bam {
+            Transport::Bam
+        } else {
+            Transport::Ipa
+        }
+    }
+    fn endpoint(self) -> Vec<u8> {
+        let (t, i) = match self {
+            Transport::Ipa => (EP_TYPE, EP_IFACE),
+            Transport::Bam => (BAM_EP_TYPE, BAM_EP_IFACE),
+        };
+        let mut ep = t.to_le_bytes().to_vec();
+        ep.extend_from_slice(&i.to_le_bytes());
+        ep
+    }
+}
+
+/// Ядро и модем к передаче данных (один раз за запуск модема; повтор безвреден).
+pub fn prepare(ind: &std::sync::mpsc::Sender<Indication>) -> Result<Transport> {
+    let t = Transport::detect();
+    match t {
+        Transport::Ipa => {
+            let pair = setup_kernel()?;
+            setup_modem(ind, pair)?;
+        }
+        Transport::Bam => setup_bam(ind)?,
+    }
+    Ok(t)
+}
+
+/// BAM-DMUX: DPM open port (порт BAM_DMUX) → модем поднимает линию; WDA — QMAP на этом порту.
+fn setup_bam(ind: &std::sync::mpsc::Sender<Indication>) -> Result<()> {
+    let _ = Command::new("modprobe").arg("rmnet").status();
+    let dpm = Client::connect(svc::DPM, T, ind.clone())?;
+    // control_port_list: число, затем имя (длина + байты), ep_type, iface_id — управляющий канал SMD стока
+    let mut ctl = vec![1u8, BAM_CTL_PORT.len() as u8];
+    ctl.extend_from_slice(BAM_CTL_PORT.as_bytes());
+    for v in [BAM_EP_TYPE, BAM_EP_IFACE] {
+        ctl.extend_from_slice(&v.to_le_bytes());
+    }
+    // hardware_data_port_list: число, затем ep_type, iface_id, rx и tx (модем их не смотрит)
+    let mut hw = vec![1u8];
+    for v in [BAM_EP_TYPE, BAM_EP_IFACE, 0, 0] {
+        hw.extend_from_slice(&v.to_le_bytes());
+    }
+    // управляющий порт — только по SYN_DPM_CTL=1 (опыт: с ним модем не поднимает линию BAM)
+    let req = if std::env::var_os("SYN_DPM_CTL").is_some() { Message::new(0x20).tlv(0x10, ctl).tlv(0x11, hw) } else { Message::new(0x20).tlv(0x11, hw) };
+    if let Err(e) = dpm.call(req, T) {
+        tracing::info!("DPM open port (BAM_DMUX): {e:#}");
+    }
+    let wda = Client::connect(svc::WDA, T, ind.clone())?;
+    wda.call(
+        Message::new(0x20)
+            .u32(0x11, 2) // raw IP, без QMAP и агрегации: мукс на BAM-DMUX mainline не поддерживается
+            .u32(0x12, 0)
+            .u32(0x13, 0)
+            .tlv(0x17, Transport::Bam.endpoint()),
+        T,
+    )
+    .context("WDA set data format")?;
+    Ok(())
+}
+
+/// BAM-DMUX: канал модем открывает, когда к нему привязан сеанс — `wwan0` ждём после старта WDS.
+fn bam_link() -> Result<()> {
+    for _ in 0..100 {
+        if exists(BAM_DEV) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if !exists(BAM_DEV) {
+        bail!("{}", synshell_tr::t!("модем не открыл канал BAM-DMUX (нет {dev})", dev = BAM_DEV));
+    }
+    sh(&["ip", "link", "set", BAM_DEV, "up"])?;
+    Ok(())
+}
+
 /// Каналы IPA и `rmnet_data0` (один раз за запуск модема; повтор безвреден). Возвращает пару каналов IPA
 /// (consumer, producer) для DPM.
-pub fn setup_kernel() -> Result<(u32, u32)> {
+fn setup_kernel() -> Result<(u32, u32)> {
     // ipanetm регистрирует rmnet_ipa; ipa_clientsm открывает API IPA во фреймворке (без него «not registered
     // on ipa_fmwk» и «Embedded datapath not supported»); rmnet_core — rmnet_data*
     for m in ["ipa_clientsm", "ipanetm", "rmnet_core"] {
@@ -115,19 +229,19 @@ pub fn setup_kernel() -> Result<(u32, u32)> {
         tracing::debug!("формат передачи IPA: {e}");
     }
     sh(&["ip", "link", "set", IPA_DEV, "up"])?;
-    if !exists(IFACE) {
-        sh(&["ip", "link", "add", "link", IPA_DEV, "name", IFACE, "type", "rmnet", "mux_id", &MUX_ID.to_string(), "ingress-deaggregation", "on"])?;
+    if !exists(IPA_IFACE) {
+        sh(&["ip", "link", "add", "link", IPA_DEV, "name", IPA_IFACE, "type", "rmnet", "mux_id", &MUX_ID.to_string(), "ingress-deaggregation", "on"])?;
     }
     let mut mux = (MUX_ID as u32).to_ne_bytes().to_vec();
     let mut name = [0u8; 16];
-    name[..IFACE.len()].copy_from_slice(IFACE.as_bytes());
+    name[..IPA_IFACE.len()].copy_from_slice(IPA_IFACE.as_bytes());
     mux.extend_from_slice(&name);
     ext_ioctl(EXT_ADD_MUX_CHANNEL, &mux).context("мукс-канал IPA")?;
     Ok((consumer, producer))
 }
 
 /// Модем: пара каналов IPA (DPM) и формат QMAP (WDA) на встроенной конечной точке.
-pub fn setup_modem(ind: &std::sync::mpsc::Sender<Indication>, pair: (u32, u32)) -> Result<()> {
+fn setup_modem(ind: &std::sync::mpsc::Sender<Indication>, pair: (u32, u32)) -> Result<()> {
     let dpm = Client::connect(svc::DPM, T, ind.clone())?;
     let mut hw = vec![1u8];
     for v in [EP_TYPE, EP_IFACE, pair.0, pair.1] {
@@ -155,11 +269,12 @@ pub fn setup_modem(ind: &std::sync::mpsc::Sender<Indication>, pair: (u32, u32)) 
 }
 
 /// Сеанс: свой клиент WDS (индикации о сеансе — в `ind`), привязка к муксу, старт по профилю 1.
-pub fn connect(ind: &std::sync::mpsc::Sender<Indication>) -> Result<Session> {
+pub fn connect(ind: &std::sync::mpsc::Sender<Indication>, transport: Transport) -> Result<Session> {
     let wds = Client::connect(svc::WDS, T, ind.clone())?;
-    let mut ep = EP_TYPE.to_le_bytes().to_vec();
-    ep.extend_from_slice(&EP_IFACE.to_le_bytes());
-    wds.call(Message::new(0xA2).tlv(0x10, ep).u8(0x11, MUX_ID), T).context("WDS bind mux data port")?;
+    let ep = transport.endpoint();
+    // BAM-DMUX: Bind Mux Data Port с муксом 0 (Bind Data Port на этих модемах не работает — ModemManager)
+    let mux = if transport == Transport::Bam { 0 } else { MUX_ID };
+    wds.call(Message::new(0xA2).tlv(0x10, ep).u8(0x11, mux), T).context("WDS bind mux data port")?;
     let r = wds.call_raw(Message::new(0x20).u8(0x19, 4).u8(0x31, 1), Duration::from_secs(60))?;
     if let Err(e) = r.result() {
         let reason = r.reader(0x11).and_then(|mut rd| Some((rd.u16()?, rd.i16()?)));
@@ -169,6 +284,12 @@ pub fn connect(ind: &std::sync::mpsc::Sender<Indication>) -> Result<Session> {
         });
     }
     let handle = r.reader(0x01).and_then(|mut rd| rd.u32()).context("нет номера сеанса")?;
+    if transport == Transport::Bam {
+        if let Err(e) = bam_link() {
+            let _ = wds.call(Message::new(0x21).u32(0x01, handle), T);
+            return Err(e);
+        }
+    }
     let settings = current_settings(&wds)?;
     Ok(Session { wds, handle, settings })
 }
@@ -190,20 +311,20 @@ fn current_settings(wds: &Client) -> Result<Settings> {
 /// Адрес, MTU, маршрут по умолчанию и DNS (systemd-resolved, на интерфейс).
 pub fn configure(s: &Settings) -> Result<()> {
     let Some(addr) = s.address else { bail!("{}", synshell_tr::t!("модем не выдал адрес IPv4")) };
-    let _ = sh(&["ip", "addr", "flush", "dev", IFACE]);
-    sh(&["ip", "addr", "add", &format!("{addr}/{}", s.prefix.clamp(1, 32)), "dev", IFACE])?;
+    let _ = sh(&["ip", "addr", "flush", "dev", iface()]);
+    sh(&["ip", "addr", "add", &format!("{addr}/{}", s.prefix.clamp(1, 32)), "dev", iface()])?;
     if let Some(mtu) = s.mtu {
-        let _ = sh(&["ip", "link", "set", IFACE, "mtu", &mtu.to_string()]);
+        let _ = sh(&["ip", "link", "set", iface(), "mtu", &mtu.to_string()]);
     }
-    sh(&["ip", "link", "set", IFACE, "up"])?;
+    sh(&["ip", "link", "set", iface(), "up"])?;
     // Raw IP: шлюз не нужен, маршрут — в интерфейс
-    let _ = sh(&["ip", "route", "replace", "default", "dev", IFACE, "metric", ROUTE_METRIC]);
+    let _ = sh(&["ip", "route", "replace", "default", "dev", iface(), "metric", ROUTE_METRIC]);
     if !s.dns.is_empty() {
-        let mut args = vec!["resolvectl", "dns", IFACE];
+        let mut args = vec!["resolvectl", "dns", iface()];
         let dns: Vec<String> = s.dns.iter().map(|d| d.to_string()).collect();
         args.extend(dns.iter().map(String::as_str));
         let _ = sh(&args);
-        let _ = sh(&["resolvectl", "default-route", IFACE, "true"]);
+        let _ = sh(&["resolvectl", "default-route", iface(), "true"]);
     }
     Ok(())
 }
@@ -219,10 +340,10 @@ pub fn disconnect(session: Option<&Session>) {
 }
 
 pub fn deconfigure() {
-    if exists(IFACE) {
-        let _ = sh(&["resolvectl", "revert", IFACE]);
-        let _ = sh(&["ip", "route", "flush", "dev", IFACE]);
-        let _ = sh(&["ip", "addr", "flush", "dev", IFACE]);
-        let _ = sh(&["ip", "link", "set", IFACE, "down"]);
+    if exists(iface()) {
+        let _ = sh(&["resolvectl", "revert", iface()]);
+        let _ = sh(&["ip", "route", "flush", "dev", iface()]);
+        let _ = sh(&["ip", "addr", "flush", "dev", iface()]);
+        let _ = sh(&["ip", "link", "set", iface(), "down"]);
     }
 }

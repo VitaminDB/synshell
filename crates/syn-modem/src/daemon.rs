@@ -749,11 +749,10 @@ impl Daemon {
         use std::sync::atomic::Ordering::SeqCst;
         let tx = self.ind_tx.lock().unwrap().clone().ok_or_else(|| anyhow!("{}", t!("модем не запущен")))?;
         if !self.data_ready.load(SeqCst) {
-            let pair = data::setup_kernel()?;
-            data::setup_modem(&tx, pair)?;
+            data::prepare(&tx)?;
             self.data_ready.store(true, SeqCst);
         }
-        let s = data::connect(&tx)?;
+        let s = data::connect(&tx, data::Transport::detect())?;
         if let Err(e) = data::configure(&s.settings) {
             data::disconnect(Some(&s));
             return Err(e);
@@ -766,7 +765,7 @@ impl Daemon {
         let d = self.clone();
         std::thread::spawn(move || {
             let read = |f: &str| -> Option<u64> {
-                std::fs::read_to_string(format!("/sys/class/net/{}/statistics/{f}", data::IFACE)).ok()?.trim().parse().ok()
+                std::fs::read_to_string(format!("/sys/class/net/{}/statistics/{f}", data::iface())).ok()?.trim().parse().ok()
             };
             let mut last: Option<(u64, u64)> = None;
             let mut dirty = 0u32;
