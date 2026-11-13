@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{CallRecord, Sms};
+use crate::api::{Call, CallRecord, Sms};
 
 pub const PATH: &str = "/var/lib/synmodem/state.json";
 
@@ -28,6 +28,10 @@ pub struct Store {
     pub sms: Vec<Sms>,
     #[serde(default)]
     pub calls: Vec<CallRecord>,
+    /// Идущие звонки (снимок при каждом изменении): если демон перезапустится или упадёт посреди звонка, после
+    /// запуска звонок всё равно попадёт в журнал — продолжится, если модем его ещё ведёт, иначе запишется.
+    #[serde(default)]
+    pub ongoing: Vec<Call>,
     #[serde(default)]
     pub parts: Vec<Part>,
     #[serde(default)]

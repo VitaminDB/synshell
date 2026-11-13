@@ -50,6 +50,11 @@ struct Inner {
     /// Когда звонок перешёл в разговор.
     answered: HashMap<u8, i64>,
     started: HashMap<u8, i64>,
+    /// Звонки из снимка прошлого запуска демона (`Store::ongoing`): ждут первого списка звонков от модема.
+    orphans: Vec<Call>,
+    /// Недавно записанные в журнал звонки (id → когда): модем шлёт «отбой» и «конец» одного звонка двумя
+    /// индикациями — вторая не должна дать вторую запись.
+    logged: HashMap<u8, i64>,
     /// Звук разговора включён хуком.
     call_audio: bool,
 }
@@ -563,23 +568,41 @@ impl Daemon {
 
     fn set_calls(&self, list: Vec<(u8, CallState, bool, String)>) {
         let t = now();
-        let mut ended: Vec<CallRecord> = Vec::new();
-        let (calls, audio) = {
+        let mut ended: Vec<(u8, CallRecord)> = Vec::new();
+        let (calls, audio, changed) = {
             let mut i = self.inner.lock().unwrap();
+            // звонки прошлого запуска демона — как будто были в состоянии (время начала и ответа — оттуда)
+            for c in std::mem::take(&mut i.orphans) {
+                if !i.status.calls.iter().any(|x| x.id == c.id) {
+                    i.started.entry(c.id).or_insert(c.started_at);
+                    if let Some(a) = c.answered_at {
+                        i.answered.entry(c.id).or_insert(a);
+                    }
+                    i.status.calls.push(c);
+                }
+            }
+            i.logged.retain(|_, at| t - *at < 60);
             let prev: HashMap<u8, Call> = i.status.calls.iter().map(|c| (c.id, c.clone())).collect();
             let seen: HashSet<u8> = list.iter().map(|c| c.0).collect();
             let mut calls = Vec::new();
             for (id, state, incoming, number) in list {
+                let known = prev.contains_key(&id);
+                if state == CallState::Ended && !known && i.logged.contains_key(&id) {
+                    // вторая индикация конца уже записанного звонка
+                    continue;
+                }
                 i.started.entry(id).or_insert(t);
                 if state == CallState::Active {
                     i.answered.entry(id).or_insert(t);
                 }
                 let number = if number.is_empty() { prev.get(&id).map(|c| c.number.clone()).unwrap_or_default() } else { number };
                 let call = Call { id, number, state, incoming, answered_at: i.answered.get(&id).copied(), started_at: i.started[&id] };
+                if prev.get(&id).map(|c| c.state) != Some(state) {
+                    tracing::info!("звонок {id}: {state:?} {} {}", if incoming { "входящий" } else { "исходящий" }, call.number);
+                }
                 if state == CallState::Ended {
-                    if prev.contains_key(&id) {
-                        ended.push(Self::record_of(&mut i, &call, t));
-                    }
+                    // в том числе звонок, который успел начаться и кончиться между индикациями (пропущенный)
+                    ended.push((id, Self::record_of(&mut i, &call, t)));
                     continue;
                 }
                 calls.push(call);
@@ -587,21 +610,31 @@ impl Daemon {
             // Пропали из списка без «END» — тоже завершены
             for (id, c) in &prev {
                 if !seen.contains(id) {
-                    ended.push(Self::record_of(&mut i, c, t));
+                    ended.push((*id, Self::record_of(&mut i, c, t)));
                 }
             }
             let audio = calls.iter().any(|c| matches!(c.state, CallState::Active | CallState::Alerting | CallState::Held | CallState::Dialing));
-            (calls, audio)
+            for (id, _) in &ended {
+                i.logged.insert(*id, t);
+            }
+            let snap = |v: &[Call]| v.iter().map(|c| (c.id, c.state, c.answered_at)).collect::<Vec<_>>();
+            let changed = !ended.is_empty() || snap(&calls) != snap(&i.status.calls);
+            (calls, audio, changed)
         };
-        if !ended.is_empty() {
+        if changed {
             let mut st = self.store.lock().unwrap();
-            for mut rec in ended {
+            let had = !ended.is_empty();
+            for (_, mut rec) in ended {
                 rec.id = st.id();
+                tracing::info!("журнал звонков: {:?} {} {} с", rec.kind, rec.number, rec.duration);
                 st.calls.push(rec);
             }
+            st.ongoing = calls.clone();
             st.save();
             drop(st);
-            self.emit(Event::CallLog);
+            if had {
+                self.emit(Event::CallLog);
+            }
         }
         self.update(|s| s.calls = calls);
         self.call_audio(audio);
@@ -1481,6 +1514,14 @@ pub fn run() -> Result<()> {
             }
         });
         let _ = d.gnss.set(g);
+    }
+    {
+        // звонки, которые шли при остановке демона: допишутся в журнал по первому списку звонков модема
+        let ongoing = std::mem::take(&mut d.store.lock().unwrap().ongoing);
+        if !ongoing.is_empty() {
+            tracing::info!("звонков с прошлого запуска: {}", ongoing.len());
+        }
+        d.inner.lock().unwrap().orphans = ongoing;
     }
     d.refresh_unread();
     d.usage_loop();
