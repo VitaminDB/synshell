@@ -566,6 +566,10 @@ pub struct Vm {
     pub gpu3d: bool,
     /// Доп. ключи сервера syn-gpu (`--heap-gib 4 --gpu nvidia`).
     pub gpu3d_args: String,
+    /// Класс PCI устройства syn-gpu (`x-pci-class-code` у vfio-user-pci), например `0x038000` —
+    /// «прочий дисплейный контроллер»: Windows 7 не ведёт его в ветку VgaSave. Пусто — как у
+    /// устройства (0x030000, VGA).
+    pub gpu_pci_class: String,
     pub sound: bool,
     /// Звуковая карта (`auto` — по прошивке).
     pub sound_card: SoundCard,
@@ -629,6 +633,7 @@ impl Default for Vm {
             dlss: false,
             gpu3d: false,
             gpu3d_args: String::new(),
+            gpu_pci_class: String::new(),
             sound: true,
             sound_card: SoundCard::Auto,
             clipboard: true,
@@ -800,7 +805,7 @@ impl Vm {
         } else if a.gpu_on() != b.gpu_on() {
             out.push(if b.gpu_on() { t!("3D-ускорение (syn-gpu): включено") } else { t!("3D-ускорение (syn-gpu): выключено") });
         }
-        if a.gpu_on() && b.gpu_on() && a.gpu3d_args != b.gpu3d_args {
+        if a.gpu_on() && b.gpu_on() && (a.gpu3d_args != b.gpu3d_args || a.gpu_pci_class != b.gpu_pci_class) {
             out.push(t!("настройки видеокарты syn-gpu"));
         }
         if a.cpus != b.cpus || a.memory_mb != b.memory_mb {

@@ -488,7 +488,9 @@ pub fn start(vm: &Vm) -> Result<()> {
         start_virtiofsd(vm)?;
     }
     // Устройство уже в «Аргументах QEMU» (ручная настройка) — второе не добавлять.
-    if vm.gpu_on() && !args.iter().any(|a| a.contains("vfio-user-pci")) {
+    // Устройство syn-gpu уже есть (своё в «доп. аргументах»)? Только -device: -global vfio-user-pci.… — не оно.
+    let has_dev = args.windows(2).any(|w| w[0] == "-device" && (w[1].starts_with("vfio-user-pci") || w[1].contains("\"driver\":\"vfio-user-pci\"")));
+    if vm.gpu_on() && !has_dev {
         let sock = start_syn_gpu(vm)?;
         args.push("-device".into());
         // BIOS: старые VGA-адреса — устройству (свой VGA/VBE BIOS syn-gpu); UEFI — не нужно (GOP).
@@ -500,7 +502,11 @@ pub fn start(vm: &Vm) -> Result<()> {
         } else {
             String::new()
         };
-        args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}{xvga}}}", sock.display()));
+        let class = match parse_pci_class(&vm.gpu_pci_class) {
+            Some(c) => format!(",\"x-pci-class-code\":{c}"),
+            None => String::new(),
+        };
+        args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}{xvga}{class}}}", sock.display()));
     }
     let qemu = qemu_bin(vm)?;
     tracing::info!("{} {}", qemu.display(), args.join(" "));
@@ -580,6 +586,20 @@ pub fn spawn_watcher(vm: &Vm, flag: &str) {
 
 /// syn-gpu у машины с BIOS: старые VGA-адреса (текст, режимы 13h/12h, VBE) должны доходить до
 /// устройства — свойство `x-vga` у `vfio-user-pci` (патч QEMU из syn-virt, пока его нет в upstream).
+/// Класс PCI из настройки: `0x038000` или `038000` (шесть цифр — всегда шестнадцатеричный).
+pub fn parse_pci_class(s: &str) -> Option<u32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        Some(h) => u32::from_str_radix(h, 16).ok(),
+        None if s.len() == 6 && s.chars().all(|c| c.is_ascii_hexdigit()) => u32::from_str_radix(s, 16).ok(),
+        None => s.parse().ok(),
+    }
+    .filter(|c| *c <= 0xFF_FFFF)
+}
+
 pub fn needs_xvga(vm: &Vm) -> bool {
     // syn-gpu — загрузочная VGA только как основная видеокарта; при std/virtio экране он вторым устройством
     // (Windows 7 с двумя VGA падает в VgaSave: DpiFilterOutVgaResources).
@@ -1067,6 +1087,14 @@ mod tests {
         assert!(crate::dostools::is_dos(&vm));
         let j = args(&vm).unwrap().join(" ");
         assert!(!j.contains("usb-tablet") && j.contains("qemu-xhci,id=xhci"));
+    }
+
+    #[test]
+    fn pci_class_parse() {
+        assert_eq!(parse_pci_class("0x038000"), Some(0x038000));
+        assert_eq!(parse_pci_class("038000"), Some(0x038000));
+        assert_eq!(parse_pci_class(""), None);
+        assert_eq!(parse_pci_class("0x1000000"), None);
     }
 
     #[test]
