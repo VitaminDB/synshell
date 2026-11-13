@@ -1,0 +1,31 @@
+# Гостевой агент syn-vm для DOS (SYNAGENT.COM): 16-битный реальный режим, Rust (i386-unknown-none-code16,
+# модель tiny; цель и вызовы DOS — из syn-virt guest/dos-tools). Протокол — тот же, что у остальных агентов
+# (кадры SVA1 + JSON, crates/syn-vm-agent/src/lib.rs), разбор JSON — свой маленький (64 КиБ на всё).
+# Канал — COM2 (0x2F8, опрос UART). Сборка: ../build.sh dos → target/i386-code16/<профиль>/synagent.
+[package]
+name = "syn-vm-agent-dos"
+version = "0.2.0"
+edition = "2024"
+license = "GPL-3.0-only"
+authors = ["Alexeyev Vitaly"]
+
+[workspace]
+
+[[bin]]
+name = "synagent"
+path = "src/main.rs"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.fast-release]
+inherits = "release"
+
+[profile.dev]
+panic = "abort"
+opt-level = "z"

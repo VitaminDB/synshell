@@ -204,6 +204,7 @@ fn hello() -> Frame {
         boot: boot(),
         instance: instance(),
         user: sys::session_user(),
+        max_chunk: None,
     })
 }
 

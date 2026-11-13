@@ -515,7 +515,7 @@ fn hello() -> Msg {
         INSTANCE.store(v.max(1), core::sync::atomic::Ordering::Relaxed);
     }
     let instance = INSTANCE.load(core::sync::atomic::Ordering::Relaxed);
-    Msg::Hello { version: VERSION, agent: format!("syn-vm-agent-9x {}", env!("CARGO_PKG_VERSION")), os: os.trim().into(), host, boot, instance, user: None }
+    Msg::Hello { version: VERSION, agent: format!("syn-vm-agent-9x {}", env!("CARGO_PKG_VERSION")), os: os.trim().into(), host, boot, instance, user: None, max_chunk: None }
 }
 
 /// Приём файла (Put → Data… → PutEnd).

@@ -449,6 +449,8 @@ fn send_share(vm: &Vm, tx: &Tx) {
 #[derive(Debug, Clone)]
 pub struct Info {
     pub instance: u64,
+    /// Предел куска файла у агента (DOS — 2 КиБ).
+    pub max_chunk: Option<u32>,
     pub agent: String,
     pub os: String,
     pub host: String,
@@ -534,7 +536,7 @@ impl Client {
         let f = self.recv_for(id, Some(Duration::from_secs(5)))?;
         let Msg::State { hello, user, ips, .. } = f.msg else { bail!("status") };
         Ok(hello.and_then(|h| match *h {
-            Msg::Hello { agent, os, host, instance, .. } => Some(Info { instance, agent, os, host, user: user.clone(), ips: ips.clone() }),
+            Msg::Hello { agent, os, host, instance, max_chunk, .. } => Some(Info { instance, max_chunk, agent, os, host, user: user.clone(), ips: ips.clone() }),
             _ => None,
         }))
     }
@@ -603,10 +605,12 @@ impl Client {
     }
 
     fn put_reader(&mut self, mut f: impl Read, size: u64, guest: &str) -> Result<u64> {
+        // Кусок — не больше, чем примет агент (DOS держит всё в 64 КиБ).
+        let chunk = self.info().ok().flatten().and_then(|i| i.max_chunk).map_or(CHUNK, |m| (m as usize).clamp(256, CHUNK));
         let id = self.id();
         self.send(Frame::new(Msg::Put { id, path: guest.to_string(), size }))?;
         let mut h = Sha256::new();
-        let mut buf = vec![0u8; CHUNK];
+        let mut buf = vec![0u8; chunk];
         loop {
             let n = f.read(&mut buf)?;
             if n == 0 {
@@ -819,18 +823,29 @@ pub fn online(vm: &Vm) -> bool {
 /// Агент Windows 95/98/ME и XP (SYNAGENT.EXE): SYN_VM_AGENT_9X, пакет, сборка из исходников
 /// (`crates/syn-vm-agent/legacy/win9x/target/i586-win9x/<профиль>/synagent.exe` рядом с target/ syn-vm).
 pub fn agent_9x() -> Option<PathBuf> {
+    legacy_agent("SYN_VM_AGENT_9X", "SYNAGENT.EXE", "win9x/target/i586-win9x", "synagent.exe")
+}
+
+/// Агент DOS (SYNAGENT.COM): SYN_VM_AGENT_DOS или пакет. Сборка из исходников — ELF, .COM из него
+/// делает `legacy/build.sh dos` (objcopy), так что здесь — только готовый файл.
+pub fn agent_dos() -> Option<PathBuf> {
+    legacy_agent("SYN_VM_AGENT_DOS", "SYNAGENT.COM", "dos/out", "SYNAGENT.COM")
+}
+
+fn legacy_agent(var: &str, packaged: &str, dev_dir: &str, dev_file: &str) -> Option<PathBuf> {
     let mut c: Vec<PathBuf> = Vec::new();
-    if let Some(p) = std::env::var_os("SYN_VM_AGENT_9X") {
+    if let Some(p) = std::env::var_os(var) {
         c.push(PathBuf::from(p));
     }
-    c.push(PathBuf::from("/usr/lib/syn-vm/agent/SYNAGENT.EXE"));
+    c.push(PathBuf::from("/usr/lib/syn-vm/agent").join(packaged));
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
         // target/<профиль>/syn-vm → корень рабочего пространства
         if let (Some(profile), Some(root)) = (dir.file_name(), dir.parent().and_then(Path::parent)) {
-            let base = root.join("crates/syn-vm-agent/legacy/win9x/target/i586-win9x");
-            c.push(base.join(profile).join("synagent.exe"));
-            c.push(base.join("release/synagent.exe"));
-            c.push(base.join("fast-release/synagent.exe"));
+            let base = root.join("crates/syn-vm-agent/legacy").join(dev_dir);
+            c.push(base.join(profile).join(dev_file));
+            c.push(base.join("release").join(dev_file));
+            c.push(base.join("fast-release").join(dev_file));
+            c.push(base.join(dev_file));
         }
     }
     c.into_iter().find(|p| p.is_file())

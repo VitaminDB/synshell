@@ -94,7 +94,18 @@ pub enum Msg {
     // ── гость → хост ──
     /// Агент на связи. `boot` — метка загрузки системы, `instance` — запуска агента:
     /// новая метка — незавершённые операции прерваны перезагрузкой или перезапуском.
-    Hello { version: u32, agent: String, os: String, host: String, boot: String, instance: u64, user: Option<String> },
+    /// `max_chunk` — больший кусок файла агент не примет (DOS: всё в 64 КиБ); нет — [`CHUNK`].
+    Hello {
+        version: u32,
+        agent: String,
+        os: String,
+        host: String,
+        boot: String,
+        instance: u64,
+        user: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_chunk: Option<u32>,
+    },
     /// Вошёл (или вышел) пользователь интерактивного сеанса.
     Session { user: Option<String> },
     /// Адреса гостя (без петли и link-local): после `Hello` и при смене.
