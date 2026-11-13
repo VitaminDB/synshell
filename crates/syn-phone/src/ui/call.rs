@@ -35,11 +35,11 @@ fn draw_vis(ctx: &mut CanvasContext, t: f32) {
     let step = 6.0f32;
     let bar = 3.4f32;
     let n = (w / step) as usize + 2;
-    let (them, me, live, frac) = {
+    let (them, me, live, mono, frac) = {
         let v = voice::vis();
         let take = |q: &std::collections::VecDeque<f32>| -> Vec<f32> { q.iter().skip(q.len().saturating_sub(n)).copied().collect() };
         let frac = v.last.map(|l| (l.elapsed().as_secs_f32() * voice::LEVELS_PER_SEC as f32).min(1.0)).unwrap_or(0.0);
-        (take(&v.them), take(&v.me), v.live, frac)
+        (take(&v.them), take(&v.me), v.live, v.mono, frac)
     };
     // черта середины
     ctx.set_color(fg.with_alpha(0.18));
@@ -56,6 +56,20 @@ fn draw_vis(ctx: &mut CanvasContext, t: f32) {
         return;
     }
     let amp = mid - 4.0;
+    if mono {
+        // одна дорожка (микрофон слышит обоих): столбики симметрично от черты
+        for (i, &b) in me.iter().rev().enumerate() {
+            let x = w - (i as f32 + frac) * step - step;
+            if x < -bar {
+                break;
+            }
+            let fade = (x / (w * 0.25)).clamp(0.0, 1.0);
+            let hb = (b * b * amp).max(1.5);
+            ctx.set_color(accent.with_alpha(0.25 + 0.75 * fade));
+            ctx.fill_rounded_rect(x, mid - hb, bar, hb * 2.0, bar * 0.5);
+        }
+        return;
+    }
     for (i, (&a, &b)) in them.iter().rev().zip(me.iter().rev()).enumerate() {
         let x = w - (i as f32 + frac) * step - step;
         if x < -bar {
@@ -81,7 +95,11 @@ fn visualization(st: St) -> W {
             Column::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(Row::new().child(Text::new(t!("Собеседник")).class("vis-label vis-them grow")).child(Text::new(t!("Вы")).class("vis-label")))
+                .child(if voice::mono_source() {
+                    Row::new().main_axis_alignment(MainAxisAlignment::Center).child(Text::new(t!("Разговор")).class("vis-label vis-them"))
+                } else {
+                    Row::new().child(Text::new(t!("Собеседник")).class("vis-label vis-them grow")).child(Text::new(t!("Вы")).class("vis-label"))
+                })
                 .child(DecoratedBox::new().class("vis").child(Canvas::new(draw_vis).animated(true)))
                 .class("vis-box"),
         )]
@@ -170,13 +188,13 @@ pub fn view(st: St) -> W {
         row1 = row1.child(round(if muted { ic::MIC_OFF } else { ic::MIC }, soft(muted), if muted { t!("Микрофон выкл.").into() } else { t!("Микрофон").into() }, move || {
             let on = !st.muted.get_untracked();
             st.muted.set(on);
-            voice_cmd(st, format!("voice-mute {}", if on { "on" } else { "off" }));
+            voice_cmd(st, &["mute", if on { "on" } else { "off" }]);
         }));
         row1 = row1.child(round(ic::DIALPAD, soft(open), t!("Клавиши").into(), move || st.dtmf_open.set(!st.dtmf_open.get_untracked())));
         row1 = row1.child(round(ic::SPEAKER, soft(speaker), t!("Динамик").into(), move || {
             let on = !st.speaker.get_untracked();
             st.speaker.set(on);
-            voice_cmd(st, format!("voice-route {}", if on { "speaker" } else { "auto" }));
+            voice_cmd(st, &["route", if on { "speaker" } else { "auto" }]);
         }));
         col = col.child(row1);
         if !open {

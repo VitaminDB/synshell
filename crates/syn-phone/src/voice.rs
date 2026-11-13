@@ -1,6 +1,8 @@
 //! Звук разговора: отвод palaudiod (`/run/palaudio/voice-tap`) — строка JSON с форматом, дальше PCM s16le
 //! (левый канал — свой микрофон, правый — собеседник). Из него — уровни голосов для визуализации и запись
-//! разговора (ffmpeg → Opus, моно: оба голоса). Отвода нет — запись и визуализация недоступны, звонки работают.
+//! разговора (ffmpeg → Opus, моно: оба голоса). На устройствах с голосом через ALSA q6voice (call-audio, способ alsa:
+//! SM-T295 и подобные) отвода собеседника нет — звук берётся с микрофона через PipeWire: на громкой связи в нём оба
+//! голоса, визуализация — одна дорожка «Разговор». Ни того ни другого — запись и визуализация недоступны.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -11,12 +13,24 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 pub const TAP: &str = "/run/palaudio/voice-tap";
+/// Настройки звука звонка способа alsa (call-audio): есть — запись и уровни с микрофона.
+pub const ALSA_CONF: &str = "/etc/synmobile/call-audio.conf";
+/// Частота записи с микрофона.
+const MIC_RATE: u32 = 16000;
+/// Усиление записи с микрофона: во время звонка кодек стоит на голосовых уровнях стока (ADC1 6, цифра 0 дБ) —
+/// на 18 дБ тише записи вне звонка (docs/27 §27.33); +12 дБ возвращает речь к уровню диктофона.
+const MIC_GAIN: i32 = 4;
 /// Уровней на секунду визуализации.
 pub const LEVELS_PER_SEC: usize = 20;
 const KEEP: usize = 600;
 
 pub fn available() -> bool {
-    std::env::var_os("SYNPHONE_DEMO_TAP").is_some() || Path::new(TAP).exists()
+    std::env::var_os("SYNPHONE_DEMO_TAP").is_some() || Path::new(TAP).exists() || Path::new(ALSA_CONF).exists()
+}
+
+/// Источник — одна дорожка (микрофон, без отвода собеседника): визуализация одной полосой.
+pub fn mono_source() -> bool {
+    std::env::var_os("SYNPHONE_DEMO_TAP").is_none() && !Path::new(TAP).exists() && Path::new(ALSA_CONF).exists()
 }
 
 /// Уровни голосов (0..1, громкость в «слышимой» шкале), новые в конце.
@@ -28,10 +42,12 @@ pub struct Vis {
     pub me: VecDeque<f32>,
     /// Звук идёт.
     pub live: bool,
+    /// Одна дорожка (микрофон, оба голоса вместе): `them` пустой.
+    pub mono: bool,
     pub last: Option<Instant>,
 }
 
-static VIS: Mutex<Vis> = Mutex::new(Vis { them: VecDeque::new(), me: VecDeque::new(), live: false, last: None });
+static VIS: Mutex<Vis> = Mutex::new(Vis { them: VecDeque::new(), me: VecDeque::new(), live: false, mono: false, last: None });
 
 pub fn vis() -> MutexGuard<'static, Vis> {
     VIS.lock().unwrap()
@@ -66,7 +82,13 @@ pub fn set_call(on: bool) {
         .name("voice-tap".into())
         .spawn(|| {
             while CALL.load(Ordering::SeqCst) {
-                let r = if std::env::var_os("SYNPHONE_DEMO_TAP").is_some() { demo() } else { tap() };
+                let r = if std::env::var_os("SYNPHONE_DEMO_TAP").is_some() {
+                    demo()
+                } else if Path::new(TAP).exists() {
+                    tap()
+                } else {
+                    mic()
+                };
                 if let Err(e) = r {
                     tracing::debug!("отвод звука разговора: {e}");
                 }
@@ -92,6 +114,7 @@ fn tap() -> std::io::Result<()> {
     let rate = num("rate").unwrap_or(16000).clamp(8000, 48000);
     let ch = num("channels").unwrap_or(2).clamp(1, 2) as usize;
     *RATE.lock().unwrap() = rate;
+    vis().mono = ch == 1;
     let frames = rate as usize / LEVELS_PER_SEC;
     let mut buf = vec![0u8; frames * ch * 2];
     while CALL.load(Ordering::SeqCst) {
@@ -99,6 +122,35 @@ fn tap() -> std::io::Result<()> {
         feed(&buf, ch);
     }
     Ok(())
+}
+
+/// Микрофон через PipeWire (способ alsa): сырой s16le моно из pw-record, пока идёт звонок.
+fn mic() -> std::io::Result<()> {
+    let mut child = Command::new("pw-record")
+        .args(["--raw", "--format", "s16", "--channels", "1", "--rate", &MIC_RATE.to_string(), "--media-role", "Communication", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    *RATE.lock().unwrap() = MIC_RATE;
+    vis().mono = true;
+    let mut out = child.stdout.take().ok_or_else(|| std::io::Error::other("pw-record без stdout"))?;
+    let frames = MIC_RATE as usize / LEVELS_PER_SEC;
+    let mut buf = vec![0u8; frames * 2];
+    let r = (|| {
+        while CALL.load(Ordering::SeqCst) {
+            out.read_exact(&mut buf)?;
+            for s in buf.chunks_exact_mut(2) {
+                let v = (i16::from_le_bytes([s[0], s[1]]) as i32 * MIC_GAIN).clamp(-32768, 32767) as i16;
+                s.copy_from_slice(&v.to_le_bytes());
+            }
+            feed(&buf, 1);
+        }
+        Ok(())
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    r
 }
 
 /// Отладка без модема: два «голоса» по очереди.

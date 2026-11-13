@@ -375,9 +375,20 @@ fn on_status(st: St, status: Status) {
 pub fn ticker(st: St) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
+        // маршрут звонка, выбранный хуком (громкая связь, если разговорного нет) — один раз за звонок
+        static ROUTE_SYNCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let route = voice_route();
         run_on_main_thread(move || {
+            use std::sync::atomic::Ordering::SeqCst;
             if st.status.get_untracked().is_some_and(|s| !s.calls.is_empty()) {
                 st.tick.set(tm::now());
+                if let Some(r) = route {
+                    if !ROUTE_SYNCED.swap(true, SeqCst) && st.speaker.get_untracked() != (r == "speaker") {
+                        st.speaker.set(r == "speaker");
+                    }
+                }
+            } else {
+                ROUTE_SYNCED.store(false, SeqCst);
             }
         });
     });
@@ -541,30 +552,29 @@ pub fn stop_recording(st: St) {
     });
 }
 
-/// Команда голосу разговора в palaudiod (сокет управления); в фоне.
-pub fn voice_cmd(st: St, cmd: String) {
+/// Звук разговора: `call-audio route …|mute …` (palaudiod или ALSA q6voice — решает сам хук, docs/21); в фоне.
+pub fn voice_cmd(st: St, args: &[&str]) {
     if st.demo {
         return;
     }
+    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     std::thread::spawn(move || {
-        use std::io::{BufRead, BufReader, Write};
-        let r = (|| -> std::io::Result<String> {
-            let mut s = std::os::unix::net::UnixStream::connect("/run/palaudio/control")?;
-            s.set_read_timeout(Some(Duration::from_secs(5)))?;
-            s.write_all(format!("{cmd}\n").as_bytes())?;
-            let mut line = String::new();
-            BufReader::new(s).read_line(&mut line)?;
-            Ok(line)
-        })();
-        let err = match r {
-            Ok(l) if l.contains("\"error\"") => Some(l),
-            Ok(_) => None,
-            Err(e) => Some(e.to_string()),
+        let err = match std::process::Command::new(CALL_AUDIO).args(&args).stdin(std::process::Stdio::null()).output() {
+            Ok(o) if o.status.success() => None,
+            Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            Err(e) => Some(format!("{CALL_AUDIO}: {e}")),
         };
         if let Some(e) = err {
-            run_on_main_thread(move || st.toast(t!("Звук разговора: {error}", error = e.trim())));
+            run_on_main_thread(move || st.toast(t!("Звук разговора: {error}", error = e)));
         }
     });
+}
+
+const CALL_AUDIO: &str = "/usr/lib/synmodem/call-audio";
+
+/// Маршрут, выбранный хуком при начале звонка (`/run/call-audio/route`): кнопка «Динамик» показывает правду.
+pub fn voice_route() -> Option<String> {
+    std::fs::read_to_string("/run/call-audio/route").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 pub fn dtmf(st: St, c: char) {
