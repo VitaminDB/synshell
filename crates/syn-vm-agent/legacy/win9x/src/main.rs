@@ -145,6 +145,11 @@ fn install() -> u32 {
         log(&format!("установка: не удалось скопировать {me} → {exe}"));
         return 2;
     }
+    // RUN.PIF (свойства сеанса DOS для команд) — рядом с агентом на диске.
+    let pif = format!("{}\\RUN.PIF", parent(&me));
+    if exists(&pif) {
+        unsafe { CopyFileA(cz(&pif).as_ptr(), cz(&format!("{home}\\RUN.PIF")).as_ptr(), 0) };
+    }
     // Каталог системы на диске: …\WIN9X\AGENT\SYNAGENT.EXE → …\WIN9X.
     let sys = parent(&parent(&me));
     let manifest = format!("{sys}\\install.txt");
@@ -274,7 +279,7 @@ fn continue_setup() {
             log(&format!("шаг {}: пропущен ({tag}): {line}", n + 1));
         } else {
             log(&format!("шаг {}: {line}", n + 1));
-            let (code, out) = run_capture(line, Some(&setup), 0, &mut |_| {});
+            let (code, out) = run_capture(line, Some(&setup), 0, &mut |_| false);
             if !out.is_empty() {
                 log(&from_ansi(&out));
             }
@@ -298,9 +303,10 @@ fn continue_setup() {
 
 // ─── команды ────────────────────────────────────────────────────────────
 
-/// Запустить команду и ждать: вывод (stdout и stderr) — в файл, по мере появления — в `out`.
-/// `.bat` и встроенные команды — через COMSPEC. Итог — код и весь вывод.
-fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMut(&[u8])) -> (i32, Vec<u8>) {
+/// Запустить команду и ждать: вывод (stdout и stderr) — в файл, по мере появления — в `out` (и пустой
+/// кусок раз в 200 мс; `true` от `out` — снять команду). `.bat` и встроенные команды — через COMSPEC.
+/// Итог — код и весь вывод.
+fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
     let mut tmp = [0u8; 260];
     let n = unsafe { GetTempPathA(tmp.len() as u32, tmp.as_mut_ptr()) } as usize;
     let tmp_dir = if n > 0 { from_ansi(&tmp[..n]) } else { format!("{}\\", home()) };
@@ -308,6 +314,16 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
     let sa = SecurityAttributes { len: core::mem::size_of::<SecurityAttributes>() as u32, sd: core::ptr::null(), inherit: 1 };
     let h = unsafe { CreateFileA(cz(&file).as_ptr(), GENERIC_WRITE, FILE_SHARE_RW, &sa, CREATE_ALWAYS, 0, 0) };
     let first = cmd.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+    // Windows 9x: команды DOS (COMMAND.COM, .bat, встроенные) — сеанс DOS, у которого свой вывод не в
+    // наш файл, и который без PIF уходит во весь экран. Поэтому — C:\SYNVM\RUN.BAT (вывод и код —
+    // файлами) через RUN.PIF (окно свёрнуто, закрыть по выходу), если он есть.
+    let dos = !is_nt() && (first.ends_with(".bat") || is_builtin(&first) || first.ends_with("command.com") || first == "command");
+    if dos {
+        if h != INVALID {
+            unsafe { CloseHandle(h) };
+        }
+        return run_dos(cmd, cwd, &file, timeout_ms, out);
+    }
     let line = if first.ends_with(".bat") || first.ends_with(".cmd") || is_builtin(&first) {
         let shell = env("COMSPEC").unwrap_or_else(|| if is_nt() { "cmd.exe".into() } else { "command.com".into() });
         format!("{shell} /c {cmd}")
@@ -333,12 +349,18 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
     let mut all = Vec::new();
     let code = loop {
         let done = unsafe { WaitForSingleObject(pi.process, 200) } == 0;
+        let mut kill = false;
         if let Some(d) = read_file(&file) {
             if d.len() > sent {
-                out(&d[sent..]);
+                kill |= out(&d[sent..]);
                 sent = d.len();
             }
             all = d;
+        }
+        kill |= out(&[]);
+        if kill && !done {
+            unsafe { TerminateProcess(pi.process, 124) };
+            break 124;
         }
         if done {
             let mut c = 0u32;
@@ -355,6 +377,82 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
         CloseHandle(pi.process);
         DeleteFileA(cz(&file).as_ptr());
     }
+    (code, all)
+}
+
+/// Команда DOS у Windows 9x: RUN.BAT с выводом в файл и кодом (лестница IF ERRORLEVEL — у COMMAND.COM
+/// нет %ERRORLEVEL%), запуск через RUN.PIF (свёрнутое окно, закрыть по выходу — делается в свойствах
+/// RUN.BAT и лежит на диске рядом с агентом) или COMMAND.COM /C.
+fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
+    let home = home();
+    let code_file = format!("{home}\\RUN.ERR");
+    unsafe { DeleteFileA(cz(&code_file).as_ptr()) };
+    let mut bat = String::from("@echo off\r\n");
+    if let Some(d) = cwd {
+        if d.len() >= 2 && d.as_bytes()[1] == b':' {
+            bat += &format!("{}\r\n", &d[..2]);
+        }
+        bat += &format!("cd {d}\r\n");
+    }
+    // Сам COMMAND.COM /C x — выполнить x.
+    let inner = match cmd.split_once(' ') {
+        Some((f, rest)) if f.to_ascii_lowercase().ends_with("command.com") || f.eq_ignore_ascii_case("command") => rest.trim_start().strip_prefix("/c ").or_else(|| rest.trim_start().strip_prefix("/C ")).unwrap_or(rest),
+        _ => cmd,
+    };
+    bat += &format!("{inner} > {out_file}\r\n");
+    bat += &format!("echo 0 > {code_file}\r\n");
+    for n in 1..=255 {
+        bat += &format!("if errorlevel {n} echo {n} > {code_file}\r\n");
+    }
+    let bat_path = format!("{home}\\RUN.BAT");
+    write_file(&bat_path, &to_ansi(&bat));
+    let pif = format!("{home}\\RUN.PIF");
+    let line = if exists(&pif) {
+        pif
+    } else {
+        let shell = env("COMSPEC").unwrap_or_else(|| "command.com".into());
+        format!("{shell} /c {bat_path}")
+    };
+    let mut c = cz(&line);
+    // Свёрнуто: свёрнутый сеанс DOS — оконный, во весь экран не уходит.
+    let si = StartupInfo { cb: core::mem::size_of::<StartupInfo>() as u32, flags: 1, show: 7 /* SW_SHOWMINNOACTIVE */, ..zeroed_si() };
+    let mut pi: ProcessInfo = unsafe { core::mem::zeroed() };
+    let ok = unsafe { CreateProcessA(core::ptr::null(), c.as_mut_ptr(), core::ptr::null(), core::ptr::null(), 0, 0, core::ptr::null(), core::ptr::null(), &si, &mut pi) } != 0;
+    if !ok {
+        let e = unsafe { GetLastError() };
+        return (-1, format!("не запустилось: {line} (ошибка {e})").into_bytes());
+    }
+    let t0 = unsafe { GetTickCount() };
+    let mut sent = 0usize;
+    let mut all = Vec::new();
+    let finished = loop {
+        let done = unsafe { WaitForSingleObject(pi.process, 200) } == 0;
+        let mut kill = false;
+        if let Some(d) = read_file(out_file) {
+            if d.len() > sent {
+                kill |= out(&d[sent..]);
+                sent = d.len();
+            }
+            all = d;
+        }
+        kill |= out(&[]);
+        if done {
+            break true;
+        }
+        if kill || (timeout_ms > 0 && unsafe { GetTickCount() }.wrapping_sub(t0) > timeout_ms) {
+            unsafe { TerminateProcess(pi.process, 124) };
+            break false;
+        }
+    };
+    unsafe {
+        CloseHandle(pi.thread);
+        CloseHandle(pi.process);
+        DeleteFileA(cz(out_file).as_ptr());
+    }
+    if !finished {
+        return (124, all);
+    }
+    let code = read_file(&code_file).and_then(|b| core::str::from_utf8(&b).ok().and_then(|s| s.trim().parse::<i32>().ok())).unwrap_or(0);
     (code, all)
 }
 
@@ -646,7 +744,24 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
             let p = port as *mut Port;
             let (code, _) = run_capture(&cmd, cwd.as_deref(), 0, &mut |chunk| {
                 // SAFETY: замыкание живёт только внутри run_capture, порт больше никто не трогает.
-                unsafe { (*p).send(&Frame::with_data(Msg::Out { id, fd: 1 }, chunk.to_vec())) };
+                let port = unsafe { &mut *p };
+                if !chunk.is_empty() {
+                    port.send(&Frame::with_data(Msg::Out { id, fd: 1 }, chunk.to_vec()));
+                    return false;
+                }
+                // Пока команда идёт: снять её по Kill (тайм-аут --exec на хосте), ответить на Ping.
+                match port.poll().map(|f| f.msg) {
+                    Some(Msg::Kill { id: k }) if k == id => true,
+                    Some(Msg::Ping { id: q }) => {
+                        port.send(&Frame::new(Msg::Pong { id: q }));
+                        false
+                    }
+                    Some(Msg::Hi) => {
+                        port.send(&Frame::new(hello()));
+                        false
+                    }
+                    _ => false,
+                }
             });
             port.send(&Frame::new(Msg::Exit { id, code }));
         }

@@ -581,7 +581,9 @@ pub fn spawn_watcher(vm: &Vm, flag: &str) {
 /// syn-gpu у машины с BIOS: старые VGA-адреса (текст, режимы 13h/12h, VBE) должны доходить до
 /// устройства — свойство `x-vga` у `vfio-user-pci` (патч QEMU из syn-virt, пока его нет в upstream).
 pub fn needs_xvga(vm: &Vm) -> bool {
-    vm.gpu_on() && vm.firmware == Firmware::Bios
+    // syn-gpu — загрузочная VGA только как основная видеокарта; при std/virtio экране он вторым устройством
+    // (Windows 7 с двумя VGA падает в VgaSave: DpiFilterOutVgaResources).
+    vm.display == DisplayModel::SynGpu && vm.firmware == Firmware::Bios
 }
 
 /// Умеет ли QEMU `x-vga` у `vfio-user-pci` (ответ кэшируется на программу).
@@ -1065,6 +1067,19 @@ mod tests {
         assert!(crate::dostools::is_dos(&vm));
         let j = args(&vm).unwrap().join(" ");
         assert!(!j.contains("usb-tablet") && j.contains("qemu-xhci,id=xhci"));
+    }
+
+    #[test]
+    fn xvga_only_when_syn_gpu_is_the_display() {
+        let mut vm = OsKind::Windows7.preset();
+        vm.firmware = Firmware::Bios;
+        vm.display = DisplayModel::Std;
+        vm.gpu3d = true;
+        assert!(vm.gpu_on() && !needs_xvga(&vm), "std-экран + 3D: syn-gpu вторым устройством, без x-vga");
+        vm.display = DisplayModel::SynGpu;
+        assert!(needs_xvga(&vm));
+        vm.firmware = Firmware::Uefi;
+        assert!(!needs_xvga(&vm));
     }
 
     #[test]
