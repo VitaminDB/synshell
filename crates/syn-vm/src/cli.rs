@@ -1213,6 +1213,23 @@ fn use_agent(vm: &Vm, a: &Args) -> Result<bool> {
 /// Поставить или обновить свой агент: на связи — обновление через него самого, иначе —
 /// установка через qemu-ga (exe во временный каталог гостя и `syn-vm-agent install`).
 fn agent_install(vm: &Vm, file: Option<PathBuf>) -> Result<()> {
+    // Агенты старых систем на связи (COM2): Windows 9x/XP обновляется сам, DOS — только заново с диска.
+    if crate::agent::installed(vm) && crate::agent::online(vm) {
+        let info = crate::agent::Client::connect(vm)?.info()?;
+        if let Some(i) = info.filter(|i| i.agent.contains("-9x") || i.agent.contains("-dos")) {
+            if i.agent.contains("-dos") {
+                bail!("{}", t!("агент DOS обновляется с диска «Гостевые инструменты syn-vm»: DOS\\AGENT\\SYNAGENT.COM INSTALL"));
+            }
+            let exe = match file {
+                Some(f) => f,
+                None => crate::agent::agent_9x().context(t!("нет сборки агента SYNAGENT.EXE (/usr/lib/syn-vm/agent)"))?,
+            };
+            crate::agent::Client::connect(vm)?.update(&exe, r"C:\SYNVM")?;
+            let i = crate::agent::Client::connect(vm)?.wait_ready(false, Duration::from_secs(60))?;
+            println!("syn-vm-agent {} — {} ({})", i.agent, i.os, i.host);
+            return Ok(());
+        }
+    }
     let windows = qga::guest_is_windows(vm) || vm.os.is_windows();
     let exe = match file {
         Some(f) => f,

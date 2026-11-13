@@ -4,8 +4,8 @@
 //! команды (вывод — по мере появления), файлы туда и обратно, список каталога, часы. Канал — COM2
 //! (у syn-vm это isa-serial с сокетом agent-com.sock): драйверы не нужны ни одной системе.
 //!
-//! `SYNAGENT.EXE install` — поставить: копия в C:\SYNVM, автозапуск (RunServices у 9x — до входа в
-//! систему, Run у XP), затем шаги `install.txt` каталога системы на диске (драйверы, заплатки, утилиты)
+//! `SYNAGENT.EXE install` — поставить: копия в C:\SYNVM, автозапуск (Run — в сеансе пользователя; из
+//! RunServices у 9x сеансы DOS уходили во весь экран), затем шаги `install.txt` каталога системы на диске (драйверы, заплатки, утилиты)
 //! с продолжением после перезагрузок. `SYNAGENT.EXE run` — работать без установки (portable).
 
 #![no_std]
@@ -141,9 +141,17 @@ fn install() -> u32 {
     }
     let me = self_path();
     let exe = format!("{home}\\SYNAGENT.EXE");
-    if !me.eq_ignore_ascii_case(&exe) && unsafe { CopyFileA(cz(&me).as_ptr(), cz(&exe).as_ptr(), 0) } == 0 {
-        log(&format!("установка: не удалось скопировать {me} → {exe}"));
-        return 2;
+    if !me.eq_ignore_ascii_case(&exe) {
+        // Обновление: прежний агент как раз уходит, его exe ещё занят — повторять до 15 с.
+        let mut tries = 0;
+        while unsafe { CopyFileA(cz(&me).as_ptr(), cz(&exe).as_ptr(), 0) } == 0 {
+            tries += 1;
+            if tries > 30 {
+                log(&format!("установка: не удалось скопировать {me} → {exe}"));
+                return 2;
+            }
+            unsafe { Sleep(500) };
+        }
     }
     // RUN.PIF (свойства сеанса DOS для команд) — рядом с агентом на диске.
     let pif = format!("{}\\RUN.PIF", parent(&me));
@@ -160,7 +168,10 @@ fn install() -> u32 {
         log(&format!("установка: шаги {manifest} → {setup}"));
     }
     let run = format!("{exe} run");
-    let key = if is_nt() { "Software\\Microsoft\\Windows\\CurrentVersion\\Run" } else { "Software\\Microsoft\\Windows\\CurrentVersion\\RunServices" };
+    // Автозапуск — в сеансе пользователя (Run): из RunServices (до входа, вне рабочего стола) любой
+    // сеанс DOS уходил во весь экран, сколько ни настраивай PIF. Прежнюю запись RunServices — убрать.
+    let key = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    reg_delete("Software\\Microsoft\\Windows\\CurrentVersion\\RunServices", "syn-vm-agent");
     if !reg_set(key, "syn-vm-agent", &run) {
         log("установка: автозапуск не записан");
     }

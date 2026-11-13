@@ -163,6 +163,8 @@ unsafe extern "system" {
     pub fn RegCreateKeyExA(key: isize, sub: *const u8, r: u32, class: *const u8, opts: u32, sam: u32, sa: *const u8, out: *mut isize, disp: *mut u32) -> i32;
     pub fn RegSetValueExA(key: isize, name: *const u8, r: u32, ty: u32, data: *const u8, n: u32) -> i32;
     pub fn RegCloseKey(key: isize) -> i32;
+    pub fn RegOpenKeyExA(key: isize, sub: *const u8, opts: u32, sam: u32, out: *mut isize) -> i32;
+    pub fn RegDeleteValueA(key: isize, name: *const u8) -> i32;
 }
 
 pub const GENERIC_READ: u32 = 0x8000_0000;
@@ -317,6 +319,17 @@ pub fn reg_set(sub: &str, name: &str, value: &str) -> bool {
         let ok = RegSetValueExA(k, cz(name).as_ptr(), 0, 1, v.as_ptr(), v.len() as u32) == 0;
         RegCloseKey(k);
         ok
+    }
+}
+
+/// Удалить строковое значение в HKLM (если есть).
+pub fn reg_delete(sub: &str, name: &str) {
+    unsafe {
+        let mut k = 0isize;
+        if RegOpenKeyExA(HKLM, cz(sub).as_ptr(), 0, 0x2_0006, &mut k) == 0 {
+            RegDeleteValueA(k, cz(name).as_ptr());
+            RegCloseKey(k);
+        }
     }
 }
 
