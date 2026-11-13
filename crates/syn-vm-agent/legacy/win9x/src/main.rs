@@ -58,6 +58,112 @@ unsafe extern "system" {
     fn GetSystemTime(t: *mut SystemTime);
     fn GetCurrentProcessId() -> u32;
     fn CreateMutexA(sa: *const u8, owner: i32, name: *const u8) -> isize;
+    fn CreateThread(sa: *const u8, stack: usize, start: unsafe extern "system" fn(*mut u8) -> u32, param: *mut u8, flags: u32, tid: *mut u32) -> HANDLE;
+    fn InitializeCriticalSection(cs: *mut u8);
+    fn EnterCriticalSection(cs: *mut u8);
+    fn LeaveCriticalSection(cs: *mut u8);
+}
+
+// ─── общее для потоков: отправка в порт и запущенные команды ────────────
+
+/// CRITICAL_SECTION (24 байта у x86) — с запасом.
+static mut CS: [u8; 64] = [0; 64];
+/// Запущенные команды: (номер операции, процесс) — Kill снимает по номеру.
+static mut PROCS: Vec<(u64, HANDLE)> = Vec::new();
+
+#[allow(static_mut_refs)]
+fn locked<R>(f: impl FnOnce() -> R) -> R {
+    unsafe {
+        EnterCriticalSection(CS.as_mut_ptr());
+        let r = f();
+        LeaveCriticalSection(CS.as_mut_ptr());
+        r
+    }
+}
+
+/// Кадры хосту от всех потоков: пишет в порт только главный поток (между чтениями) — запись в COM из
+/// другого потока, пока главный ждёт в ReadFile, у синхронного дескриптора стоит (Wine — навсегда).
+static mut OUTQ: Vec<Frame> = Vec::new();
+
+/// Кадр хосту — из любого потока (уйдёт в ближайшие 200 мс, ответы главного потока — сразу).
+#[allow(static_mut_refs)]
+fn tx(f: &Frame) {
+    locked(|| unsafe { OUTQ.push(f.clone()) });
+}
+
+/// Главный поток: отправить накопленное.
+#[allow(static_mut_refs)]
+fn flush(port: &mut Port) {
+    let q = locked(|| unsafe { core::mem::take(&mut OUTQ) });
+    for f in &q {
+        port.send(f);
+    }
+}
+
+#[allow(static_mut_refs)]
+fn proc_add(id: u64, h: HANDLE) {
+    if id != 0 {
+        locked(|| unsafe { PROCS.push((id, h)) });
+    }
+}
+
+#[allow(static_mut_refs)]
+fn proc_remove(id: u64) {
+    locked(|| unsafe { PROCS.retain(|p| p.0 != id) });
+}
+
+/// Снять команду по номеру (Kill от хоста: тайм-аут --exec).
+#[allow(static_mut_refs)]
+fn proc_kill(id: u64) {
+    locked(|| unsafe {
+        for p in PROCS.iter().filter(|p| p.0 == id) {
+            TerminateProcess(p.1, 124);
+        }
+    });
+}
+
+/// Вывод консольных программ — в кодовой странице OEM (cp866 у русской Windows) → UTF-8. У Windows 95
+/// (нет CP_UTF8) — как есть.
+fn oem_to_utf8(b: &[u8]) -> Vec<u8> {
+    if b.is_ascii() {
+        return b.to_vec();
+    }
+    unsafe {
+        let n = MultiByteToWideChar(1, 0, b.as_ptr(), b.len() as i32, core::ptr::null_mut(), 0);
+        if n <= 0 {
+            return b.to_vec();
+        }
+        let mut w = alloc::vec![0u16; n as usize];
+        MultiByteToWideChar(1, 0, b.as_ptr(), b.len() as i32, w.as_mut_ptr(), n);
+        let m = WideCharToMultiByte(65001, 0, w.as_ptr(), n, core::ptr::null_mut(), 0, core::ptr::null(), core::ptr::null_mut());
+        if m <= 0 {
+            return b.to_vec();
+        }
+        let mut out = alloc::vec![0u8; m as usize];
+        WideCharToMultiByte(65001, 0, w.as_ptr(), n, out.as_mut_ptr(), m, core::ptr::null(), core::ptr::null_mut());
+        out
+    }
+}
+
+/// Команда хоста — в своём потоке: зависшая не держит остальные.
+struct Job {
+    id: u64,
+    cmd: String,
+    cwd: Option<String>,
+}
+
+unsafe extern "system" fn exec_thread(p: *mut u8) -> u32 {
+    let job = unsafe { alloc::boxed::Box::from_raw(p as *mut Job) };
+    let id = job.id;
+    tx(&Frame::new(Msg::Started { id, pid: 0 }));
+    let (code, _) = run_capture(&job.cmd, job.cwd.as_deref(), 0, id, &mut |chunk| {
+        if !chunk.is_empty() {
+            tx(&Frame::with_data(Msg::Out { id, fd: 1 }, oem_to_utf8(chunk)));
+        }
+        false
+    });
+    tx(&Frame::new(Msg::Exit { id, code }));
+    0
 }
 
 /// Каталог установки на системном диске (`C:\SYNVM`).
@@ -290,7 +396,7 @@ fn continue_setup() {
             log(&format!("шаг {}: пропущен ({tag}): {line}", n + 1));
         } else {
             log(&format!("шаг {}: {line}", n + 1));
-            let (code, out) = run_capture(line, Some(&setup), 0, &mut |_| false);
+            let (code, out) = run_capture(line, Some(&setup), 0, 0, &mut |_| false);
             if !out.is_empty() {
                 log(&from_ansi(&out));
             }
@@ -317,7 +423,7 @@ fn continue_setup() {
 /// Запустить команду и ждать: вывод (stdout и stderr) — в файл, по мере появления — в `out` (и пустой
 /// кусок раз в 200 мс; `true` от `out` — снять команду). `.bat` и встроенные команды — через COMSPEC.
 /// Итог — код и весь вывод.
-fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
+fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, id: u64, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
     let mut tmp = [0u8; 260];
     let n = unsafe { GetTempPathA(tmp.len() as u32, tmp.as_mut_ptr()) } as usize;
     let tmp_dir = if n > 0 { from_ansi(&tmp[..n]) } else { format!("{}\\", home()) };
@@ -333,7 +439,7 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
         if h != INVALID {
             unsafe { CloseHandle(h) };
         }
-        return run_dos(cmd, cwd, &file, timeout_ms, out);
+        return run_dos(cmd, cwd, &file, timeout_ms, id, out);
     }
     let line = if first.ends_with(".bat") || first.ends_with(".cmd") || is_builtin(&first) {
         let shell = env("COMSPEC").unwrap_or_else(|| if is_nt() { "cmd.exe".into() } else { "command.com".into() });
@@ -347,6 +453,9 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
     let cwd = cwd.map(cz);
     let flags = if is_nt() { 0x0800_0000 /* CREATE_NO_WINDOW */ } else { 0 };
     let ok = unsafe { CreateProcessA(core::ptr::null(), c.as_mut_ptr(), core::ptr::null(), core::ptr::null(), 1, flags, core::ptr::null(), cwd.as_ref().map_or(core::ptr::null(), |c| c.as_ptr()), &si, &mut pi) } != 0;
+    if ok {
+        proc_add(id, pi.process);
+    }
     if h != INVALID {
         unsafe { CloseHandle(h) };
     }
@@ -383,6 +492,7 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
             break -2;
         }
     };
+    proc_remove(id);
     unsafe {
         CloseHandle(pi.thread);
         CloseHandle(pi.process);
@@ -394,7 +504,7 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, out: &mut dyn FnMu
 /// Команда DOS у Windows 9x: RUN.BAT с выводом в файл и кодом (лестница IF ERRORLEVEL — у COMMAND.COM
 /// нет %ERRORLEVEL%), запуск через RUN.PIF (свёрнутое окно, закрыть по выходу — делается в свойствах
 /// RUN.BAT и лежит на диске рядом с агентом) или COMMAND.COM /C.
-fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
+fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, id: u64, out: &mut dyn FnMut(&[u8]) -> bool) -> (i32, Vec<u8>) {
     let home = home();
     let code_file = format!("{home}\\RUN.ERR");
     unsafe { DeleteFileA(cz(&code_file).as_ptr()) };
@@ -429,6 +539,9 @@ fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, out: &
     let si = StartupInfo { cb: core::mem::size_of::<StartupInfo>() as u32, flags: 1, show: 7 /* SW_SHOWMINNOACTIVE */, ..zeroed_si() };
     let mut pi: ProcessInfo = unsafe { core::mem::zeroed() };
     let ok = unsafe { CreateProcessA(core::ptr::null(), c.as_mut_ptr(), core::ptr::null(), core::ptr::null(), 0, 0, core::ptr::null(), core::ptr::null(), &si, &mut pi) } != 0;
+    if ok {
+        proc_add(id, pi.process);
+    }
     if !ok {
         let e = unsafe { GetLastError() };
         return (-1, format!("не запустилось: {line} (ошибка {e})").into_bytes());
@@ -455,6 +568,7 @@ fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, out: &
             break false;
         }
     };
+    proc_remove(id);
     unsafe {
         CloseHandle(pi.thread);
         CloseHandle(pi.process);
@@ -703,6 +817,8 @@ struct Upload {
     h: HANDLE,
     size: u64,
     sha: Sha256,
+    /// Когда пришёл последний кусок (тики): брошенная передача закрывается через минуту.
+    t: u32,
 }
 
 /// Рабочий цикл: шаги установки, затем кадры с COM2.
@@ -733,50 +849,60 @@ fn run() -> u32 {
         }
     };
     log(&format!("агент запущен ({})", os_tag()));
-    port.send(&Frame::new(hello()));
+    #[allow(static_mut_refs)]
+    unsafe {
+        InitializeCriticalSection(CS.as_mut_ptr());
+    }
+    tx(&Frame::new(hello()));
     let mut up: Option<Upload> = None;
     loop {
-        let Some(f) = port.poll() else { continue };
+        flush(&mut port);
+        let f = port.poll();
+        // Брошенная передача (хост оборвал по тайм-ауту) — закрыть файл, иначе он останется занятым.
+        if up.as_ref().is_some_and(|u| unsafe { GetTickCount() }.wrapping_sub(u.t) > 60_000) {
+            close_upload(&mut up);
+        }
+        let Some(f) = f else { continue };
         handle(&mut port, &mut up, f);
+        flush(&mut port);
     }
 }
 
-fn err(port: &mut Port, id: u64, msg: String) {
-    port.send(&Frame::new(Msg::Error { id, msg }));
+fn err(_port: &mut Port, id: u64, msg: String) {
+    tx(&Frame::new(Msg::Error { id, msg }));
+}
+
+fn close_upload(up: &mut Option<Upload>) {
+    if let Some(u) = up.take() {
+        unsafe { CloseHandle(u.h) };
+        log(&format!("передача {} не закончена — файл закрыт", u.id));
+    }
 }
 
 fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
     match f.msg {
-        Msg::Hi => port.send(&Frame::new(hello())),
-        Msg::Ping { id } => port.send(&Frame::new(Msg::Pong { id })),
-        Msg::Exec { id, argv, cwd, .. } => {
-            let cmd = join_argv(&argv);
-            port.send(&Frame::new(Msg::Started { id, pid: 0 }));
-            let p = port as *mut Port;
-            let (code, _) = run_capture(&cmd, cwd.as_deref(), 0, &mut |chunk| {
-                // SAFETY: замыкание живёт только внутри run_capture, порт больше никто не трогает.
-                let port = unsafe { &mut *p };
-                if !chunk.is_empty() {
-                    port.send(&Frame::with_data(Msg::Out { id, fd: 1 }, chunk.to_vec()));
-                    return false;
-                }
-                // Пока команда идёт: снять её по Kill (тайм-аут --exec на хосте), ответить на Ping.
-                match port.poll().map(|f| f.msg) {
-                    Some(Msg::Kill { id: k }) if k == id => true,
-                    Some(Msg::Ping { id: q }) => {
-                        port.send(&Frame::new(Msg::Pong { id: q }));
-                        false
-                    }
-                    Some(Msg::Hi) => {
-                        port.send(&Frame::new(hello()));
-                        false
-                    }
-                    _ => false,
-                }
-            });
-            port.send(&Frame::new(Msg::Exit { id, code }));
+        Msg::Hi => {
+            // Хост переподключился — незаконченная передача уже не продолжится.
+            close_upload(up);
+            tx(&Frame::new(hello()));
         }
+        Msg::Ping { id } => tx(&Frame::new(Msg::Pong { id })),
+        Msg::Exec { id, argv, cwd, .. } => {
+            let job = alloc::boxed::Box::new(Job { id, cmd: join_argv(&argv), cwd });
+            let p = alloc::boxed::Box::into_raw(job) as *mut u8;
+            let mut tid = 0;
+            let h = unsafe { CreateThread(core::ptr::null(), 0, exec_thread, p, 0, &mut tid) };
+            if h == 0 {
+                drop(unsafe { alloc::boxed::Box::from_raw(p as *mut Job) });
+                err(port, id, String::from("поток команды не создан"));
+            } else {
+                unsafe { CloseHandle(h) };
+            }
+        }
+        Msg::Kill { id } => proc_kill(id),
         Msg::Put { id, path, size } => {
+            // Прежняя передача не закончилась (обрыв) — её файл закрыть, иначе он занят.
+            close_upload(up);
             if let Some(dir) = path.rfind('\\').map(|i| &path[..i]) {
                 mkdirs(dir);
             }
@@ -786,7 +912,7 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
                 return;
             }
             let _ = size;
-            *up = Some(Upload { id, h, size: 0, sha: Sha256::new() });
+            *up = Some(Upload { id, h, size: 0, sha: Sha256::new(), t: unsafe { GetTickCount() } });
         }
         Msg::Data { id } => {
             if let Some(u) = up.as_mut().filter(|u| u.id == id) {
@@ -794,31 +920,32 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
                 unsafe { WriteFile(u.h, f.data.as_ptr(), f.data.len() as u32, &mut w, core::ptr::null_mut()) };
                 u.size += f.data.len() as u64;
                 u.sha.update(&f.data);
+                u.t = unsafe { GetTickCount() };
             }
         }
         Msg::PutEnd { id } => {
             if let Some(u) = up.take().filter(|u| u.id == id) {
                 unsafe { CloseHandle(u.h) };
                 let sha = hex(&u.sha.finalize());
-                port.send(&Frame::new(Msg::Done { id, size: u.size, sha256: sha }));
+                tx(&Frame::new(Msg::Done { id, size: u.size, sha256: sha }));
             }
         }
         Msg::Mkdir { id, path } => {
             if mkdirs(&path) {
-                port.send(&Frame::new(Msg::Done { id, size: 0, sha256: String::new() }));
+                tx(&Frame::new(Msg::Done { id, size: 0, sha256: String::new() }));
             } else {
                 err(port, id, format!("{path}: каталог не создан"));
             }
         }
         Msg::Get { id, path } => match read_file(&path) {
             Some(d) => {
-                port.send(&Frame::new(Msg::Stat { id, size: d.len() as u64 }));
+                tx(&Frame::new(Msg::Stat { id, size: d.len() as u64 }));
                 let mut sha = Sha256::new();
                 for c in d.chunks(32 * 1024) {
                     sha.update(c);
-                    port.send(&Frame::with_data(Msg::Data { id }, c.to_vec()));
+                    tx(&Frame::with_data(Msg::Data { id }, c.to_vec()));
                 }
-                port.send(&Frame::new(Msg::End { id, sha256: hex(&sha.finalize()) }));
+                tx(&Frame::new(Msg::End { id, sha256: hex(&sha.finalize()) }));
             }
             None => err(port, id, format!("{path}: не читается")),
         },
@@ -832,7 +959,7 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
                 err(port, id, format!("{path}: нет такого файла"));
                 return;
             }
-            port.send(&Frame::new(Msg::Entries { id, entries }));
+            tx(&Frame::new(Msg::Entries { id, entries }));
         }
         Msg::SetTime { unix_ms } => {
             let secs = (unix_ms / 1000) as i64;
@@ -847,15 +974,15 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
             let me = self_path();
             let target = if me.eq_ignore_ascii_case(&exe) { exe.clone() } else { me };
             // Работающий exe у 9x не перезаписать — новая копия запускается сама и уходит в C:\SYNVM.
-            port.send(&Frame::new(Msg::Done { id, size: 0, sha256: String::new() }));
+            tx(&Frame::new(Msg::Done { id, size: 0, sha256: String::new() }));
             if spawn_detached(&format!("{path} install"), None) {
                 log(&format!("обновление: {path} → {target}"));
                 unsafe { ExitProcess(0) };
             }
         }
         // Остальное (журналы, буфер обмена, разрешение, общие папки) у старых систем пока не поддержано.
-        Msg::Kill { .. } | Msg::Stdin { .. } | Msg::Logs { .. } | Msg::Clip { .. } | Msg::Mode { .. } | Msg::Share { .. } => {}
-        Msg::List { .. } | Msg::Status { .. } => {}
+        Msg::Stdin { .. } | Msg::Logs { .. } | Msg::Clip { .. } | Msg::Mode { .. } | Msg::Share { .. } => {}
+        Msg::Status { .. } => {}
         _ => {}
     }
 }
