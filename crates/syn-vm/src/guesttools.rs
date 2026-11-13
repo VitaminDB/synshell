@@ -1,7 +1,7 @@
 //! «Гостевые инструменты syn-vm» — один диск для всех гостей вместо virtio-win и отдельных образов
 //! syn-gpu, разделённый по каталогам систем:
 //!
-//! - `agent\` — гостевой агент syn-vm-agent (Windows 7–11 и Linux);
+//! - `<система>\agent\` — гостевой агент syn-vm этой системы;
 //! - `win10\` — Windows 10/11: `syn-vm-serial\` (virtio-serial для порта агента) и `syn-gpu\`
 //!   (инструменты видеокарты syn-gpu); ставит `install.cmd` в корне;
 //! - `win7\`, `winxp\`, `win9x\`, `dos\`, `linux\` — драйверы и утилиты syn-gpu этих систем,
@@ -151,10 +151,14 @@ pub fn iso() -> Result<PathBuf> {
     let dir = cache_dir();
     let stage = dir.join("guest-tools-stage");
     let _ = std::fs::remove_dir_all(&stage);
-    std::fs::create_dir_all(stage.join("agent"))?;
-    std::fs::copy(&agent, stage.join("agent/syn-vm-agent.exe"))?;
+    // Агент — в каталоге каждой системы (`<система>\agent\`): Windows 7–11 — один exe, Linux — свой.
+    for sys in ["win10", "win7"] {
+        std::fs::create_dir_all(stage.join(sys).join("agent"))?;
+        std::fs::copy(&agent, stage.join(sys).join("agent/syn-vm-agent.exe"))?;
+    }
     if let Some(a) = &agent_linux {
-        std::fs::copy(a, stage.join("agent/syn-vm-agent"))?;
+        std::fs::create_dir_all(stage.join("linux/agent"))?;
+        std::fs::copy(a, stage.join("linux/agent/syn-vm-agent"))?;
     }
     if let Some(r) = &systems {
         for sys in SYSTEMS {
@@ -214,7 +218,7 @@ mod tests {
         let iso = super::iso().unwrap();
         let out = std::process::Command::new("xorriso").args(["-indev"]).arg(&iso).args(["-find", "/", "-type", "f"]).output().unwrap();
         let list = String::from_utf8_lossy(&out.stdout);
-        for f in ["/agent/syn-vm-agent.exe", "/win9x/SYNGPU.INF", "/win7/install.cmd", "/dos/SYNGPU.COM", "/install.cmd", "/README.txt"] {
+        for f in ["/win10/agent/syn-vm-agent.exe", "/win7/agent/syn-vm-agent.exe", "/win9x/SYNGPU.INF", "/win7/install.cmd", "/dos/SYNGPU.COM", "/install.cmd", "/README.txt"] {
             assert!(list.contains(f), "{f} нет в образе:\n{list}");
         }
     }

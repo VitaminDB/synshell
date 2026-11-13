@@ -3,9 +3,9 @@ syn-vm guest tools / Гостевые инструменты syn-vm
 One disk for all guests, one folder per system.
 Один диск для всех гостей, по каталогу на систему.
 
-  agent\syn-vm-agent.exe   syn-vm guest agent, Windows 7-11 (service "syn-vm-agent"):
-                           syn-vm-agent.exe install   (cmd as administrator)
-  agent\syn-vm-agent       the same for Linux: sudo ./syn-vm-agent install
+  <system>\agent\          syn-vm guest agent of that system:
+                           win10\agent, win7\agent: syn-vm-agent.exe install (cmd as administrator)
+                           linux\agent: sudo ./syn-vm-agent install
 
   install.cmd              Windows 10/11: everything below in one go (asks for elevation):
   win10\syn-vm-serial\     virtio-serial driver for the agent port

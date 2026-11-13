@@ -100,7 +100,7 @@ try {
     }
 
     # 6. Гостевой агент syn-vm (служба; обновление — замена exe и перезапуск службы).
-    $agent = Join-Path $S 'agent\syn-vm-agent.exe'
+    $agent = Join-Path $S 'win10\agent\syn-vm-agent.exe'
     $out = & $agent install 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { Fail "агент: $($out.Trim())" }
     Log $out.Trim()
