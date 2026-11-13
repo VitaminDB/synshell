@@ -509,6 +509,17 @@ impl Surface {
     }
 }
 
+impl Surface {
+    /// Отладка: дерево с состоянием жестов и захваты ввода — в журнал (`syngui_layer::dump_trees`).
+    pub(crate) fn dump_tree_log(&self) {
+        let mut out = String::new();
+        if let Some(root) = self.view.root() {
+            dump_tree(&self.view.tree, root, 0, &mut out);
+        }
+        log::info!("дерево {} #{}: {}\n{out}", self.spec.namespace, self.id.0, self.view.input_debug());
+    }
+}
+
 /// Отладка: дерево элементов с границами и классами (`SYNGUI_LAYER_TREE=1`).
 fn dump_tree(tree: &syngui::widget::ElementTree, id: syngui::widget::ElementId, depth: usize, out: &mut String) {
     let Some(el) = tree.get(id) else { return };
@@ -524,6 +535,9 @@ fn dump_tree(tree: &syngui::widget::ElementTree, id: syngui::widget::ElementId, 
         el.get_classes().join(" "),
         indent = depth * 2
     ));
+    if let Some(st) = el.debug_state() {
+        out.push_str(&format!("{:indent$}  · {st}\n", "", indent = depth * 2));
+    }
     for c in tree.children_of(id).to_vec() {
         dump_tree(tree, c, depth + 1, out);
     }

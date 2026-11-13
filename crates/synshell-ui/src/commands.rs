@@ -71,6 +71,8 @@ pub fn handle(cmd: &str) {
     match name {
         "launcher" | "menu" => ctx.open_popup(PopupKind::Launcher, at_applet("launcher")),
         "run" => ctx.open_popup(PopupKind::Run, centered()),
+        // отладка зависшего ввода: деревья поверхностей с состоянием жестов — в журнал
+        "debug-tree" => syngui_layer::dump_trees(),
         // запуск приложения по id .desktop (с учётом режима одного экземпляра)
         "launch" => match crate::xdg::app_by_id(arg.trim()) {
             Some(e) => crate::launcher::launch(ctx, &e),

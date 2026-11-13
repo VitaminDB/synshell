@@ -128,6 +128,7 @@ pub(crate) enum Command {
     Timer { id: u64, after: Duration, f: Box<dyn FnMut() -> Option<Duration>> },
     CancelTimer(u64),
     Redraw(Option<SurfaceId>),
+    DumpTrees,
     Lock(LockFactory),
     Unlock,
     Quit,
@@ -294,6 +295,12 @@ pub fn cancel_timer(id: u64) {
 }
 
 /// Завершить цикл.
+/// Отладка зависшего ввода: дерево элементов каждой поверхности (границы, классы, состояние жестов — например,
+/// касание, которое держит карусель) и захваты касаний — в журнал (info). Оболочка: команда `debug-tree`.
+pub fn dump_trees() {
+    push(Command::DumpTrees);
+}
+
 pub fn quit() {
     push(Command::Quit);
 }

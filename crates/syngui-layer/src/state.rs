@@ -525,6 +525,12 @@ impl State {
                     }
                 }
             }
+            Command::DumpTrees => {
+                log::info!("касания слоя: {:?}", self.touches);
+                for s in self.surfaces.values() {
+                    s.dump_tree_log();
+                }
+            }
             Command::Lock(factory) => self.lock(factory),
             Command::Unlock => self.unlock(),
             Command::Quit => self.exit = true,
