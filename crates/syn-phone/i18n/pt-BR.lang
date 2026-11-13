@@ -165,3 +165,7 @@
 "Закрыть" = "Fechar"
 "Отмена" = "Cancelar"
 "Отправить" = "Enviar"
+"Удалить" = "Excluir"
+"Удалить запись" = "Excluir gravação"
+"Не удалось удалить: {e}" = "Não foi possível excluir: {e}"
+"Не удалось открыть запись: {e}" = "Não foi possível abrir a gravação: {e}"

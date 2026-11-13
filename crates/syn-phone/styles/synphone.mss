@@ -229,3 +229,20 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .ussd-answer-empty { color: var(--muted); font-weight: 400; }
 .ussd-kbd-icon { font-size: 22px; color: var(--accent); }
 .key.key-ussd { width: 72px; height: 52px; border-radius: 26px; }
+
+/* Вкладка «Записи»: строка выбранной записи и проигрыватель под ней */
+.rec-row-on { background-color: var(--accent-soft); }
+.rec-row-icon { font-size: 26px; color: var(--muted); padding: 0 4px; }
+.rec-row-icon-on { color: var(--accent); }
+.rec-card { padding: 12px 14px 14px 14px; margin: 0 4px 8px 4px; border-radius: var(--radius); background: var(--surface-alt); }
+.rec-wave { color: var(--muted); accent-color: var(--accent); }
+.rec-time { font-size: 12px; color: var(--muted); }
+.rec-play { width: 60px; height: 60px; border-radius: 30px; padding: 13px; background: var(--accent); transition: scale 160ms spring(500, 28); }
+.rec-play:active { scale: 0.92; }
+.rec-play-icon { font-size: 34px; color: #ffffff; }
+.rec-skip .ib-icon { font-size: 30px; color: var(--fg); }
+.rec-card .pill { background: var(--bg); }
+.rec-card .pill-danger { background: var(--danger); }
+.pill-danger { background: var(--danger); }
+.pill-danger .pill-text, .pill-danger .pill-icon { color: #ffffff; }
+.log-rec-btn { color: var(--accent); }

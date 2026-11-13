@@ -19,6 +19,7 @@ pub enum Tab {
     Dial,
     Log,
     Contacts,
+    Recordings,
 }
 
 impl Tab {
@@ -26,6 +27,7 @@ impl Tab {
         match i {
             1 => Tab::Log,
             2 => Tab::Contacts,
+            3 => Tab::Recordings,
             _ => Tab::Dial,
         }
     }
@@ -34,6 +36,7 @@ impl Tab {
             Tab::Dial => 0,
             Tab::Log => 1,
             Tab::Contacts => 2,
+            Tab::Recordings => 3,
         }
     }
 }
@@ -46,7 +49,6 @@ pub enum Page {
     Contact(String),
     /// Редактор: контакт (`None` — новый) и номер для нового.
     Edit(Option<String>, String),
-    Recordings,
 }
 
 impl Page {
@@ -56,7 +58,6 @@ impl Page {
             Page::Settings => 1,
             Page::Contact(_) => 2,
             Page::Edit(..) => 3,
-            Page::Recordings => 4,
         }
     }
 }
@@ -89,6 +90,8 @@ pub struct RecFile {
     pub title: String,
     pub size: u64,
     pub time: i64,
+    /// Длительность, с (0 — не узнали).
+    pub duration: f64,
 }
 
 /// Сеанс USSD (или код телефона вроде `*#06#`): окно поверх приложения.
@@ -141,6 +144,8 @@ pub struct St {
     /// Ответ в меню USSD (поле ввода; окно за ним не следит — иначе поле пересоздавалось бы на каждой букве).
     pub ussd_input: RwSignal<String>,
     pub recordings: RwSignal<Vec<RecFile>>,
+    /// Прослушивание записей (вкладка «Записи»).
+    pub play: crate::player::Play,
     /// Окно показано входящим звонком (спрятать снова, когда звонок кончится).
     pub auto_shown: RwSignal<bool>,
     /// Снимок окна (`--screenshot`): без модема, потоков и окна.
@@ -177,6 +182,7 @@ impl St {
             ussd: use_signal(None),
             ussd_input: use_signal(String::new()),
             recordings: use_signal(Vec::new()),
+            play: crate::player::Play::new(),
             auto_shown: use_signal(false),
             demo,
         }
@@ -265,8 +271,13 @@ pub fn effects(st: St) {
                 }
             });
         }
-        if st.page.get() == Page::Recordings {
+    });
+    // вкладка «Записи»: список заново при входе; ушли — проигрыватель закрыть
+    create_effect(move || {
+        if st.tab.get() == Tab::Recordings {
             reload_recordings(st);
+        } else if st.play.sel.get_untracked().is_some() {
+            crate::player::close(st);
         }
     });
 }
@@ -305,7 +316,8 @@ pub fn reload_recordings(st: St) {
                 let Ok(md) = e.metadata() else { continue };
                 let time = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
                 let title = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                v.push(RecFile { path: p, title, size: md.len(), time });
+                let duration = crate::player::probe_duration(&p);
+                v.push(RecFile { path: p, title, size: md.len(), time, duration });
             }
         }
         v.sort_by(|a, b| b.time.cmp(&a.time));

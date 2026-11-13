@@ -7,7 +7,7 @@ use syngui::prelude::*;
 use syngui::GestureDetector;
 
 use super::common::*;
-use crate::state::{dial, Page, St};
+use crate::state::{dial, Page, St, Tab};
 
 fn kind_icon(k: CallKind) -> (&'static str, &'static str) {
     match k {
@@ -18,10 +18,10 @@ fn kind_icon(k: CallKind) -> (&'static str, &'static str) {
     }
 }
 
-/// Есть ли запись этого разговора (файл появился за время звонка).
-fn has_recording(st: St, c: &CallRecord) -> bool {
+/// Запись этого разговора (файл дописан за время звонка).
+fn recording_of(st: St, c: &CallRecord) -> Option<std::path::PathBuf> {
     let end = c.time + c.duration as i64 + 120;
-    st.recordings.get().iter().any(|r| r.time >= c.time && r.time <= end)
+    st.recordings.get().iter().find(|r| r.time >= c.time && r.time <= end).map(|r| r.path.clone())
 }
 
 fn row(st: St, c: CallRecord) -> W {
@@ -35,12 +35,15 @@ fn row(st: St, c: CallRecord) -> W {
         CallKind::Incoming => String::new(),
     };
     let name = contact.as_ref().map(|x| x.title()).unwrap_or_else(|| if c.number.is_empty() { t!("Скрытый номер").into() } else { c.number.clone() });
-    let rec = has_recording(st, &c);
+    let rec = recording_of(st, &c);
     let mut meta = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class(class));
     meta = meta.child(Text::new(format!("{}{}", tm::short(c.time), if sub.is_empty() { String::new() } else { format!(" · {sub}") })).max_lines(1).class("log-sub"));
-    if rec {
-        meta = meta.child(Icon::new(ic::WAVES).class("log-rec"));
-    }
+    let rec_btn = rec.map(|p| {
+        icon_btn(ic::PLAY, "row-btn log-rec-btn", move || {
+            st.tab.set(Tab::Recordings);
+            crate::player::play(st, p.clone());
+        })
+    });
     let (n1, n2, n3) = (c.number.clone(), c.number.clone(), c.number.clone());
     let uid = contact.as_ref().map(|x| x.uid.clone());
     let av = GestureDetector::new()
@@ -65,6 +68,7 @@ fn row(st: St, c: CallRecord) -> W {
                                 .child(meta)
                                 .class("grow"),
                         )
+                        .children(rec_btn)
                         .child(icon_btn(ic::SMS, "row-btn", move || {
                             let n = n2.replace('\'', "");
                             let _ = std::process::Command::new("synsms").args(["--chat", &n]).spawn();

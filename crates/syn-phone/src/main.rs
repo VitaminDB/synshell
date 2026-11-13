@@ -10,6 +10,7 @@
 //! — снимок окна с придуманными данными (без модема).
 
 mod ipc;
+mod player;
 mod prefs;
 mod state;
 mod ui;

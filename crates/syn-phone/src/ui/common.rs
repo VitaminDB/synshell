@@ -49,6 +49,9 @@ pub mod ic {
     pub const UPLOAD: &str = "\u{E2C6}";
     pub const DOWNLOAD: &str = "\u{E2C4}";
     pub const CHEVRON: &str = "\u{E5CC}";
+    pub const PAUSE: &str = "\u{E034}";
+    pub const REPLAY_10: &str = "\u{E059}";
+    pub const FORWARD_10: &str = "\u{E056}";
 }
 
 /// Цвет кружка без фото — по имени (стабильно).

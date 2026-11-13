@@ -165,3 +165,7 @@
 "Закрыть" = "Schließen"
 "Отмена" = "Abbrechen"
 "Отправить" = "Senden"
+"Удалить" = "Löschen"
+"Удалить запись" = "Aufnahme löschen"
+"Не удалось удалить: {e}" = "Löschen fehlgeschlagen: {e}"
+"Не удалось открыть запись: {e}" = "Aufnahme lässt sich nicht öffnen: {e}"

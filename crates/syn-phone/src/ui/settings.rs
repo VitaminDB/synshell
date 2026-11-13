@@ -1,12 +1,8 @@
-//! Настройки и записи разговоров.
+//! Настройки (записи разговоров — вкладка «Записи», ui/recordings.rs).
 
-use std::path::Path;
-
-use syn_modem::api::{CallKind, Request};
-use syn_modem::time as tm;
+use syn_modem::api::Request;
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
-use syngui::GestureDetector;
 use synshell_common::contacts;
 
 use super::common::*;
@@ -103,7 +99,10 @@ pub fn view(st: St) -> W {
             })
         })];
         rec_rows.push(action_row(ic::FOLDER, t!("Папка"), p.record_dir().display().to_string(), move || pick_dir(st)));
-        rec_rows.push(action_row(ic::PLAY, t!("Записи"), t!("Прослушать и удалить"), move || st.open(Page::Recordings)));
+        rec_rows.push(action_row(ic::PLAY, t!("Записи"), t!("Прослушать и удалить"), move || {
+            st.open(Page::None);
+            st.tab.set(crate::state::Tab::Recordings);
+        }));
         col = col.child(card(rec_rows));
 
         col = col.child(section(t!("Услуги оператора")));
@@ -203,66 +202,4 @@ pub fn view(st: St) -> W {
     )
 }
 
-fn size_text(b: u64) -> String {
-    if b >= 1 << 20 {
-        format!("{:.1} {}", b as f64 / (1 << 20) as f64, t!("МБ"))
-    } else {
-        format!("{} {}", b / 1024, t!("КБ"))
-    }
-}
 
-pub fn recordings_view(st: St) -> W {
-    let list = Reactive::new(move || -> Vec<W> {
-        let recs = st.recordings.get();
-        if recs.is_empty() {
-            return vec![empty(ic::WAVES, t!("Записей разговоров нет"))];
-        }
-        // запись ↔ звонок журнала: тип звонка и номер для подписи
-        let log = st.log.get();
-        recs.into_iter()
-            .map(|r| -> W {
-                let call = log.iter().find(|c| r.time >= c.time && r.time <= c.time + c.duration as i64 + 120);
-                let kind = call.map(|c| match c.kind {
-                    CallKind::Outgoing => t!("исходящий").to_string(),
-                    _ => t!("входящий").to_string(),
-                });
-                let sub = format!("{} · {}{}", tm::short(r.time), size_text(r.size), kind.map(|k| format!(" · {k}")).unwrap_or_default());
-                let (p1, p2) = (r.path.clone(), r.path.clone());
-                boxed(
-                    GestureDetector::new()
-                        .on_click(move || {
-                            let _ = std::process::Command::new("syn-audio-player").arg(&p1).spawn();
-                        })
-                        .child(
-                            DecoratedBox::new().class("log-row").child(
-                                Row::new()
-                                    .gap(12.0)
-                                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                                    .child(DecoratedBox::new().class("av av-m av-rec").child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(ic::PLAY).class("av-icon")).class("grow")))
-                                    .child(Column::new().gap(2.0).child(Text::new(r.title.clone()).max_lines(1).elide(Elide::End).class("log-name")).child(Text::new(sub).max_lines(1).class("log-sub")).class("grow"))
-                                    .child(icon_btn(ic::DELETE, "row-btn", move || {
-                                        let p = p2.clone();
-                                        if !st.demo {
-                                            let _ = std::fs::remove_file(&p);
-                                        }
-                                        st.recordings.update(|v| v.retain(|x| x.path != p));
-                                    })),
-                            ),
-                        ),
-                )
-            })
-            .collect()
-    });
-    let dir = Reactive::new(move || -> Vec<W> {
-        let d = st.prefs.get().record_dir();
-        vec![boxed(Text::new(d.display().to_string()).max_lines(1).elide(Elide::Middle).class("muted dir-line"))]
-    });
-    let _ = Path::new("");
-    boxed(
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(header(t!("Записи разговоров"), move || st.open(Page::Settings), vec![]))
-            .child(dir)
-            .child(ScrollView::new().vertical().child(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(list).class("list")).class("grow")),
-    )
-}

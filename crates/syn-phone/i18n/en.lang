@@ -165,3 +165,7 @@
 "Закрыть" = "Close"
 "Отмена" = "Cancel"
 "Отправить" = "Send"
+"Удалить" = "Delete"
+"Удалить запись" = "Delete recording"
+"Не удалось удалить: {e}" = "Could not delete: {e}"
+"Не удалось открыть запись: {e}" = "Could not open recording: {e}"

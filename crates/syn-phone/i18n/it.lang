@@ -165,3 +165,7 @@
 "Закрыть" = "Chiudi"
 "Отмена" = "Annulla"
 "Отправить" = "Invia"
+"Удалить" = "Elimina"
+"Удалить запись" = "Elimina registrazione"
+"Не удалось удалить: {e}" = "Impossibile eliminare: {e}"
+"Не удалось открыть запись: {e}" = "Impossibile aprire la registrazione: {e}"

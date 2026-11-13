@@ -6,6 +6,7 @@ mod common;
 mod contacts;
 mod dial;
 mod log;
+mod recordings;
 mod settings;
 mod ussd;
 
@@ -46,8 +47,7 @@ pub fn root(st: St) -> W {
         .fit(StackFit::Expand)
         .child(ShowIf::new(1, st.page_idx).child(DecoratedBox::new().class("page").child(settings::view(st))))
         .child(ShowIf::new(2, st.page_idx).child(DecoratedBox::new().class("page").child(contacts::card_view(st))))
-        .child(ShowIf::new(3, st.page_idx).child(DecoratedBox::new().class("page").child(contacts::edit_view(st))))
-        .child(ShowIf::new(4, st.page_idx).child(DecoratedBox::new().class("page").child(settings::recordings_view(st))));
+        .child(ShowIf::new(3, st.page_idx).child(DecoratedBox::new().class("page").child(contacts::edit_view(st))));
     let normal = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(call::return_bar(st))
@@ -193,12 +193,13 @@ fn main_view(st: St) -> W {
         .fit(StackFit::Expand)
         .child(ShowIf::new(0, st.tab_idx).child(dial::view(st)))
         .child(ShowIf::new(1, st.tab_idx).child(log::view(st)))
-        .child(ShowIf::new(2, st.tab_idx).child(contacts::list_view(st)));
+        .child(ShowIf::new(2, st.tab_idx).child(contacts::list_view(st)))
+        .child(ShowIf::new(3, st.tab_idx).child(recordings::view(st)));
     let navbar = Reactive::new(move || -> Vec<W> {
         let cur = st.tab.get();
         let missed = st.log.get().iter().filter(|c| c.new).count();
         let mut row = Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround);
-        for (t, glyph, label) in [(Tab::Dial, ic::DIALPAD, t!("Набор")), (Tab::Log, ic::HISTORY, t!("Журнал")), (Tab::Contacts, ic::CONTACTS, t!("Контакты"))] {
+        for (t, glyph, label) in [(Tab::Dial, ic::DIALPAD, t!("Набор")), (Tab::Log, ic::HISTORY, t!("Журнал")), (Tab::Contacts, ic::CONTACTS, t!("Контакты")), (Tab::Recordings, ic::WAVES, t!("Записи"))] {
             let mut inner = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class("nb-icon"));
             if t == Tab::Log && missed > 0 {
                 inner = inner.child(DecoratedBox::new().class("nb-badge").child(Text::new(missed.min(99).to_string()).class("nb-badge-text")));
