@@ -292,7 +292,8 @@ depends = ["synshell-core"]
 apps = ["syn-vm"]
 # Свой гостевой агент: служба Windows и Linux (syn-vm --agent-install МАШИНА).
 cross = [
-  { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/lib/syn-vm/agent/" },
+  # Windows 7–11 одним exe: цель win7 (tier 3, nightly + -Zbuild-std; импорты — только API Windows 7)
+  { bin = "syn-vm-agent", target = "x86_64-win7-windows-gnu", to = "usr/lib/syn-vm/agent/", build_std = true },
   { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/lib/syn-vm/agent/" },
 ]
 groups = ["synshell-apps"]

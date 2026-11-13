@@ -17,19 +17,22 @@ pub enum OsKind {
     Linux,
     Windows11,
     Windows10,
+    /// Windows 7 SP1 (и Vista, 8): BIOS, SATA, USB 1.1/2.0 (xHCI у Windows 7 своего драйвера нет).
+    Windows7,
     Bsd,
     Android,
     Other,
 }
 
 impl OsKind {
-    pub const ALL: [OsKind; 6] = [OsKind::Linux, OsKind::Windows11, OsKind::Windows10, OsKind::Bsd, OsKind::Android, OsKind::Other];
+    pub const ALL: [OsKind; 7] = [OsKind::Linux, OsKind::Windows11, OsKind::Windows10, OsKind::Windows7, OsKind::Bsd, OsKind::Android, OsKind::Other];
 
     pub fn title(self) -> &'static str {
         match self {
             OsKind::Linux => n_!("Linux"),
             OsKind::Windows11 => n_!("Windows 11"),
-            OsKind::Windows10 => n_!("Windows 10 и старше"),
+            OsKind::Windows10 => n_!("Windows 10 и 8.1"),
+            OsKind::Windows7 => n_!("Windows 7"),
             OsKind::Bsd => n_!("BSD"),
             OsKind::Android => n_!("Android x86"),
             OsKind::Other => n_!("Другая"),
@@ -41,6 +44,7 @@ impl OsKind {
             OsKind::Linux => n_!("Ubuntu, Fedora, Arch, Debian и другие — virtio, UEFI"),
             OsKind::Windows11 => n_!("UEFI с Secure Boot и TPM 2.0 — как требует установщик"),
             OsKind::Windows10 => n_!("UEFI, диск SATA — драйверы virtio не нужны"),
+            OsKind::Windows7 => n_!("BIOS, диск SATA, сеть Realtek, USB 1.1 — всё со встроенными драйверами"),
             OsKind::Bsd => n_!("FreeBSD, OpenBSD, NetBSD"),
             OsKind::Android => n_!("Android-x86, Bliss OS"),
             OsKind::Other => n_!("Совместимое железо: BIOS, SATA, e1000"),
@@ -48,7 +52,7 @@ impl OsKind {
     }
 
     pub fn is_windows(self) -> bool {
-        matches!(self, OsKind::Windows11 | OsKind::Windows10)
+        matches!(self, OsKind::Windows11 | OsKind::Windows10 | OsKind::Windows7)
     }
 
     /// Угадать по имени образа.
@@ -56,6 +60,8 @@ impl OsKind {
         let f = file.to_ascii_lowercase();
         if f.contains("win11") || f.contains("windows_11") || f.contains("windows11") || f.contains("win_11") {
             Some(OsKind::Windows11)
+        } else if f.contains("win7") || f.contains("windows_7") || f.contains("windows7") || f.contains("win_7") || f.contains("windows 7") {
+            Some(OsKind::Windows7)
         } else if f.contains("win") && (f.contains("10") || f.contains("7") || f.contains("8") || f.contains("server")) {
             Some(OsKind::Windows10)
         } else if ["bsd"].iter().any(|k| f.contains(k)) {
@@ -80,6 +86,7 @@ impl OsKind {
         let (cpus, mem, disk) = match self {
             OsKind::Windows11 => (4, 8192, 80),
             OsKind::Windows10 => (4, 4096, 64),
+            OsKind::Windows7 => (2, 4096, 40),
             OsKind::Linux => (4, 4096, 40),
             OsKind::Android => (4, 4096, 32),
             OsKind::Bsd => (2, 2048, 32),
@@ -113,6 +120,16 @@ impl OsKind {
                 vm.display = DisplayModel::Virtio;
                 // Буфер обмена: канал qemu-vdagent, в госте — spice-agent из «Гостевых инструментов».
                 vm.clipboard = true;
+            }
+            OsKind::Windows7 => {
+                // UEFI у Windows 7 x64 капризна на OVMF (нужен CSM для видео), BIOS — надёжно.
+                vm.firmware = Firmware::Bios;
+                vm.disk_bus = DiskBus::Sata;
+                vm.nic = NicModel::Rtl8139;
+                vm.display = DisplayModel::Std;
+                vm.clipboard = false;
+                // своих драйверов virtio-serial для Windows 7 нет — агент ходит по сети (guestfwd)
+                vm.guest_tools = GuestTools::SynVm;
             }
             OsKind::Other => {
                 vm.firmware = Firmware::Bios;

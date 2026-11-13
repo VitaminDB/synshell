@@ -80,6 +80,9 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     push(&["-machine", &machine]);
     let cpu = if !kvm {
         "max".to_string()
+    } else if vm.os == OsKind::Windows7 {
+        // Windows 7 знает только базовые просветления Hyper-V (2008 R2): с synic/stimer/IPI не грузится.
+        "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time".to_string()
     } else if vm.os.is_windows() {
         // Просветления Hyper-V: без них Windows 11 заметно медленнее (таймеры, IPI, сброс TLB).
         "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time,hv_vpindex,hv_synic,hv_stimer,hv_stimer_direct,hv_frequencies,hv_reset,hv_runtime,hv_tlbflush,hv_ipi".to_string()
@@ -221,7 +224,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     // (абсолютный указатель драйвера SYNMOUSE.COM, порт 5658h); остаются мышь PS/2 и vmmouse
     // (vmport=auto). Контроллер — для проброса USB.
     // i440fx — USB 1.1 (PIIX3 UHCI), его знают Windows 9x; имя то же, что у xHCI (на нём и проброс).
-    push(&["-device", if pc { "piix3-usb-uhci,id=xhci" } else { "qemu-xhci,id=xhci" }]);
+    // Windows 7 своего драйвера xHCI не имеет — ей тоже UHCI.
+    push(&["-device", if pc || vm.os == OsKind::Windows7 { "piix3-usb-uhci,id=xhci" } else { "qemu-xhci,id=xhci" }]);
     if !crate::dostools::is_dos(vm) {
         push(&["-device", "usb-tablet,bus=xhci.0"]);
     }

@@ -811,7 +811,7 @@ pub fn agent_binary(windows: bool) -> Option<PathBuf> {
             c.push(dir.join("agent").join(name));
             // Сборка из исходников: target/<профиль>/syn-vm → target/<цель>/<профиль>/…
             if let (Some(profile), Some(target)) = (dir.file_name(), dir.parent()) {
-                let t = if windows { "x86_64-pc-windows-gnu" } else { "x86_64-unknown-linux-musl" };
+                let t = if windows { "x86_64-win7-windows-gnu" } else { "x86_64-unknown-linux-musl" };
                 c.push(target.join(t).join(profile).join(name));
                 if !windows {
                     c.push(dir.join(name));

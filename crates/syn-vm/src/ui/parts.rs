@@ -153,7 +153,7 @@ pub fn badge(icon: &str, color: Option<Color>, size: f32) -> W {
 pub fn os_icon(os: OsKind) -> &'static str {
     match os {
         OsKind::Linux => icons::TERMINAL,
-        OsKind::Windows11 | OsKind::Windows10 => icons::WINDOW,
+        OsKind::Windows11 | OsKind::Windows10 | OsKind::Windows7 => icons::WINDOW,
         OsKind::Bsd => icons::DNS,
         OsKind::Android => icons::ANDROID,
         OsKind::Other => icons::COMPUTER,
