@@ -1,5 +1,5 @@
 ﻿# Гостевые инструменты syn-vm: драйвер virtio-serial (syn-vm-serial), гостевой агент syn-vm (служба),
-# при наличии видеокарты syn-gpu — её инструменты (каталог syn-gpu\ на диске).
+# при наличии видеокарты syn-gpu — её инструменты (каталог win10\syn-gpu\ на диске).
 # Запуск: install.cmd [/quiet] (администратор или SYSTEM). Коды: 0 — готово, 3010 — нужна перезагрузка
 # (после неё установка закончится сама), иное — ошибка. Журнал: C:\ProgramData\syn-vm\install.log.
 # Повторный запуск = обновление.
@@ -44,7 +44,7 @@ try {
     }
     $S = $Stage
     $NeedReboot = $false
-    $HaveSerial = Test-Path (Join-Path $S 'drivers\syn-vm-serial\syn-vm-serial.inf')
+    $HaveSerial = Test-Path (Join-Path $S 'win10\syn-vm-serial\syn-vm-serial.inf')
 
     if ($HaveSerial) {
         # 2. Драйверы с тестовой подписью: Secure Boot должен быть выключен.
@@ -53,7 +53,7 @@ try {
         if ($sb) { Fail 'включён Secure Boot: драйверы с тестовой подписью не загрузятся. В syn-vm выберите прошивку «UEFI» без Secure Boot.' 2 }
 
         # 3. Открытая часть сертификата тестовой подписи.
-        $cerDev = Join-Path $S 'drivers\syn-vm-serial\syn-virt-test.cer'
+        $cerDev = Join-Path $S 'win10\syn-vm-serial\syn-virt-test.cer'
         Import-Certificate -FilePath $cerDev -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
         Import-Certificate -FilePath $cerDev -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
 
@@ -75,7 +75,7 @@ try {
         $Drv = Join-Path $Data 'driver-serial'
         if (Test-Path $Drv) { Remove-Item -Recurse -Force $Drv }
         New-Item -ItemType Directory -Force -Path $Drv | Out-Null
-        Copy-Item -Force (Join-Path $S 'drivers\syn-vm-serial\syn-vm-serial.inf'), (Join-Path $S 'drivers\syn-vm-serial\syn-vm-serial.sys') $Drv
+        Copy-Item -Force (Join-Path $S 'win10\syn-vm-serial\syn-vm-serial.inf'), (Join-Path $S 'win10\syn-vm-serial\syn-vm-serial.sys') $Drv
         Get-ChildItem $Drv | ForEach-Object { $_.IsReadOnly = $false }
         $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -eq $LocalCertSubject -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddDays(30) } | Select-Object -First 1
         if (-not $cert) {
@@ -108,7 +108,7 @@ try {
     # 7. Видеокарта syn-gpu в машине — её инструменты (свой установщик, может попросить перезагрузку).
     $code = 0
     $gpu = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'PCI\VEN_1B36&DEV_F00D*' } | Select-Object -First 1
-    $gpuInstall = Join-Path $S 'syn-gpu\install.ps1'
+    $gpuInstall = Join-Path $S 'win10\syn-gpu\install.ps1'
     if ($gpu -and (Test-Path $gpuInstall)) {
         Log 'видеокарта syn-gpu: ставлю её инструменты'
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gpuInstall -Quiet

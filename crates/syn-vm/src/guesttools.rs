@@ -1,8 +1,14 @@
-//! «Гостевые инструменты syn-vm» — свой диск для Windows-гостей вместо virtio-win: драйвер
-//! virtio-serial syn-vm-serial (проект syn-virt), гостевой агент syn-vm-agent, при наличии —
-//! инструменты видеокарты syn-gpu (каталог `syn-gpu\`). Образ собирается здесь, из установленных
-//! частей, в `~/.cache/syn-vm/syn-vm-guest-tools.iso` (метка SYNVM) и пересобирается, когда
-//! часть изменилась. Установка в госте — `install.cmd` с диска (или через агента).
+//! «Гостевые инструменты syn-vm» — один диск для всех гостей вместо virtio-win и отдельных образов
+//! syn-gpu, разделённый по каталогам систем:
+//!
+//! - `agent\` — гостевой агент syn-vm-agent (Windows 7–11 и Linux);
+//! - `win10\` — Windows 10/11: `syn-vm-serial\` (virtio-serial для порта агента) и `syn-gpu\`
+//!   (инструменты видеокарты syn-gpu); ставит `install.cmd` в корне;
+//! - `win7\`, `winxp\`, `win9x\`, `dos\`, `linux\` — драйверы и утилиты syn-gpu этих систем,
+//!   как их собирает проект syn-virt (каталог `out/guest-tools/<система>/`).
+//!
+//! Образ собирается здесь, из установленных частей, в `~/.cache/syn-vm/syn-vm-guest-tools.iso`
+//! (метка SYNVM) и пересобирается, когда часть изменилась.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -45,6 +51,70 @@ pub fn serial_dir() -> Option<PathBuf> {
     c.into_iter().find(|d| d.join("syn-vm-serial.sys").is_file() && d.join("syn-vm-serial.inf").is_file())
 }
 
+/// Каталоги систем от syn-virt (`<корень>/<система>/`): SYN_VM_GUEST_TOOLS, пакеты syn-virt,
+/// рядом со сборкой syn-gpu (`syn-virt/out/guest-tools`). Корень узнаётся по каталогу хотя бы одной
+/// системы.
+pub fn systems_root() -> Option<PathBuf> {
+    let mut c: Vec<PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("SYN_VM_GUEST_TOOLS") {
+        c.push(PathBuf::from(p));
+    }
+    c.push(PathBuf::from("/usr/share/syn-virt/guest-tools"));
+    c.push(PathBuf::from("/usr/share/syn-gpu/guest-tools"));
+    if let Some(h) = std::env::var_os("HOME") {
+        c.push(PathBuf::from(&h).join(".local/share/syn-virt/guest-tools"));
+    }
+    if let Some(bin) = crate::qemu::syn_gpu_bin().and_then(|b| std::fs::canonicalize(b).ok()) {
+        if let Some(root) = bin.parent().and_then(Path::parent).and_then(Path::parent) {
+            c.push(root.join("out/guest-tools"));
+        }
+    }
+    c.into_iter().find(|d| SYSTEMS.iter().any(|s| d.join(s).is_dir()))
+}
+
+/// Каталоги систем на диске.
+pub const SYSTEMS: [&str; 6] = ["win10", "win7", "winxp", "win9x", "dos", "linux"];
+
+/// Отпечаток каталога: самое позднее изменение и число файлов (для пересборки образа).
+fn tree_stamp(dir: &Path) -> (u64, usize) {
+    let mut newest = mtime(dir);
+    let mut n = 0;
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                let (m, k) = tree_stamp(&p);
+                newest = newest.max(m);
+                n += k;
+            } else {
+                newest = newest.max(mtime(&p));
+                n += 1;
+            }
+        }
+    }
+    (newest, n)
+}
+
+/// Скопировать каталог целиком (права «только чтение» не переносятся — образ пересобирается).
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)?.flatten() {
+        let (src, dst) = (e.path(), to.join(e.file_name()));
+        if src.is_dir() {
+            copy_tree(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+            if let Ok(m) = std::fs::metadata(&dst) {
+                let mut p = m.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                p.set_readonly(false);
+                let _ = std::fs::set_permissions(&dst, p);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn mtime(p: &Path) -> u64 {
     std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -52,10 +122,20 @@ fn mtime(p: &Path) -> u64 {
 /// Собрать (или взять готовый) образ. Нет агента — ошибка; нет драйвера или syn-gpu — без них.
 pub fn iso() -> Result<PathBuf> {
     let agent = crate::agent::agent_binary(true).context(t!("нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)"))?;
-    let serial = serial_dir();
-    let gpu = crate::gputools::iso();
+    let agent_linux = crate::agent::agent_binary(false);
+    let systems = systems_root();
+    // Прежние части (пока syn-virt не кладёт каталоги систем): драйвер и образ syn-gpu.
+    let serial = if systems.as_ref().is_some_and(|r| r.join("win10/syn-vm-serial").is_dir()) { None } else { serial_dir() };
+    let gpu = if systems.as_ref().is_some_and(|r| r.join("win10/syn-gpu").is_dir()) { None } else { crate::gputools::iso() };
     // Отпечаток частей: пути, времена изменения, скрипты.
-    let mut stamp = format!("v1\n{}\n{}\n", agent.display(), mtime(&agent));
+    let mut stamp = format!("v2\n{}\n{}\n", agent.display(), mtime(&agent));
+    if let Some(a) = &agent_linux {
+        stamp += &format!("{}\n{}\n", a.display(), mtime(a));
+    }
+    if let Some(r) = &systems {
+        let (m, n) = tree_stamp(r);
+        stamp += &format!("{}\n{m}\n{n}\n", r.display());
+    }
     if let Some(d) = &serial {
         stamp += &format!("{}\n{}\n{}\n", d.display(), mtime(&d.join("syn-vm-serial.sys")), mtime(&d.join("syn-vm-serial.inf")));
     }
@@ -73,8 +153,18 @@ pub fn iso() -> Result<PathBuf> {
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(stage.join("agent"))?;
     std::fs::copy(&agent, stage.join("agent/syn-vm-agent.exe"))?;
+    if let Some(a) = &agent_linux {
+        std::fs::copy(a, stage.join("agent/syn-vm-agent"))?;
+    }
+    if let Some(r) = &systems {
+        for sys in SYSTEMS {
+            if r.join(sys).is_dir() {
+                copy_tree(&r.join(sys), &stage.join(sys))?;
+            }
+        }
+    }
     if let Some(d) = &serial {
-        let to = stage.join("drivers/syn-vm-serial");
+        let to = stage.join("win10/syn-vm-serial");
         std::fs::create_dir_all(&to)?;
         for f in ["syn-vm-serial.sys", "syn-vm-serial.inf", "syn-virt-test.cer"] {
             if d.join(f).is_file() {
@@ -84,7 +174,7 @@ pub fn iso() -> Result<PathBuf> {
     }
     if let Some(g) = &gpu {
         // Содержимое диска syn-gpu — в каталог syn-gpu\ (его install.ps1 зовёт наш).
-        let to = stage.join("syn-gpu");
+        let to = stage.join("win10/syn-gpu");
         std::fs::create_dir_all(&to)?;
         let st = Command::new("xorriso").args(["-osirrox", "on", "-indev"]).arg(g).args(["-extract", "/"]).arg(&to).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().context("xorriso")?;
         if !st.success() {
@@ -108,7 +198,24 @@ pub fn iso() -> Result<PathBuf> {
     }
     std::fs::rename(&tmp, &out)?;
     std::fs::write(&stamp_path, stamp)?;
+    let have_dirs: Vec<String> = SYSTEMS.iter().filter(|s| stage.join(s).is_dir()).map(|s| s.to_string()).collect();
     let _ = std::fs::remove_dir_all(&stage);
-    tracing::info!("гостевые инструменты syn-vm: {} (драйвер: {}, syn-gpu: {})", out.display(), serial.is_some(), gpu.is_some());
+    tracing::info!("гостевые инструменты syn-vm: {} (каталоги систем: {})", out.display(), have_dirs.join(", "));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Сборка образа по каталогам систем (нужны xorriso и сборка агента: SYN_VM_AGENT_EXE,
+    /// SYN_VM_GUEST_TOOLS — каталог систем, XDG_CACHE_HOME — куда класть образ).
+    #[test]
+    #[ignore]
+    fn iso_has_system_dirs() {
+        let iso = super::iso().unwrap();
+        let out = std::process::Command::new("xorriso").args(["-indev"]).arg(&iso).args(["-find", "/", "-type", "f"]).output().unwrap();
+        let list = String::from_utf8_lossy(&out.stdout);
+        for f in ["/agent/syn-vm-agent.exe", "/win9x/SYNGPU.INF", "/win7/install.cmd", "/dos/SYNGPU.COM", "/install.cmd", "/README.txt"] {
+            assert!(list.contains(f), "{f} нет в образе:\n{list}");
+        }
+    }
 }

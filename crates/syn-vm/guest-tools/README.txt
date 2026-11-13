@@ -1,12 +1,23 @@
 syn-vm guest tools / Гостевые инструменты syn-vm
 
-Run install.cmd as administrator (or double-click it: it asks for elevation).
-Запустите install.cmd от администратора (или двойным щелчком — он попросит права).
+One disk for all guests, one folder per system.
+Один диск для всех гостей, по каталогу на систему.
 
-Installs / ставит:
-  - drivers\syn-vm-serial — virtio-serial driver for the syn-vm guest agent port
-  - agent\syn-vm-agent.exe — syn-vm guest agent (service "syn-vm-agent")
-  - syn-gpu\ — syn-gpu video card tools (only if the machine has the syn-gpu device)
+  agent\syn-vm-agent.exe   syn-vm guest agent, Windows 7-11 (service "syn-vm-agent"):
+                           syn-vm-agent.exe install   (cmd as administrator)
+  agent\syn-vm-agent       the same for Linux: sudo ./syn-vm-agent install
 
-Test-signed drivers: Secure Boot must be off; test signing is enabled automatically
-(one reboot, setup then finishes by itself). Log: C:\ProgramData\syn-vm\install.log
+  install.cmd              Windows 10/11: everything below in one go (asks for elevation):
+  win10\syn-vm-serial\     virtio-serial driver for the agent port
+  win10\syn-gpu\           syn-gpu video card tools (only if the machine has syn-gpu)
+
+  win7\                    Windows 7: syn-gpu driver (win7\install.cmd)
+  winxp\                   Windows XP: syn-gpu driver
+  win9x\                   Windows 95/98/ME: syn-gpu driver, Glide, SYNSETUP.EXE
+  dos\                     DOS: SYNGPU, SYNMOUSE, Glide (also on the "DOS tools" disk)
+  linux\                   Linux: syn-gpu tools
+
+Test-signed drivers (Windows 7-11): Secure Boot must be off; test signing is enabled
+automatically (one reboot, setup then finishes by itself). Log: C:\ProgramData\syn-vm\install.log
+Драйверы с тестовой подписью: Secure Boot выключен; тестовая подпись включается сама
+(одна перезагрузка, затем установка заканчивается сама).
