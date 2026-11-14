@@ -448,7 +448,11 @@ fn run_capture(cmd: &str, cwd: Option<&str>, timeout_ms: u32, id: u64, out: &mut
         cmd.to_string()
     };
     let mut c = cz(&line);
-    let si = StartupInfo { cb: core::mem::size_of::<StartupInfo>() as u32, flags: 0x100 | 1, show: 0, stdin: 0, stdout: h, stderr: h, ..zeroed_si() };
+    // Программа с окнами (notepad, свои утилиты) — окно как обычно; консольная — спрятать (у 9x нет
+    // CREATE_NO_WINDOW, иначе каждая команда мелькала бы окном).
+    let prog = split_args(&line).into_iter().next().unwrap_or_default();
+    let gui = is_gui_program(&prog);
+    let si = StartupInfo { cb: core::mem::size_of::<StartupInfo>() as u32, flags: if gui { 0x100 } else { 0x100 | 1 }, show: 0, stdin: 0, stdout: h, stderr: h, ..zeroed_si() };
     let mut pi: ProcessInfo = unsafe { core::mem::zeroed() };
     let cwd = cwd.map(cz);
     let flags = if is_nt() { 0x0800_0000 /* CREATE_NO_WINDOW */ } else { 0 };
@@ -808,7 +812,7 @@ fn hello() -> Msg {
         INSTANCE.store(v.max(1), core::sync::atomic::Ordering::Relaxed);
     }
     let instance = INSTANCE.load(core::sync::atomic::Ordering::Relaxed);
-    Msg::Hello { version: VERSION, agent: format!("syn-vm-agent-9x {}", env!("CARGO_PKG_VERSION")), os: os.trim().into(), host, boot, instance, user: None, max_chunk: None }
+    Msg::Hello { version: VERSION, agent: format!("syn-vm-agent-9x {} ({})", env!("CARGO_PKG_VERSION"), env!("SYN_BUILD")), os: os.trim().into(), host, boot, instance, user: None, max_chunk: None }
 }
 
 /// Приём файла (Put → Data… → PutEnd).

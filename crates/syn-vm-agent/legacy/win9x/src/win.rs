@@ -151,6 +151,42 @@ unsafe extern "system" {
     pub fn GetCurrentProcess() -> HANDLE;
     pub fn SetFilePointer(h: HANDLE, lo: i32, hi: *mut i32, method: u32) -> u32;
     pub fn GetWindowsDirectoryA(buf: *mut u8, n: u32) -> u32;
+    pub fn SearchPathA(path: *const u8, file: *const u8, ext: *const u8, n: u32, buf: *mut u8, part: *mut *mut u8) -> u32;
+}
+
+/// Программа с окнами (подсистема Windows GUI в заголовке PE), а не консольная: её окно показывать,
+/// консоль — прятать. Путь без каталога ищется как CreateProcess (SearchPath, .exe).
+pub fn is_gui_program(prog: &str) -> bool {
+    let mut buf = [0u8; 300];
+    let name = cz(prog);
+    let n = unsafe { SearchPathA(core::ptr::null(), name.as_ptr(), b".exe\0".as_ptr(), buf.len() as u32, buf.as_mut_ptr(), core::ptr::null_mut()) } as usize;
+    let path = if n > 0 && n < buf.len() { from_ansi(&buf[..n]) } else { String::from(prog) };
+    let Some(d) = read_head(&path, 1024) else { return false };
+    if d.len() < 0x40 || &d[..2] != b"MZ" {
+        return false;
+    }
+    let pe = u32::from_le_bytes([d[0x3C], d[0x3D], d[0x3E], d[0x3F]]) as usize;
+    // PE\0\0, заголовок файла (20 байт), необязательный: Subsystem — по смещению 68.
+    if pe + 24 + 70 > d.len() || &d[pe..pe + 4] != b"PE\0\0" {
+        return false;
+    }
+    u16::from_le_bytes([d[pe + 24 + 68], d[pe + 24 + 69]]) == 2
+}
+
+/// Начало файла (не больше `n` байт).
+fn read_head(path: &str, n: usize) -> Option<Vec<u8>> {
+    unsafe {
+        let h = CreateFileA(cz(path).as_ptr(), GENERIC_READ, FILE_SHARE_RW, core::ptr::null(), OPEN_EXISTING, 0, 0);
+        if h == INVALID {
+            return None;
+        }
+        let mut v = alloc::vec![0u8; n];
+        let mut got = 0u32;
+        ReadFile(h, v.as_mut_ptr(), n as u32, &mut got, core::ptr::null_mut());
+        CloseHandle(h);
+        v.truncate(got as usize);
+        Some(v)
+    }
 }
 
 #[link(name = "user32", kind = "raw-dylib", import_name_type = "undecorated")]

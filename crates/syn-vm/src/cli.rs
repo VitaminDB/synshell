@@ -949,11 +949,25 @@ pub fn start(vm: &Vm) -> Result<()> {
 }
 
 /// Выключить: агентом (надёжнее, без вопросов гостя), иначе ACPI. Ждать до `timeout`.
+/// Выключить Windows 9x/XP командой через свой агент: 9x — RUNDLL32 USER.EXE,ExitWindows, XP — shutdown.
+fn legacy_shutdown(vm: &Vm) -> bool {
+    let Ok(mut c) = crate::agent::Client::connect(vm) else { return false };
+    let Some(i) = c.info().ok().flatten().filter(|i| i.agent.contains("-9x")) else { return false };
+    let argv: Vec<String> = if i.os.contains("XP") || i.os.contains("2000") {
+        ["shutdown", "-s", "-f", "-t", "0"].iter().map(|s| s.to_string()).collect()
+    } else {
+        ["rundll32.exe", "user.exe,ExitWindows"].iter().map(|s| s.to_string()).collect()
+    };
+    c.exec_detached(&argv, false, None, &[]).is_ok()
+}
+
 pub fn stop(vm: &Vm, timeout: Duration, force: bool) -> Result<String> {
     if qemu::pid(vm).is_none() {
         return Ok(t!("уже выключена"));
     }
-    let by_agent = qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok();
+    // Агент Windows 9x/XP (COM2): кнопку питания ACPI 9x не обрабатывает — выключить его командой.
+    let legacy = crate::agent::installed(vm) && crate::agent::online(vm) && legacy_shutdown(vm);
+    let by_agent = legacy || (qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok());
     let mut how = if by_agent { t!("выключена гостевым агентом") } else {
         qmp::powerdown(vm)?;
         t!("выключена (ACPI)")
