@@ -405,7 +405,8 @@ impl XwmHandler for State {
         let id = self.add_window(Window::new_x11_window(window.clone()));
         if let Some(m) = self.core.wm.get_mut(id) {
             // Окна без своих рамок получают наши (если рамки вообще рисуем мы).
-            m.ssd = ssd && !window.is_decorated();
+            // Окно своей формы (XShape: заставки с маской картинки) — без наших рамок.
+            m.ssd = ssd && !window.is_decorated() && window.bounding_shape().is_none();
             m.rules_applied = false;
         }
         self.map_x11(id, false);
@@ -494,6 +495,27 @@ impl XwmHandler for State {
             if let Some(y) = y {
                 geo.loc.y = y;
             }
+        } else if x.is_some() || y.is_some() {
+            // Плавающее окно двигает себя само (свой заголовок без _NET_WM_MOVERESIZE: Qt QWidget::move у
+            // DaVinci Resolve) — принять новое место. Координаты X11 — в пикселях этого Xwayland.
+            let scale = instance_of(&self.core.xwayland, &window).map(|i| i.scale).filter(|s| *s > 0.0).unwrap_or(1.0);
+            let to_log = |v: i32| (v as f64 / scale).round() as i32;
+            if let Some(x) = x {
+                geo.loc.x = to_log(x);
+            }
+            if let Some(y) = y {
+                geo.loc.y = to_log(y);
+            }
+            if let Some(m) = id.and_then(|id| self.core.wm.get_mut(id)) {
+                if m.loc != geo.loc {
+                    m.loc = geo.loc;
+                    m.float_geo = Some(Rectangle::new(geo.loc, geo.size));
+                    x11_configure(&self.core.space, &self.core.xwayland, &window, geo);
+                    self.sync_space();
+                    self.core.queue_redraw_all();
+                    return;
+                }
+            }
         }
         x11_configure(&self.core.space, &self.core.xwayland, &window, geo);
     }
@@ -531,6 +553,14 @@ impl XwmHandler for State {
             // Игровой режим: корневое окно остаётся во весь экран.
             let keep = self.game_keeps_fullscreen(id);
             self.apply_fullscreen(id, keep, None);
+        }
+    }
+
+    fn property_notify(&mut self, _xwm: XwmId, window: X11Surface, property: smithay::xwayland::xwm::WmWindowProperty) {
+        if property == smithay::xwayland::xwm::WmWindowProperty::Shape {
+            // Новая форма окна (XShape) — перерисовать по ней.
+            self.core.queue_redraw_all();
+            let _ = window;
         }
     }
 

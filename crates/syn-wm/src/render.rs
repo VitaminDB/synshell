@@ -775,7 +775,18 @@ where
     let parts = window_parts(core, renderer, output, id, offset, alpha);
     if scale == 1.0 && extra == Point::from((0, 0)) && desk.is_none() {
         let mode = output.current_mode().map(|m| m.size).unwrap_or_default();
-        let screen = Rectangle::from_size(output.current_transform().transform_size(mode));
+        let mut screen = Rectangle::from_size(output.current_transform().transform_size(mode));
+        // Окно X11 своей формы (XShape) — только внутри формы: вне её Xwayland оставляет чёрное (заставка
+        // DaVinci Resolve рисовалась с большим чёрным прямоугольником). Обрезка — по охватывающему
+        // прямоугольнику формы (картинка с маской почти всегда прямоугольник).
+        if let Some(shape) = core.wm.get(id).and_then(|m| m.window.x11_surface().and_then(|x| x.bounding_shape())) {
+            if let Some(bbox) = shape.into_iter().reduce(|a, b| a.merge(b)) {
+                let content = core.wm.get(id).map(|m| m.loc).unwrap_or_default() + offset - output_geo.loc;
+                let r = Rectangle::new(content + bbox.loc, bbox.size);
+                let r = Rectangle::new(r.loc.to_physical_precise_round(scale_f), r.size.to_physical_precise_round(scale_f));
+                screen = screen.intersection(r).unwrap_or_default();
+            }
+        }
         out.extend(parts.into_iter().filter_map(|p| CropRenderElement::from_element(p, Scale::from(scale_f), screen).map(OutputElement::Cropped)));
     } else {
         // Масштаб `scale` вокруг `c` со сдвигом `extra`, затем вид стола:

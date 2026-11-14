@@ -211,6 +211,11 @@ impl State {
             }
             m.loc = Point::from((loc.x, loc.y + top));
             m.float_geo = Some(Rectangle::new(m.loc, size));
+            // X11-окно без своих рамок больше рабочей области (DaVinci Resolve просит весь экран — с
+            // каскадным сдвигом оно уезжало за край, под панель) — развернуть на рабочую область.
+            if m.window.x11_surface().is_some() && !m.override_redirect && (frame.w >= area.size.w || frame.h >= area.size.h) {
+                m.maximized = true;
+            }
             if open_style != "none" && !anim_dur.is_zero() {
                 m.open_anim = Some(Animation::new(0.0, 1.0, anim_dur, Curve::EaseOutCubic));
             }
