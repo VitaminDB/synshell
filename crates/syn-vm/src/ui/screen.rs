@@ -100,9 +100,19 @@ pub fn page(st: St, full: bool) -> W {
                 .on_input(move |e| input(st, &id2, &s2, e))
                 .on_resize(move |sz| on_resize(st, sz))
                 .class("screen");
+            // Мышь захвачена (игры, Windows 9x и DOS с PS/2): указатель хоста спрятан — курсор гостя
+            // (аппаратный, от syn-gpu) рисуется в кадре, в его месте.
+            let cursor_layer: Option<W> = state::guest_cursor(&id, syn_display && super::capture::active(&id)).and_then(|(c, f)| {
+                let (x, y, w, h) = game_rect(st, fit, integer, guest, (c.x, c.y, c.width, c.height))?;
+                Some(boxed(Positioned::new(LiveView::new(f).fit(ImageFit::Fill).pixelated(true)).at(x, y).dimensions(w, h)))
+            });
+            let screen: W = match cursor_layer {
+                Some(cl) => boxed(Stack::new().fit(StackFit::Expand).child(screen).child(cl)),
+                None => boxed(screen),
+            };
             // Кадр игры (syn-gpu) — поверх, в месте окна игры на экране гостя, тем же масштабом.
-            let Some(layer) = state::game_layer(&id) else { return vec![boxed(screen)] };
-            let Some((x, y, w, h)) = game_rect(st, fit, integer, guest, layer.rect) else { return vec![boxed(screen)] };
+            let Some(layer) = state::game_layer(&id) else { return vec![screen] };
+            let Some((x, y, w, h)) = game_rect(st, fit, integer, guest, layer.rect) else { return vec![screen] };
             // Ввод над слоем — гостю: доли слоя → доли кадра гостя (окно игры x,y,w,h).
             let (s3, id3) = (s.clone(), id.clone());
             let (gw, gh) = guest;

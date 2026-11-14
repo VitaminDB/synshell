@@ -345,6 +345,17 @@ pub fn game_layer(id: &str) -> Option<crate::present::Layer> {
     presents().lock().unwrap().get(id).and_then(|p| if syn_display { p.game() } else { p.visible() })
 }
 
+/// Курсор гостя для рисования в кадре (мышь захвачена): положение и картинка; `draw` — сообщать окну о
+/// его движениях.
+pub fn guest_cursor(id: &str, draw: bool) -> Option<(crate::present::GuestCursor, Arc<LiveFrame>)> {
+    let p = presents().lock().unwrap().get(id).cloned()?;
+    p.set_draw_cursor(draw);
+    if !draw {
+        return None;
+    }
+    p.cursor().map(|c| (c, p.cursor_frame()))
+}
+
 /// Рабочий стол гостя на карте syn-gpu (кадры DESKTOP).
 pub fn desktop_layer(id: &str) -> Option<crate::present::Layer> {
     presents().lock().unwrap().get(id).and_then(|p| p.desktop())

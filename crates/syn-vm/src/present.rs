@@ -104,6 +104,10 @@ pub struct Present {
     bar2: AtomicBool,
     /// Ограничение частоты кадров гостя (0 — по монитору окна).
     max_fps: AtomicU32,
+    /// Картинка курсора гостя — для курсора в кадре, когда мышь захвачена.
+    cursor_frame: Arc<LiveFrame>,
+    /// Окно рисует курсор гостя в кадре (мышь захвачена) — его движения перерисовывают экран.
+    draw_cursor: AtomicBool,
 }
 
 /// Курсор гостя: где он на экране и как выглядит (для записи — в кадре его нет).
@@ -255,6 +259,16 @@ impl Present {
         self.cursor.lock().unwrap().clone()
     }
 
+    /// Окно рисует курсор гостя в кадре (захват мыши) — сообщать о его движениях.
+    pub fn set_draw_cursor(&self, on: bool) {
+        self.draw_cursor.store(on, Ordering::Relaxed);
+    }
+
+    /// Картинка курсора гостя кадром (для LiveView поверх экрана).
+    pub fn cursor_frame(&self) -> Arc<LiveFrame> {
+        self.cursor_frame.clone()
+    }
+
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
@@ -404,7 +418,7 @@ fn view_socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dyn Fn(Notice) + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -454,7 +468,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
 pub fn viewer(id: &str) -> Result<Arc<Present>> {
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
     let p2 = p.clone();
     std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -471,7 +485,7 @@ pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
     // приходят рабочий стол и курсор; кадры игр — `grab(…, false)` (основной сокет).
     let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -527,7 +541,7 @@ pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     // Кадр рабочего стола — наблюдателем (окно не вытесняется); кадры игр приходят только главному.
     let path = if desktop { view_socket(id) } else { socket(id) };
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -783,6 +797,27 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
             }
             CURSOR if p.cursor_id != 0 && payload.len() >= 48 => {
                 let (seq, visible) = (u32_at(&payload, 0), u32_at(&payload, 4) != 0);
+                let (x, y) = (u32_at(&payload, 8) as i32, u32_at(&payload, 12) as i32);
+                // Положение — и для курсора в кадре (мышь захвачена: указатель хоста спрятан).
+                {
+                    let mut cur = p.cursor.lock().unwrap();
+                    let moved = match cur.as_mut() {
+                        Some(c) if visible => {
+                            let m = (c.x, c.y) != (x, y);
+                            (c.x, c.y) = (x, y);
+                            m
+                        }
+                        Some(_) => {
+                            *cur = None;
+                            true
+                        }
+                        None => false,
+                    };
+                    drop(cur);
+                    if moved && cursor_state == Some((seq, visible)) && p.draw_cursor.load(Ordering::Relaxed) {
+                        on_change();
+                    }
+                }
                 if cursor_state == Some((seq, visible)) {
                     continue;
                 }
@@ -807,6 +842,14 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                         Some(syngui::input::CursorImage { width: w as u16, height: h as u16, hot_x: hx.min(w as u32 - 1) as u16, hot_y: hy.min(h as u32 - 1) as u16, rgba })
                     })
                 };
+                // Та же картинка — для курсора в кадре.
+                *p.cursor.lock().unwrap() = img.as_ref().map(|i| {
+                    p.cursor_frame.set(i.width as u32, i.height as u32, i.rgba.clone().into());
+                    GuestCursor { x, y, width: i.width as u32, height: i.height as u32, rgba: Arc::new(i.rgba.clone()) }
+                });
+                if p.draw_cursor.load(Ordering::Relaxed) {
+                    on_change();
+                }
                 syngui::input::set_custom_cursor(p.cursor_id, img);
             }
             GONE => {
@@ -939,6 +982,8 @@ mod tests {
             dlss: Mutex::new(None),
             bar2: AtomicBool::new(false),
             max_fps: AtomicU32::new(0),
+            cursor_frame: LiveFrame::new(),
+            draw_cursor: AtomicBool::new(false),
         };
         let mut m = Vec::new();
         m.extend_from_slice(&NOTICE.to_le_bytes());
@@ -980,7 +1025,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -1034,7 +1079,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)), cursor: Mutex::new(None), modes: Mutex::new(None), dlss: Mutex::new(None), bar2: AtomicBool::new(false), max_fps: AtomicU32::new(0), cursor_frame: LiveFrame::new(), draw_cursor: AtomicBool::new(false) });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
