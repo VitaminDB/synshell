@@ -3163,6 +3163,14 @@ impl X11 {
             aspects.push(screen_aspect);
         }
         let (mut out, mut bad) = (Vec::<(u32, u32)>::new(), Vec::new());
+        // Сам экран X11 и родное разрешение панели (пиксели вывода) — всегда первыми: игры предлагают только
+        // режимы из списка, и без них родного разрешения не было (SM-T295: X11 1024×640 при масштабе 1,25, панель
+        // 1280×800, а в modes — 1080p/900p/720p…; Warcraft III 1.26a)
+        out.push((even(screen.0), even(screen.1)));
+        let native = X11Resolution::Native.mode_size(screen, client_scale, output_scale);
+        if !out.contains(&native) {
+            out.push(native);
+        }
         for m in &self.modes {
             let (res, own) = match m.split_once('@') {
                 Some((r, a)) => (X11Resolution::parse(r), parse_x11_aspect(a).map(|a| vec![a.unwrap_or(screen_aspect)])),
@@ -3493,8 +3501,16 @@ mod tests {
         let mut x = X11 { modes: vec!["720p".into(), "1600x720".into(), "480p@4:3".into(), "bad".into()], ..X11::default() };
         x.aspects = vec!["screen".into(), "16:9".into(), "4:3".into(), "9:16".into()];
         let (sizes, bad) = x.mode_sizes((2712.0, 1220.0), 2.348, 2.348);
-        assert_eq!(sizes, vec![(1600, 720), (1280, 720), (960, 720), (640, 480)]);
+        assert_eq!(sizes, vec![(2712, 1220), (1600, 720), (1280, 720), (960, 720), (640, 480)]);
         assert_eq!(bad, vec!["bad".to_string()]);
+        // Родной экран первым и без повтора, даже если его нет в modes (SM-T295: 1280×800)
+        let x = X11::default();
+        let (sizes, _) = x.mode_sizes((1280.0, 800.0), 1.0, 1.0);
+        assert_eq!(sizes[0], (1280, 800));
+        assert_eq!(sizes.iter().filter(|s| **s == (1280, 800)).count(), 1);
+        // Логический X11 (масштаб вывода 1,25): экран X11 1024×640, следом панель 1280×800
+        let (sizes, _) = x.mode_sizes((1024.0, 640.0), 1.0, 1.25);
+        assert_eq!(&sizes[..2], &[(1024, 640), (1280, 800)]);
         assert_eq!(parse_x11_aspect("16:10"), Some(Some(1.6)));
         assert_eq!(parse_x11_aspect("screen"), Some(None));
         assert_eq!(parse_x11_aspect("ой"), None);
