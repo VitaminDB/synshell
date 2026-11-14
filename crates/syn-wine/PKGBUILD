@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=36
+pkgrel=38
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -84,6 +84,8 @@ source=(
   win32u-emulated-margins-black.patch
   wow64-suspend-local-thread.patch
   wow64-app-env.patch
+  wow64-map-view-exec-notify.patch
+  win32u-framebuffer-glsl140.patch
   lsteamclient-unix-compat.h
   compatibilitytool.vdf
   toolmanifest.vdf
@@ -106,7 +108,7 @@ noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hang
            "wine-gecko-$_gecko-x86.tar.xz" "wine-gecko-$_gecko-x86_64.tar.xz"
            "wine-mono-$_mono-x86.tar.xz" "wine-mono-$_mono-arm64.tar.xz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP
             '2cfc8d5c948602e21eff8a78613e1826f2d033df9672cace87fed56e8310afb6'
             'fd88fc7e537d058d7a8abf0c1ebc90c574892a466de86706a26d254710a82814')
 sha256sums_x86_64=(SKIP
@@ -283,6 +285,13 @@ prepare() {
   # Окружение эмулятора по программе (AppDefaults\<exe>\Wow64\Environment): Heroes 3 — FEX без TSO, иначе Miles
   # микширует так медленно, что главный поток стоит приостановленным до 1 с (рывки, рвётся музыка)
   patch -Np1 -i "$srcdir/wow64-app-env.patch"
+  # Проекция обычной (не образ) секции — эмулятору как смена защиты: исполняемый вид (PAGE_EXECUTE_READ) иначе не
+  # считается кодом. ClientSdk.dll Warcraft III 1.31 копирует себя в секцию и проецирует её поверх своего образа —
+  # FEX падал «исполнением запрещённой памяти» на первой же команде
+  patch -Np1 -i "$srcdir/wow64-map-view-exec-notify.patch"
+  # Шейдеры буфера кадра окна OpenGL (эмуляция режима, гамма) — GLSL 1.40 вместо 3.30: freedreno Adreno 504 знает
+  # только до 1.40, окно было чёрным («GLSL 3.30 is not supported», Warcraft III 1.26a -opengl на SM-T295)
+  patch -Np1 -i "$srcdir/win32u-framebuffer-glsl140.patch"
 }
 
 build() {

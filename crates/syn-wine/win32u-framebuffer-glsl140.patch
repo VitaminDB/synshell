@@ -1,0 +1,28 @@
+--- a/dlls/win32u/opengl.c	2026-11-14 10:23:38.533773101 +0500
++++ b/dlls/win32u/opengl.c	2026-11-14 10:23:38.534467200 +0500
+@@ -521,7 +521,7 @@
+ static LONG gamma_serial;
+ 
+ static const char *framebuffer_vertex_shader =
+-"#version 330\n"
++"#version 140\n"
+ "\n"
+ "const vec4 pos[4] = vec4[4](\n"
+ "    vec4(-1.0, -1.0, 0.0, 1.0),\n"
+@@ -545,14 +545,14 @@
+ ;
+ 
+ static const char *framebuffer_fragment_shader =
+-"#version 330\n"
++"#version 140\n"
+ "\n"
+ "uniform sampler2D tex;\n"
+ "layout (std140) uniform ramp {\n"
+ "    vec3 values[256];\n"
+ "};\n"
+ "in vec2 uv;\n"
+-"layout(location = 0) out vec4 color;\n"
++"out vec4 color;\n"
+ "\n"
+ "vec3 color_from_index(vec3 index)\n"
+ "{\n"

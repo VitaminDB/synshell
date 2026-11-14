@@ -1,0 +1,23 @@
+--- a/dlls/wow64/virtual.c	2026-11-14 09:48:44.025948679 +0500
++++ b/dlls/wow64/virtual.c	2026-11-14 09:48:51.942517124 +0500
+@@ -448,8 +448,19 @@
+     SECTION_IMAGE_INFORMATION info;
+     NTSTATUS status;
+ 
++    if (NtQuerySection( handle, SectionImageInformation, &info, sizeof(info), NULL ))
++    {
++        /* Not an image: tell the emulator about the new view's protection like for allocations, otherwise an
++         * executable view (PAGE_EXECUTE_READ) is not known as code. Code that copies itself into a section and maps
++         * it back over its own unmapped image (Warcraft III ClientSdk.dll) then faults on execute under FEX. */
++        if (pBTCpuNotifyMemoryProtect && size)
++        {
++            pBTCpuNotifyMemoryProtect( addr, size, protect, FALSE, 0 );
++            pBTCpuNotifyMemoryProtect( addr, size, protect, TRUE, STATUS_SUCCESS );
++        }
++        return;
++    }
+     if (!NtCurrentTeb()->Tib.ArbitraryUserPointer) return;
+-    if (NtQuerySection( handle, SectionImageInformation, &info, sizeof(info), NULL )) return;
+     if (info.Machine != current_machine) return;
+     init_image_mapping( addr );
+     if (!pBTCpuNotifyMapViewOfSection) return;
