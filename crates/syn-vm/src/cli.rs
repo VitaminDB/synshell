@@ -949,14 +949,16 @@ pub fn start(vm: &Vm) -> Result<()> {
 }
 
 /// Выключить: агентом (надёжнее, без вопросов гостя), иначе ACPI. Ждать до `timeout`.
-/// Выключить Windows 9x/XP командой через свой агент: 9x — RUNDLL32 USER.EXE,ExitWindows, XP — shutdown.
+/// Выключить Windows 9x/XP командой через свой агент: 9x — SYNAGENT.EXE poweroff, XP — shutdown -f.
 fn legacy_shutdown(vm: &Vm) -> bool {
     let Ok(mut c) = crate::agent::Client::connect(vm) else { return false };
     let Some(i) = c.info().ok().flatten().filter(|i| i.agent.contains("-9x")) else { return false };
     let argv: Vec<String> = if i.os.contains("XP") || i.os.contains("2000") {
         ["shutdown", "-s", "-f", "-t", "0"].iter().map(|s| s.to_string()).collect()
     } else {
-        ["rundll32.exe", "user.exe,ExitWindows"].iter().map(|s| s.to_string()).collect()
+        // Сам агент: ExitWindowsEx с EWX_FORCE — открытый сеанс DOS не держит выключение
+        // (RUNDLL32 USER.EXE,ExitWindows ждал ответа на «закрыть программу DOS?»).
+        vec![r"C:\SYNVM\SYNAGENT.EXE".to_string(), "poweroff".to_string()]
     };
     c.exec_detached(&argv, false, None, &[]).is_ok()
 }

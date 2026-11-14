@@ -201,6 +201,11 @@ pub extern "C" fn start() -> ! {
     let verb = args.get(1).map(|s| s.to_ascii_lowercase()).unwrap_or_default();
     let code = match verb.as_str() {
         "install" | "/install" => install(),
+        // Выключить сразу, не спрашивая открытые программы (сеанс DOS у 9x иначе держит выключение).
+        "poweroff" => {
+            win::poweroff();
+            0
+        }
         _ => run(),
     };
     unsafe { ExitProcess(code) }

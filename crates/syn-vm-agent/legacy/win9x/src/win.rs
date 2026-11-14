@@ -373,6 +373,17 @@ pub fn reg_delete(sub: &str, name: &str) {
 pub fn reboot() {
     unsafe {
         if is_nt() {
+            enable_shutdown_privilege();
+        }
+        // EWX_REBOOT | EWX_FORCE
+        ExitWindowsEx(0x2 | 0x4, 0);
+    }
+}
+
+/// Право SeShutdownPrivilege процессу (только NT; функции advapi32 — через GetProcAddress).
+unsafe fn enable_shutdown_privilege() {
+    unsafe {
+        {
             let adv = GetModuleHandleA(b"advapi32.dll\0".as_ptr());
             let open = GetProcAddress(adv, b"OpenProcessToken\0".as_ptr());
             let lookup = GetProcAddress(adv, b"LookupPrivilegeValueA\0".as_ptr());
@@ -393,7 +404,15 @@ pub fn reboot() {
                 }
             }
         }
-        // EWX_REBOOT | EWX_FORCE
-        ExitWindowsEx(0x2 | 0x4, 0);
+    }
+}
+
+/// Выключить: EWX_SHUTDOWN | EWX_POWEROFF | EWX_FORCE (у NT — с правом SeShutdownPrivilege, как в reboot).
+pub fn poweroff() {
+    unsafe {
+        if is_nt() {
+            enable_shutdown_privilege();
+        }
+        ExitWindowsEx(0x1 | 0x8 | 0x4, 0);
     }
 }
