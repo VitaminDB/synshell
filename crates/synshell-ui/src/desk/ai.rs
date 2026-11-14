@@ -351,7 +351,7 @@ fn tiers(e: &ExpertPlacement) -> (u32, u32, u32) {
 /// Чтение с диска во время генерации этой модели — промахи экспертов мимо RAM.
 fn nvme_now(s: &AiSnap, m: &ModelEntry) -> Option<u64> {
     let generating = s.metrics.running.iter().any(|a| a.op == "generate" && a.state == ActivityState::Running && a.tps > 0.0 && a.models.contains(&m.id));
-    (generating && s.status.disk_read_bps >= 4 << 20).then_some(s.status.disk_read_bps)
+    (generating && s.status.disk_read_bps >= 32 << 20).then_some(s.status.disk_read_bps)
 }
 
 /// Что сейчас ограничивает скорость генерации модели (для карточки).
