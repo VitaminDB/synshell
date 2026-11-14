@@ -378,7 +378,7 @@ fn handle(f: Frame) {
             *last_ips().lock().unwrap() = None;
         }
         Msg::Ping { id } => send(Frame::new(Msg::Pong { id })),
-        Msg::Exec { id, argv, user, cwd, env, stdin } => exec(id, ExecReq { argv, user, cwd, env, stdin }),
+        Msg::Exec { id, argv, user, cwd, env, stdin, .. } => exec(id, ExecReq { argv, user, cwd, env, stdin }),
         Msg::Stdin { id } => {
             let mut p = procs().lock().unwrap();
             if let Some(r) = p.get_mut(&id) {

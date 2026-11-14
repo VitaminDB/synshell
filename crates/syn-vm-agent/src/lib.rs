@@ -50,7 +50,17 @@ pub enum Msg {
     Hi,
     /// Запустить программу. `user` — в интерактивном сеансе вошедшего пользователя.
     /// `stdin` — данные придут сообщениями `Stdin` (пустые — конец ввода).
-    Exec { id: u64, argv: Vec<String>, user: bool, cwd: Option<String>, env: Vec<String>, stdin: bool },
+    /// `detach` — не ждать: посредник не снимает команду, когда клиент ушёл (`--exec --detach`).
+    Exec {
+        id: u64,
+        argv: Vec<String>,
+        user: bool,
+        cwd: Option<String>,
+        env: Vec<String>,
+        stdin: bool,
+        #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+        detach: bool,
+    },
     /// Кусок ввода команды (данные кадра); пустой — закрыть ввод.
     Stdin { id: u64 },
     /// Завершить команду.
@@ -272,7 +282,7 @@ mod tests {
 
     #[test]
     fn ids() {
-        let m = Msg::Exec { id: 1, argv: vec!["a".into()], user: false, cwd: None, env: vec![], stdin: false };
+        let m = Msg::Exec { id: 1, argv: vec!["a".into()], user: false, cwd: None, env: vec![], stdin: false, detach: false };
         assert_eq!(m.clone().with_id(9).id(), Some(9));
         assert!(Msg::Exit { id: 1, code: 0 }.is_final());
         assert!(!Msg::Out { id: 1, fd: 1 }.is_final());

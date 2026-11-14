@@ -393,7 +393,7 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
                         g
                     }
                 };
-                if matches!(m, Msg::Exec { .. }) {
+                if matches!(m, Msg::Exec { detach: false, .. }) {
                     b.execs.insert(gid);
                 }
                 let out = Frame::with_data(f.msg.clone().with_id(gid), f.data);
@@ -559,9 +559,24 @@ impl Client {
 
     /// Команда с потоковым выводом: `out(fd, данные)`. Тайм-аут — команда завершается, код 124.
     #[allow(clippy::too_many_arguments)]
+    /// Запустить и не ждать: номер процесса в госте (команда живёт дальше, когда клиент уходит).
+    pub fn exec_detached(&mut self, argv: &[String], user: bool, cwd: Option<String>, env: &[String]) -> Result<u32> {
+        let id = self.id();
+        self.send(Frame::new(Msg::Exec { id, argv: argv.to_vec(), user, cwd, env: env.to_vec(), stdin: false, detach: true }))?;
+        loop {
+            let f = self.recv_for(id, Some(Duration::from_secs(30)))?;
+            match f.msg {
+                Msg::Started { pid, .. } => return Ok(pid),
+                Msg::Error { msg, .. } => bail!("{msg}"),
+                Msg::Exit { code, .. } => bail!("{}", t!("команда сразу завершилась: код {code}", code = code)),
+                _ => {}
+            }
+        }
+    }
+
     pub fn exec(&mut self, argv: &[String], user: bool, cwd: Option<String>, env: &[String], input: Option<&[u8]>, timeout: Duration, out: &mut dyn FnMut(u8, &[u8])) -> Result<ExecOut> {
         let id = self.id();
-        self.send(Frame::new(Msg::Exec { id, argv: argv.to_vec(), user, cwd, env: env.to_vec(), stdin: input.is_some() }))?;
+        self.send(Frame::new(Msg::Exec { id, argv: argv.to_vec(), user, cwd, env: env.to_vec(), stdin: input.is_some(), detach: false }))?;
         if let Some(inp) = input {
             for c in inp.chunks(CHUNK) {
                 self.send(Frame::with_data(Msg::Stdin { id }, c.to_vec()))?;

@@ -438,6 +438,12 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                 None
             };
             // Свой агент: потоковый вывод, без предела длины, --user — в сеансе пользователя.
+            if use_agent(&vm, a)? && a.has("--detach") {
+                let mut c = crate::agent::Client::connect(&vm)?;
+                let pid = c.exec_detached(&argv, a.has("--user"), None, &a.all("--env"))?;
+                println!("{pid}");
+                return Ok(0);
+            }
             if use_agent(&vm, a)? {
                 let raw = a.has("--raw");
                 let mut c = crate::agent::Client::connect(&vm)?;
@@ -1194,9 +1200,9 @@ fn get_key(t: &toml::Value, k: &str) -> Option<String> {
 /// Идти через свой агент: не просили qemu-ga (--qga, --detach) и агент на связи; --user —
 /// только через него.
 fn use_agent(vm: &Vm, a: &Args) -> Result<bool> {
-    if a.has("--qga") || a.has("--detach") {
+    if a.has("--qga") {
         if a.has("--user") {
-            bail!("{}", t!("--user — только через свой агент (без --qga и --detach)"));
+            bail!("{}", t!("--user — только через свой агент (без --qga)"));
         }
         return Ok(false);
     }
