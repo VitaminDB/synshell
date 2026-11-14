@@ -192,6 +192,7 @@ impl Conn {
                 if !self.admin {
                     return Err(denied());
                 }
+                tracing::info!("{model}: выгрузка по запросу «{}», pid {}", self.app.title(), self.app.pid);
                 mgr.unload(&model);
                 (data(mgr.entry(&model)?), none())
             }
