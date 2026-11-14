@@ -466,9 +466,9 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
 pub static FORCE_REL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Указатель в точку (x, y) кадра относительными сдвигами мыши PS/2: сначала в левый верхний угол
-/// большими шагами (ускорение там не мешает), затем к точке шагами по 4 точки — меньше порога ускорения
-/// Windows (6), так что сдвиг в отсчётах равен сдвигу в точках. Паузы — чтобы не переполнять очередь
-/// PS/2 QEMU (16 байт, по 3 на пакет).
+/// большими шагами (ускорение там не мешает), затем к точке шагами по 2 точки раз в 25 мс — гость успевает
+/// прочитать каждый пакет, порог ускорения Windows (6) не перешагивается, сдвиг в отсчётах равен сдвигу
+/// в точках. `--click М 0 0 --move --rel` — только угол.
 fn move_rel(c: &mut Conn, x: f64, y: f64, size: (u32, u32)) -> Result<()> {
     let rel = |c: &mut Conn, dx: i64, dy: i64| -> Result<()> {
         c.call("input-send-event", json!({"events": [
@@ -481,13 +481,19 @@ fn move_rel(c: &mut Conn, x: f64, y: f64, size: (u32, u32)) -> Result<()> {
         rel(c, -127, -127)?;
         std::thread::sleep(Duration::from_millis(20));
     }
+    // Шаг и пауза: гость (Windows 9x) читает мышь 60–100 раз в секунду — частые мелкие сдвиги QEMU
+    // складывает в один пакет, тот перешагивает порог ускорения (6 и 10) и указатель перелетает.
+    // SYN_VM_CLICK_STEP / SYN_VM_CLICK_PAUSE_MS — подобрать под гостя.
+    let env = |k: &str, d: i64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+    let step = env("SYN_VM_CLICK_STEP", 2).clamp(1, 127);
+    let pause = env("SYN_VM_CLICK_PAUSE_MS", 25).clamp(1, 1000) as u64;
     let (mut rx, mut ry) = (x.round().max(0.0) as i64, y.round().max(0.0) as i64);
     while rx > 0 || ry > 0 {
-        let (dx, dy) = (rx.min(4), ry.min(4));
+        let (dx, dy) = (rx.min(step), ry.min(step));
         rel(c, dx, dy)?;
         rx -= dx;
         ry -= dy;
-        std::thread::sleep(Duration::from_millis(8));
+        std::thread::sleep(Duration::from_millis(pause));
     }
     // Последний пакет дошёл до гостя.
     std::thread::sleep(Duration::from_millis(60));
