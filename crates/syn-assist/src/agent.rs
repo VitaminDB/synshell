@@ -107,7 +107,14 @@ pub struct Agent {
     pub knowledge: Vec<std::path::PathBuf>,
     /// Каталог рецептов (инструмент pipeline).
     pub recipes: Option<std::path::PathBuf>,
+    /// Очередь сообщений пользователя, написанных во время хода: опрашивается
+    /// после каждого шага модели (ответ допечатан, инструменты выполнены) —
+    /// новые сообщения сразу входят в разговор, не дожидаясь конца всего хода.
+    pub inbox: Option<Inbox>,
 }
+
+/// Забирает накопившиеся сообщения пользователя (пусто — нет новых).
+pub type Inbox = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
 /// Сколько символов результата инструмента видит модель: декомпиляция и дампы строк в реверсе — десятки
 /// тысяч символов; 12 000 резали их втрое, и агент работал по обрезку.
@@ -118,7 +125,26 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None }
+    }
+
+    /// Очередь сообщений пользователя во время хода (см. [`Agent::inbox`]).
+    pub fn with_inbox(mut self, inbox: Inbox) -> Self {
+        self.inbox = Some(inbox);
+        self
+    }
+
+    /// Сообщения из очереди — в чат как сообщения пользователя. `true` — что-то пришло.
+    fn take_inbox(&self, chat: &mut Chat, on: &mut dyn FnMut(AgentEvent)) -> bool {
+        let Some(inbox) = &self.inbox else { return false };
+        let msgs: Vec<String> = inbox().into_iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+        for text in &msgs {
+            crate::tools::set_request(text);
+            let user = ChatMsg::user(text.as_str());
+            chat.messages.push(user.clone());
+            on(AgentEvent::Message(user));
+        }
+        !msgs.is_empty()
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -366,6 +392,10 @@ impl Agent {
             self.push_reply(chat, &out, on);
             pending_tools = !out.tool_calls.is_empty();
             if !pending_tools {
+                // ответ готов, а пользователь уже написал ещё — ход продолжается с его сообщением
+                if !cancel.load(Ordering::Relaxed) && self.take_inbox(chat, on) {
+                    continue;
+                }
                 break;
             }
             for call in out.tool_calls {
@@ -426,6 +456,12 @@ impl Agent {
                 };
                 chat.messages.push(msg.clone());
                 on(AgentEvent::Message(msg));
+            }
+            // сообщение пользователя, пришедшее во время шага, — следом за результатами инструментов
+            if !cancel.load(Ordering::Relaxed) && self.take_inbox(chat, on) {
+                skipped = 0;
+                recent.clear();
+                recent_shapes.clear();
             }
             if skipped >= 3 {
                 break;
@@ -634,6 +670,7 @@ impl Agent {
             skills: Vec::new(),
             knowledge: Vec::new(),
             recipes: None,
+            inbox: None,
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();
@@ -801,6 +838,25 @@ mod tests {
         assert_eq!(chat.messages[3].text, "Готово: HI");
         assert!(events.contains(&AgentEvent::Done));
         assert_eq!(script.1.lock().unwrap()[0].0, 2);
+    }
+
+    /// Сообщение, написанное во время хода, входит в разговор после ближайшего шага
+    /// (за результатом инструмента), а пришедшее к концу ответа — продолжает ход.
+    #[test]
+    fn inbox_messages_join_after_nearest_step() {
+        let script = Arc::new(Script::new(vec![calls("echo", r#"{"text":"a"}"#), text("Ответ 1"), text("Ответ 2")]));
+        let queue: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(vec![vec!["ещё вопрос".into()], vec!["и третий".into()]]));
+        let q = queue.clone();
+        let agent = Agent::new(script.clone(), vec![Arc::new(Echo)]).with_inbox(Arc::new(move || {
+            let mut q = q.lock().unwrap();
+            if q.is_empty() { Vec::new() } else { q.remove(0) }
+        }));
+        let mut chat = Chat::new();
+        agent.run_turn(&mut chat, "x", &|_: &str, _: &str| true, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let seq: Vec<(Role, &str)> = chat.messages.iter().map(|m| (m.role, m.text.as_str())).collect();
+        assert_eq!(seq, [(Role::User, "x"), (Role::Assistant, ""), (Role::Tool, "A"), (Role::User, "ещё вопрос"), (Role::Assistant, "Ответ 1"), (Role::User, "и третий"), (Role::Assistant, "Ответ 2")]);
+        // модель на втором шаге видит вопрос из очереди последним
+        assert_eq!(script.1.lock().unwrap()[1].1.last().unwrap().content, "ещё вопрос");
     }
 
     #[test]
