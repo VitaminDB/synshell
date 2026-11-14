@@ -712,6 +712,10 @@ cmd_start() {
   export DLSSNR_SHM="$shm"
   export DLSSNR_UID="$UID"
   export DLSSNR_LOG="$log"
+  # Без кадров N минут помощник выгружается сам (видеопамять — другим программам); 0 — никогда.
+  local idle
+  idle="$(read_config_value idle_exit_min "$CONFIG_FILE")"
+  export DLSSNR_IDLE_EXIT_MIN="${idle:-3}"
   export DXVK_CONFIG_FILE="$DXVK_CONFIG_FILE"
   export WINEDEBUG="${WINEDEBUG:--all}"
   if [ -n "$binaries" ]; then

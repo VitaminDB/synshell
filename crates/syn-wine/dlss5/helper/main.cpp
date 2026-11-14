@@ -2981,6 +2981,13 @@ int main() {
     Log("[helper] context ready, waiting for frames");
 
     uint32_t lastReq = shm.hdr->seq_resp.load();
+    // Idle exit: no frame for N minutes -> leave and free the GPU (VRAM for other programs, e.g. a local
+    // LLM). The layer and the video/VM clients start the helper again on their next frame
+    // (dlssnr-helper start). DLSSNR_IDLE_EXIT_MIN from config.ini idle_exit_min; 0 -- never.
+    uint64_t idleMs = 3ull * 60 * 1000;
+    if (const char* v = getenv("DLSSNR_IDLE_EXIT_MIN"); v && *v) idleMs = (uint64_t)strtoull(v, nullptr, 10) * 60 * 1000;
+    uint64_t lastFrameAt = GetTickCount64();
+    bool idleExit = false;
     while (!shm.hdr->quit.load()) {
         // Restated every pass, not announced once.
         //
@@ -3009,6 +3016,11 @@ int main() {
             if (!shm.hdr->quit.load() && shm.hdr->seq_req.load() == lastReq) {
                 shm.hdr->heartbeat.fetch_add(1);
                 Sleep(1);
+                if (idleMs && GetTickCount64() - lastFrameAt > idleMs) {
+                    Log("[helper] idle %llu min, exiting", (unsigned long long)(idleMs / 60000));
+                    idleExit = true;
+                    break;
+                }
             }
             continue;
         }
@@ -3024,13 +3036,15 @@ int main() {
         std::atomic_thread_fence(std::memory_order_release);
         shm.hdr->seq_resp.store(req);
         lastReq = req;
+        lastFrameAt = GetTickCount64();
         if (ns.ngx.disabled) {
             shm.hdr->quit.store(1);
             break;
         }
     }
 
-    if (shm.hdr->quit.load()) Log("[helper] quit requested");
+    if (idleExit) Log("[helper] no frames -- unloading to free the GPU");
+    else if (shm.hdr->quit.load()) Log("[helper] quit requested");
     else if (ns.ngx.disabled) Log("[helper] neural disabled");
     shm.hdr->helperState.store(kHelperStopped);
     Log("[helper] shutting down");
