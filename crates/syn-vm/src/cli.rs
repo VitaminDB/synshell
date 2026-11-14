@@ -79,7 +79,8 @@ syn-vm — виртуальные машины QEMU/KVM
   --screendump МАШИНА ФАЙЛ.png           кадр экрана гостя
   --type МАШИНА 'ТЕКСТ'                  набрать текст (раскладка US, \\n — Enter)
   --key МАШИНА СОЧЕТАНИЕ                 ctrl+alt+delete, alt+f4, win+r, enter…
-  --click МАШИНА X Y [--right|--middle] [--double] [--move]   щелчок в пикселях кадра
+  --click МАШИНА X Y [--right|--middle] [--double] [--move] [--rel]   щелчок в пикселях кадра
+                                          (нет абсолютной мыши — сдвигами PS/2 от угла; --rel — всегда так)
   --scroll МАШИНА ШАГИ                   колесо (> 0 — вниз)
 
 Устройства:
@@ -647,6 +648,9 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             } else {
                 Some("left")
             };
+            if a.has("--rel") {
+                qmp::FORCE_REL.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             click(&vm, x, y, button, a.has("--double"))?;
             Ok(0)
         }

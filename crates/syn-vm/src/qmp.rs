@@ -436,9 +436,20 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
     let ay = ((y / h).clamp(0.0, 1.0) * 32767.0).round() as i64;
     ensure_tablet(vm);
     let mut c = if direct_input(vm) { input_conn(vm)? } else { Conn::of(vm)? };
-    c.call("input-send-event", json!({"events": [
-        {"type": "abs", "data": {"axis": "x", "value": ax}},
-        {"type": "abs", "data": {"axis": "y", "value": ay}}]}))?;
+    let abs = if FORCE_REL.load(std::sync::atomic::Ordering::Relaxed) {
+        Err(anyhow!("Input handler not found (--rel)"))
+    } else {
+        c.call("input-send-event", json!({"events": [
+            {"type": "abs", "data": {"axis": "x", "value": ax}},
+            {"type": "abs", "data": {"axis": "y", "value": ay}}]}))
+    };
+    if let Err(e) = abs {
+        // Абсолютного устройства нет (Windows 9x, DOS: мышь PS/2) — относительными сдвигами.
+        if !e.to_string().contains("Input handler not found") {
+            return Err(e);
+        }
+        move_rel(&mut c, x, y, size)?;
+    }
     if let Some(b) = button {
         for _ in 0..if double { 2 } else { 1 } {
             std::thread::sleep(Duration::from_millis(40));
@@ -447,6 +458,39 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
             c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": false, "button": b}}]}))?;
         }
     }
+    Ok(())
+}
+
+/// `--click --rel`: только относительные сдвиги (абсолютное устройство есть, но драйвера в госте нет —
+/// vmmouse у Windows 9x без своего драйвера).
+pub static FORCE_REL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Указатель в точку (x, y) кадра относительными сдвигами мыши PS/2: сначала в левый верхний угол
+/// большими шагами (ускорение там не мешает), затем к точке шагами по 4 точки — меньше порога ускорения
+/// Windows (6), так что сдвиг в отсчётах равен сдвигу в точках. Паузы — чтобы не переполнять очередь
+/// PS/2 QEMU (16 байт, по 3 на пакет).
+fn move_rel(c: &mut Conn, x: f64, y: f64, size: (u32, u32)) -> Result<()> {
+    let rel = |c: &mut Conn, dx: i64, dy: i64| -> Result<()> {
+        c.call("input-send-event", json!({"events": [
+            {"type": "rel", "data": {"axis": "x", "value": dx}},
+            {"type": "rel", "data": {"axis": "y", "value": dy}}]}))?;
+        Ok(())
+    };
+    let corner = (size.0.max(size.1) as i64 / 127 + 4).max(12);
+    for _ in 0..corner {
+        rel(c, -127, -127)?;
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (mut rx, mut ry) = (x.round().max(0.0) as i64, y.round().max(0.0) as i64);
+    while rx > 0 || ry > 0 {
+        let (dx, dy) = (rx.min(4), ry.min(4));
+        rel(c, dx, dy)?;
+        rx -= dx;
+        ry -= dy;
+        std::thread::sleep(Duration::from_millis(8));
+    }
+    // Последний пакет дошёл до гостя.
+    std::thread::sleep(Duration::from_millis(60));
     Ok(())
 }
 
