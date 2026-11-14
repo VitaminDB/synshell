@@ -1079,6 +1079,35 @@ impl Loaded {
         texts.iter().map(|t| b.tok.encode(t).map(|ids| ids.len()).map_err(|e| anyhow::anyhow!("{e}"))).collect()
     }
 
+    /// Раскладка экспертов и спекуляция загруженной языковой модели (без
+    /// замка пайплайна — годится и во время генерации).
+    pub fn llm_runtime(&self) -> Option<crate::LlmRuntime> {
+        let Loaded::Llm(b) = self else { return None };
+        let r = b.llm.runtime_info();
+        Some(crate::LlmRuntime {
+            speculation: r.speculation.map(str::to_string),
+            speculation_greedy_only: r.speculation_greedy_only,
+            drafted: r.drafted,
+            accepted: r.accepted,
+            experts: r.experts.map(|e| crate::ExpertPlacement {
+                layers: e.layers,
+                experts_per_layer: e.experts_per_layer,
+                total: e.total,
+                total_bytes: e.total_bytes,
+                vram: e.vram,
+                vram_bytes: e.vram_bytes,
+                vram_capacity: e.vram_capacity,
+                ram: e.ram,
+                ram_bytes: e.ram_bytes,
+                ram_target_bytes: e.ram_target_bytes,
+                disk: e.disk,
+                disk_bytes: e.disk_bytes,
+                hits: e.hits,
+                misses: e.misses,
+            }),
+        })
+    }
+
     /// Окно, зрение, пресеты сэмплинга и глубины размышлений.
     pub fn llm_info(&self) -> anyhow::Result<crate::LlmInfo> {
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };

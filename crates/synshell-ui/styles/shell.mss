@@ -874,6 +874,9 @@ Text {
 .desk-ai-dev { font-size: 12px; font-weight: 600; color: var(--fg); }
 .desk-ai-model { font-size: 13px; font-weight: 600; color: var(--fg); }
 .desk-ai-apps { font-size: 11px; color: var(--accent); }
+.desk-ai-tier { font-size: 11px; color: var(--muted); }
+.desk-ai-warn { font-size: 11px; font-weight: 600; color: var(--danger); }
+.desk-ai-spec { font-size: 11px; font-weight: 700; color: var(--accent); }
 .desk-ai-row { padding: 8px; border-radius: 10px; background-color: #ffffff08; transition: background-color 150ms ease-out; }
 .desk-ai-row:hover { background-color: #ffffff12; }
 .desk-ai-row-busy { background-color: #ffffff10; border: 1px solid #ffffff1c; }

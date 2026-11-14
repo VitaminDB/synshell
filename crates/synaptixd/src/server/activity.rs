@@ -384,17 +384,38 @@ pub fn snapshot(history: bool) -> Snapshot {
     }
 }
 
+static DISK_READ_BPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Чтение службы с диска за последнюю секунду, байт/с.
+pub fn disk_read_bps() -> u64 {
+    DISK_READ_BPS.load(Ordering::Relaxed)
+}
+
+/// `read_bytes` из `/proc/self/io` — то, что реально прочитано с устройства
+/// (мимо page cache).
+fn proc_read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/io")
+        .ok()
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("read_bytes:").and_then(|v| v.trim().parse().ok())))
+        .unwrap_or(0)
+}
+
 /// Раз в секунду — точка истории; `mem` — (RAM, видеопамять) моделей.
 pub fn sampler(mem: impl Fn() -> (u64, u64) + Send + 'static) {
     std::thread::Builder::new()
         .name("metrics".into())
         .spawn(move || {
             let mut last = Instant::now();
+            let mut last_read = proc_read_bytes();
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 let dt = last.elapsed().as_secs_f32().max(0.001);
                 last = Instant::now();
                 let (ram, vram) = mem();
+                let read = proc_read_bytes();
+                let disk_read_bps = (read.saturating_sub(last_read) as f32 / dt) as u64;
+                last_read = read;
+                DISK_READ_BPS.store(disk_read_bps, Ordering::Relaxed);
                 let mut r = REG.lock().unwrap();
                 let (mut tokens, mut running, mut waiting) = (0u64, 0u32, 0u32);
                 for l in r.running.values() {
@@ -407,7 +428,7 @@ pub fn sampler(mem: impl Fn() -> (u64, u64) + Send + 'static) {
                         _ => running += 1,
                     }
                 }
-                r.history.push_back(MetricsSample { t_ms: now_ms(), tps: tokens as f32 / dt, running, waiting, ram, vram });
+                r.history.push_back(MetricsSample { t_ms: now_ms(), tps: tokens as f32 / dt, running, waiting, ram, vram, disk_read_bps });
                 while r.history.len() > HISTORY {
                     r.history.pop_front();
                 }

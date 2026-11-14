@@ -537,6 +537,64 @@ pub struct ModelEntry {
     /// Где модель работает: здесь или на спаренном устройстве (федерация).
     #[serde(default, skip_serializing_if = "Origin::is_local")]
     pub origin: Origin,
+    /// Загруженная языковая модель: раскладка экспертов и спекуляция.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_runtime: Option<LlmRuntime>,
+}
+
+/// Что сейчас определяет скорость языковой модели.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct LlmRuntime {
+    /// Спекулятивный декод включён: `"MTP"` или `"DFlash"`; `None` — нет.
+    #[serde(default)]
+    pub speculation: Option<String>,
+    /// Спекуляция работает только при temperature 0.
+    #[serde(default)]
+    pub speculation_greedy_only: bool,
+    /// Драфтов предложено / принято с загрузки.
+    #[serde(default)]
+    pub drafted: u64,
+    #[serde(default)]
+    pub accepted: u64,
+    /// Раскладка экспертов MoE; `None` — модель без кэша экспертов.
+    #[serde(default)]
+    pub experts: Option<ExpertPlacement>,
+}
+
+/// Где лежат эксперты MoE: кэш на карте, закреплённое зеркало в RAM и
+/// остальное — бандл на диске (промахи читаются с NVMe или из page cache).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ExpertPlacement {
+    pub layers: u32,
+    pub experts_per_layer: u32,
+    pub total: u32,
+    pub total_bytes: u64,
+    pub vram: u32,
+    pub vram_bytes: u64,
+    pub vram_capacity: u64,
+    pub ram: u32,
+    pub ram_bytes: u64,
+    /// Сколько зеркало поднимет (бюджет от свободной RAM при загрузке).
+    pub ram_target_bytes: u64,
+    pub disk: u32,
+    pub disk_bytes: u64,
+    pub hits: u64,
+    pub misses: u64,
+}
+
+impl ExpertPlacement {
+    /// Байт экспертов, не поместившихся в зеркало RAM. Кэш на карте их не
+    /// закрывает: он держит горячих экспертов, а не остаток стопки, так что
+    /// промахи по этим экспертам идут с диска.
+    pub fn beyond_memory(&self) -> u64 {
+        self.total_bytes.saturating_sub(self.ram_target_bytes)
+    }
+
+    /// Экспертов, не поместившихся в зеркало RAM.
+    pub fn beyond_memory_count(&self) -> u32 {
+        let per = self.total_bytes / self.total.max(1) as u64;
+        if per == 0 { 0 } else { (self.beyond_memory() / per).min(self.total as u64) as u32 }
+    }
 }
 
 /// Откуда модель в списке службы.
@@ -677,6 +735,9 @@ pub struct MetricsSample {
     /// Память моделей службы: RAM и видеопамять, байт.
     pub ram: u64,
     pub vram: u64,
+    /// Чтение службы с диска, байт/с.
+    #[serde(default)]
+    pub disk_read_bps: u64,
 }
 
 /// KV-сессия языковой модели (контекст чата программы).
@@ -739,6 +800,10 @@ pub struct Status {
     /// Кому видеокарта отдана сейчас (имя программы по ярлыку).
     #[serde(default)]
     pub vram_yielded_to: Option<String>,
+    /// Чтение службы с диска за последнюю секунду, байт/с (у языковой модели
+    /// во время генерации — промахи экспертов мимо RAM, то есть NVMe).
+    #[serde(default)]
+    pub disk_read_bps: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]

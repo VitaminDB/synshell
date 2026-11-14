@@ -23,6 +23,37 @@ fn print_entry(m: &ModelEntry) {
         if m.settings.pinned { " закреплена" } else { "" },
         m.error.as_ref().map(|e| format!(" ошибка: {e}")).unwrap_or_default(),
     );
+    if let Some(rt) = &m.llm_runtime {
+        let spec = match &rt.speculation {
+            Some(s) if rt.drafted > 0 => format!("{s} вкл, принято {:.0} %", 100.0 * rt.accepted as f64 / rt.drafted as f64),
+            Some(s) => format!("{s} вкл{}", if rt.speculation_greedy_only { " (только temperature 0)" } else { "" }),
+            None => "без спекуляции".into(),
+        };
+        println!("    {spec}");
+        if let Some(e) = &rt.experts {
+            println!(
+                "    эксперты {} ({} сл. × {}, {}): на карте {} ({} из потолка {}), в RAM {} ({} из {}), вне RAM {} ({}); попаданий {}, промахов {}{}",
+                e.total,
+                e.layers,
+                e.experts_per_layer,
+                mb(e.total_bytes),
+                e.vram,
+                mb(e.vram_bytes),
+                mb(e.vram_capacity),
+                e.ram,
+                mb(e.ram_bytes),
+                mb(e.ram_target_bytes),
+                e.disk,
+                mb(e.disk_bytes),
+                e.hits,
+                e.misses,
+                match e.beyond_memory() {
+                    0 => String::new(),
+                    b => format!("; в RAM не поместились {} ({}) — их промахи читаются с диска", e.beyond_memory_count(), mb(b)),
+                },
+            );
+        }
+    }
 }
 
 fn read_wav(path: &str) -> Result<(Vec<f32>, u32), String> {
@@ -139,6 +170,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 s.evictions,
                 s.devices.iter().map(|d| d.id()).collect::<Vec<_>>()
             );
+            println!("чтение с диска: {}/с", mb(s.disk_read_bps));
         }
         "defaults" => {
             for d in c.defaults().map_err(|e| e.to_string())? {

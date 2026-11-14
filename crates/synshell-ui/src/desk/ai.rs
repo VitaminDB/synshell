@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use synaptixd::{Activity, ActivityState, DeviceKind, LoadState, Metrics, ModelEntry, ModelKind, SettingsChange, Status};
+use synaptixd::{Activity, ActivityState, DeviceKind, ExpertPlacement, LlmRuntime, LoadState, Metrics, ModelEntry, ModelKind, SettingsChange, Status};
 use syngui::containers::Keyed;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
@@ -233,6 +233,21 @@ pub fn llm(cx: Cx) -> Box<dyn Widget> {
             let ctx = if a.context > 0 { t!(" · контекст {n}", n = a.context).to_string() } else { String::new() };
             col = col.child(Text::new(t!("{n} ток ответа{c}", n = a.tokens, c = ctx)).max_lines(1).class("desk-k"));
             used += 18.0;
+            if let Some(m) = a.models.first().and_then(|id| s.model(id)) {
+                let spec = m.llm_runtime.as_ref().and_then(|r| r.speculation.clone());
+                let why = bottleneck(&s, m);
+                let line = match (why, spec) {
+                    (Some(w), Some(sp)) => Some(format!("{w} · {sp}")),
+                    (Some(w), None) => Some(w),
+                    (None, Some(sp)) => Some(sp),
+                    (None, None) => None,
+                };
+                if let Some(line) = line {
+                    let cls = if nvme_now(&s, m).is_some() { "desk-ai-warn" } else { "desk-k" };
+                    col = col.child(Text::new(line).max_lines(1).class(cls));
+                    used += 18.0;
+                }
+            }
         }
         for a in s.metrics.running.iter().filter(|a| a.op != "generate").take(2) {
             if used + 44.0 > cx.h - 24.0 {
@@ -318,12 +333,126 @@ fn idle_min(m: &ModelEntry) -> Option<i64> {
     Some(((now - m.last_used_ms) / 60_000).max(0))
 }
 
+/// Видеопамять модели: веса с загрузки и кэш экспертов, наполняемый уже
+/// во время работы (в `vram_bytes` его нет — замер при загрузке).
+fn model_vram(m: &ModelEntry) -> u64 {
+    m.vram_bytes + m.llm_runtime.as_ref().and_then(|r| r.experts.as_ref()).map_or(0, |e| e.vram_bytes)
+}
+
+/// Эксперты по ярусам без пересечений: на карте; в RAM, но не на карте; только
+/// на диске. Кэш карты наполняется из зеркала, так что его эксперты почти
+/// всегда есть и в RAM.
+fn tiers(e: &ExpertPlacement) -> (u32, u32, u32) {
+    let vram = e.vram.min(e.total);
+    let ram = e.ram.saturating_sub(vram).min(e.total - vram);
+    (vram, ram, e.total - vram - ram)
+}
+
+/// Чтение с диска во время генерации этой модели — промахи экспертов мимо RAM.
+fn nvme_now(s: &AiSnap, m: &ModelEntry) -> Option<u64> {
+    let generating = s.metrics.running.iter().any(|a| a.op == "generate" && a.state == ActivityState::Running && a.tps > 0.0 && a.models.contains(&m.id));
+    (generating && s.status.disk_read_bps >= 4 << 20).then_some(s.status.disk_read_bps)
+}
+
+/// Что сейчас ограничивает скорость генерации модели (для карточки).
+fn bottleneck(s: &AiSnap, m: &ModelEntry) -> Option<String> {
+    let rt = m.llm_runtime.as_ref()?;
+    if let Some(bps) = nvme_now(s, m) {
+        return Some(t!("эксперты с NVMe {v}/с", v = human_bytes(bps)).to_string());
+    }
+    let e = rt.experts.as_ref()?;
+    let (vram, ram, disk) = tiers(e);
+    Some(if e.beyond_memory() > 0 {
+        t!("{n} экспертов вне RAM (NVMe)", n = e.beyond_memory_count()).to_string()
+    } else if ram > 0 || disk > 0 {
+        t!("эксперты: VRAM {a} · RAM {b} из {t}", a = vram, b = ram + disk, t = e.total).to_string()
+    } else {
+        t!("все эксперты в VRAM").to_string()
+    })
+}
+
+/// Полоса ярусов экспертов: VRAM — цвет виджета, RAM — полупрозрачный,
+/// диск — красный.
+fn tier_bar(e: &ExpertPlacement, w: f32, color: syngui::core::Color) -> impl Widget {
+    let (vram, ram, disk) = tiers(e);
+    let total = e.total.max(1) as f32;
+    let (pv, pr, pd) = (vram as f32 / total, ram as f32 / total, disk as f32 / total);
+    Canvas::new(move |c, _| {
+        let h = 6.0;
+        let (wv, wr, wd) = (w * pv, w * pr, w * pd);
+        c.set_color(color.with_alpha(0.12));
+        c.fill_rounded_rect(0.0, 0.0, w, h, h / 2.0);
+        if wd > 0.5 {
+            c.set_color(syngui::core::Color::from_hex("#f7768e"));
+            c.fill_rounded_rect(wv + wr, 0.0, wd, h, h / 2.0);
+        }
+        if wr > 0.5 {
+            c.set_color(color.with_alpha(0.45));
+            c.fill_rounded_rect(wv, 0.0, wr, h, h / 2.0);
+        }
+        if wv > 0.5 {
+            c.set_color(color);
+            c.fill_rounded_rect(0.0, 0.0, wv.max(h), h, h / 2.0);
+        }
+    })
+    .size(w, 6.0)
+}
+
+/// Строки раскладки экспертов и спекуляции языковой модели.
+fn runtime_rows(s: &AiSnap, m: &ModelEntry, rt: &LlmRuntime, w: f32, color: syngui::core::Color) -> Column {
+    let mut col = Column::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if let Some(spec) = &rt.speculation {
+        let mut txt = t!("{n} включено", n = spec).to_string();
+        if rt.drafted > 0 {
+            txt.push_str(&t!(" · принято {p} %", p = format!("{:.0}", 100.0 * rt.accepted as f64 / rt.drafted as f64)));
+        }
+        if rt.speculation_greedy_only {
+            txt.push_str(&t!(" · только при temperature 0"));
+        }
+        col = col.child(Text::new(txt).max_lines(1).class("desk-ai-spec"));
+    }
+    let Some(e) = rt.experts.as_ref() else { return col };
+    let (vram, ram, disk) = tiers(e);
+    col = col.child(tier_bar(e, w, color)).child(
+        Text::new(t!(
+            "эксперты: VRAM {a} · RAM {b} · NVMe {c} из {t} ({l} сл. × {k})",
+            a = vram,
+            b = ram,
+            c = disk,
+            t = e.total,
+            l = e.layers,
+            k = e.experts_per_layer
+        ))
+        .max_lines(2)
+        .class("desk-ai-tier"),
+    );
+    if let Some(bps) = nvme_now(s, m) {
+        let txt = if bps >= 200 << 20 {
+            t!("читает с NVMe {v}/с — скорость упирается в диск", v = human_bytes(bps)).to_string()
+        } else {
+            t!("читает с NVMe {v}/с", v = human_bytes(bps)).to_string()
+        };
+        col = col.child(Text::new(txt).max_lines(2).class("desk-ai-warn"));
+    }
+    let beyond = e.beyond_memory();
+    if beyond > 0 {
+        col = col.child(Text::new(t!("в RAM не поместились {n} экспертов ({v}) — их промахи идут с NVMe", n = e.beyond_memory_count(), v = human_bytes(beyond))).max_lines(2).class("desk-ai-warn"));
+    } else if e.ram_bytes + (64 << 20) < e.ram_target_bytes {
+        let pct = 100.0 * e.ram_bytes as f64 / e.ram_target_bytes.max(1) as f64;
+        col = col.child(Text::new(t!("зеркало в RAM заполняется: {p} %", p = format!("{pct:.0}"))).max_lines(1).class("desk-ai-tier"));
+    }
+    col
+}
+
 fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
     let id = m.id.clone();
-    let bytes = if m.device == Some(DeviceKind::Cuda) && m.vram_bytes > 0 { m.vram_bytes } else { m.mem_bytes };
+    let bytes = if m.device == Some(DeviceKind::Cuda) && m.vram_bytes > 0 { model_vram(m) } else { m.mem_bytes };
     let mut sub = vec![synaptixd::precision_label(&m.precision), m.device.map(|d| d.id().to_uppercase()).unwrap_or_default()];
     if bytes > 0 {
         sub.push(human_bytes(bytes));
+    }
+    if m.kind == ModelKind::Llm && m.llm_runtime.as_ref().is_some_and(|r| r.speculation.is_none()) {
+        sub.push(t!("без MTP").to_string());
     }
     let apps: Vec<String> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
     let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
@@ -345,6 +474,9 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
         .child(Text::new(m.title.clone()).max_lines(1).class("desk-ai-model"))
         .child(Text::new(state.unwrap_or_else(|| sub.join(" · "))).max_lines(1).class("desk-k"))
         .child(Text::new(who).max_lines(1).class("desk-ai-apps"));
+    if let Some(rt) = m.llm_runtime.as_ref().filter(|r| r.speculation.is_some() || r.experts.is_some()) {
+        info = info.child(runtime_rows(s, m, rt, (cx.w - 100.0).max(60.0), cx.color));
+    }
     for a in s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).take(1) {
         info = info.child(activity_row(s, a, &Cx { w: cx.w - 100.0, ..cx.clone() }, true, false));
     }
@@ -401,7 +533,7 @@ pub fn models(cx: Cx) -> Box<dyn Widget> {
         let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         let loaded: Vec<&ModelEntry> = s.models.iter().filter(|m| matches!(m.state, LoadState::Loaded | LoadState::Loading)).collect();
         // Видеопамять: занято на карте всего (data) и из него — модели службы.
-        let vram_models: u64 = loaded.iter().filter(|m| m.device == Some(DeviceKind::Cuda)).map(|m| m.vram_bytes).sum();
+        let vram_models: u64 = loaded.iter().filter(|m| m.device == Some(DeviceKind::Cuda)).map(|m| model_vram(m)).sum();
         if let Some((used, Some(total), name)) = d.vram.clone() {
             col = col.child(device_bar(short_gpu(&name), vram_models, used, total, &cx));
         }

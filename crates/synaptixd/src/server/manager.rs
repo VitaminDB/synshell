@@ -163,6 +163,7 @@ impl Slot {
                 .unwrap_or_default(),
 
             origin: crate::Origin::Local,
+            llm_runtime: self.model.as_ref().and_then(|m| m.llm_runtime()),
         }
     }
 
@@ -537,6 +538,7 @@ impl Manager {
             min_available_mb: self.cfg.min_available_mb,
             vram_yield: self.vram_yield.lock().unwrap().clone(),
             vram_yielded_to: devices::cuda_yielded(),
+            disk_read_bps: crate::server::activity::disk_read_bps(),
         }
     }
 
