@@ -1,6 +1,6 @@
 [package]
 name = "syn-wine-helper"
-description = "Компоненты Wine synshell: DLL, которых нет в Wine (MFC, рантаймы VB, OpenAL), — в общий каталог для всех префиксов; вопрос «поставить?», когда программе не хватает DLL"
+description = "Компоненты Wine synshell: DLL, которых нет в Wine (MFC, рантаймы VB, OpenAL, рантайм MinGW), — в общий каталог для всех префиксов; вопрос «поставить?», когда программе не хватает DLL"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -27,4 +27,5 @@ lzxd = "0.2"
 miniz_oxide = "0.8"
 cfb = "0.10"
 lzma-rs = "0.3"
+zstd = { version = "0.13", default-features = false }
 object = { version = "0.37", default-features = false, features = ["read_core", "pe", "std"] }

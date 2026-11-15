@@ -95,7 +95,7 @@ impl Plan {
     pub fn download_size(&self, db: &Db) -> u64 {
         let mut seen = Vec::new();
         let mut n = 0;
-        for (id, arch) in &self.items {
+        for (id, arch) in &db.with_requires(&self.items) {
             let Some(src) = db.package(id).and_then(|p| p.pick(*arch)).and_then(|pk| db.source(&pk.source)) else { continue };
             if !seen.contains(&src.id) && !crate::fetch::cached(src).is_file() {
                 seen.push(src.id.clone());

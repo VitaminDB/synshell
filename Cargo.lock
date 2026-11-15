@@ -7691,6 +7691,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -8155,6 +8156,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "synaptix-core",
+ "synaptix-kernels-cpu",
  "thiserror 2.0.21",
  "tracing",
 ]

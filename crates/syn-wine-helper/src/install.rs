@@ -31,7 +31,7 @@ struct Want {
 pub fn install(db: &Db, items: &[(String, Arch)], report: &mut dyn FnMut(Progress)) -> Result<Vec<PathBuf>> {
     let mut by_source: BTreeMap<String, Vec<Want>> = BTreeMap::new();
     let mut names: BTreeMap<String, String> = BTreeMap::new();
-    for (id, arch) in items {
+    for (id, arch) in &db.with_requires(items) {
         let pkg = db.package(id).with_context(|| t!("нет пакета «{id}»", id = id))?;
         let pick = pkg.pick(*arch).with_context(|| t!("у пакета «{id}» нет варианта {arch}", id = id, arch = arch.name()))?;
         db.source(&pick.source).with_context(|| t!("в базе нет источника «{s}»", s = &pick.source))?;

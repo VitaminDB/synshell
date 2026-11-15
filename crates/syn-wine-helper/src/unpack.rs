@@ -1,5 +1,5 @@
 //! Рекурсивный обход контейнеров без внешних программ: CAB (и вшитые в самораспаковывающиеся exe —
-//! IExpress, MSSFX, контейнеры WiX Burn), MSI и прочие OLE-файлы, ZIP, NSIS. Каждый найденный файл
+//! IExpress, MSSFX, контейнеры WiX Burn), MSI и прочие OLE-файлы, ZIP, NSIS, tar (и tar.zst — пакеты MSYS2). Каждый найденный файл
 //! отдаётся обходчику с путём `внешний!внутренний!…`; что из этого нужно, решает он сам.
 
 use std::io::{Cursor, Read};
@@ -40,6 +40,16 @@ impl Walker<'_> {
             self.zip(path, data, depth);
             return;
         }
+        if data.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+            if let Ok(plain) = zstd_decode(data) {
+                self.blob(&format!("{path}!zst"), &plain, depth + 1);
+            }
+            return;
+        }
+        if data.len() >= 512 && &data[257..262] == b"ustar" {
+            self.tar(path, data, depth);
+            return;
+        }
         if data.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
             self.cfb(path, data, depth);
             return;
@@ -65,6 +75,52 @@ impl Walker<'_> {
                 drop(f);
                 self.blob(&format!("{path}!{name}"), &buf, depth + 1);
             }
+        }
+    }
+
+    /// tar (ustar/GNU/pax): обычные файлы; длинные имена GNU `L` и pax `path` учитываются.
+    fn tar(&mut self, path: &str, data: &[u8], depth: u32) {
+        let mut off = 0;
+        let mut long_name: Option<String> = None;
+        while off + 512 <= data.len() {
+            let h = &data[off..off + 512];
+            if h.iter().all(|&b| b == 0) {
+                break;
+            }
+            let Some(size) = octal(&h[124..136]) else { return };
+            let body = off + 512;
+            let end = body.saturating_add(size as usize);
+            if end > data.len() {
+                return;
+            }
+            let field = |r: std::ops::Range<usize>| {
+                let f = &h[r];
+                String::from_utf8_lossy(&f[..f.iter().position(|&b| b == 0).unwrap_or(f.len())]).into_owned()
+            };
+            match h[156] {
+                b'L' => long_name = Some(String::from_utf8_lossy(&data[body..end]).trim_end_matches('\0').to_string()),
+                b'x' => {
+                    long_name = String::from_utf8_lossy(&data[body..end])
+                        .lines()
+                        .find_map(|l| l.split_once(' ').and_then(|(_, kv)| kv.strip_prefix("path=")).map(str::to_string))
+                        .or(long_name);
+                }
+                b'0' | 0 => {
+                    let name = long_name.take().unwrap_or_else(|| {
+                        let prefix = field(345..500);
+                        let n = field(0..100);
+                        if prefix.is_empty() { n } else { format!("{prefix}/{n}") }
+                    });
+                    if size <= MAX_MEMBER {
+                        self.blob(&format!("{path}!{name}"), &data[body..end], depth + 1);
+                    }
+                    if self.stopped {
+                        return;
+                    }
+                }
+                _ => long_name = None,
+            }
+            off = body + (size as usize).div_ceil(512) * 512;
         }
     }
 
@@ -109,6 +165,21 @@ impl Walker<'_> {
             }
         }
     }
+}
+
+fn zstd_decode(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    zstd::stream::read::Decoder::new(data)?.take(MAX_MEMBER).read_to_end(&mut out)?;
+    Ok(out)
+}
+
+/// Восьмеричное поле заголовка tar (с пробелами/нулями по краям).
+fn octal(f: &[u8]) -> Option<u64> {
+    let s = std::str::from_utf8(f).ok()?.trim_matches(|c: char| c == '\0' || c == ' ');
+    if s.is_empty() {
+        return Some(0);
+    }
+    u64::from_str_radix(s, 8).ok()
 }
 
 /// Длина CAB по заголовку, если он правдоподобен.

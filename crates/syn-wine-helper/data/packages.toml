@@ -139,6 +139,50 @@ size = 13968080
 sha256 = "03c8c0c0bcdba9d3fb54b0d3c2f9a565f81b3e2a19a538dd394f9b8cb6caaa22"
 urls = ["https://github.com/kcat/openal-soft/releases/download/1.24.3/openal-soft-1.24.3-bin.zip"]
 
+# Рантайм MinGW (GCC) из MSYS2: x86 — mingw32 (msvcrt, исключения DWARF-2), x64 — ucrt64 (UCRT, SEH).
+
+[[source]]
+id = "mingw-libgcc-x86"
+file = "mingw-w64-i686-libgcc-16.2.0-7-any.pkg.tar.zst"
+size = 100554
+sha256 = "a6681c159f7cf4224b582a70f2816e05af2c89dfb9d407b26b817672cc95c943"
+urls = ["https://repo.msys2.org/mingw/mingw32/mingw-w64-i686-libgcc-16.2.0-7-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/mingw32/mingw-w64-i686-libgcc-16.2.0-7-any.pkg.tar.zst"]
+
+[[source]]
+id = "mingw-libstdcxx-x86"
+file = "mingw-w64-i686-libstdc++-16.2.0-7-any.pkg.tar.zst"
+size = 862216
+sha256 = "22c24ad6e41dbfb5e9bc4e443b07f899d8abc1c6041fc11e6543dab0d0466b15"
+urls = ["https://repo.msys2.org/mingw/mingw32/mingw-w64-i686-libstdc++-16.2.0-7-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/mingw32/mingw-w64-i686-libstdc++-16.2.0-7-any.pkg.tar.zst"]
+
+[[source]]
+id = "mingw-winpthread-x86"
+file = "mingw-w64-i686-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst"
+size = 43509
+sha256 = "82c4085f14d417322901fa1fba4cfac77f398aa0b04dc653a0af7007746689f0"
+urls = ["https://repo.msys2.org/mingw/mingw32/mingw-w64-i686-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/mingw32/mingw-w64-i686-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst"]
+
+[[source]]
+id = "mingw-libgcc-x64"
+file = "mingw-w64-ucrt-x86_64-libgcc-16.2.0-7-any.pkg.tar.zst"
+size = 77135
+sha256 = "bc0ae31c582e0847964b4c8c4b55bb2404a9b7ddce7ebf0b176b6693b76e0c62"
+urls = ["https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libgcc-16.2.0-7-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libgcc-16.2.0-7-any.pkg.tar.zst"]
+
+[[source]]
+id = "mingw-libstdcxx-x64"
+file = "mingw-w64-ucrt-x86_64-libstdc++-16.2.0-7-any.pkg.tar.zst"
+size = 795665
+sha256 = "4dd4b216b0e92ffa160127dd50620372609e98cb219ff1c5dcb9b3fbfe153253"
+urls = ["https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libstdc++-16.2.0-7-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libstdc++-16.2.0-7-any.pkg.tar.zst"]
+
+[[source]]
+id = "mingw-winpthread-x64"
+file = "mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst"
+size = 34470
+sha256 = "c35d6be83d141c8cfbb61f1637dd4b53aac8f5562d766aa26d0741c40bad4e4d"
+urls = ["https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst", "https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst"]
+
 [[package]]
 id = "mfc42"
 name = "MFC 4.2"
@@ -244,3 +288,36 @@ description = "Звук OpenAL для игр — открытая реализа
 dlls = ["openal32.dll"]
 x86 = { source = "openal-soft", files = { "openal32.dll" = "*/bin/Win32/soft_oal.dll" } }
 x64 = { source = "openal-soft", files = { "openal32.dll" = "*/bin/Win64/soft_oal.dll" } }
+
+[[package]]
+id = "libstdc++"
+name = "Рантайм C++ MinGW"
+description = "Стандартная библиотека C++ GCC (libstdc++-6.dll) для программ, собранных MinGW: обычно её кладут рядом с программой"
+dlls = ["libstdc++-6.dll"]
+requires = ["libgcc-dw2", "libgcc-seh", "libwinpthread"]
+x86 = { source = "mingw-libstdcxx-x86" }
+x64 = { source = "mingw-libstdcxx-x64" }
+
+[[package]]
+id = "libgcc-dw2"
+name = "Рантайм GCC MinGW"
+description = "Поддержка исключений и арифметики GCC (libgcc_s) для программ, собранных MinGW"
+dlls = ["libgcc_s_dw2-1.dll"]
+requires = ["libwinpthread"]
+x86 = { source = "mingw-libgcc-x86" }
+
+[[package]]
+id = "libgcc-seh"
+name = "Рантайм GCC MinGW"
+description = "Поддержка исключений и арифметики GCC (libgcc_s) для программ, собранных MinGW"
+dlls = ["libgcc_s_seh-1.dll"]
+requires = ["libwinpthread"]
+x64 = { source = "mingw-libgcc-x64" }
+
+[[package]]
+id = "libwinpthread"
+name = "Потоки POSIX MinGW"
+description = "Потоки POSIX для Windows (libwinpthread-1.dll) — нужны программам и библиотекам MinGW"
+dlls = ["libwinpthread-1.dll"]
+x86 = { source = "mingw-winpthread-x86" }
+x64 = { source = "mingw-winpthread-x64" }
