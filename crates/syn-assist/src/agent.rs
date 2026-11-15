@@ -416,8 +416,18 @@ impl Agent {
                     while let Some(c) = it.next() {
                         if c == '0' && matches!(it.peek(), Some('x' | 'X')) {
                             it.next();
-                            while it.peek().is_some_and(|d| d.is_ascii_hexdigit()) {
+                            let mut h = String::new();
+                            while let Some(d) = it.peek().copied().filter(|d| d.is_ascii_hexdigit()) {
+                                h.push(d.to_ascii_lowercase());
                                 it.next();
+                            }
+                            // адрес (≥5 цифр) — до страницы 4 КБ: hexdump/disasm соседних кусков
+                            // по-прежнему один приём, а disasm РАЗНЫХ функций (0x140003670,
+                            // 0x140004140, 0x140002eb0…) — нет (hexspire: пятый disasm пропускался
+                            // «повтором» посреди обычного разбора)
+                            if h.len() >= 5 {
+                                s.push_str("0x");
+                                s.push_str(&h[..h.len() - 3]);
                             }
                             s.push('N');
                         } else if c.is_ascii_digit() {
