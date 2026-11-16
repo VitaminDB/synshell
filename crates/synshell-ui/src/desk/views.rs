@@ -434,23 +434,37 @@ pub(super) fn sparkline(values: Vec<f32>, n: usize, color: Color, w: f32, h: f32
     .size(w, h)
 }
 
-/// Несколько линий на одном поле, у каждой свой масштаб (значения 0..100) и
-/// цвет; рисуются по порядку (последняя — сверху).
-pub(super) fn sparkline_multi(series: Vec<(Vec<f32>, Color)>, n: usize, w: f32, h: f32) -> impl Widget {
+/// Одна линия, окрашенная по участкам: точка — положение по оси (номер
+/// отсчёта, может быть дробным: две фазы в одной секунде — две точки),
+/// значение 0..100 и номер цвета; отрезок к точке берёт её цвет. Фазы не
+/// накладываются друг на друга, как две отдельные линии на стыке. `n` —
+/// отсчётов на всю ширину, последний — у правого края.
+pub(super) fn sparkline_phased(values: Vec<(f32, f32, usize)>, colors: Vec<Color>, n: usize, w: f32, h: f32) -> impl Widget {
     Canvas::new(move |c, _| {
-        for (values, color) in &series {
-            if values.len() < 2 || values.iter().all(|v| *v <= 0.0) {
-                continue;
+        if values.len() < 2 {
+            return;
+        }
+        let last = values.iter().map(|p| p.0).fold(0.0f32, f32::max);
+        let n = (n as f32).max(last + 1.0).max(2.0);
+        let step = w / (n - 1.0);
+        let off = n - 1.0 - last;
+        let pts: Vec<(f32, f32)> = values.iter().map(|(x, v, _)| ((off + x) * step, h - (v / 100.0).clamp(0.0, 1.0) * (h - 2.0) - 1.0)).collect();
+        // Участки одного цвета подряд — одной полилинией.
+        let mut i = 1;
+        while i < pts.len() {
+            let ci = values[i].2;
+            let start = i - 1;
+            while i + 1 < pts.len() && values[i + 1].2 == ci {
+                i += 1;
             }
-            let n = n.max(values.len()).max(2);
-            let step = w / (n - 1) as f32;
-            let off = n - values.len();
-            let pts: Vec<(f32, f32)> = values.iter().enumerate().map(|(i, v)| ((off + i) as f32 * step, h - (v / 100.0).clamp(0.0, 1.0) * (h - 2.0) - 1.0)).collect();
+            let seg = &pts[start..=i];
+            let color = colors.get(ci).copied().unwrap_or(colors[0]);
             c.set_color(color.with_alpha(0.16));
-            c.fill_area_strip(&pts, h);
-            c.set_color(*color);
+            c.fill_area_strip(seg, h);
+            c.set_color(color);
             c.set_stroke_width(2.0);
-            c.draw_polyline(&pts);
+            c.draw_polyline(seg);
+            i += 1;
         }
     })
     .size(w, h)

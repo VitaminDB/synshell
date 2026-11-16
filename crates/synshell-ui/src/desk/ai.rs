@@ -291,9 +291,22 @@ pub fn llm(cx: Cx) -> Box<dyn Widget> {
         }
         let spark_h = cx.h - used - 8.0;
         if spark_h >= 24.0 {
-            let tail: Vec<f32> = hist.iter().rev().take(cx.history).rev().map(|v| v / max * 100.0).collect();
-            let pre: Vec<f32> = pre.iter().map(|v| v / pre_max * 100.0).collect();
-            col = col.child(super::views::sparkline_multi(vec![(pre, PREFILL_COLOR), (tail, cx.color)], cx.history, cx.w, spark_h));
+            // Точка — фаза, что шла в эту секунду: ответ (есть токены) или
+            // префилл; у каждой фазы свой масштаб.
+            // В секунде, где были обе фазы, — две точки: префилл, затем ответ.
+            let mut tail: Vec<(f32, f32, usize)> = Vec::new();
+            for (i, (d, p)) in hist.iter().rev().take(cx.history).rev().zip(&pre).enumerate() {
+                let x = i as f32;
+                match (*d > 0.0, *p > 0.0) {
+                    (true, true) => {
+                        tail.push((x - 0.25, p / pre_max * 100.0, 1));
+                        tail.push((x + 0.25, d / max * 100.0, 0));
+                    }
+                    (false, true) => tail.push((x, p / pre_max * 100.0, 1)),
+                    _ => tail.push((x, d / max * 100.0, 0)),
+                }
+            }
+            col = col.child(super::views::sparkline_phased(tail, vec![cx.color, PREFILL_COLOR], cx.history, cx.w, spark_h));
         }
         Box::new(col)
     }))
