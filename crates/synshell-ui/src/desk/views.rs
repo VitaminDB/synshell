@@ -702,14 +702,25 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
         match cx.view.as_str() {
             "line" => {
                 let to_k = |v: &[f64]| tail(v, cx.history).iter().map(|b| (*b / 1024.0) as f32).collect::<Vec<f32>>();
-                Box::new(line_view(
+                // Итог — строкой под графиком, если высоты хватает.
+                let foot = cx.h >= 110.0;
+                let mut lcx = cx.clone();
+                if foot {
+                    lcx.h -= 18.0;
+                }
+                let chart = line_view(
                     &format!("↓ {}", human_rate(s.net.0)),
                     &format!("↑ {}", human_rate(s.net.1)),
                     &[(&t!("Приём"), to_k(&s.history.rx), rx_c), (&t!("Передача"), to_k(&s.history.tx), tx_c)],
                     None,
-                    &cx,
+                    &lcx,
                     |v| if v >= 1024.0 { format!("{:.0}M", v / 1024.0) } else { format!("{v:.0}K") },
-                )) as Box<dyn Widget>
+                );
+                if foot {
+                    Box::new(Column::new().gap(0.0).child(chart).child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"))) as Box<dyn Widget>
+                } else {
+                    Box::new(chart) as Box<dyn Widget>
+                }
             }
             "bars" => {
                 let n = ((cx.w / 10.0) as usize).clamp(6, 40).min(cx.history);
@@ -734,15 +745,21 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .child(Text::new(format!("↓ {}", human_rate(s.net.0))).class("desk-value"))
                     .child(Text::new(format!("↑ {}", human_rate(s.net.1))).class("desk-value"))
+                    .child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"))
                     .style("height", StyleValue::px(cx.h)),
             ),
-            _ => Box::new(net_card(&ctx.network.get(), ctx.modem.get().as_ref(), s.net)),
+            _ => Box::new(net_card(&ctx.network.get(), ctx.modem.get().as_ref(), s.net, s.net_total)),
         }
     }))
 }
 
 /// Карточка «Сеть»: Wi-Fi, мобильная связь (если есть модем) и скорость.
-fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Status>, rate: (f64, f64)) -> impl Widget {
+/// «Скачано 1,2 ГБ · отдано 300 МБ» — с включения.
+fn net_total_line(total: (u64, u64)) -> String {
+    t!("Скачано {rx} · отдано {tx}", rx = human_bytes(total.0), tx = human_bytes(total.1))
+}
+
+fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Status>, rate: (f64, f64), total: (u64, u64)) -> impl Widget {
     let (glyph, title, sub) = match n.kind.as_str() {
         "wifi" if n.online => (mi::WIFI, n.connection.clone(), n.signal.map(|v| format!("Wi-Fi · {v} %")).unwrap_or_else(|| "Wi-Fi".into())),
         "ethernet" if n.online => (mi::ETHERNET, n.connection.clone(), t!("Проводная сеть").into()),
@@ -755,6 +772,7 @@ fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Sta
         col = col.child(net_line(Box::new(crate::modem::signal_bars(bars)), title, sub));
     }
     col.child(Row::new().gap(10.0).child(Text::new(format!("↓ {}", human_rate(rate.0))).class("res-k grow")).child(Text::new(format!("↑ {}", human_rate(rate.1))).class("res-k")))
+        .child(Text::new(net_total_line(total)).max_lines(1).class("res-k"))
 }
 
 // ─── Температуры ────────────────────────────────────────────────────────────

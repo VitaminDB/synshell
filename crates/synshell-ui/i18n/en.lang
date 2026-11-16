@@ -880,3 +880,4 @@
 "Подключено USB-устройство" = "USB device connected"
 "Отключено USB-устройство" = "USB device disconnected"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · bus {bus} · device {dev}"
+"Скачано {rx} · отдано {tx}" = "Downloaded {rx} · uploaded {tx}"

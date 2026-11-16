@@ -39,6 +39,9 @@ pub struct Snap {
     pub usbc: Vec<syn_system::usbc::UsbcPort>,
     /// Байт/с принято, передано.
     pub net: (f64, f64),
+    /// Всего принято и передано с включения — физические интерфейсы (Wi-Fi, провод, модем, USB),
+    /// без мостов и tap виртуальных машин, чей трафик уже учтён на физическом.
+    pub net_total: (u64, u64),
     /// Видеопамять первого GPU, который её сообщает: занято, всего (у общей с ОЗУ — нет), имя.
     pub vram: Option<(u64, Option<u64>, String)>,
     pub npu: Option<syn_system::npu::Npu>,
@@ -148,6 +151,10 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     None => (0.0, 0.0),
                 };
                 last_net = Some((rx, tx));
+                let net_total = syn_system::network::interfaces(&sys)
+                    .iter()
+                    .filter(|i| matches!(i.kind.as_str(), "wifi" | "ethernet" | "mobile" | "usb"))
+                    .fold((0, 0), |(r, t), i| (r + i.rx_bytes, t + i.tx_bytes));
                 let wins = windows_slot().lock().map(|w| w.clone()).unwrap_or_default();
                 let groups: Vec<(u64, syn_system::procs::Source)> =
                     wins.iter().map(|(id, app, _, pid)| (*id, usage_source(&sys, app, *pid))).collect();
@@ -217,6 +224,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     adc_volt: syn_system::battery::adc_voltage(&sys),
                     usbc: syn_system::usbc::ports(&sys),
                     net,
+                    net_total,
                     vram,
                     npu,
                     mounts: mounts.clone(),
