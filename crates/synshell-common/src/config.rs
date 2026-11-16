@@ -3816,3 +3816,13 @@ mod platform_tests {
         assert!(g.installed_in(&[dir.path().to_path_buf()]));
     }
 }
+
+#[cfg(test)]
+mod grid_under_dock_tests {
+    #[test]
+    fn parses() {
+        let c: super::Config = toml::from_str("[desktop]\ngrid_under_dock = false\n").unwrap();
+        assert!(!c.desktop.grid_under_dock);
+        assert!(super::Config::default().desktop.grid_under_dock);
+    }
+}
