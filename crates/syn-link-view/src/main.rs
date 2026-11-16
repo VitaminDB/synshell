@@ -1069,7 +1069,7 @@ fn bar(ctx: Ctx) -> impl Widget {
 
 fn screenshot(device: &'static str) {
     std::thread::spawn(move || {
-        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join(t!("Снимки экрана"));
+        let dir = synshell_common::paths::screenshot_dir();
         let _ = std::fs::create_dir_all(&dir);
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let path = dir.join(format!("synlink-{device}-{stamp}.png"));

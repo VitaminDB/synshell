@@ -170,12 +170,12 @@ pub fn send(req: Request) {
     });
 }
 
-/// Снимок экрана устройства в «Изображения/Снимки экрана» + уведомление.
+/// Снимок экрана устройства в каталог снимков из настроек + уведомление.
 fn screenshot(p: &PeerInfo) {
     let id = p.id.clone();
     let name = p.name.clone();
     std::thread::spawn(move || {
-        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join(t!("Снимки экрана"));
+        let dir = synshell_common::paths::screenshot_dir();
         let _ = std::fs::create_dir_all(&dir);
         let stamp = crate::clock::format(crate::clock::unix_now(), "%Y-%m-%d_%H-%M-%S");
         let path = dir.join(format!("{}_{stamp}.png", name.replace('/', "_")));

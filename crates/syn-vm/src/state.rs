@@ -1194,7 +1194,7 @@ fn load_png(frame: &LiveFrame, path: &std::path::Path) -> bool {
 pub fn screenshot(st: St, id: &str) {
     let Some(vm) = st.vm(id) else { return };
     std::thread::spawn(move || {
-        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join(t!("Снимки экрана"));
+        let dir = synshell_common::paths::screenshot_dir();
         let _ = std::fs::create_dir_all(&dir);
         let stamp = chrono_like(model::now());
         let out = dir.join(format!("{} {stamp}.png", vm.name.replace('/', "-")));

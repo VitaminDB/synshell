@@ -144,6 +144,12 @@ pub fn user_dir(kind: &str) -> Option<PathBuf> {
     None
 }
 
+/// Каталог снимков экрана — `general.screenshot_dir` из настроек (synwm, synshot и все программы
+/// synshell кладут снимки туда же; по умолчанию `~/Pictures/Screenshots`).
+pub fn screenshot_dir() -> PathBuf {
+    expand_tilde(&crate::config::Config::load().0.general.screenshot_dir)
+}
+
 /// Каталог пользователя по XDG или обычное английское имя в `~`.
 pub fn user_dir_or_default(kind: &str) -> PathBuf {
     user_dir(kind).unwrap_or_else(|| {
