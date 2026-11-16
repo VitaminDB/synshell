@@ -1198,7 +1198,8 @@ pub fn screenshot(st: St, id: &str) {
         let _ = std::fs::create_dir_all(&dir);
         let stamp = chrono_like(model::now());
         let out = dir.join(format!("{} {stamp}.png", vm.name.replace('/', "-")));
-        let r = qmp::screendump(&vm, &out);
+        // syn-gpu — основная видеокарта: у QEMU на экране остаётся текст загрузчика, кадр — с карты.
+        let r = crate::cli::screendump(&vm, &out);
         run_on_main_thread(move || match r {
             Ok(()) => toast(st, t!("Снимок сохранён: {p}", p = out.display())),
             Err(e) => toast_err(st, e.to_string()),
@@ -1362,7 +1363,16 @@ pub fn start_poller(st: St) {
                     if tick % 3 == 0 && power == Power::Running {
                         // Временный файл — рядом: rename из /run в домашний каталог не проходит (разные ФС).
                         let tmp = vm.dir().join("screen.part.png");
-                        if qmp::screendump(vm, &tmp).is_ok() && std::fs::rename(&tmp, vm.screen_path()).is_ok() {
+                        // syn-gpu: экран QEMU — текст загрузчика; рабочий стол — с карты, если окно его получает.
+                        let saved = if display_now(vm) == model::DisplayModel::SynGpu {
+                            desktop_layer(&vm.id).is_some_and(|d| {
+                                let (w, h, px, _) = d.frame.latest();
+                                image::RgbaImage::from_raw(w, h, px.to_vec()).is_some_and(|img| img.save(&tmp).is_ok())
+                            })
+                        } else {
+                            qmp::screendump(vm, &tmp).is_ok()
+                        };
+                        if saved && std::fs::rename(&tmp, vm.screen_path()).is_ok() {
                             let f = thumbs().lock().unwrap().entry(vm.id.clone()).or_insert_with(LiveFrame::new).clone();
                             thumbs_changed |= load_png(&f, &vm.screen_path());
                         }
