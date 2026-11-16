@@ -558,14 +558,27 @@ impl Manager {
     }
 
     /// Сведения о языковой модели. Загруженная отвечает сама (и обновляет
-    /// запомненное); выгруженная — из запомненного при прошлой загрузке:
-    /// окно и пресеты не стоят того, чтобы поднимать модель на карту.
+    /// запомненное); выгруженная — из запомненного при прошлой загрузке, а
+    /// без него — по файлам модели (профиль сэмплинга, config.json): окно,
+    /// пресеты и глубины размышлений не стоят того, чтобы поднимать модель на
+    /// карту. Зрение без загрузки не определяется — до первой загрузки false.
     pub fn llm_info(self: &Arc<Self>, id: &str) -> Result<crate::LlmInfo, Error> {
-        let loaded = self.slots.lock().unwrap().get(id).is_some_and(|s| s.model.is_some());
-        if !loaded {
+        let offline = {
+            let slots = self.slots.lock().unwrap();
+            match slots.get(id) {
+                Some(s) if s.model.is_none() && s.manifest.kind == ModelKind::Llm => {
+                    let m = &s.manifest;
+                    m.variant_quant(DeviceKind::Cuda, s.settings.quant.as_deref()).or(m.variants.first()).map(|v| m.path(v))
+                }
+                _ => None,
+            }
+        };
+        if let Some(path) = offline {
             if let Some(info) = self.llm_infos.lock().unwrap().get(id) {
                 return Ok(info.clone());
             }
+            let window = synaptix::facade::arch::config_max_seq(&path).unwrap_or(2048).max(2048);
+            return Ok(runners::llm_info_at(&path, window, false));
         }
         let info = self.run(id, |m| m.llm_info())?;
         self.llm_infos.lock().unwrap().insert(id.to_string(), info.clone());

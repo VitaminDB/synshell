@@ -1112,27 +1112,7 @@ impl Loaded {
     /// Окно, зрение, пресеты сэмплинга и глубины размышлений.
     pub fn llm_info(&self) -> anyhow::Result<crate::LlmInfo> {
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
-        let profile = synaptix::facade::sampling::sampling_profile(&b.path);
-        Ok(crate::LlmInfo {
-            window: b.window,
-            media: b.llm.supports_media(),
-            presets: profile
-                .presets
-                .iter()
-                .map(|p| crate::SamplingPreset {
-                    id: p.id.to_string(),
-                    thinking: p.thinking,
-                    temperature: p.temperature,
-                    top_p: p.top_p,
-                    top_k: p.top_k,
-                    min_p: p.min_p,
-                    presence_penalty: p.presence_penalty,
-                    repetition_penalty: p.repetition_penalty,
-                })
-                .collect(),
-            reasoning_levels: profile.reasoning.as_ref().map(|r| r.levels.clone()).unwrap_or_default(),
-            reasoning_default: profile.reasoning.as_ref().map(|r| r.default.clone()),
-        })
+        Ok(llm_info_at(&b.path, b.window, b.llm.supports_media()))
     }
 
     /// Диаризация: (сводка по говорящим, JSON отрезков).
@@ -2257,4 +2237,30 @@ fn encode_media(
         cache.remove(i);
     }
     out
+}
+
+/// Сведения о языковой модели по её файлу: пресеты и глубины размышлений —
+/// из профиля сэмплинга, окно и зрение — переданные.
+pub fn llm_info_at(path: &std::path::Path, window: usize, media: bool) -> crate::LlmInfo {
+    let profile = synaptix::facade::sampling::sampling_profile(path);
+    crate::LlmInfo {
+        window,
+        media,
+        presets: profile
+            .presets
+            .iter()
+            .map(|p| crate::SamplingPreset {
+                id: p.id.to_string(),
+                thinking: p.thinking,
+                temperature: p.temperature,
+                top_p: p.top_p,
+                top_k: p.top_k,
+                min_p: p.min_p,
+                presence_penalty: p.presence_penalty,
+                repetition_penalty: p.repetition_penalty,
+            })
+            .collect(),
+        reasoning_levels: profile.reasoning.as_ref().map(|r| r.levels.clone()).unwrap_or_default(),
+        reasoning_default: profile.reasoning.as_ref().map(|r| r.default.clone()),
+    }
 }

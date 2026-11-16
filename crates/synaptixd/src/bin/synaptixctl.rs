@@ -353,6 +353,11 @@ fn run(args: &[String]) -> Result<(), String> {
                 if g.thinking_forced { ", размышления закрыты по бюджету" } else { "" }
             );
         }
+        "info" => {
+            // synaptixctl info <модель> — сведения о языковой модели (окно,
+            // пресеты, глубины размышлений); выгруженную не загружает.
+            println!("{:#?}", c.llm_info(arg(1)?).map_err(|e| e.to_string())?);
+        }
         "tokens" => {
             // synaptixctl tokens <модель> <текст…> — число токенов; `info` — сведения о модели.
             let model = arg(1)?;
@@ -568,7 +573,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|federation|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan|loras|lora|lora-delete|datasets|dataset-check|train|jobs|train-stop")),
+        other => return Err(format!("неизвестная команда {other}: list|status|info|defaults|default|federation|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan|loras|lora|lora-delete|datasets|dataset-check|train|jobs|train-stop")),
     }
     Ok(())
 }
