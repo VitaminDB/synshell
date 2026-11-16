@@ -185,6 +185,10 @@ pub fn pause(vm: &Vm) -> Result<()> {
 }
 
 pub fn resume(vm: &Vm) -> Result<()> {
+    // Уснувший гость (S3, `suspended`) от `cont` не просыпается — его будит `system_wakeup`.
+    if status(vm).as_deref() == Some("suspended") {
+        return call(vm, "system_wakeup", Value::Null).map(|_| ());
+    }
     call(vm, "cont", Value::Null).map(|_| ())
 }
 

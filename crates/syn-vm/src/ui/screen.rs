@@ -554,6 +554,8 @@ fn current_title(m: &GuestModes) -> String {
         return t!("3D {w}×{h} → {rw}×{rh}", w = m.game.0, h = m.game.1, rw = m.render.0, rh = m.render.1);
     }
     match c.kind {
+        // syn-gpu после сброса гостем, пока драйвер не включил экран заново, сообщает текст 1×1.
+        mode_kind::TEXT if c.width < 2 || c.height < 2 => t!("Совместимый VGA"),
         mode_kind::TEXT => t!("Текст {w}×{h}", w = c.width, h = c.height),
         mode_kind::WINDOW if m.has(modes_flags::DESKTOP) => t!("Windows {w}×{h}", w = c.width, h = c.height),
         mode_kind::WINDOW => t!("Под окно ({w}×{h})", w = c.width, h = c.height),

@@ -953,3 +953,4 @@
 "Монитор гостя выключен" = "The guest's monitor is off"
 "Гость погасил экран для экономии энергии — машина работает. Щёлкните, чтобы разбудить." = "The guest turned off its screen to save power — the machine is running. Click to wake it."
 "Разбудить" = "Wake up"
+"Совместимый VGA" = "Compatible VGA"
