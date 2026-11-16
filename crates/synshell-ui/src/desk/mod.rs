@@ -661,6 +661,18 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     // Слева — за панелью или доком у левого края (иначе переключатель уходит под них).
     let left = if ctx.is_phone() { 0.0 } else { reserved(&ctx)[3] };
     // Переключатель «Виджеты / Заметки» — внизу слева, на компьютере.
+    // Снизу — только над полноширинными панелями: док стоит по центру и угол не закрывает
+    // (над ним переключатель висел в воздухе, а не в углу).
+    let switch_lift = if ctx.is_phone() {
+        lift
+    } else {
+        ctx.cfg()
+            .panels
+            .iter()
+            .filter(|p| p.shows_on(ctx.form_factor) && p.edge == Edge::Bottom && p.exclusive && !p.autohide && !p.is_dock())
+            .map(|p| p.size as f32 + if p.floating { 8.0 } else { 0.0 })
+            .fold(0.0, f32::max)
+    };
     let switch = rx(move || {
         let _ = ctx.config.get();
         if ctx.is_phone() || edit.get() || !notes::available() {
@@ -676,7 +688,7 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::End)
                 .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(Padding::only(left + 16.0, 0.0, 0.0, lift + 16.0).child(switch)),
+                .child(Padding::only(left + 16.0, 0.0, 0.0, switch_lift + 16.0).child(switch)),
         )
 }
 
