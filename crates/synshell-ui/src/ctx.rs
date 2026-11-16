@@ -153,6 +153,10 @@ pub struct ShellCtx {
     pub keyboard: RwSignal<KeyboardLayouts>,
     pub focused: RwSignal<Option<u64>>,
     pub popup: RwSignal<Option<Popup>>,
+    /// Место перетаскиваемого окна (настройки виджета): левый верхний угол карточки.
+    pub popup_xy: RwSignal<syngui::core::Point>,
+    /// `popup_xy` уже задано для открытого окна (иначе — поставить рядом с виджетом).
+    pub popup_xy_set: RwSignal<bool>,
     pub osd: RwSignal<Option<Osd>>,
     /// Всплывающие уведомления (активные карточки).
     pub notifications: RwSignal<Vec<Notification>>,
@@ -215,6 +219,8 @@ impl ShellCtx {
             keyboard: use_signal(KeyboardLayouts::default()),
             focused: use_signal(None),
             popup: use_signal(None),
+            popup_xy: use_signal(syngui::core::Point::new(0.0, 0.0)),
+            popup_xy_set: use_signal(false),
             osd: use_signal(None),
             notifications: use_signal(Vec::new()),
             history: use_signal(Vec::new()),

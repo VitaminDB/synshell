@@ -214,7 +214,7 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
     let cur = move || items(&ShellCtx::get()).get(index).cloned();
     let status = use_signal(String::new());
     let kind = w0.kind.clone();
-    let mut col = Column::new().gap(12.0).child(title(t!("Виджет «{v}»", v = label_of(&w0))));
+    let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(drag_header(t!("Виджет «{v}»", v = label_of(&w0)).into()));
 
     let icon_like = super::is_icon(&kind);
     if kind == "clock" {
@@ -415,6 +415,41 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
     Box::new(ScrollView::new().vertical().child(col).class("desk-form"))
 }
 
+/// Заголовок окна настроек: за него окно перетаскивается (сбоку от виджета видно, как он
+/// меняется), справа — закрыть.
+fn drag_header(text: String) -> impl Widget {
+    let start = std::sync::Arc::new(std::sync::Mutex::new(syngui::core::Point::new(0.0, 0.0)));
+    let s2 = start.clone();
+    let grip = syngui::GestureDetector::new()
+        .on_pan_start(move |_| {
+            *start.lock().unwrap() = ShellCtx::get().popup_xy.get_untracked();
+        })
+        .on_pan_update(move |u| {
+            let ctx = ShellCtx::get();
+            let o = *s2.lock().unwrap();
+            let (ow, oh) = crate::manager::output_size(None);
+            let x = (o.x + u.total.x).clamp(-300.0, (ow - 120.0).max(0.0));
+            let y = (o.y + u.total.y).clamp(0.0, (oh - 60.0).max(0.0));
+            ctx.popup_xy.set(syngui::core::Point::new(x, y));
+        })
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon("\u{E945}").class("desk-grip"))
+                .child(Text::new(text).max_lines(1).class("popup-title grow")),
+        );
+    Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(InputArea::new(grip).cursor(syngui::input::CursorIcon::Grab).class("grow"))
+        .child(InputArea::new(boxed("desk-close", icon(mi::CLOSE))).pointer().on_click(|b, _, _| {
+            if b == MouseButton::Left {
+                ShellCtx::get().close_popup();
+            }
+        }))
+}
+
 /// «Убрать» и «Готово».
 fn buttons(index: usize) -> impl Widget {
     Row::new()
@@ -612,7 +647,7 @@ fn slider(ctx: ShellCtx, index: usize, key: &'static str, (min, max, step): (f32
                     shown.set(x);
                     set_later(index, key, x);
                 }).class("grow"))
-                .child(move || Text::new(fmt(shown.get())).class("desk-slider-value")),
+                .child(move || Text::new(fmt(shown.get())).max_lines(1).class("desk-slider-value").style("width", StyleValue::px(84.0))),
         )
     })
 }
@@ -660,21 +695,24 @@ thread_local! {
 /// Настройки часов: образец вверху и три вкладки — «Вид», «Шрифт», «Цвет и эффект».
 fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>) -> Box<dyn Widget> {
     let tab = use_signal(START_TAB.with(|t| t.get()));
-    // Образец — сами часы с текущими настройками (живые).
-    let preview = rx(move || {
-        let _ = ctx.config.get();
-        let Some(w) = cur_item(index) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
-        let mut w = w.clone();
-        w.set("card", false);
-        Box::new(DecoratedBox::new().class("desk-preview").child(super::views::build(ctx, &super::Slot::Item(index), &w, 392.0, 130.0, true)))
-    });
+    // Вкладки — единым переключателем на всю ширину.
     let tabs = rx(move || {
         let t = tab.get();
-        let mut row = Row::new().gap(4.0);
+        let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).class("desk-tabs");
         for (i, l) in [n_!("Вид"), n_!("Шрифт"), n_!("Цвет и эффект")].into_iter().enumerate() {
-            row = row.child(chip(l, t == i, move || tab.set(i)));
+            let seg = boxed(if t == i { "desk-tab on" } else { "desk-tab" }, Text::new(syngui::i18n::t(l)).class("desk-tab-label"));
+            row = row.child(
+                InputArea::new(seg)
+                    .pointer()
+                    .on_click(move |b, _, _| {
+                        if b == MouseButton::Left {
+                            tab.set(i)
+                        }
+                    })
+                    .class("grow"),
+            );
         }
-        Box::new(row)
+        Box::new(row.style("height", StyleValue::px(36.0)))
     });
     let body = rx(move || {
         let mut c = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -734,9 +772,9 @@ fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>
     });
     // Прокручивается только содержимое вкладки: образец и вкладки всегда видны.
     let (_, screen_h) = crate::manager::output_size(Some(&super::output_name(&ctx)));
-    let body_h = (screen_h - 400.0).clamp(220.0, 460.0);
-    let col = col.child(preview).child(tabs).child(DecoratedBox::new().style("height", StyleValue::px(body_h)).child(ScrollView::new().vertical().child(body).class("desk-form-body")));
-    Box::new(col.child(sep()).child(buttons(index)))
+    let body_h = (screen_h - 240.0).clamp(240.0, 560.0);
+    let col = col.child(tabs).child(DecoratedBox::new().style("height", StyleValue::px(body_h)).child(ScrollView::new().vertical().child(body).class("desk-form-body")));
+    Box::new(col.child(buttons(index)))
 }
 
 /// Выбор шрифта: поиск по семействам системы; плитка — «12:34» этим шрифтом и имя.

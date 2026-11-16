@@ -1113,9 +1113,18 @@ fn edit_bar(ctx: ShellCtx) -> impl Widget {
 pub fn open_later(kind: PopupKind) {
     syngui_layer::add_timer(std::time::Duration::from_millis(30), move || {
         let ctx = ShellCtx::get();
+        ctx.popup_xy_set.set(false);
         ctx.popup.set(Some(crate::ctx::Popup { kind: kind.clone(), anchor: crate::commands::centered() }));
         None
     });
+}
+
+/// Прямоугольник виджета `index` на столе (логические px вывода): `[x, y, w, h]`.
+pub fn widget_rect(ctx: &ShellCtx, index: usize) -> Option<[f32; 4]> {
+    let w = items(ctx).get(index).cloned()?;
+    let g = grid(ctx, &output_name(ctx));
+    let (x, y, ww, hh) = g.cells(&w);
+    Some([g.x0 + x as f32 * g.cw, g.y0 + y as f32 * g.ch, ww as f32 * g.cw, hh as f32 * g.ch])
 }
 
 /// Открыть меню виджета у точки нажатия.

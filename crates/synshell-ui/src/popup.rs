@@ -367,7 +367,21 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     // ширину; контекстные меню — у пальца.
     let sheet = is_sheet;
     let rect = if (ctx.is_phone() && centered_on_phone(&p.kind)) || power { None } else { p.anchor.rect };
-    let placed: Box<dyn Widget> = if sheet {
+    let placed: Box<dyn Widget> = if let (PopupKind::DeskEdit(index), false) = (&p.kind, ctx.is_phone()) {
+        // Настройки виджета — сбоку от него (стол виден и меняется сразу), окно
+        // перетаскивается за заголовок.
+        if !ctx.popup_xy_set.get_untracked() {
+            let est_h = (oh * 0.85).min(760.0);
+            let (x, y) = match crate::desk::widget_rect(&ctx, *index) {
+                Some([wx, wy, ww, _]) if wx + ww + GAP + width <= ow - GAP => (wx + ww + GAP, wy),
+                Some([wx, wy, _, _]) if wx - GAP - width >= GAP => (wx - GAP - width, wy),
+                _ => ((ow - width) / 2.0, (oh - est_h) / 2.0),
+            };
+            ctx.popup_xy.set(syngui::core::Point::new(x.clamp(GAP, (ow - width - GAP).max(GAP)), y.clamp(GAP, (oh - est_h - GAP).max(GAP))));
+            ctx.popup_xy_set.set(true);
+        }
+        Box::new(Stack::new().fit(StackFit::Expand).child(syngui::widgets::containers::Positioned::new(card).offset_signal(ctx.popup_xy)))
+    } else if sheet {
         Box::new(
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::End)

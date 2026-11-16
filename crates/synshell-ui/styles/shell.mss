@@ -874,7 +874,14 @@ Text {
 .desk-tile.on { border-color: var(--accent); }
 .desk-tile-label { font-size: 11px; color: #ffffffb0; text-align: center; }
 .desk-clock-sample { font-weight: 400; color: #ffffff; text-shadow: 0px 1px 4px #00000060; }
-.desk-preview { border-radius: 14px; background-color: #2b3a55; padding: 4px; }
+.desk-tabs { padding: 3px; border-radius: 10px; background-color: #ffffff10; }
+.desk-tab { padding: 6px 4px; border-radius: 8px; align-items: center; }
+.desk-tab:hover { background-color: #ffffff12; }
+.desk-tab.on { background-color: var(--accent); }
+.desk-tab-label { font-size: 13px; color: var(--fg); text-align: center; }
+.desk-grip { icon-size: 18px; icon-color: var(--muted); }
+.desk-close { width: 28px; height: 28px; border-radius: 14px; align-items: center; justify-content: center; }
+.desk-close:hover { background-color: #ffffff18; }
 .desk-slider-value { font-size: 12px; color: var(--muted); min-width: 72px; text-align: right; }
 
 /* Календарь на столе: без своей подложки — фон у карточки виджета */
