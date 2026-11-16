@@ -13,6 +13,7 @@ pub mod config_edit;
 pub mod display;
 pub mod eink_profiles;
 pub mod eink_state;
+pub mod fonts;
 #[cfg(feature = "drives")]
 pub mod drives;
 pub mod dualboot;

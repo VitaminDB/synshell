@@ -74,18 +74,7 @@ pub fn cursor_themes() -> Vec<(String, String)> {
 
 /// Семейства шрифтов из fontconfig (без повторов).
 pub fn font_families() -> Vec<String> {
-    let out = std::process::Command::new("fc-list").args([":", "family"]).output();
-    let Ok(out) = out else { return Vec::new() };
-    let mut set = BTreeSet::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        if let Some(first) = line.split(',').next() {
-            let f = first.trim();
-            if !f.is_empty() {
-                set.insert(f.to_string());
-            }
-        }
-    }
-    set.into_iter().collect()
+    synshell_common::fonts::families()
 }
 
 /// Значение ключа из .desktop/index.theme (первое вхождение, без локали).

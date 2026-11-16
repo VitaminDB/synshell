@@ -129,6 +129,15 @@ const METRIC_VIEWS: &[View] = &[("card", n_!("Карточка")), ("ring", n_!(
 pub const KINDS: &[Kind] = &[
     Kind { kind: "clock", label: n_!("Часы"), glyph: "\u{E8B5}", views: &[("digital", n_!("Цифры")), ("big", n_!("Крупно")), ("analog", n_!("Стрелки"))], phone: (4, 1), desktop: (3, 1), data: false },
     Kind {
+        kind: "calendar",
+        label: n_!("Календарь"),
+        glyph: "\u{E935}",
+        views: &[("month", n_!("Месяц")), ("day", n_!("Листок"))],
+        phone: (4, 3),
+        desktop: (3, 3),
+        data: false,
+    },
+    Kind {
         kind: "cpu",
         label: n_!("Процессор"),
         glyph: mi::CPU,

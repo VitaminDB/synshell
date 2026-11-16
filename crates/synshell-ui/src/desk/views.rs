@@ -65,6 +65,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
     let cx = Cx { w: cw, h: chh, color: color_of(&ctx, w), view, history: w.int_or("history", 60).clamp(10, data::HISTORY as i64) as usize };
     let body: Box<dyn Widget> = match w.kind.as_str() {
         "clock" => clock(ctx, w, &cx),
+        "calendar" => calendar(ctx, w, &cx),
         "storage" if cx.view == "card" => storage(w, cx.clone()),
         "cpu" | "memory" | "gpu" | "battery" | "vram" | "npu" | "storage" => metric(ctx, w.kind.clone(), cx.clone()),
         "network" => network(ctx, cx.clone()),
@@ -139,10 +140,142 @@ fn resource_page(kind: &str) -> Option<&'static str> {
 
 // ─── Часы ───────────────────────────────────────────────────────────────────
 
+/// Оформление текста часов из параметров виджета: шрифт, насыщенность, размер, цвет,
+/// эффект и анимация.
+#[derive(Clone)]
+struct ClockLook {
+    font: String,
+    weight: i64,
+    /// Свой размер цифр, px; 0 — по размеру виджета.
+    size: f32,
+    color: Color,
+    /// Цвет эффекта (свечения, неона, контура) — цвет виджета.
+    fx: Color,
+    effect: String,
+    gradient: String,
+    anim: String,
+    spacing: f32,
+}
+
+impl ClockLook {
+    fn of(ctx: &ShellCtx, w: &DeskWidget, cx: &Cx) -> Self {
+        let color = match w.str_or("text_color", "") {
+            "" => Color::from_hex("#ffffff"),
+            "accent" => accent(ctx),
+            c => Color::from_hex(c),
+        };
+        ClockLook {
+            font: w.str_or("font", "").to_string(),
+            weight: w.int_or("weight", 0),
+            size: w.int_or("size", 0).max(0) as f32,
+            color,
+            fx: cx.color,
+            effect: w.str_or("effect", "shadow").to_string(),
+            gradient: w.str_or("gradient", super::forms::GRADIENTS[0].0).to_string(),
+            anim: w.str_or("anim", "none").to_string(),
+            spacing: w.int_or("spacing", 0) as f32,
+        }
+    }
+
+    /// Текст цифр (`main`) или даты с этим оформлением, размер `size` px.
+    fn text(&self, s: String, class: &str, size: f32, main: bool) -> Box<dyn Widget> {
+        let hex = |c: Color| {
+            let [r, g, b] = c.to_srgb_u8();
+            format!("#{r:02x}{g:02x}{b:02x}")
+        };
+        let fx = hex(self.fx);
+        let mut t = Text::new(s).max_lines(1).class(class).style("font-size", StyleValue::px(size)).style("color", StyleValue::Color(mss_color(self.color)));
+        if !self.font.is_empty() {
+            t = t.style("font-family", StyleValue::String(self.font.clone()));
+        }
+        if self.weight > 0 && main {
+            t = t.style("font-weight", StyleValue::Number(self.weight as f32));
+        }
+        if self.spacing != 0.0 && main {
+            t = t.style("letter-spacing", StyleValue::px(self.spacing));
+        }
+        let str = |v: String| StyleValue::String(v);
+        // Сила эффекта — от размера: у даты слабее.
+        let k = (size / 40.0).clamp(0.4, 3.0);
+        match self.effect.as_str() {
+            "none" => t = t.style("text-shadow", str("0 0 0 #00000000".into())),
+            "soft" => t = t.style("text-shadow", str(format!("0 {} {} #000000a8", (3.0 * k).round(), (16.0 * k).round()))),
+            "glow" => {
+                t = t.style("text-shadow", str(format!("0 0 {} {fx}", (10.0 * k).round())));
+                t = t.style("text-glow", str(format!("{}px {fx}", (14.0 * k).round())));
+            }
+            "neon" => {
+                t = t.style("color", StyleValue::Color(mss_color(Color::from_hex("#ffffff"))));
+                t = t.style("text-shadow", str(format!("0 0 {a} {fx}, 0 0 {b} {fx}, 0 0 {c} {fx}", a = (3.0 * k).round(), b = (10.0 * k).round(), c = (24.0 * k).round())));
+                t = t.style("text-glow", str(format!("{}px {fx}", (20.0 * k).round())));
+            }
+            "outline" => {
+                t = t.style("text-stroke", str(format!("{:.1}px {fx}", (1.2 * k).max(1.0))));
+            }
+            "hollow" => {
+                t = t.style("color", StyleValue::Color(mss_color(Color::from_hex("#00000000"))));
+                t = t.style("text-stroke", str(format!("{:.1}px {}", (1.4 * k).max(1.0), hex(self.color))));
+                t = t.style("text-shadow", str("0 0 0 #00000000".into()));
+            }
+            "retro" => t = t.style("text-shadow", str(format!("{o} {o} 0 {fx}", o = (3.0 * k).round()))),
+            "gradient" => {
+                t = t.style("text-gradient", str(self.gradient.clone()));
+                t = t.style("text-shadow", str(format!("0 {} {} #00000060", (2.0 * k).round(), (8.0 * k).round())));
+            }
+            _ => {}
+        }
+        if main && self.anim != "none" {
+            let dur = match self.anim.as_str() {
+                "pulse" => 2.4,
+                "shimmer" => 3.0,
+                "gradient" => 4.0,
+                _ => 6.0,
+            };
+            t = t.style("text-animation", str(format!("{} {dur}s", self.anim)));
+        }
+        Box::new(t)
+    }
+}
+
+/// Формат времени: 24 или 12 часов, с секундами или без.
+fn time_format(w: &DeskWidget) -> (&'static str, bool) {
+    let seconds = w.bool_or("seconds", false);
+    let h12 = w.bool_or("h12", false);
+    let f = match (h12, seconds) {
+        (false, false) => "%H:%M",
+        (false, true) => "%H:%M:%S",
+        (true, false) => "%I:%M",
+        (true, true) => "%I:%M:%S",
+    };
+    (f, h12)
+}
+
+fn time_text(now: i64, w: &DeskWidget) -> String {
+    let (f, h12) = time_format(w);
+    let s = crate::clock::format(now, f);
+    if h12 {
+        s.strip_prefix('0').map(String::from).unwrap_or(s)
+    } else {
+        s
+    }
+}
+
+/// Дата под часами: `long` — «понедельник, 16 ноября», `short` — «пн, 16 нояб», `numeric` — «16.11.2026».
+fn date_text(now: i64, w: &DeskWidget, short_default: bool) -> String {
+    let f = match w.str_or("date_fmt", if short_default { "short" } else { "long" }) {
+        "short" => "%a, %d %b",
+        "numeric" => "%d.%m.%Y",
+        _ => "%A, %d %B",
+    };
+    crate::clock::format(now, f)
+}
+
 fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
     let seconds = w.bool_or("seconds", false);
-    let fmt = if seconds { "%H:%M:%S" } else { "%H:%M" };
+    let show_date = w.bool_or("date", true);
     let (cw, ch, color) = (cx.w, cx.h, cx.color);
+    let look = ClockLook::of(&ctx, w, cx);
+    let w = w.clone();
     match cx.view.as_str() {
         "analog" => Box::new(rx(move || {
             let now = ctx.now.get();
@@ -152,13 +285,14 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
                 let v: Vec<f32> = t.split(' ').filter_map(|x| x.parse().ok()).collect();
                 (v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0), v.get(2).copied().unwrap_or(0.0))
             };
+            let hands = look.color;
             let face = Canvas::new(move |c, _| {
                 use std::f32::consts::{FRAC_PI_2, TAU};
                 let r = size / 2.0 - 3.0;
                 let (x0, y0) = (size / 2.0, size / 2.0);
                 c.set_color(Color::from_hex("#00000050"));
                 c.fill_circle(x0, y0, r);
-                c.set_color(Color::from_hex("#ffffffc0"));
+                c.set_color(hands.with_alpha(0.75));
                 c.set_stroke_width(2.0);
                 c.stroke_circle(x0, y0, r);
                 for i in 0..12 {
@@ -171,7 +305,7 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
                     c.set_stroke_width(width);
                     c.draw_line(x0, y0, x0 + a.cos() * len, y0 + a.sin() * len);
                 };
-                c.set_color(Color::from_hex("#ffffff"));
+                c.set_color(hands);
                 hand(c, (h % 12.0 + m / 60.0) / 12.0, r * 0.5, 4.0);
                 hand(c, (m + s / 60.0) / 60.0, r * 0.75, 3.0);
                 if seconds {
@@ -186,25 +320,65 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
         })),
         "big" => Box::new(rx(move || {
             let now = ctx.now.get();
-            let size = (ch * 0.62).min(cw * if seconds { 0.2 } else { 0.3 }).clamp(18.0, 120.0);
+            let auto = (ch * if show_date { 0.62 } else { 0.8 }).min(cw * if seconds { 0.2 } else { 0.3 }).clamp(18.0, 400.0);
+            let size = if look.size > 0.0 { look.size } else { auto };
+            let mut col = Column::new()
+                .gap(0.0)
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(look.text(time_text(now, &w), "desk-clock-big", size, true));
+            if show_date {
+                col = col.child(look.text(date_text(now, &w, false), "desk-date", (size * 0.16).clamp(13.0, 40.0), false));
+            }
+            Box::new(col.style("width", StyleValue::px(cw)).style("height", StyleValue::px(ch)))
+        })),
+        _ => Box::new(rx(move || {
+            let now = ctx.now.get();
+            let size = if look.size > 0.0 { look.size } else { 40.0 };
+            let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::End).child(look.text(time_text(now, &w), "res-clock", size, true));
+            if show_date {
+                row = row.child(DecoratedBox::new().class("grow").child(look.text(date_text(now, &w, true), "res-date", (size * 0.35).clamp(12.0, 32.0), false)));
+            }
+            Box::new(row)
+        })),
+    }
+}
+
+// ─── Календарь ──────────────────────────────────────────────────────────────
+
+/// Календарь: `month` — месяц сеткой (вписан в виджет, сегодня выделено), `day` — листок
+/// с крупным числом. Перестраивается со сменой дня.
+fn calendar(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
+    let (cw, ch, color) = (cx.w, cx.h, cx.color);
+    let weeks = w.bool_or("weeks", false);
+    match cx.view.as_str() {
+        "day" => Box::new(rx(move || {
+            let now = ctx.now.get();
+            let num = (ch * 0.5).min(cw * 0.55).clamp(28.0, 220.0);
             Box::new(
                 Column::new()
                     .gap(0.0)
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new(crate::clock::format(now, fmt)).class("desk-clock-big").style("font-size", StyleValue::px(size)))
-                    .child(Text::new(crate::clock::format(now, "%A, %d %B")).class("desk-date"))
+                    .child(Text::new(crate::clock::format(now, "%A")).max_lines(1).class("desk-cal-weekday").style("color", StyleValue::Color(mss_color(color))))
+                    .child(Text::new(crate::clock::format(now, "%-d")).class("desk-cal-num").style("font-size", StyleValue::px(num)))
+                    .child(Text::new(crate::clock::format(now, "%B %Y")).max_lines(1).class("desk-cal-month"))
                     .style("width", StyleValue::px(cw))
                     .style("height", StyleValue::px(ch)),
             )
         })),
         _ => Box::new(rx(move || {
-            let now = ctx.now.get();
+            let (y, m, d) = crate::clock::ymd(ctx.now.get());
             Box::new(
-                Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::End)
-                    .child(Text::new(crate::clock::format(now, fmt)).class("res-clock"))
-                    .child(Text::new(crate::clock::format(now, "%a, %d %b")).class("res-date grow")),
+                Row::new().main_axis_alignment(MainAxisAlignment::Center).child(
+                    Calendar::new()
+                        .selected(Date::new(y, m, d))
+                        .show_week_numbers(weeks)
+                        .fit(true)
+                        .class("cal desk-cal")
+                        .style("accent-color", StyleValue::Color(mss_color(color)))
+                        .style("--cal-today-color", StyleValue::Color(mss_color(color))),
+                ),
             )
         })),
     }
@@ -1486,4 +1660,51 @@ fn temp_devices_view(s: &Snap, cx: &Cx, own_color: bool) -> Box<dyn Widget> {
 pub(super) fn mss_color(c: Color) -> syngui::mss::MssColor {
     let [r, g, b] = c.to_srgb_u8();
     syngui::mss::MssColor { r, g, b, a: 255 }
+}
+
+#[cfg(test)]
+mod clock_shot {
+    use super::*;
+
+    /// Часы с настройками и календарь: `SHOT_DIR=… cargo test -p synshell-ui shot_clock -- --ignored`.
+    #[test]
+    #[ignore]
+    fn shot_clock() {
+        let dir = std::env::var("SHOT_DIR").unwrap_or_else(|_| "/tmp".into());
+        let cfg = synshell_common::config::Config::default();
+        let mss = crate::theme::build(&cfg);
+        let cases: &[(&str, &str, f32, f32)] = &[
+            ("big-default", "type='clock'\nview='big'", 520.0, 200.0),
+            ("big-font", "type='clock'\nview='big'\nfont='DejaVu Serif'\nweight=800\ntext_color='#ffb74d'\neffect='retro'\ncolor='#ef5350'\nspacing=4", 520.0, 200.0),
+            ("big-glow", "type='clock'\nview='big'\neffect='glow'\ncolor='#4fc3f7'\nseconds=true\ndate_fmt='numeric'", 520.0, 200.0),
+            ("big-hollow", "type='clock'\nview='big'\neffect='hollow'\ntext_color='#66bb6a'\ndate=false\nh12=true", 520.0, 200.0),
+            ("big-outline", "type='clock'\nview='big'\neffect='outline'\ncolor='#ab47bc'\nsize=96", 520.0, 200.0),
+            ("digital", "type='clock'\nfont='DejaVu Sans Mono'\nsize=48\neffect='soft'", 420.0, 110.0),
+            ("analog", "type='clock'\nview='analog'\ntext_color='#4fc3f7'\nseconds=true", 220.0, 220.0),
+            ("cal-month", "type='calendar'", 330.0, 330.0),
+            ("cal-month-weeks", "type='calendar'\nweeks=true\ncolor='#66bb6a'", 440.0, 360.0),
+            ("cal-day", "type='calendar'\nview='day'", 220.0, 220.0),
+        ];
+        for (name, src, w, h) in cases {
+            let out = format!("{dir}/desk-{name}.png");
+            let wid: DeskWidget = toml::from_str(src).unwrap();
+            let (w, h) = (*w, *h);
+            syngui::shot::render_png(
+                move || {
+                    let ctx = crate::ShellCtx::new(synshell_common::config::Config::default(), synshell_common::config::FormFactor::Desktop);
+                    provide_context(ctx);
+                    Box::new(
+                        DecoratedBox::new()
+                            .style("background-color", StyleValue::Color(mss_color(Color::from_hex("#2b3a55"))))
+                            .child(build(ctx, &super::super::Slot::Item(0), &wid, w, h, false)),
+                    )
+                },
+                &mss,
+                (w as u32, h as u32),
+                1.0,
+                &out,
+            )
+            .unwrap();
+        }
+    }
 }

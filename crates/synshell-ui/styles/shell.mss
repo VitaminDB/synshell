@@ -863,6 +863,12 @@ Text {
     box-shadow: 0px 8px 24px #00000040;
 }
 .desk-plain { background-color: #00000000; }
+/* Календарь на столе: без своей подложки — фон у карточки виджета */
+.desk-cal { background-color: #00000000; border-color: #00000000; --cal-panel-bg: #00000000; --cal-panel-border: #00000000; }
+.desk-cal-weekday { font-size: 16px; font-weight: 600; text-transform: capitalize; }
+.desk-cal-num { font-weight: 300; color: var(--fg); }
+.desk-cal-month { font-size: 14px; color: var(--muted); text-transform: capitalize; }
+.desk-plain .desk-cal-num, .desk-plain .desk-cal-month { color: #ffffff; text-shadow: 0px 1px 4px #00000080; }
 .desk-title-icon { icon-size: 18px; icon-color: var(--accent); }
 .desk-disk-badge { width: 32px; height: 32px; border-radius: 10px; background-color: #ffffff12; justify-content: center; align-items: center; }
 .desk-disk-icon { icon-size: 18px; }

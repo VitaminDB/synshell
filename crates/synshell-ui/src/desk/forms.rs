@@ -153,6 +153,161 @@ fn icon_tab(page: u32) -> impl Widget {
 // ─── Настройки виджета ──────────────────────────────────────────────────────
 
 const COLORS: &[(&str, &str)] = &[("", n_!("Акцент")), ("#4fc3f7", n_!("Голубой")), ("#66bb6a", n_!("Зелёный")), ("#ffb74d", n_!("Оранжевый")), ("#ef5350", n_!("Красный")), ("#ab47bc", n_!("Фиолетовый")), ("#eceff1", n_!("Белый"))];
+/// Градиенты цифр часов: значение `text-gradient` и подпись.
+pub const GRADIENTS: &[(&str, &str)] = &[
+    ("linear-gradient(90deg, #4fc3f7, #ab47bc)", n_!("Океан")),
+    ("linear-gradient(90deg, #ff7e5f, #feb47b)", n_!("Закат")),
+    ("linear-gradient(90deg, #43e97b, #38f9d7)", n_!("Мята")),
+    ("linear-gradient(90deg, #f83600, #f9d423)", n_!("Огонь")),
+    ("linear-gradient(90deg, #a18cd1, #fbc2eb)", n_!("Сирень")),
+    ("linear-gradient(90deg, #ff5f6d, #ffc371, #47e891, #4fc3f7, #a66cff)", n_!("Радуга")),
+];
+const CLOCK_EFFECTS: &[(&str, &str)] = &[
+    ("none", n_!("Нет")),
+    ("shadow", n_!("Тень")),
+    ("soft", n_!("Мягкая тень")),
+    ("glow", n_!("Свечение")),
+    ("neon", n_!("Неон")),
+    ("outline", n_!("Контур")),
+    ("hollow", n_!("Только контур")),
+    ("retro", n_!("Ретро")),
+    ("gradient", n_!("Градиент")),
+];
+const CLOCK_ANIMS: &[(&str, &str)] =
+    &[("none", n_!("Нет")), ("pulse", n_!("Пульс")), ("shimmer", n_!("Блик")), ("gradient", n_!("Перелив")), ("rainbow", n_!("Радуга"))];
+const TEXT_COLORS: &[(&str, &str)] = &[("", n_!("Белый")), ("accent", n_!("Акцент")), ("#eceff1", n_!("Светлый")), ("#4fc3f7", n_!("Голубой")), ("#66bb6a", n_!("Зелёный")), ("#ffb74d", n_!("Оранжевый")), ("#ef5350", n_!("Красный")), ("#ab47bc", n_!("Фиолетовый")), ("#111111", n_!("Чёрный"))];
+/// Шрифты, которые предлагаются первыми (если установлены).
+const FONT_PICKS: &[&str] = &[
+    "Inter", "Roboto", "Noto Sans", "Montserrat", "Oswald", "Bebas Neue", "Orbitron", "Rajdhani", "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", "Playfair Display",
+    "Caveat", "Lobster", "Comfortaa", "Manrope", "Ubuntu", "Cantarell", "Source Serif 4", "Noto Serif",
+];
+
+/// Семейства шрифтов системы (fontconfig читается один раз).
+fn font_families() -> &'static [String] {
+    static F: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    F.get_or_init(synshell_common::fonts::families)
+}
+
+/// Ряд вариантов-чипов строкового ключа `key` виджета `index`.
+fn str_chips(ctx: ShellCtx, index: usize, key: &'static str, default: &'static str, options: &'static [(&'static str, &'static str)]) -> impl Widget {
+    rx(move || {
+        let _ = ctx.config.get();
+        let cur = items(&ShellCtx::get()).get(index).map(|w| w.str_or(key, default).to_string()).unwrap_or_default();
+        let mut flex = Flex::new().wrap().gap(4.0);
+        for (v, l) in options {
+            flex = flex.child(chip(*l, cur == *v, move || super::update(index, |w| w.set(key, *v))));
+        }
+        Box::new(flex)
+    })
+}
+
+/// Ряд вариантов-чипов целого ключа `key`.
+fn int_chips(ctx: ShellCtx, index: usize, key: &'static str, options: Vec<(i64, String)>) -> impl Widget {
+    rx(move || {
+        let _ = ctx.config.get();
+        let cur = items(&ShellCtx::get()).get(index).map(|w| w.int_or(key, 0)).unwrap_or(0);
+        let mut flex = Flex::new().wrap().gap(4.0);
+        for (v, l) in options.clone() {
+            flex = flex.child(chip(l, cur == v, move || super::update(index, |w| w.set(key, v))));
+        }
+        Box::new(flex)
+    })
+}
+
+/// Настройки часов: шрифт, насыщенность, размер, цвет цифр, эффект, анимация, интервал, дата.
+fn clock_options(ctx: ShellCtx, index: usize, mut col: Column) -> Column {
+    let cur = move || items(&ShellCtx::get()).get(index).cloned();
+    // Формат.
+    col = col.child(labeled(
+        &t!("Время и дата"),
+        rx(move || {
+            let _ = ctx.config.get();
+            let w = cur();
+            let get = |k: &str, d: bool| w.as_ref().is_some_and(|w| w.bool_or(k, d));
+            let (sec, h12, date) = (get("seconds", false), get("h12", false), get("date", true));
+            Box::new(
+                Flex::new()
+                    .wrap()
+                    .gap(4.0)
+                    .child(chip(t!("Секунды"), sec, move || super::update(index, |w| w.set("seconds", !sec))))
+                    .child(chip(t!("12 часов"), h12, move || super::update(index, |w| w.set("h12", !h12))))
+                    .child(chip(t!("Дата"), date, move || super::update(index, |w| w.set("date", !date)))),
+            )
+        }),
+    ));
+    col = col.child(labeled(&t!("Вид даты"), str_chips(ctx, index, "date_fmt", "", &[("", n_!("Как у вида")), ("long", n_!("Понедельник, 16 ноября")), ("short", n_!("Пн, 16 нояб")), ("numeric", n_!("16.11.2026"))])));
+
+    // Шрифт: поиск по семействам системы; чип рисуется своим шрифтом.
+    let query = use_signal(String::new());
+    col = col.child(labeled(
+        &t!("Шрифт"),
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(TextField::new().placeholder(t!("Найти шрифт…")).on_change(move |t| query.set(t.to_string())).class("form-field"))
+            .child(rx(move || {
+                let _ = ctx.config.get();
+                let q = query.get().to_lowercase();
+                let font = cur().map(|w| w.str_or("font", "").to_string()).unwrap_or_default();
+                let all = font_families();
+                if !q.is_empty() && !all.iter().any(|f| f.to_lowercase().contains(&q)) {
+                    return Box::new(Text::new(t!("Такого шрифта нет")).class("add-hint")) as Box<dyn Widget>;
+                }
+                let mut list: Vec<String> = if q.is_empty() {
+                    FONT_PICKS.iter().filter(|f| all.iter().any(|a| a == *f)).map(|f| f.to_string()).collect()
+                } else {
+                    all.iter().filter(|f| f.to_lowercase().contains(&q)).take(30).cloned().collect()
+                };
+                if !font.is_empty() && !list.contains(&font) {
+                    list.insert(0, font.clone());
+                }
+                let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Как в теме"), font.is_empty(), move || super::update(index, |w| {
+                    w.options.remove("font");
+                })));
+                for f in list {
+                    let on = f == font;
+                    let label = f.clone();
+                    let chip_w = InputArea::new(boxed(
+                        if on { "chip chip-on" } else { "chip" },
+                        Text::new(label).class("chip-label").style("font-family", syngui::StyleValue::String(f.clone())),
+                    ))
+                    .pointer()
+                    .on_click(move |b, _, _| {
+                        if b == MouseButton::Left {
+                            let f = f.clone();
+                            super::update(index, move |w| w.set("font", f));
+                        }
+                    });
+                    flex = flex.child(chip_w);
+                }
+                Box::new(flex)
+            })),
+    ));
+    col = col.child(labeled(
+        &t!("Насыщенность"),
+        int_chips(ctx, index, "weight", vec![(0, t!("Как в теме").into()), (100, t!("Тонкий").into()), (300, t!("Светлый").into()), (400, t!("Обычный").into()), (600, t!("Полужирный").into()), (800, t!("Жирный").into()), (900, t!("Чёрный").into())]),
+    ));
+    col = col.child(labeled(
+        &t!("Размер цифр"),
+        int_chips(ctx, index, "size", std::iter::once((0, t!("По виджету").into())).chain([32i64, 48, 64, 96, 128, 160, 200, 260].into_iter().map(|v| (v, format!("{v}")))).collect()),
+    ));
+    col = col.child(labeled(
+        &t!("Интервал между буквами"),
+        int_chips(ctx, index, "spacing", vec![(-4, t!("Плотно").into()), (0, t!("Обычно").into()), (4, t!("Шире").into()), (10, t!("Широко").into())]),
+    ));
+    col = col.child(labeled(&t!("Цвет цифр"), str_chips(ctx, index, "text_color", "", TEXT_COLORS)));
+    col = col.child(labeled(&t!("Эффект"), str_chips(ctx, index, "effect", "shadow", CLOCK_EFFECTS)));
+    col = col.child(rx(move || {
+        let _ = ctx.config.get();
+        if cur().map(|w| w.str_or("effect", "shadow").to_string()).as_deref() != Some("gradient") {
+            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
+        }
+        Box::new(labeled(&t!("Градиент"), str_chips(ctx, index, "gradient", GRADIENTS[0].0, GRADIENTS)))
+    }));
+    col = col.child(labeled(&t!("Анимация"), str_chips(ctx, index, "anim", "none", CLOCK_ANIMS)));
+    col.child(Text::new(t!("Цвет свечения, неона, контура и ретро-тени — «Цвет» выше.")).max_lines(2).class("add-hint"))
+}
+
 const HISTORY: &[(i64, &str)] = &[(30, n_!("30 с")), (60, n_!("1 мин")), (120, n_!("2 мин")), (300, n_!("5 мин"))];
 
 /// Настройки виджета `index`: вид, размер, стол, подложка, заголовок, цвет,
@@ -307,11 +462,12 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
 
     // Своё у типа.
     match kind.as_str() {
-        "clock" => {
+        "clock" => col = clock_options(ctx, index, col),
+        "calendar" => {
             col = col.child(rx(move || {
                 let _ = ctx.config.get();
-                let on = cur().is_some_and(|w| w.bool_or("seconds", false));
-                Box::new(chip(t!("Секунды"), on, move || super::update(index, |w| w.set("seconds", !on))))
+                let on = cur().is_some_and(|w| w.bool_or("weeks", false));
+                Box::new(chip(t!("Номера недель"), on, move || super::update(index, |w| w.set("weeks", !on))))
             }));
         }
         "note" => {
