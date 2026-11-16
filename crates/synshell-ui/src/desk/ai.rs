@@ -399,11 +399,14 @@ fn tier_bar(e: &ExpertPlacement, w: f32, color: syngui::core::Color) -> impl Wid
 }
 
 /// Полоса ярусов: VRAM — цвет виджета, RAM — полупрозрачный, диск — красный.
-fn place_bar(vram: u32, ram: u32, disk: u32, w: f32, color: syngui::core::Color) -> impl Widget {
+/// Ширина — вся доступная колонке (не фиксированная: иначе полоса лезет под
+/// кнопки строки).
+fn place_bar(vram: u32, ram: u32, disk: u32, _w: f32, color: syngui::core::Color) -> impl Widget {
     let total = (vram + ram + disk).max(1) as f32;
     let (pv, pr, pd) = (vram as f32 / total, ram as f32 / total, disk as f32 / total);
     Canvas::new(move |c, _| {
         let h = 6.0;
+        let w = c.width();
         let (wv, wr, wd) = (w * pv, w * pr, w * pd);
         c.set_color(color.with_alpha(0.12));
         c.fill_rounded_rect(0.0, 0.0, w, h, h / 2.0);
@@ -420,7 +423,7 @@ fn place_bar(vram: u32, ram: u32, disk: u32, w: f32, color: syngui::core::Color)
             c.fill_rounded_rect(0.0, 0.0, wv.max(h), h, h / 2.0);
         }
     })
-    .size(w, 6.0)
+    .height(6.0)
 }
 
 /// Строки раскладки экспертов и спекуляции языковой модели.
@@ -508,14 +511,14 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
         .gap(1.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("grow")
-        .child(Text::new(m.title.clone()).max_lines(1).class("desk-ai-model"))
         .child(Text::new(state.unwrap_or_else(|| sub.join(" · "))).max_lines(1).class("desk-k"))
         .child(Text::new(who).max_lines(1).class("desk-ai-apps"));
     if let Some(rt) = m.llm_runtime.as_ref().filter(|r| r.speculation.is_some() || r.experts.is_some() || r.layers.is_some()) {
         info = info.child(runtime_rows(s, m, rt, (cx.w - 100.0).max(60.0), cx.color));
     }
-    for a in s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).take(1) {
-        info = info.child(activity_row(s, a, &Cx { w: cx.w - 100.0, ..cx.clone() }, true, false));
+    let running = s.metrics.running.iter().find(|a| a.models.contains(&m.id));
+    if let Some(a) = running {
+        info = info.child(activity_row(s, a, &Cx { w: cx.w - 100.0, ..cx.clone() }, false, false));
     }
     let btn = |glyph: &'static str, on: bool, f: Box<dyn Fn() + Send + Sync>| {
         GestureDetector::new().on_click(move || f()).child(
@@ -526,9 +529,13 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
     };
     let pinned = m.settings.pinned;
     let (pin_id, unload_id) = (id.clone(), id.clone());
-    let buttons = Row::new()
-        .gap(4.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
+    let mut buttons = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    // «Стоп» текущей работы — в том же ряду, что и кнопки модели.
+    if let Some(a) = running {
+        let aid = a.id;
+        buttons = buttons.child(btn(STOP, false, Box::new(move || act(move |c| c.cancel_activity(aid)))));
+    }
+    let buttons = buttons
         .child(btn(
             mi::PUSH_PIN,
             pinned,
@@ -545,12 +552,19 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
                 act(move |c| c.unload(&id));
             }),
         ));
+    // Заголовок: название и кнопки справа; ниже — сведения на всю ширину
+    // колонки (полосы не заходят под кнопки).
+    let head = Row::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(m.title.clone()).max_lines(1).class("desk-ai-model grow"))
+        .child(buttons);
+    let body = Column::new().gap(1.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(head).child(info);
     let row = Row::new()
         .gap(10.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(DecoratedBox::new().class("desk-ai-badge").child(icon(kind_glyph(m.kind)).class("desk-ai-badge-icon").style("icon-color", StyleValue::Color(mss_color(cx.color)))))
-        .child(info)
-        .child(buttons);
+        .child(body);
     Box::new(
         GestureDetector::new()
             .on_click(move || open_settings(&format!("models/m/{id}")))
