@@ -30,7 +30,12 @@ fn print_entry(m: &ModelEntry) {
             None => "без спекуляции".into(),
         };
         println!("    {spec}");
-        if let Some(e) = &rt.experts {
+        if let Some(l) = &rt.layers {
+            println!("    слои {}: на карте {}, в RAM {}", l.total, l.vram, l.ram);
+        }
+        if let Some(e) = rt.experts.as_ref().filter(|e| e.resident()) {
+            println!("    эксперты {} ({} сл. × {}, {}): все на карте в весах модели", e.total, e.layers, e.experts_per_layer, mb(e.total_bytes));
+        } else if let Some(e) = &rt.experts {
             println!(
                 "    эксперты {} ({} сл. × {}, {}): на карте {} ({} из потолка {}), в RAM {} ({} из {}), вне RAM {} ({}); попаданий {}, промахов {}{}",
                 e.total,
