@@ -950,3 +950,6 @@
 "Windows 10 и 8.1" = "Windows 10 e 8.1"
 "Windows 7" = "Windows 7"
 "BIOS, диск SATA, сеть Realtek, USB 1.1 — всё со встроенными драйверами" = "BIOS, disco SATA, rete Realtek, USB 1.1 — tutto con driver integrati"
+"Монитор гостя выключен" = "Il monitor dell'ospite è spento"
+"Гость погасил экран для экономии энергии — машина работает. Щёлкните, чтобы разбудить." = "L'ospite ha spento lo schermo per risparmiare energia — la macchina è in funzione. Fai clic per riattivarlo."
+"Разбудить" = "Riattiva"

@@ -806,6 +806,9 @@ fn paused_veil(st: St, id: &str) -> W {
 /// VGA тоже идут через syn-gpu); дальше — что случилось и что сделать.
 fn no_picture(st: St, id: &str) -> W {
     const GRACE: std::time::Duration = std::time::Duration::from_secs(8);
+    if crate::present::server_up(id) && state::screen_blank(id) {
+        return screen_asleep(st, id);
+    }
     let wait = state::desktop_wait(id);
     if wait.is_none_or(|w| w < GRACE) && crate::present::server_up(id) {
         return waiting(t!("Ждём изображение с видеокарты syn-gpu…"));
@@ -839,6 +842,24 @@ fn no_picture(st: St, id: &str) -> W {
         .child(Text::new(text).max_lines(5).class("veil-sub nopic-text"))
         .child(acts);
     boxed(DecoratedBox::new().child(Center::new().child(col)).class("screen-wrap"))
+}
+
+/// Гость погасил монитор (энергосбережение Windows): машина работает, кадров нет до ввода. Клик по
+/// области или кнопка — Shift гостю, монитор просыпается.
+fn screen_asleep(st: St, id: &str) -> W {
+    let (a, b) = (id.to_string(), id.to_string());
+    let col = Column::new()
+        .gap(14.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Icon::new(icons::MONITOR).class("veil-icon"))
+        .child(Text::new(t!("Монитор гостя выключен")).class("veil-title"))
+        .child(Text::new(t!("Гость погасил экран для экономии энергии — машина работает. Щёлкните, чтобы разбудить.")).max_lines(3).class("veil-sub nopic-text"))
+        .child(btn(icons::MONITOR, t!("Разбудить"), "primary", move || state::wake_screen(st, &a)));
+    boxed(
+        GestureDetector::new()
+            .on_click(move || state::wake_screen(st, &b))
+            .child(DecoratedBox::new().child(Center::new().child(col)).class("screen-wrap")),
+    )
 }
 
 /// Полоса над страницей машины: настройки ждут перезапуска, в госте нет драйвера syn-gpu.

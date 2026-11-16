@@ -146,6 +146,8 @@ pub mod modes_flags {
     pub const PENDING: u32 = 1 << 4;
     /// Идёт 3D (Glide): `GuestModes::game` и `render` — разрешение игры и кадра.
     pub const GLIDE: u32 = 1 << 5;
+    /// Рабочий стол Windows погашен гостем (монитор в энергосбережении) — проснётся от ввода.
+    pub const BLANK: u32 = 1 << 6;
 }
 
 /// Выбранное у машины разрешение 3D (vm.toml `glide_res`): сервер syn-gpu его не помнит между запусками —

@@ -755,6 +755,21 @@ pub fn toggle_pause(st: St, id: &str) {
     });
 }
 
+/// Разбудить погашенный гостем монитор: Shift — Windows выходит из энергосбережения экрана.
+pub fn wake_screen(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    std::thread::spawn(move || {
+        if let Err(e) = qmp::send_combo(&vm, "shift") {
+            run_on_main_thread(move || toast_err(st, e.to_string()));
+        }
+    });
+}
+
+/// Гость погасил рабочий стол (монитор в энергосбережении) — флаг BLANK от сервера syn-gpu.
+pub fn screen_blank(id: &str) -> bool {
+    guest_modes(id).is_some_and(|m| m.flags & crate::present::modes_flags::BLANK != 0)
+}
+
 fn mark_power(st: St, id: &str, p: Power) {
     let mut live = st.live.get_untracked();
     let l = live.entry(id.to_string()).or_default();
