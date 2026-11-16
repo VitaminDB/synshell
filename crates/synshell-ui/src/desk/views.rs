@@ -238,7 +238,8 @@ impl ClockLook {
 }
 
 /// Образец текста `s` в оформлении часов `w` (плитки выбора эффекта, шрифта, градиента), без анимации.
-pub(super) fn clock_sample(ctx: &ShellCtx, w: &DeskWidget, s: &str, size: f32) -> Box<dyn Widget> {
+pub(super) fn clock_sample(ctx: &ShellCtx, w: &DeskWidget, size: f32) -> Box<dyn Widget> {
+    let s = if w.kind == "calendar" { "16" } else { "12:34" };
     let cx = Cx { w: 0.0, h: 0.0, color: color_of(ctx, w), view: String::new(), history: 60 };
     let mut look = ClockLook::of(ctx, w, &cx);
     look.anim = "none".into();
@@ -355,39 +356,91 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
 
 // ─── Календарь ──────────────────────────────────────────────────────────────
 
+/// Цвет параметра `key` виджета: `#rrggbb`, `accent` — акцент темы, иначе `None`.
+fn opt_color(ctx: &ShellCtx, w: &DeskWidget, key: &str) -> Option<Color> {
+    match w.str(key)? {
+        "accent" => Some(accent(ctx)),
+        c if c.starts_with('#') => Some(Color::from_hex(c)),
+        _ => None,
+    }
+}
+
 /// Календарь: `month` — месяц сеткой (вписан в виджет, сегодня выделено), `day` — листок
-/// с крупным числом. Перестраивается со сменой дня.
+/// с крупным числом. Перестраивается со сменой дня. Оформление: шрифт, насыщенность, цвета
+/// текста, выделения и выходных, форма дня, соседние дни; у листка — эффекты как у часов.
 fn calendar(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
     let (cw, ch, color) = (cx.w, cx.h, cx.color);
     let weeks = w.bool_or("weeks", false);
+    let font = w.str_or("font", "").to_string();
+    let weight = w.int_or("weight", 0);
+    let text = opt_color(&ctx, w, "text_color");
+    let weekend = opt_color(&ctx, w, "weekend_color");
+    let shape = w.str_or("shape", "circle").to_string();
+    let outside = w.bool_or("outside", true);
+    let fsize = w.int_or("font_size", 0);
     match cx.view.as_str() {
-        "day" => Box::new(rx(move || {
-            let now = ctx.now.get();
-            let num = (ch * 0.5).min(cw * 0.55).clamp(28.0, 220.0);
-            Box::new(
-                Column::new()
-                    .gap(0.0)
-                    .main_axis_alignment(MainAxisAlignment::Center)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new(crate::clock::format(now, "%A")).max_lines(1).class("desk-cal-weekday").style("color", StyleValue::Color(mss_color(color))))
-                    .child(Text::new(crate::clock::format(now, "%-d")).class("desk-cal-num").style("font-size", StyleValue::px(num)))
-                    .child(Text::new(crate::clock::format(now, "%B %Y")).max_lines(1).class("desk-cal-month"))
-                    .style("width", StyleValue::px(cw))
-                    .style("height", StyleValue::px(ch)),
-            )
-        })),
+        "day" => {
+            let look = ClockLook::of(&ctx, w, cx);
+            Box::new(rx(move || {
+                let now = ctx.now.get();
+                let num = if look.size > 0.0 { look.size } else { (ch * 0.5).min(cw * 0.55).clamp(28.0, 260.0) };
+                let small = (num * 0.16).clamp(13.0, 34.0);
+                let mut wd = Text::new(crate::clock::format(now, "%A")).max_lines(1).class("desk-cal-weekday").style("font-size", StyleValue::px(small)).style("color", StyleValue::Color(mss_color(color)));
+                let mut mo = Text::new(crate::clock::format(now, "%B %Y")).max_lines(1).class("desk-cal-month").style("font-size", StyleValue::px(small * 0.9));
+                if !look.font.is_empty() {
+                    wd = wd.style("font-family", StyleValue::String(look.font.clone()));
+                    mo = mo.style("font-family", StyleValue::String(look.font.clone()));
+                }
+                Box::new(
+                    Column::new()
+                        .gap(0.0)
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(wd)
+                        .child(look.text(crate::clock::format(now, "%-d"), "desk-cal-num", num, true))
+                        .child(mo)
+                        .style("width", StyleValue::px(cw))
+                        .style("height", StyleValue::px(ch)),
+                )
+            }))
+        }
         _ => Box::new(rx(move || {
             let (y, m, d) = crate::clock::ymd(ctx.now.get());
+            let mut cal = Calendar::new()
+                .selected(Date::new(y, m, d))
+                .show_week_numbers(weeks)
+                .fit(true)
+                .class("cal desk-cal")
+                .style("accent-color", StyleValue::Color(mss_color(color)))
+                .style("--cal-today-color", StyleValue::Color(mss_color(color)))
+                .style("--cal-day-shape", StyleValue::String(shape.clone()));
+            if !font.is_empty() {
+                cal = cal.style("font-family", StyleValue::String(font.clone()));
+            }
+            if weight > 0 {
+                cal = cal.style("font-weight", StyleValue::Number(weight as f32));
+            }
+            if let Some(c) = text {
+                cal = cal.style("color", StyleValue::Color(mss_color(c)));
+            }
+            if let Some(c) = weekend {
+                cal = cal.style("--cal-weekend-color", StyleValue::Color(mss_color(c)));
+            }
+            if !outside {
+                cal = cal.style("--cal-outside-color", StyleValue::Color(mss_color(Color::from_hex("#00000000"))));
+            }
+            if fsize > 0 {
+                cal = cal.style("--cal-font-size", StyleValue::px(fsize as f32));
+            }
+            // Рамка ровно с виджет: календарь вписывается в неё (в Row он получал бесконечную ширину
+            // и оставался мелким).
             Box::new(
-                Row::new().main_axis_alignment(MainAxisAlignment::Center).child(
-                    Calendar::new()
-                        .selected(Date::new(y, m, d))
-                        .show_week_numbers(weeks)
-                        .fit(true)
-                        .class("cal desk-cal")
-                        .style("accent-color", StyleValue::Color(mss_color(color)))
-                        .style("--cal-today-color", StyleValue::Color(mss_color(color))),
-                ),
+                DecoratedBox::new()
+                    .child(cal)
+                    .style("width", StyleValue::px(cw))
+                    .style("height", StyleValue::px(ch))
+                    .style("align-items", StyleValue::String("center".into()))
+                    .style("justify-content", StyleValue::String("center".into())),
             )
         })),
     }
@@ -1695,6 +1748,8 @@ mod clock_shot {
             ("cal-month", "type='calendar'", 330.0, 330.0),
             ("cal-month-weeks", "type='calendar'\nweeks=true\ncolor='#66bb6a'", 440.0, 360.0),
             ("cal-day", "type='calendar'\nview='day'", 220.0, 220.0),
+            ("cal-day-fx", "type='calendar'\nview='day'\neffect='neon'\ncolor='#ab47bc'\nfont='DejaVu Serif'", 260.0, 260.0),
+            ("cal-big", "type='calendar'\nfont='DejaVu Serif'\nweekend_color='#ef5350'\nshape='rounded'\noutside=false\ncolor='#ffb74d'", 600.0, 600.0),
         ];
         for (name, src, w, h) in cases {
             let out = format!("{dir}/desk-{name}.png");

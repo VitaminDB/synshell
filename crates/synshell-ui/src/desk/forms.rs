@@ -177,6 +177,8 @@ const CLOCK_EFFECTS: &[(&str, &str)] = &[
 const CLOCK_ANIMS: &[(&str, &str)] =
     &[("none", n_!("Нет")), ("pulse", n_!("Пульс")), ("shimmer", n_!("Блик")), ("gradient", n_!("Перелив")), ("rainbow", n_!("Радуга"))];
 const TEXT_COLORS: &[(&str, &str)] = &[("", n_!("Белый")), ("accent", n_!("Акцент")), ("#eceff1", n_!("Светлый")), ("#4fc3f7", n_!("Голубой")), ("#66bb6a", n_!("Зелёный")), ("#ffb74d", n_!("Оранжевый")), ("#ef5350", n_!("Красный")), ("#ab47bc", n_!("Фиолетовый")), ("#111111", n_!("Чёрный"))];
+/// Цвета текста календаря: `""` — как в теме.
+const CAL_TEXT_COLORS: &[(&str, &str)] = &[("", n_!("Как в теме")), ("#ffffff", n_!("Белый")), ("accent", n_!("Акцент")), ("#4fc3f7", n_!("Голубой")), ("#66bb6a", n_!("Зелёный")), ("#ffb74d", n_!("Оранжевый")), ("#ef5350", n_!("Красный")), ("#ab47bc", n_!("Фиолетовый")), ("#111111", n_!("Чёрный"))];
 /// Шрифты, которые предлагаются первыми (если установлены).
 const FONT_PICKS: &[&str] = &[
     "Inter", "Roboto", "Noto Sans", "Montserrat", "Oswald", "Bebas Neue", "Orbitron", "Rajdhani", "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", "Playfair Display",
@@ -217,7 +219,7 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
     let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(drag_header(t!("Виджет «{v}»", v = label_of(&w0)).into()));
 
     let icon_like = super::is_icon(&kind);
-    if kind == "clock" {
+    if kind == "clock" || kind == "calendar" {
         return clock_edit(ctx, index, col, status);
     }
     if let Some(v) = sec_view(ctx, index) {
@@ -586,6 +588,8 @@ fn swatches(ctx: ShellCtx, index: usize, key: &'static str, default: &'static st
         let known = options.iter().any(|(v, _)| *v == cur);
         for (v, l) in options {
             let hex = match *v {
+                // «Как в теме» — серым кружком.
+                "" if *l == "Как в теме" => "#8a93a3".to_string(),
                 "" if key == "text_color" => "#ffffff".to_string(),
                 "" | "accent" => accent_hex(),
                 h => h.to_string(),
@@ -659,7 +663,7 @@ fn sample(w: &DeskWidget, key: &str, v: &str, size: f32) -> Box<dyn Widget> {
     if key == "gradient" {
         w.set("effect", "gradient");
     }
-    super::views::clock_sample(&ShellCtx::get(), &w, "12:34", size)
+    super::views::clock_sample(&ShellCtx::get(), &w, size)
 }
 
 /// Плитки вариантов строкового ключа часов: в каждой — образец, под ним подпись.
@@ -721,6 +725,26 @@ fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>
                 if let Some(v) = sec_view(ctx, index) {
                     c = c.child(v);
                 }
+                // Календарь — свои параметры вида, часы — время и дата.
+                let is_cal = cur_item(index).is_some_and(|w| w.kind == "calendar");
+                if is_cal {
+                    c = c.child(labeled(
+                        &t!("Показывать"),
+                        rx(move || {
+                            let _ = ctx.config.get();
+                            let w = cur_item(index);
+                            let weeks = w.as_ref().is_some_and(|w| w.bool_or("weeks", false));
+                            let outside = w.as_ref().is_none_or(|w| w.bool_or("outside", true));
+                            Box::new(
+                                Flex::new()
+                                    .wrap()
+                                    .gap(4.0)
+                                    .child(chip(t!("Номера недель"), weeks, move || super::update(index, |w| w.set("weeks", !weeks))))
+                                    .child(chip(t!("Дни соседних месяцев"), outside, move || super::update(index, |w| w.set("outside", !outside)))),
+                            )
+                        }),
+                    ));
+                } else {
                 c = c.child(labeled(
                     &t!("Время и дата"),
                     rx(move || {
@@ -739,6 +763,7 @@ fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>
                     }),
                 ));
                 c = c.child(labeled(&t!("Вид даты"), str_chips(ctx, index, "date_fmt", "", &[("", n_!("Как у вида")), ("long", n_!("Понедельник, 16 ноября")), ("short", n_!("Пн, 16 нояб")), ("numeric", n_!("16.11.2026"))])));
+                }
                 c = c.child(sec_size(ctx, index, status));
                 if let Some(p) = sec_page(ctx, index) {
                     c = c.child(p);
@@ -748,8 +773,19 @@ fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>
             1 => {
                 c = c.child(labeled(&t!("Шрифт"), font_picker(ctx, index)));
                 c = c.child(labeled(&t!("Насыщенность"), slider(ctx, index, "weight", (0.0, 900.0, 100.0), |v| if v == 0 { t!("как в теме").into() } else { v.to_string() })));
-                c = c.child(labeled(&t!("Размер цифр"), slider(ctx, index, "size", (0.0, 300.0, 4.0), |v| if v == 0 { t!("по виджету").into() } else { format!("{v} px") })));
-                c = c.child(labeled(&t!("Интервал между буквами"), slider(ctx, index, "spacing", (-6.0, 20.0, 1.0), |v| format!("{v} px"))));
+                let (is_cal, month) = cur_item(index).map(|w| (w.kind == "calendar", w.kind == "calendar" && super::view_of(&w) == "month")).unwrap_or((false, false));
+                if month {
+                    c = c.child(labeled(&t!("Размер чисел"), slider(ctx, index, "font_size", (0.0, 64.0, 1.0), |v| if v == 0 { t!("по виджету").into() } else { format!("{v} px") })));
+                } else {
+                    c = c.child(labeled(&if is_cal { t!("Размер числа") } else { t!("Размер цифр") }, slider(ctx, index, "size", (0.0, 300.0, 4.0), |v| if v == 0 { t!("по виджету").into() } else { format!("{v} px") })));
+                    c = c.child(labeled(&t!("Интервал между буквами"), slider(ctx, index, "spacing", (-6.0, 20.0, 1.0), |v| format!("{v} px"))));
+                }
+            }
+            _ if cur_item(index).is_some_and(|w| w.kind == "calendar" && super::view_of(&w) == "month") => {
+                c = c.child(labeled(&t!("Цвет чисел"), swatches(ctx, index, "text_color", "", CAL_TEXT_COLORS)));
+                c = c.child(labeled(&t!("Цвет сегодняшнего дня"), swatches(ctx, index, "color", "", COLORS)));
+                c = c.child(labeled(&t!("Цвет выходных"), swatches(ctx, index, "weekend_color", "", CAL_TEXT_COLORS)));
+                c = c.child(labeled(&t!("Форма выделения"), str_chips(ctx, index, "shape", "circle", &[("circle", n_!("Круг")), ("rounded", n_!("Скруглённая")), ("square", n_!("Квадрат"))])));
             }
             _ => {
                 c = c.child(labeled(&t!("Цвет цифр"), swatches(ctx, index, "text_color", "", TEXT_COLORS)));

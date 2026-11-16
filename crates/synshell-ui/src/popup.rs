@@ -380,6 +380,8 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
             ctx.popup_xy.set(syngui::core::Point::new(x.clamp(GAP, (ow - width - GAP).max(GAP)), y.clamp(GAP, (oh - est_h - GAP).max(GAP))));
             ctx.popup_xy_set.set(true);
         }
+        // Колонка вокруг карточки: Positioned отдаёт ребёнку всё место, а карточка — своей высоты.
+        let card = Column::new().cross_axis_alignment(CrossAxisAlignment::Start).child(card);
         Box::new(Stack::new().fit(StackFit::Expand).child(syngui::widgets::containers::Positioned::new(card).offset_signal(ctx.popup_xy)))
     } else if sheet {
         Box::new(
