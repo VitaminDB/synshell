@@ -1668,7 +1668,7 @@ fn temp_devices_view(s: &Snap, cx: &Cx, own_color: bool) -> Box<dyn Widget> {
 
 pub(super) fn mss_color(c: Color) -> syngui::mss::MssColor {
     let [r, g, b] = c.to_srgb_u8();
-    syngui::mss::MssColor { r, g, b, a: 255 }
+    syngui::mss::MssColor { r, g, b, a: (c.a.clamp(0.0, 1.0) * 255.0).round() as u8 }
 }
 
 #[cfg(test)]
@@ -1690,6 +1690,8 @@ mod clock_shot {
             ("big-outline", "type='clock'\nview='big'\neffect='outline'\ncolor='#ab47bc'\nsize=96", 520.0, 200.0),
             ("digital", "type='clock'\nfont='DejaVu Sans Mono'\nsize=48\neffect='soft'", 420.0, 110.0),
             ("analog", "type='clock'\nview='analog'\ntext_color='#4fc3f7'\nseconds=true", 220.0, 220.0),
+            ("big-neon", "type='clock'\nview='big'\neffect='neon'\ncolor='#ab47bc'", 520.0, 200.0),
+            ("big-gradient", "type='clock'\nview='big'\neffect='gradient'\ngradient='linear-gradient(90deg, #ff7e5f, #feb47b)'\nweight=800", 520.0, 200.0),
             ("cal-month", "type='calendar'", 330.0, 330.0),
             ("cal-month-weeks", "type='calendar'\nweeks=true\ncolor='#66bb6a'", 440.0, 360.0),
             ("cal-day", "type='calendar'\nview='day'", 220.0, 220.0),
