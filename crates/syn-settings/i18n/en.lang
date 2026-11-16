@@ -973,6 +973,8 @@
 "Модель сначала рассуждает, потом отвечает — точнее и дольше" = "The model reasons before answering — more accurate and slower"
 "Глубина размышлений" = "Reasoning depth"
 "Сколько модель думает перед ответом" = "How much the model thinks before answering"
+"Глубина черновиков" = "Draft depth"
+"Сколько токенов наперёд угадывается за один шаг: больше — быстрее, особенно на длинном контексте; ответ при том же зерне может отличаться в мелочах" = "How many tokens are guessed ahead per step: more is faster, especially on long context; with the same seed the answer may differ in small details"
 "Зерно (seed)" = "Seed"
 "−1 — случайное; одно зерно даёт повторяемый результат" = "−1 — random; a fixed seed gives repeatable results"
 "Негативный промпт" = "Negative prompt"

@@ -973,6 +973,8 @@
 "Модель сначала рассуждает, потом отвечает — точнее и дольше" = "Model önce akıl yürütür, sonra yanıtlar — daha doğru ve daha uzun sürer"
 "Глубина размышлений" = "Düşünme derinliği"
 "Сколько модель думает перед ответом" = "Modelin yanıtlamadan önce ne kadar düşüneceği"
+"Глубина черновиков" = "Taslak derinliği"
+"Сколько токенов наперёд угадывается за один шаг: больше — быстрее, особенно на длинном контексте; ответ при том же зерне может отличаться в мелочах" = "Her adımda kaç token önceden tahmin edilir: fazlası daha hızlıdır, özellikle uzun bağlamda; aynı tohumla yanıt küçük ayrıntılarda farklı olabilir"
 "Зерно (seed)" = "Tohum (seed)"
 "−1 — случайное; одно зерно даёт повторяемый результат" = "−1 — rastgele; aynı tohum tekrarlanabilir sonuç verir"
 "Негативный промпт" = "Negatif istem"

@@ -1415,6 +1415,9 @@ impl Loaded {
         };
         let prof = std::env::var_os("SYNAPTIX_LLM_PROF").is_some();
         synaptix_llm_common::model::set_prefill_prof(prof);
+        // Глубина черновиков MTP (0 — умолчание модели); у моделей без MTP
+        // вызов ничего не делает.
+        llm.set_mtp_depth(params.u32("mtp_depth").map(|v| v as usize).unwrap_or(0));
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
         if let Some(sch) = &schema {
