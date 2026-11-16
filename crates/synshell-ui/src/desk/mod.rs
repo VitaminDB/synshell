@@ -355,6 +355,22 @@ fn reserved(ctx: &ShellCtx) -> [f32; 4] {
     r
 }
 
+/// Как [`reserved`], но без доков компьютера: они не во всю сторону экрана.
+fn reserved_panels(ctx: &ShellCtx) -> [f32; 4] {
+    let mut r = [0.0f32; 4];
+    for p in ctx.cfg().panels.iter().filter(|p| p.shows_on(ctx.form_factor) && p.exclusive && !p.autohide && !p.is_dock()) {
+        let size = p.size as f32 + if p.floating { 8.0 } else { 0.0 };
+        let i = match p.edge {
+            Edge::Top => 0,
+            Edge::Right => 1,
+            Edge::Bottom => 2,
+            Edge::Left => 3,
+        };
+        r[i] = r[i].max(size);
+    }
+    r
+}
+
 /// Высота нижних панелей телефона, лежащих поверх стола (док без exclusive zone, не
 /// прячущийся): над ними поднимается панель режима правки.
 fn overlay_bottom(ctx: &ShellCtx) -> f32 {
@@ -394,6 +410,9 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
         // Клетка не меньше общего размера значков с подписью.
         let cell = (cfg.desktop.cell.max(32) as f32).max(if cfg.desktop.icon_size > 0 { cfg.desktop.icon_size as f32 + ICON_ROOM } else { 0.0 });
         let pad = 12.0;
+        // Сетка — на весь экран, кроме полноширинных панелей: док стоит по центру, по бокам
+        // от него виджеты ставятся до низа экрана (панель правки всё равно поднята над доком).
+        let r = reserved_panels(ctx);
         let (aw, ah) = (w - r[1] - r[3] - 2.0 * pad, h - r[0] - r[2] - 2.0 * pad);
         let cols = (aw / cell).floor().max(1.0) as u32;
         let rows = (ah / cell).floor().max(1.0) as u32;
@@ -663,16 +682,7 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     // Переключатель «Виджеты / Заметки» — внизу слева, на компьютере.
     // Снизу — только над полноширинными панелями: док стоит по центру и угол не закрывает
     // (над ним переключатель висел в воздухе, а не в углу).
-    let switch_lift = if ctx.is_phone() {
-        lift
-    } else {
-        ctx.cfg()
-            .panels
-            .iter()
-            .filter(|p| p.shows_on(ctx.form_factor) && p.edge == Edge::Bottom && p.exclusive && !p.autohide && !p.is_dock())
-            .map(|p| p.size as f32 + if p.floating { 8.0 } else { 0.0 })
-            .fold(0.0, f32::max)
-    };
+    let switch_lift = if ctx.is_phone() { lift } else { reserved_panels(&ctx)[2] };
     let switch = rx(move || {
         let _ = ctx.config.get();
         if ctx.is_phone() || edit.get() || !notes::available() {
