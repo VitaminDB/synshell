@@ -973,6 +973,8 @@
 "Модель сначала рассуждает, потом отвечает — точнее и дольше" = "Le modèle raisonne d'abord, puis répond — plus précis et plus long"
 "Глубина размышлений" = "Profondeur de réflexion"
 "Сколько модель думает перед ответом" = "Combien le modèle réfléchit avant de répondre"
+"Бюджет размышлений, токенов" = "Budget de réflexion, jetons"
+"Предел длины размышлений: по его исчерпании они закрываются, и модель переходит к ответу. 0 — авто (по глубине размышлений, не больше трёх четвертей длины ответа)" = "Limite de longueur de la réflexion : une fois atteinte, la réflexion est close et le modèle passe à la réponse. 0 — auto (selon la profondeur de réflexion, au plus trois quarts de la longueur de la réponse)"
 "Глубина черновиков" = "Profondeur des brouillons"
 "Сколько токенов наперёд угадывается за один шаг: больше — быстрее, особенно на длинном контексте; ответ при том же зерне может отличаться в мелочах" = "Nombre de jetons devinés à l’avance par étape : plus c’est rapide, surtout avec un long contexte ; à graine égale, la réponse peut différer dans les détails"
 "Зерно (seed)" = "Graine (seed)"

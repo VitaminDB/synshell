@@ -973,6 +973,8 @@
 "Модель сначала рассуждает, потом отвечает — точнее и дольше" = "The model reasons before answering — more accurate and slower"
 "Глубина размышлений" = "Reasoning depth"
 "Сколько модель думает перед ответом" = "How much the model thinks before answering"
+"Бюджет размышлений, токенов" = "Reasoning budget, tokens"
+"Предел длины размышлений: по его исчерпании они закрываются, и модель переходит к ответу. 0 — авто (по глубине размышлений, не больше трёх четвертей длины ответа)" = "Limit on reasoning length: once it runs out, reasoning is closed and the model moves on to the answer. 0 — auto (by reasoning depth, at most three quarters of the answer length)"
 "Глубина черновиков" = "Draft depth"
 "Сколько токенов наперёд угадывается за один шаг: больше — быстрее, особенно на длинном контексте; ответ при том же зерне может отличаться в мелочах" = "How many tokens are guessed ahead per step: more is faster, especially on long context; with the same seed the answer may differ in small details"
 "Зерно (seed)" = "Seed"

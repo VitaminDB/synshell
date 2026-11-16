@@ -120,6 +120,9 @@ pub type Inbox = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 /// тысяч символов; 12 000 резали их втрое, и агент работал по обрезку.
 const TOOL_RESULT_LIMIT: usize = 32_000;
 const SUBAGENT: &str = "subagent";
+/// Ход оборвался на пределе длины без ответа и без вызова (думающая модель
+/// потратила весь предел на размышления) — разовая просьба продолжить коротко.
+const TRUNCATED_PROMPT: &str = "Предыдущий ход оборвался на пределе длины: размышления заняли его целиком, и ни ответа, ни вызова инструмента не было. Рассуждай коротко и сразу дай ответ или вызови нужный инструмент.";
 const LIMIT_PROMPT: &str = "Лимит шагов исчерпан. Больше не вызывай инструменты. Подведи итог ПО КАЖДОМУ пункту запроса: что удалось и где результат (сохранённые файлы, найденные значения), что осталось нерешённым. Если что-то получил, но не сохранил — так и скажи. Без вступления.";
 const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь одну узкую подзадачу инструментами и возвращаешь только краткий итог в 1–3 абзаца, без вступления. Истории основного разговора у тебя нет — опирайся только на текст задачи.";
 
@@ -375,11 +378,17 @@ impl Agent {
         // пропущенные повторы подряд: модель не выходит из петли и после подсказки (hexspire:
         // 25 одинаковых string_refs до лимита шагов) — после трёх ход заканчивается итогом
         let mut skipped = 0u32;
+        // ход, оборванный на пределе длины, продолжается один раз
+        let mut retried = false;
+        let mut nudge: Option<&str> = None;
         for _ in 0..self.max_steps {
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
-            let history = self.history(chat);
+            let mut history = self.history(chat);
+            if let Some(n) = nudge.take() {
+                history.push(Message::user(n));
+            }
             let out = match self.generate(chat, history, schemas.clone(), cancel, on) {
                 Ok(out) => out,
                 // «Стоп» посреди генерации — не ошибка: ход просто кончается
@@ -389,6 +398,25 @@ impl Agent {
                 }
                 Err(e) => return Err(e),
             };
+            // Оборван на пределе длины, а ответа и вызова нет: это не конец хода.
+            // Первый раз — продолжить с просьбой короче, второй — сказать пользователю.
+            if out.finish_reason == "length" && out.text.trim().is_empty() && out.tool_calls.is_empty() && !cancel.load(Ordering::Relaxed) {
+                if !retried {
+                    retried = true;
+                    self.push_reply(chat, &out, on);
+                    nudge = Some(TRUNCATED_PROMPT);
+                    continue;
+                }
+                let mut out = out;
+                out.text = if out.thinking_open {
+                    synshell_tr::t!("Ответ оборван на пределе длины: модель не вышла из размышлений. Увеличьте длину ответа или задайте бюджет размышлений в настройках модели.")
+                } else {
+                    synshell_tr::t!("Ответ оборван на пределе длины. Увеличьте длину ответа в настройках модели.")
+                };
+                self.push_reply(chat, &out, on);
+                pending_tools = false;
+                break;
+            }
             self.push_reply(chat, &out, on);
             pending_tools = !out.tool_calls.is_empty();
             if !pending_tools {
@@ -867,6 +895,24 @@ mod tests {
         assert_eq!(seq, [(Role::User, "x"), (Role::Assistant, ""), (Role::Tool, "A"), (Role::User, "ещё вопрос"), (Role::Assistant, "Ответ 1"), (Role::User, "и третий"), (Role::Assistant, "Ответ 2")]);
         // модель на втором шаге видит вопрос из очереди последним
         assert_eq!(script.1.lock().unwrap()[1].1.last().unwrap().content, "ещё вопрос");
+    }
+
+    /// Ход, съевший предел на размышлениях, продолжается один раз с просьбой
+    /// короче; повторный обрыв — сообщение пользователю, а не молчаливый конец.
+    #[test]
+    fn length_without_answer_is_retried_then_reported() {
+        let cut = || Generated { thinking: "думаю…".into(), tokens: 100, finish_reason: "length".into(), thinking_open: true, ..Default::default() };
+        let script = Arc::new(Script::new(vec![cut(), text("Ответ")]));
+        let agent = Agent::new(script.clone(), vec![Arc::new(Echo)]);
+        let mut chat = Chat::new();
+        agent.run_turn(&mut chat, "x", &|_: &str, _: &str| true, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(chat.messages.last().unwrap().text, "Ответ");
+        assert_eq!(script.1.lock().unwrap()[1].1.last().unwrap().content, TRUNCATED_PROMPT);
+
+        let agent = Agent::new(Arc::new(Script::new(vec![cut(), cut()])), vec![Arc::new(Echo)]);
+        let mut chat = Chat::new();
+        agent.run_turn(&mut chat, "x", &|_: &str, _: &str| true, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert!(chat.messages.last().unwrap().text.contains("не вышла из размышлений"));
     }
 
     #[test]

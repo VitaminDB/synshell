@@ -1565,6 +1565,18 @@ pub struct Generated {
     /// Декод ответа, мс.
     #[serde(default)]
     pub decode_ms: u64,
+    /// Почему ход остановился: `eos` (модель закончила), `stop` (стоп-строка),
+    /// `length` (упёрлись в предел длины — ответ оборван), `tool_call`
+    /// (остановлен на готовом вызове инструмента), `cancel` (отменён),
+    /// `callback`; пусто — у старой службы.
+    #[serde(default)]
+    pub finish_reason: String,
+    /// Ход кончился внутри размышлений: ответа нет.
+    #[serde(default)]
+    pub thinking_open: bool,
+    /// Размышления исчерпали бюджет и закрыты принудительно.
+    #[serde(default)]
+    pub thinking_forced: bool,
 }
 
 /// Ответ `Tokenize`: по числу на текст.

@@ -77,3 +77,5 @@
 "Поиск: {query}" = "Arama: {query}"
 "Чтение: {url}" = "Okunuyor: {url}"
 "Интернет" = "İnternet"
+"Ответ оборван на пределе длины: модель не вышла из размышлений. Увеличьте длину ответа или задайте бюджет размышлений в настройках модели." = "Yanıt uzunluk sınırında kesildi: model düşünmeden çıkamadı. Model ayarlarında yanıt uzunluğunu artırın veya bir düşünme bütçesi belirleyin."
+"Ответ оборван на пределе длины. Увеличьте длину ответа в настройках модели." = "Yanıt uzunluk sınırında kesildi. Model ayarlarında yanıt uzunluğunu artırın."

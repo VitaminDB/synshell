@@ -77,3 +77,5 @@
 "Поиск: {query}" = "Search: {query}"
 "Чтение: {url}" = "Reading: {url}"
 "Интернет" = "Internet"
+"Ответ оборван на пределе длины: модель не вышла из размышлений. Увеличьте длину ответа или задайте бюджет размышлений в настройках модели." = "The answer was cut off at the length limit: the model never left its reasoning. Increase the answer length or set a reasoning budget in the model settings."
+"Ответ оборван на пределе длины. Увеличьте длину ответа в настройках модели." = "The answer was cut off at the length limit. Increase the answer length in the model settings."

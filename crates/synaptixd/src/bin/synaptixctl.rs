@@ -341,13 +341,16 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("\n→ вызов {}({})", call.name, call.arguments);
             }
             println!(
-                "\n[{} токенов за {:.1} с; промпт {} (из кэша {}), префилл {} мс, декод {} мс]",
+                "\n[{} токенов за {:.1} с; промпт {} (из кэша {}), префилл {} мс, декод {} мс; конец: {}{}{}]",
                 g.tokens,
                 t0.elapsed().as_secs_f32(),
                 g.prompt_tokens,
                 g.cached_tokens,
                 g.prefill_ms,
-                g.decode_ms
+                g.decode_ms,
+                if g.finish_reason.is_empty() { "?" } else { &g.finish_reason },
+                if g.thinking_open { ", оборван внутри размышлений" } else { "" },
+                if g.thinking_forced { ", размышления закрыты по бюджету" } else { "" }
             );
         }
         "tokens" => {

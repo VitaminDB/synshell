@@ -1420,6 +1420,13 @@ impl Loaded {
         llm.set_mtp_depth(params.u32("mtp_depth").map(|v| v as usize).unwrap_or(0));
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
+        // Бюджет размышлений: не закрытые к нему размышления фасад закрывает
+        // сам, остаток предела достаётся ответу (иначе думающая модель
+        // тратила на них весь ход и не доходила ни до ответа, ни до вызова).
+        if thinking {
+            let explicit = params.i64("thinking_budget").unwrap_or(0);
+            gen.set_thinking(synaptix::facade::params::thinking_budget(explicit, params.text("reasoning"), max_tokens));
+        }
         if let Some(sch) = &schema {
             let t0 = std::time::Instant::now();
             let trigger = parser.borrow().grammar_trigger(thinking);
@@ -1569,7 +1576,36 @@ impl Loaded {
         }
         let tool_calls: Vec<crate::ToolCall> =
             parser.finish().into_iter().map(|c| crate::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
-        Ok(crate::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window, cached_tokens: reused, prefill_ms, decode_ms })
+        let fin = gen.finish();
+        // Остановил сам ход (on_piece вернул false): на готовом вызове
+        // инструмента или по отмене.
+        let finish_reason = match fin.reason {
+            synaptix::facade::llm::FinishReason::Callback if !tool_calls.is_empty() => "tool_call",
+            synaptix::facade::llm::FinishReason::Callback if stopped() => "cancel",
+            r => r.as_str(),
+        };
+        if fin.reason == synaptix::facade::llm::FinishReason::Length {
+            tracing::warn!(
+                "generate: ход оборван на пределе ({} токенов, размышлений {}{})",
+                fin.tokens,
+                fin.thinking_tokens,
+                if fin.thinking_open { ", модель не вышла из размышлений" } else { "" }
+            );
+        }
+        Ok(crate::Generated {
+            text,
+            tokens,
+            thinking: reasoning.into_inner(),
+            tool_calls,
+            prompt_tokens: ids.len(),
+            context: window,
+            cached_tokens: reused,
+            prefill_ms,
+            decode_ms,
+            finish_reason: finish_reason.to_string(),
+            thinking_open: fin.thinking_open,
+            thinking_forced: fin.thinking_forced,
+        })
     }
 
     /// `fresh` — проверка настроек: голос прошлых озвучек не берётся и не
