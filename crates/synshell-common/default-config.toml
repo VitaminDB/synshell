@@ -245,6 +245,7 @@ panorama_shift = 0.5           # панорама: сдвиг на один ст
 [desktop]
 cell = 96                      # клетка на компьютере, px
 phone_row = 100                # высота строки на телефоне, px (колонок — [mobile] home_columns)
+# grid_under_dock = true       # сетка компьютера и под доком (по бокам от него — до низа экрана)
 # [[widget]]
 # type = "cpu"                 # clock | cpu | memory | gpu | battery | network | temps | apps |
 #                              # launcher | note | app | file

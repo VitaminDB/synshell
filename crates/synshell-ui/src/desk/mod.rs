@@ -410,9 +410,9 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
         // Клетка не меньше общего размера значков с подписью.
         let cell = (cfg.desktop.cell.max(32) as f32).max(if cfg.desktop.icon_size > 0 { cfg.desktop.icon_size as f32 + ICON_ROOM } else { 0.0 });
         let pad = 12.0;
-        // Сетка — на весь экран, кроме полноширинных панелей: док стоит по центру, по бокам
-        // от него виджеты ставятся до низа экрана (панель правки всё равно поднята над доком).
-        let r = reserved_panels(ctx);
+        // Сетка под доком ([desktop] grid_under_dock): док стоит по центру, по бокам от него
+        // виджеты ставятся до низа экрана (панель правки всё равно поднята над доком).
+        let r = if cfg.desktop.grid_under_dock { reserved_panels(ctx) } else { r };
         let (aw, ah) = (w - r[1] - r[3] - 2.0 * pad, h - r[0] - r[2] - 2.0 * pad);
         let cols = (aw / cell).floor().max(1.0) as u32;
         let rows = (ah / cell).floor().max(1.0) as u32;

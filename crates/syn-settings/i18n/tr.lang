@@ -2167,3 +2167,5 @@
 "Своя раскладка виджетов" = "Özel widget düzeni"
 "Виджеты и значки расставлены вручную; кнопка вернёт встроенную раскладку (сводка и значки приложений)" = "Widget’lar ve simgeler elle yerleştirildi; düğme yerleşik düzeni geri getirir (özet ve uygulama simgeleri)"
 "Вернуть раскладку по умолчанию" = "Varsayılan düzeni geri getir"
+"Сетка под доком" = "Dock altında ızgara"
+"Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Dock’un yanlarındaki widget ve simgeler ekranın altına kadar iner; kapalı — ızgara dock’un üstünde biter"

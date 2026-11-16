@@ -2167,3 +2167,5 @@
 "Своя раскладка виджетов" = "Eigene Widget-Anordnung"
 "Виджеты и значки расставлены вручную; кнопка вернёт встроенную раскладку (сводка и значки приложений)" = "Widgets und Symbole sind von Hand angeordnet; die Schaltfläche stellt die integrierte Anordnung wieder her (Übersicht und Anwendungssymbole)"
 "Вернуть раскладку по умолчанию" = "Standardanordnung wiederherstellen"
+"Сетка под доком" = "Raster unter dem Dock"
+"Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widgets und Symbole neben dem Dock reichen bis zum unteren Bildschirmrand; aus — das Raster endet über dem Dock"

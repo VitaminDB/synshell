@@ -2168,3 +2168,5 @@
 "Своя раскладка виджетов" = "Własny układ widżetów"
 "Виджеты и значки расставлены вручную; кнопка вернёт встроенную раскладку (сводка и значки приложений)" = "Widżety i ikony rozmieszczono ręcznie; przycisk przywróci wbudowany układ (podsumowanie i ikony aplikacji)"
 "Вернуть раскладку по умолчанию" = "Przywróć układ domyślny"
+"Сетка под доком" = "Siatka pod dokiem"
+"Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widżety i ikony po bokach doku sięgają do dołu ekranu; wyłączone — siatka kończy się nad dokiem"

@@ -1593,11 +1593,14 @@ pub struct Desktop {
     /// Размер значков приложений и файлов, логические px; 0 — по клетке (половина её
     /// меньшей стороны). У значка можно задать свой — `icon_size` в его `[[widget]]`.
     pub icon_size: u32,
+    /// Сетка на компьютере и под доком: по бокам от дока виджеты ставятся до низа экрана.
+    /// `false` — место дока вычитается, сетка кончается над ним.
+    pub grid_under_dock: bool,
 }
 
 impl Default for Desktop {
     fn default() -> Self {
-        Self { cell: 96, phone_row: 100, view: "widgets".into(), icon_size: 0 }
+        Self { cell: 96, phone_row: 100, view: "widgets".into(), icon_size: 0, grid_under_dock: true }
     }
 }
 

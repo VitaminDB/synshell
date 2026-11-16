@@ -2167,3 +2167,5 @@
 "Своя раскладка виджетов" = "Disposition des widgets personnalisée"
 "Виджеты и значки расставлены вручную; кнопка вернёт встроенную раскладку (сводка и значки приложений)" = "Widgets et icônes placés à la main ; le bouton rétablit la disposition intégrée (résumé et icônes des applications)"
 "Вернуть раскладку по умолчанию" = "Rétablir la disposition par défaut"
+"Сетка под доком" = "Grille sous le dock"
+"Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widgets et icônes à côté du dock jusqu’en bas de l’écran ; désactivé — la grille s’arrête au-dessus du dock"
