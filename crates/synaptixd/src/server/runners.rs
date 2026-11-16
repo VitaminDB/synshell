@@ -1105,6 +1105,7 @@ impl Loaded {
                 hits: e.hits,
                 misses: e.misses,
             }),
+            layers: r.layers.map(|(total, vram)| crate::LayerPlacement { total, vram, ram: total.saturating_sub(vram) }),
         })
     }
 

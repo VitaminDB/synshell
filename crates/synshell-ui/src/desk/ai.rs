@@ -230,7 +230,14 @@ pub fn llm(cx: Cx) -> Box<dyn Widget> {
         );
         let mut used = 40.0;
         if let Some(a) = talking {
-            let ctx = if a.context > 0 { t!(" · контекст {n}", n = a.context).to_string() } else { String::new() };
+            let kvs: Vec<&synaptixd::KvUsage> = s.metrics.kv.iter().filter(|k| a.models.contains(&k.model) && k.app == a.app).collect();
+            let ctx = if !kvs.is_empty() {
+                context_label(&kvs, kvs.iter().map(|k| k.bytes).sum())
+            } else if a.context > 0 {
+                t!(" · окно {n} ток", n = a.context).to_string()
+            } else {
+                String::new()
+            };
             col = col.child(Text::new(t!("{n} ток ответа{c}", n = a.tokens, c = ctx)).max_lines(1).class("desk-k"));
             used += 18.0;
             if let Some(m) = a.models.first().and_then(|id| s.model(id)) {
@@ -320,8 +327,8 @@ fn device_bar(name: String, models: u64, used: u64, total: u64, cx: &Cx) -> impl
 fn row_version(s: &AiSnap, m: &ModelEntry) -> u64 {
     let acts: Vec<&Activity> = s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).collect();
     let apps: Vec<_> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
-    let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
-    key_of(&format!("{m:?}{acts:?}{apps:?}{kv}{:?}", idle_min(m)))
+    let kv: Vec<_> = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| (k.bytes, k.tokens, k.capacity)).collect();
+    key_of(&format!("{m:?}{acts:?}{apps:?}{kv:?}{:?}", idle_min(m)))
 }
 
 /// Сколько минут модель без запросов (для незанятой загруженной).
@@ -333,10 +340,23 @@ fn idle_min(m: &ModelEntry) -> Option<i64> {
     Some(((now - m.last_used_ms) / 60_000).max(0))
 }
 
+/// Контекст сессий модели: занято токенов из окна и место (несколько чатов —
+/// суммой, окно — наибольшее).
+fn context_label(kvs: &[&synaptixd::KvUsage], bytes: u64) -> String {
+    let tokens: u64 = kvs.iter().map(|k| k.tokens as u64).sum();
+    let cap = kvs.iter().map(|k| k.capacity).max().unwrap_or(0);
+    let chats = if kvs.len() > 1 { t!(" ({n} чата)", n = kvs.len()).to_string() } else { String::new() };
+    if cap > 0 {
+        t!(" · контекст {t} из {c} ток · {v}{n}", t = tokens, c = cap, v = human_bytes(bytes), n = chats).to_string()
+    } else {
+        t!(" · контекст {t} ток · {v}{n}", t = tokens, v = human_bytes(bytes), n = chats).to_string()
+    }
+}
+
 /// Видеопамять модели: веса с загрузки и кэш экспертов, наполняемый уже
 /// во время работы (в `vram_bytes` его нет — замер при загрузке).
 fn model_vram(m: &ModelEntry) -> u64 {
-    m.vram_bytes + m.llm_runtime.as_ref().and_then(|r| r.experts.as_ref()).map_or(0, |e| e.vram_bytes)
+    m.vram_bytes + m.llm_runtime.as_ref().and_then(|r| r.experts.as_ref()).filter(|e| !e.resident()).map_or(0, |e| e.vram_bytes)
 }
 
 /// Эксперты по ярусам без пересечений: на карте; в RAM, но не на карте; только
@@ -375,7 +395,12 @@ fn bottleneck(s: &AiSnap, m: &ModelEntry) -> Option<String> {
 /// диск — красный.
 fn tier_bar(e: &ExpertPlacement, w: f32, color: syngui::core::Color) -> impl Widget {
     let (vram, ram, disk) = tiers(e);
-    let total = e.total.max(1) as f32;
+    place_bar(vram, ram, disk, w, color)
+}
+
+/// Полоса ярусов: VRAM — цвет виджета, RAM — полупрозрачный, диск — красный.
+fn place_bar(vram: u32, ram: u32, disk: u32, w: f32, color: syngui::core::Color) -> impl Widget {
+    let total = (vram + ram + disk).max(1) as f32;
     let (pv, pr, pd) = (vram as f32 / total, ram as f32 / total, disk as f32 / total);
     Canvas::new(move |c, _| {
         let h = 6.0;
@@ -410,6 +435,17 @@ fn runtime_rows(s: &AiSnap, m: &ModelEntry, rt: &LlmRuntime, w: f32, color: syng
             txt.push_str(&t!(" · только при temperature 0"));
         }
         col = col.child(Text::new(txt).max_lines(1).class("desk-ai-spec"));
+    }
+    if let Some(l) = rt.layers.filter(|l| l.total > 0) {
+        col = col.child(place_bar(l.vram, l.ram, 0, w, color)).child(
+            Text::new(if l.ram == 0 {
+                t!("слои: все {t} в VRAM", t = l.total).to_string()
+            } else {
+                t!("слои: VRAM {a} · RAM {b} из {t} — слои из RAM приезжают на каждом проходе", a = l.vram, b = l.ram, t = l.total).to_string()
+            })
+            .max_lines(2)
+            .class(if l.ram > 0 { "desk-ai-warn" } else { "desk-ai-tier" }),
+        );
     }
     let Some(e) = rt.experts.as_ref() else { return col };
     let (vram, ram, disk) = tiers(e);
@@ -455,13 +491,14 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
         sub.push(t!("без MTP").to_string());
     }
     let apps: Vec<String> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
-    let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
+    let kvs: Vec<&synaptixd::KvUsage> = s.metrics.kv.iter().filter(|k| k.model == m.id).collect();
+    let kv: u64 = kvs.iter().map(|k| k.bytes).sum();
     let mut who = if apps.is_empty() { t!("не используется").to_string() } else { apps.join(", ") };
     if let Some(min) = idle_min(m).filter(|_| apps.is_empty()) {
         who.push_str(&t!(" · простаивает {v} мин", v = min));
     }
     if kv > 0 {
-        who.push_str(&t!(" · контекст {v}", v = human_bytes(kv)));
+        who.push_str(&context_label(&kvs, kv));
     }
     let state = match m.state {
         LoadState::Loading => Some(t!("загружается").to_string()),
@@ -474,7 +511,7 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
         .child(Text::new(m.title.clone()).max_lines(1).class("desk-ai-model"))
         .child(Text::new(state.unwrap_or_else(|| sub.join(" · "))).max_lines(1).class("desk-k"))
         .child(Text::new(who).max_lines(1).class("desk-ai-apps"));
-    if let Some(rt) = m.llm_runtime.as_ref().filter(|r| r.speculation.is_some() || r.experts.is_some()) {
+    if let Some(rt) = m.llm_runtime.as_ref().filter(|r| r.speculation.is_some() || r.experts.is_some() || r.layers.is_some()) {
         info = info.child(runtime_rows(s, m, rt, (cx.w - 100.0).max(60.0), cx.color));
     }
     for a in s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).take(1) {

@@ -556,9 +556,21 @@ pub struct LlmRuntime {
     pub drafted: u64,
     #[serde(default)]
     pub accepted: u64,
-    /// Раскладка экспертов MoE; `None` — модель без кэша экспертов.
+    /// Раскладка экспертов MoE; `None` — модель без экспертов.
     #[serde(default)]
     pub experts: Option<ExpertPlacement>,
+    /// Слои модели по месту; `None` — неизвестно.
+    #[serde(default)]
+    pub layers: Option<LayerPlacement>,
+}
+
+/// Слои (блоки) языковой модели: на карте и на хосте в RAM (приезжают на
+/// карту на каждом проходе).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LayerPlacement {
+    pub total: u32,
+    pub vram: u32,
+    pub ram: u32,
 }
 
 /// Где лежат эксперты MoE: кэш на карте, закреплённое зеркало в RAM и
@@ -583,10 +595,19 @@ pub struct ExpertPlacement {
 }
 
 impl ExpertPlacement {
+    /// Эксперты целиком на карте в весах модели (отдельного кэша нет,
+    /// `vram_capacity == 0`): их байты уже входят в видеопамять модели.
+    pub fn resident(&self) -> bool {
+        self.vram_capacity == 0 && self.vram >= self.total
+    }
+
     /// Байт экспертов, не поместившихся в зеркало RAM. Кэш на карте их не
     /// закрывает: он держит горячих экспертов, а не остаток стопки, так что
     /// промахи по этим экспертам идут с диска.
     pub fn beyond_memory(&self) -> u64 {
+        if self.resident() {
+            return 0;
+        }
         self.total_bytes.saturating_sub(self.ram_target_bytes)
     }
 
