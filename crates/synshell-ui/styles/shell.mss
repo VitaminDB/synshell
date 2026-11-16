@@ -863,6 +863,20 @@ Text {
     box-shadow: 0px 8px 24px #00000040;
 }
 .desk-plain { background-color: #00000000; }
+/* Настройки виджета: образцы цвета, плитки вариантов, превью, ползунки */
+.desk-swatch { width: 26px; height: 26px; border-radius: 13px; border: 2px solid #ffffff30; }
+.desk-swatch:hover { border-color: #ffffff90; }
+.desk-swatch.on { border: 3px solid var(--fg); box-shadow: 0px 0px 0px 2px var(--accent); }
+.desk-hex { width: 96px; }
+.desk-hex.on { border-color: var(--accent); }
+.desk-tile { min-width: 88px; padding: 8px 10px 6px 10px; border-radius: 12px; background-color: #2b3a55; border: 2px solid #00000000; align-items: center; }
+.desk-tile:hover { border-color: #ffffff40; }
+.desk-tile.on { border-color: var(--accent); }
+.desk-tile-label { font-size: 11px; color: #ffffffb0; text-align: center; }
+.desk-clock-sample { font-weight: 400; color: #ffffff; text-shadow: 0px 1px 4px #00000060; }
+.desk-preview { border-radius: 14px; background-color: #2b3a55; padding: 4px; }
+.desk-slider-value { font-size: 12px; color: var(--muted); min-width: 72px; text-align: right; }
+
 /* Календарь на столе: без своей подложки — фон у карточки виджета */
 .desk-cal { background-color: #00000000; border-color: #00000000; --cal-panel-bg: #00000000; --cal-panel-border: #00000000; }
 .desk-cal-weekday { font-size: 16px; font-weight: 600; text-transform: capitalize; }

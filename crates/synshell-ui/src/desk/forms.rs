@@ -6,6 +6,7 @@ use std::cell::Cell;
 use synshell_common::config::DeskWidget;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
+use syngui::StyleValue;
 
 use super::{items, kind_info, label_of, KINDS};
 use crate::ctx::{PopupKind, ShellCtx};
@@ -201,113 +202,6 @@ fn str_chips(ctx: ShellCtx, index: usize, key: &'static str, default: &'static s
     })
 }
 
-/// Ряд вариантов-чипов целого ключа `key`.
-fn int_chips(ctx: ShellCtx, index: usize, key: &'static str, options: Vec<(i64, String)>) -> impl Widget {
-    rx(move || {
-        let _ = ctx.config.get();
-        let cur = items(&ShellCtx::get()).get(index).map(|w| w.int_or(key, 0)).unwrap_or(0);
-        let mut flex = Flex::new().wrap().gap(4.0);
-        for (v, l) in options.clone() {
-            flex = flex.child(chip(l, cur == v, move || super::update(index, |w| w.set(key, v))));
-        }
-        Box::new(flex)
-    })
-}
-
-/// Настройки часов: шрифт, насыщенность, размер, цвет цифр, эффект, анимация, интервал, дата.
-fn clock_options(ctx: ShellCtx, index: usize, mut col: Column) -> Column {
-    let cur = move || items(&ShellCtx::get()).get(index).cloned();
-    // Формат.
-    col = col.child(labeled(
-        &t!("Время и дата"),
-        rx(move || {
-            let _ = ctx.config.get();
-            let w = cur();
-            let get = |k: &str, d: bool| w.as_ref().is_some_and(|w| w.bool_or(k, d));
-            let (sec, h12, date) = (get("seconds", false), get("h12", false), get("date", true));
-            Box::new(
-                Flex::new()
-                    .wrap()
-                    .gap(4.0)
-                    .child(chip(t!("Секунды"), sec, move || super::update(index, |w| w.set("seconds", !sec))))
-                    .child(chip(t!("12 часов"), h12, move || super::update(index, |w| w.set("h12", !h12))))
-                    .child(chip(t!("Дата"), date, move || super::update(index, |w| w.set("date", !date)))),
-            )
-        }),
-    ));
-    col = col.child(labeled(&t!("Вид даты"), str_chips(ctx, index, "date_fmt", "", &[("", n_!("Как у вида")), ("long", n_!("Понедельник, 16 ноября")), ("short", n_!("Пн, 16 нояб")), ("numeric", n_!("16.11.2026"))])));
-
-    // Шрифт: поиск по семействам системы; чип рисуется своим шрифтом.
-    let query = use_signal(String::new());
-    col = col.child(labeled(
-        &t!("Шрифт"),
-        Column::new()
-            .gap(6.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(TextField::new().placeholder(t!("Найти шрифт…")).on_change(move |t| query.set(t.to_string())).class("form-field"))
-            .child(rx(move || {
-                let _ = ctx.config.get();
-                let q = query.get().to_lowercase();
-                let font = cur().map(|w| w.str_or("font", "").to_string()).unwrap_or_default();
-                let all = font_families();
-                if !q.is_empty() && !all.iter().any(|f| f.to_lowercase().contains(&q)) {
-                    return Box::new(Text::new(t!("Такого шрифта нет")).class("add-hint")) as Box<dyn Widget>;
-                }
-                let mut list: Vec<String> = if q.is_empty() {
-                    FONT_PICKS.iter().filter(|f| all.iter().any(|a| a == *f)).map(|f| f.to_string()).collect()
-                } else {
-                    all.iter().filter(|f| f.to_lowercase().contains(&q)).take(30).cloned().collect()
-                };
-                if !font.is_empty() && !list.contains(&font) {
-                    list.insert(0, font.clone());
-                }
-                let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Как в теме"), font.is_empty(), move || super::update(index, |w| {
-                    w.options.remove("font");
-                })));
-                for f in list {
-                    let on = f == font;
-                    let label = f.clone();
-                    let chip_w = InputArea::new(boxed(
-                        if on { "chip chip-on" } else { "chip" },
-                        Text::new(label).class("chip-label").style("font-family", syngui::StyleValue::String(f.clone())),
-                    ))
-                    .pointer()
-                    .on_click(move |b, _, _| {
-                        if b == MouseButton::Left {
-                            let f = f.clone();
-                            super::update(index, move |w| w.set("font", f));
-                        }
-                    });
-                    flex = flex.child(chip_w);
-                }
-                Box::new(flex)
-            })),
-    ));
-    col = col.child(labeled(
-        &t!("Насыщенность"),
-        int_chips(ctx, index, "weight", vec![(0, t!("Как в теме").into()), (100, t!("Тонкий").into()), (300, t!("Светлый").into()), (400, t!("Обычный").into()), (600, t!("Полужирный").into()), (800, t!("Жирный").into()), (900, t!("Чёрный").into())]),
-    ));
-    col = col.child(labeled(
-        &t!("Размер цифр"),
-        int_chips(ctx, index, "size", std::iter::once((0, t!("По виджету").into())).chain([32i64, 48, 64, 96, 128, 160, 200, 260].into_iter().map(|v| (v, format!("{v}")))).collect()),
-    ));
-    col = col.child(labeled(
-        &t!("Интервал между буквами"),
-        int_chips(ctx, index, "spacing", vec![(-4, t!("Плотно").into()), (0, t!("Обычно").into()), (4, t!("Шире").into()), (10, t!("Широко").into())]),
-    ));
-    col = col.child(labeled(&t!("Цвет цифр"), str_chips(ctx, index, "text_color", "", TEXT_COLORS)));
-    col = col.child(labeled(&t!("Эффект"), str_chips(ctx, index, "effect", "shadow", CLOCK_EFFECTS)));
-    col = col.child(rx(move || {
-        let _ = ctx.config.get();
-        if cur().map(|w| w.str_or("effect", "shadow").to_string()).as_deref() != Some("gradient") {
-            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
-        }
-        Box::new(labeled(&t!("Градиент"), str_chips(ctx, index, "gradient", GRADIENTS[0].0, GRADIENTS)))
-    }));
-    col = col.child(labeled(&t!("Анимация"), str_chips(ctx, index, "anim", "none", CLOCK_ANIMS)));
-    col.child(Text::new(t!("Цвет свечения, неона, контура и ретро-тени — «Цвет» выше.")).max_lines(2).class("add-hint"))
-}
-
 const HISTORY: &[(i64, &str)] = &[(30, n_!("30 с")), (60, n_!("1 мин")), (120, n_!("2 мин")), (300, n_!("5 мин"))];
 
 /// Настройки виджета `index`: вид, размер, стол, подложка, заголовок, цвет,
@@ -322,107 +216,20 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
     let kind = w0.kind.clone();
     let mut col = Column::new().gap(12.0).child(title(t!("Виджет «{v}»", v = label_of(&w0))));
 
-    // Вид.
-    if let Some(k) = kind_info(&kind).filter(|k| k.views.len() > 1) {
-        col = col.child(labeled(
-            &t!("Вид"),
-            rx(move || {
-                let _ = ctx.config.get();
-                let view = cur().map(|w| super::view_of(&w).to_string()).unwrap_or_default();
-                let mut flex = Flex::new().wrap().gap(4.0);
-                for (v, l) in k.views {
-                    flex = flex.child(chip(*l, view == *v, move || super::update(index, |w| w.set("view", *v))));
-                }
-                Box::new(flex)
-            }),
-        ));
-    }
-
-    // Размер в клетках.
-    col = col.child(labeled(
-        &t!("Размер, клеток"),
-        rx(move || {
-            let _ = ctx.config.get();
-            let Some(w) = cur() else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
-            let out = super::output_name(&ctx);
-            let g = super::grid(&ctx, &out);
-            let (x, y, ww, hh) = g.cells(&w);
-            let resize = move |dw: i32, dh: i32| {
-                let ctx = ShellCtx::get();
-                let nw = (ww as i32 + dw).max(1) as u32;
-                let nh = (hh as i32 + dh).max(1) as u32;
-                let list = items(&ctx);
-                if super::fits(&ctx, &g, &list, w.page, (x, y, nw, nh), Some(index)) {
-                    status.set(String::new());
-                    super::update(index, |w| {
-                        w.w = nw;
-                        w.h = nh;
-                    });
-                } else {
-                    status.set(t!("Не помещается: рядом другой виджет или край стола").into());
-                }
-            };
-            let stepper = move |label: &'static str, v: u32, horizontal: bool| {
-                Row::new()
-                    .gap(6.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new(syngui::i18n::t(label)).class("form-label"))
-                    .child(chip("−", false, move || if horizontal { resize(-1, 0) } else { resize(0, -1) }))
-                    .child(Text::new(v.to_string()).class("desk-step-value"))
-                    .child(chip("+", false, move || if horizontal { resize(1, 0) } else { resize(0, 1) }))
-            };
-            Box::new(Row::new().gap(16.0).child(stepper(n_!("Ширина"), ww, true)).child(stepper(n_!("Высота"), hh, false)))
-        }),
-    ));
-    col = col.child(move || Text::new(status.get()).class("add-hint"));
-
-    // Стол.
-    let count = ctx.cfg().workspaces.count.max(1);
-    if count > 1 {
-        col = col.child(labeled(
-            &t!("Стол"),
-            rx(move || {
-                let _ = ctx.config.get();
-                let page = cur().map(|w| w.page).unwrap_or(0);
-                let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Все"), page == 0, move || move_to_page(index, 0)));
-                for p in 1..=count {
-                    flex = flex.child(chip(p.to_string(), page == p, move || move_to_page(index, p)));
-                }
-                Box::new(flex)
-            }),
-        ));
-    }
-
-    // Оформление.
     let icon_like = super::is_icon(&kind);
+    if kind == "clock" {
+        return clock_edit(ctx, index, col, status);
+    }
+    if let Some(v) = sec_view(ctx, index) {
+        col = col.child(v);
+    }
+    col = col.child(sec_size(ctx, index, status));
+    if let Some(p) = sec_page(ctx, index) {
+        col = col.child(p);
+    }
     if !icon_like {
-        col = col.child(labeled(
-            &t!("Оформление"),
-            rx(move || {
-                let _ = ctx.config.get();
-                let Some(w) = cur() else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
-                let card_default = !matches!(w.kind.as_str(), "clock" | "launcher");
-                let card = w.bool_or("card", card_default);
-                let title_on = w.bool_or("title", true);
-                let mut row = Flex::new().wrap().gap(4.0).child(chip(t!("Подложка"), card, move || super::update(index, |w| w.set("card", !card))));
-                if card {
-                    row = row.child(chip(t!("Заголовок"), title_on, move || super::update(index, |w| w.set("title", !title_on))));
-                }
-                Box::new(row)
-            }),
-        ));
-        col = col.child(labeled(
-            &t!("Цвет"),
-            rx(move || {
-                let _ = ctx.config.get();
-                let color = cur().and_then(|w| w.str("color").map(String::from)).unwrap_or_default();
-                let mut flex = Flex::new().wrap().gap(4.0);
-                for (c, l) in COLORS {
-                    flex = flex.child(chip(*l, color == *c, move || super::update(index, |w| w.set("color", *c))));
-                }
-                Box::new(flex)
-            }),
-        ));
+        col = col.child(sec_look(ctx, index));
+        col = col.child(labeled(&t!("Цвет"), swatches(ctx, index, "color", "", COLORS)));
     }
 
     // Размер значка.
@@ -462,7 +269,6 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
 
     // Своё у типа.
     match kind.as_str() {
-        "clock" => col = clock_options(ctx, index, col),
         "calendar" => {
             col = col.child(rx(move || {
                 let _ = ctx.config.get();
@@ -605,23 +411,361 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
         ));
     }
 
-    col = col.child(sep()).child(
-        Row::new()
-            .gap(8.0)
-            .child(InputArea::new(boxed("btn btn-danger", Text::new(t!("Убрать")).class("btn-label"))).pointer().on_click(move |b, _, _| {
-                if b == MouseButton::Left {
-                    ShellCtx::get().close_popup();
-                    super::remove(index);
-                }
-            }))
-            .child(DecoratedBox::new().class("grow"))
-            .child(InputArea::new(boxed("btn btn-primary", Text::new(t!("Готово")).class("btn-label"))).pointer().on_click(move |b, _, _| {
-                if b == MouseButton::Left {
-                    ShellCtx::get().close_popup();
-                }
-            })),
-    );
+    col = col.child(sep()).child(buttons(index));
     Box::new(ScrollView::new().vertical().child(col).class("desk-form"))
+}
+
+/// «Убрать» и «Готово».
+fn buttons(index: usize) -> impl Widget {
+    Row::new()
+        .gap(8.0)
+        .child(InputArea::new(boxed("btn btn-danger", Text::new(t!("Убрать")).class("btn-label"))).pointer().on_click(move |b, _, _| {
+            if b == MouseButton::Left {
+                ShellCtx::get().close_popup();
+                super::remove(index);
+            }
+        }))
+        .child(DecoratedBox::new().class("grow"))
+        .child(InputArea::new(boxed("btn btn-primary", Text::new(t!("Готово")).class("btn-label"))).pointer().on_click(move |b, _, _| {
+            if b == MouseButton::Left {
+                ShellCtx::get().close_popup();
+            }
+        }))
+}
+
+fn cur_item(index: usize) -> Option<DeskWidget> {
+    items(&ShellCtx::get()).get(index).cloned()
+}
+
+/// Вид виджета (если у типа их несколько).
+fn sec_view(ctx: ShellCtx, index: usize) -> Option<Box<dyn Widget>> {
+    let kind = cur_item(index)?.kind;
+    let k = kind_info(&kind).filter(|k| k.views.len() > 1)?;
+    Some(Box::new(labeled(
+        &t!("Вид"),
+        rx(move || {
+            let _ = ctx.config.get();
+            let view = cur_item(index).map(|w| super::view_of(&w).to_string()).unwrap_or_default();
+            let mut flex = Flex::new().wrap().gap(4.0);
+            for (v, l) in k.views {
+                flex = flex.child(chip(*l, view == *v, move || super::update(index, |w| w.set("view", *v))));
+            }
+            Box::new(flex)
+        }),
+    )))
+}
+
+/// Размер в клетках и строка состояния («не помещается»).
+fn sec_size(ctx: ShellCtx, index: usize, status: RwSignal<String>) -> Box<dyn Widget> {
+    Box::new(
+        Column::new()
+            .gap(4.0)
+            .child(labeled(
+                &t!("Размер, клеток"),
+                rx(move || {
+                    let _ = ctx.config.get();
+                    let Some(w) = cur_item(index) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
+                    let out = super::output_name(&ctx);
+                    let g = super::grid(&ctx, &out);
+                    let (x, y, ww, hh) = g.cells(&w);
+                    let resize = move |dw: i32, dh: i32| {
+                        let ctx = ShellCtx::get();
+                        let nw = (ww as i32 + dw).max(1) as u32;
+                        let nh = (hh as i32 + dh).max(1) as u32;
+                        let list = items(&ctx);
+                        if super::fits(&ctx, &g, &list, w.page, (x, y, nw, nh), Some(index)) {
+                            status.set(String::new());
+                            super::update(index, |w| {
+                                w.w = nw;
+                                w.h = nh;
+                            });
+                        } else {
+                            status.set(t!("Не помещается: рядом другой виджет или край стола").into());
+                        }
+                    };
+                    let stepper = move |label: &'static str, v: u32, horizontal: bool| {
+                        Row::new()
+                            .gap(6.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Text::new(syngui::i18n::t(label)).class("form-label"))
+                            .child(chip("−", false, move || if horizontal { resize(-1, 0) } else { resize(0, -1) }))
+                            .child(Text::new(v.to_string()).class("desk-step-value"))
+                            .child(chip("+", false, move || if horizontal { resize(1, 0) } else { resize(0, 1) }))
+                    };
+                    Box::new(Row::new().gap(16.0).child(stepper(n_!("Ширина"), ww, true)).child(stepper(n_!("Высота"), hh, false)))
+                }),
+            ))
+            .child(move || Text::new(status.get()).class("add-hint")),
+    )
+}
+
+/// Стол (если столов больше одного).
+fn sec_page(ctx: ShellCtx, index: usize) -> Option<Box<dyn Widget>> {
+    let count = ctx.cfg().workspaces.count.max(1);
+    (count > 1).then(|| {
+        Box::new(labeled(
+            &t!("Стол"),
+            rx(move || {
+                let _ = ctx.config.get();
+                let page = cur_item(index).map(|w| w.page).unwrap_or(0);
+                let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Все"), page == 0, move || move_to_page(index, 0)));
+                for p in 1..=count {
+                    flex = flex.child(chip(p.to_string(), page == p, move || move_to_page(index, p)));
+                }
+                Box::new(flex)
+            }),
+        )) as Box<dyn Widget>
+    })
+}
+
+/// Подложка и заголовок.
+fn sec_look(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
+    Box::new(labeled(
+        &t!("Оформление"),
+        rx(move || {
+            let _ = ctx.config.get();
+            let Some(w) = cur_item(index) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
+            let card_default = !matches!(w.kind.as_str(), "clock" | "launcher");
+            let card = w.bool_or("card", card_default);
+            let title_on = w.bool_or("title", true);
+            let mut row = Flex::new().wrap().gap(4.0).child(chip(t!("Подложка"), card, move || super::update(index, |w| w.set("card", !card))));
+            if card {
+                row = row.child(chip(t!("Заголовок"), title_on, move || super::update(index, |w| w.set("title", !title_on))));
+            }
+            Box::new(row)
+        }),
+    ))
+}
+
+fn accent_hex() -> String {
+    ShellCtx::get().cfg().appearance.palette().accent.hex()
+}
+
+/// Образцы цветов кружками для ключа `key`: `""` — `default_label` (акцент или белый), `accent` —
+/// акцент темы, иначе `#rrggbb`; последним — поле своего цвета.
+fn swatches(ctx: ShellCtx, index: usize, key: &'static str, default: &'static str, options: &'static [(&'static str, &'static str)]) -> impl Widget {
+    rx(move || {
+        let _ = ctx.config.get();
+        let cur = cur_item(index).map(|w| w.str_or(key, default).to_string()).unwrap_or_default();
+        let mut row = Flex::new().wrap().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let known = options.iter().any(|(v, _)| *v == cur);
+        for (v, l) in options {
+            let hex = match *v {
+                "" if key == "text_color" => "#ffffff".to_string(),
+                "" | "accent" => accent_hex(),
+                h => h.to_string(),
+            };
+            let on = cur == *v;
+            let dot = DecoratedBox::new()
+                .class(if on { "desk-swatch on" } else { "desk-swatch" })
+                .style("background-color", StyleValue::Color(super::views::mss_color(syngui::core::Color::from_hex(&hex))));
+            row = row.child(Tooltip::new(
+                InputArea::new(dot).pointer().on_click(move |b, _, _| {
+                    if b == MouseButton::Left {
+                        super::update(index, |w| w.set(key, *v));
+                    }
+                }),
+                syngui::i18n::t(l),
+            ));
+        }
+        let field = TextField::with_text(if known { String::new() } else { cur.clone() })
+            .placeholder("#rrggbb")
+            .submit_on_focus_lost(true)
+            .on_submit(move |t| {
+                let t = t.trim().to_string();
+                let t = if t.starts_with('#') { t } else { format!("#{t}") };
+                if t.len() == 7 && t[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+                    super::update(index, move |w| w.set(key, t));
+                }
+            })
+            .class(if known { "form-field desk-hex" } else { "form-field desk-hex on" });
+        Box::new(row.child(field))
+    })
+}
+
+/// Отложенная запись числового параметра (ползунок): пишется, когда ползунок замер на 300 мс,
+/// а не на каждый шаг перетаскивания.
+fn set_later(index: usize, key: &'static str, v: i64) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static GEN: AtomicU64 = AtomicU64::new(0);
+    let g = GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    syngui_layer::add_timer(std::time::Duration::from_millis(300), move || {
+        if GEN.load(Ordering::SeqCst) == g {
+            super::update(index, |w| w.set(key, v));
+        }
+        None
+    });
+}
+
+/// Ползунок целого параметра с подписью значения (`fmt`).
+fn slider(ctx: ShellCtx, index: usize, key: &'static str, (min, max, step): (f32, f32, f32), fmt: fn(i64) -> String) -> impl Widget {
+    rx(move || {
+        let _ = ctx.config.get();
+        let v = cur_item(index).map(|w| w.int_or(key, 0)).unwrap_or(0);
+        let shown = use_signal(v);
+        Box::new(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Slider::new().range(min, max).step(step).value(v as f32).on_change(move |x| {
+                    let x = x.round() as i64;
+                    shown.set(x);
+                    set_later(index, key, x);
+                }).class("grow"))
+                .child(move || Text::new(fmt(shown.get())).class("desk-slider-value")),
+        )
+    })
+}
+
+/// Образец «12:34» в оформлении часов `w` с заменой `key` = `v` (плитки эффектов, шрифтов, градиентов).
+fn sample(w: &DeskWidget, key: &str, v: &str, size: f32) -> Box<dyn Widget> {
+    let mut w = w.clone();
+    w.set(key, v.to_string());
+    if key == "gradient" {
+        w.set("effect", "gradient");
+    }
+    super::views::clock_sample(&ShellCtx::get(), &w, "12:34", size)
+}
+
+/// Плитки вариантов строкового ключа часов: в каждой — образец, под ним подпись.
+fn tiles(ctx: ShellCtx, index: usize, key: &'static str, default: &'static str, options: Vec<(String, String)>) -> impl Widget {
+    rx(move || {
+        let _ = ctx.config.get();
+        let Some(w) = cur_item(index) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
+        let cur = w.str_or(key, default).to_string();
+        let mut flex = Flex::new().wrap().gap(6.0);
+        for (v, l) in options.clone() {
+            let on = cur == v;
+            let body = Column::new()
+                .gap(2.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(sample(&w, key, &v, 22.0))
+                .child(Text::new(syngui::i18n::t(&l)).max_lines(1).class("desk-tile-label"));
+            flex = flex.child(InputArea::new(boxed(if on { "desk-tile on" } else { "desk-tile" }, body)).pointer().on_click(move |b, _, _| {
+                if b == MouseButton::Left {
+                    let v = v.clone();
+                    super::update(index, move |w| w.set(key, v));
+                }
+            }));
+        }
+        Box::new(flex)
+    })
+}
+
+thread_local! {
+    /// Вкладка, с которой открываются настройки часов (снимки в тестах — каждая вкладка).
+    pub(super) static START_TAB: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Настройки часов: образец вверху и три вкладки — «Вид», «Шрифт», «Цвет и эффект».
+fn clock_edit(ctx: ShellCtx, index: usize, col: Column, status: RwSignal<String>) -> Box<dyn Widget> {
+    let tab = use_signal(START_TAB.with(|t| t.get()));
+    // Образец — сами часы с текущими настройками (живые).
+    let preview = rx(move || {
+        let _ = ctx.config.get();
+        let Some(w) = cur_item(index) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
+        let mut w = w.clone();
+        w.set("card", false);
+        Box::new(DecoratedBox::new().class("desk-preview").child(super::views::build(ctx, &super::Slot::Item(index), &w, 392.0, 130.0, true)))
+    });
+    let tabs = rx(move || {
+        let t = tab.get();
+        let mut row = Row::new().gap(4.0);
+        for (i, l) in [n_!("Вид"), n_!("Шрифт"), n_!("Цвет и эффект")].into_iter().enumerate() {
+            row = row.child(chip(l, t == i, move || tab.set(i)));
+        }
+        Box::new(row)
+    });
+    let body = rx(move || {
+        let mut c = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        match tab.get() {
+            0 => {
+                if let Some(v) = sec_view(ctx, index) {
+                    c = c.child(v);
+                }
+                c = c.child(labeled(
+                    &t!("Время и дата"),
+                    rx(move || {
+                        let _ = ctx.config.get();
+                        let w = cur_item(index);
+                        let get = |k: &str, d: bool| w.as_ref().is_some_and(|w| w.bool_or(k, d));
+                        let (sec, h12, date) = (get("seconds", false), get("h12", false), get("date", true));
+                        Box::new(
+                            Flex::new()
+                                .wrap()
+                                .gap(4.0)
+                                .child(chip(t!("Секунды"), sec, move || super::update(index, |w| w.set("seconds", !sec))))
+                                .child(chip(t!("12 часов"), h12, move || super::update(index, |w| w.set("h12", !h12))))
+                                .child(chip(t!("Дата"), date, move || super::update(index, |w| w.set("date", !date)))),
+                        )
+                    }),
+                ));
+                c = c.child(labeled(&t!("Вид даты"), str_chips(ctx, index, "date_fmt", "", &[("", n_!("Как у вида")), ("long", n_!("Понедельник, 16 ноября")), ("short", n_!("Пн, 16 нояб")), ("numeric", n_!("16.11.2026"))])));
+                c = c.child(sec_size(ctx, index, status));
+                if let Some(p) = sec_page(ctx, index) {
+                    c = c.child(p);
+                }
+                c = c.child(sec_look(ctx, index));
+            }
+            1 => {
+                c = c.child(labeled(&t!("Шрифт"), font_picker(ctx, index)));
+                c = c.child(labeled(&t!("Насыщенность"), slider(ctx, index, "weight", (0.0, 900.0, 100.0), |v| if v == 0 { t!("как в теме").into() } else { v.to_string() })));
+                c = c.child(labeled(&t!("Размер цифр"), slider(ctx, index, "size", (0.0, 300.0, 4.0), |v| if v == 0 { t!("по виджету").into() } else { format!("{v} px") })));
+                c = c.child(labeled(&t!("Интервал между буквами"), slider(ctx, index, "spacing", (-6.0, 20.0, 1.0), |v| format!("{v} px"))));
+            }
+            _ => {
+                c = c.child(labeled(&t!("Цвет цифр"), swatches(ctx, index, "text_color", "", TEXT_COLORS)));
+                c = c.child(labeled(&t!("Эффект"), tiles(ctx, index, "effect", "shadow", CLOCK_EFFECTS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect())));
+                c = c.child(rx(move || {
+                    let _ = ctx.config.get();
+                    let eff = cur_item(index).map(|w| w.str_or("effect", "shadow").to_string()).unwrap_or_default();
+                    if eff == "gradient" {
+                        return Box::new(labeled(&t!("Градиент"), tiles(ctx, index, "gradient", GRADIENTS[0].0, GRADIENTS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect()))) as Box<dyn Widget>;
+                    }
+                    if matches!(eff.as_str(), "glow" | "neon" | "outline" | "retro") {
+                        return Box::new(labeled(&t!("Цвет эффекта"), swatches(ctx, index, "color", "", COLORS)));
+                    }
+                    Box::new(DecoratedBox::new())
+                }));
+                c = c.child(labeled(&t!("Анимация"), str_chips(ctx, index, "anim", "none", CLOCK_ANIMS)));
+            }
+        }
+        Box::new(c)
+    });
+    // Прокручивается только содержимое вкладки: образец и вкладки всегда видны.
+    let (_, screen_h) = crate::manager::output_size(Some(&super::output_name(&ctx)));
+    let body_h = (screen_h - 400.0).clamp(220.0, 460.0);
+    let col = col.child(preview).child(tabs).child(DecoratedBox::new().style("height", StyleValue::px(body_h)).child(ScrollView::new().vertical().child(body).class("desk-form-body")));
+    Box::new(col.child(sep()).child(buttons(index)))
+}
+
+/// Выбор шрифта: поиск по семействам системы; плитка — «12:34» этим шрифтом и имя.
+fn font_picker(ctx: ShellCtx, index: usize) -> impl Widget {
+    let query = use_signal(String::new());
+    Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(TextField::new().placeholder(t!("Найти шрифт…")).on_change(move |t| query.set(t.to_string())).class("form-field"))
+        .child(rx(move || {
+            let _ = ctx.config.get();
+            let q = query.get().to_lowercase();
+            let font = cur_item(index).map(|w| w.str_or("font", "").to_string()).unwrap_or_default();
+            let all = font_families();
+            if !q.is_empty() && !all.iter().any(|f| f.to_lowercase().contains(&q)) {
+                return Box::new(Text::new(t!("Такого шрифта нет")).class("add-hint")) as Box<dyn Widget>;
+            }
+            let mut list: Vec<(String, String)> = vec![(String::new(), t!("Как в теме").into())];
+            let found: Vec<String> = if q.is_empty() {
+                FONT_PICKS.iter().filter(|f| all.iter().any(|a| a == *f)).map(|f| f.to_string()).collect()
+            } else {
+                all.iter().filter(|f| f.to_lowercase().contains(&q)).take(24).cloned().collect()
+            };
+            if !font.is_empty() && !found.contains(&font) {
+                list.push((font.clone(), font.clone()));
+            }
+            list.extend(found.into_iter().map(|f| (f.clone(), f)));
+            Box::new(tiles(ctx, index, "font", "", list))
+        }))
 }
 
 /// Свой размер значка; не помещается в его клетки — значок занимает больше клеток, если рядом

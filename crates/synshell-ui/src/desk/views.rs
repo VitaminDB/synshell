@@ -237,6 +237,15 @@ impl ClockLook {
     }
 }
 
+/// Образец текста `s` в оформлении часов `w` (плитки выбора эффекта, шрифта, градиента), без анимации.
+pub(super) fn clock_sample(ctx: &ShellCtx, w: &DeskWidget, s: &str, size: f32) -> Box<dyn Widget> {
+    let cx = Cx { w: 0.0, h: 0.0, color: color_of(ctx, w), view: String::new(), history: 60 };
+    let mut look = ClockLook::of(ctx, w, &cx);
+    look.anim = "none".into();
+    look.size = 0.0;
+    look.text(s.to_string(), "desk-clock-sample", size, true)
+}
+
 /// Формат времени: 24 или 12 часов, с секундами или без.
 fn time_format(w: &DeskWidget) -> (&'static str, bool) {
     let seconds = w.bool_or("seconds", false);
@@ -1701,6 +1710,46 @@ mod clock_shot {
                 },
                 &mss,
                 (w as u32, h as u32),
+                1.0,
+                &out,
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod clock_form_shot {
+    use super::*;
+
+    /// Окно настроек часов, три вкладки: `SHOT_DIR=… cargo test -p synshell-ui shot_clock_form -- --ignored`.
+    #[test]
+    #[ignore]
+    fn shot_clock_form() {
+        let dir = std::env::var("SHOT_DIR").unwrap_or_else(|_| "/tmp".into());
+        let cfg = synshell_common::config::Config::default();
+        let mss = crate::theme::build(&cfg);
+        for tab in 0..3usize {
+            let out = format!("{dir}/form-clock-{tab}.png");
+            syngui::shot::render_png(
+                move || {
+                    let mut cfg = synshell_common::config::Config::default();
+                    let w: DeskWidget = toml::from_str("type='clock'\nview='big'\nw=6\nh=2\neffect='retro'\ncolor='#ef5350'\ntext_color='#ffb74d'\nfont='DejaVu Serif'\nweight=700").unwrap();
+                    cfg.widgets = Some(vec![w]);
+                    let ctx = crate::ShellCtx::new(cfg, synshell_common::config::FormFactor::Desktop);
+                    provide_context(ctx);
+                    super::super::forms::START_TAB.with(|t| t.set(tab));
+                    Box::new(
+                        DecoratedBox::new()
+                            .class("popup-card")
+                            .style("background-color", StyleValue::Color(mss_color(Color::from_hex("#1f2430"))))
+                            .style("padding", StyleValue::px(16.0))
+                            .style("width", StyleValue::px(440.0))
+                            .child(super::super::forms::edit_view(ctx, 0)),
+                    )
+                },
+                &mss,
+                (440, 800),
                 1.0,
                 &out,
             )
