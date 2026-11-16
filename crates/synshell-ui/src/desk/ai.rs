@@ -13,7 +13,7 @@ use syngui::prelude::*;
 use syngui::GestureDetector;
 
 use super::data;
-use super::views::{bar, big_text, human_bytes, line_view, mss_color, short_gpu, sparkline, Cx};
+use super::views::{bar, big_text, human_bytes, line_view, mss_color, short_gpu, Cx};
 use crate::ui::{icon, mi, rx};
 
 /// Снимок службы для виджетов.
@@ -275,14 +275,32 @@ pub fn llm(cx: Cx) -> Box<dyn Widget> {
                 used += 34.0;
             }
         }
+        // Префилл — своей линией и своим масштабом (он на порядки быстрее
+        // декода): видно, где ход считал промпт, а где писал ответ.
+        let pre: Vec<f32> = s.metrics.history.iter().rev().take(cx.history).rev().map(|h| h.prefill_tps).collect();
+        let pre_max = pre.iter().copied().fold(1.0f32, f32::max);
+        let pre_now = s.metrics.history.last().map_or(0.0, |h| h.prefill_tps);
+        if pre_now > 0.0 || pre.iter().any(|v| *v > 0.0) {
+            let txt = if pre_now > 0.0 {
+                t!("префилл {v} ток/с", v = format!("{pre_now:.0}")).to_string()
+            } else {
+                t!("префилл до {v} ток/с", v = format!("{pre_max:.0}")).to_string()
+            };
+            col = col.child(Text::new(txt).max_lines(1).class("desk-ai-prefill"));
+            used += 18.0;
+        }
         let spark_h = cx.h - used - 8.0;
         if spark_h >= 24.0 {
             let tail: Vec<f32> = hist.iter().rev().take(cx.history).rev().map(|v| v / max * 100.0).collect();
-            col = col.child(sparkline(tail, cx.history, cx.color, cx.w, spark_h));
+            let pre: Vec<f32> = pre.iter().map(|v| v / pre_max * 100.0).collect();
+            col = col.child(super::views::sparkline_multi(vec![(pre, PREFILL_COLOR), (tail, cx.color)], cx.history, cx.w, spark_h));
         }
         Box::new(col)
     }))
 }
+
+/// Цвет префилла на графике и в подписи.
+const PREFILL_COLOR: syngui::core::Color = syngui::core::Color::rgb(0.878, 0.686, 0.408);
 
 // ─── «Модели в памяти» ──────────────────────────────────────────────────────
 

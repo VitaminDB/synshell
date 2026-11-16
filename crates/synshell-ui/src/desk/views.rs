@@ -434,6 +434,28 @@ pub(super) fn sparkline(values: Vec<f32>, n: usize, color: Color, w: f32, h: f32
     .size(w, h)
 }
 
+/// Несколько линий на одном поле, у каждой свой масштаб (значения 0..100) и
+/// цвет; рисуются по порядку (последняя — сверху).
+pub(super) fn sparkline_multi(series: Vec<(Vec<f32>, Color)>, n: usize, w: f32, h: f32) -> impl Widget {
+    Canvas::new(move |c, _| {
+        for (values, color) in &series {
+            if values.len() < 2 || values.iter().all(|v| *v <= 0.0) {
+                continue;
+            }
+            let n = n.max(values.len()).max(2);
+            let step = w / (n - 1) as f32;
+            let off = n - values.len();
+            let pts: Vec<(f32, f32)> = values.iter().enumerate().map(|(i, v)| ((off + i) as f32 * step, h - (v / 100.0).clamp(0.0, 1.0) * (h - 2.0) - 1.0)).collect();
+            c.set_color(color.with_alpha(0.16));
+            c.fill_area_strip(&pts, h);
+            c.set_color(*color);
+            c.set_stroke_width(2.0);
+            c.draw_polyline(&pts);
+        }
+    })
+    .size(w, h)
+}
+
 /// Ядра столбиками: загрузка — высота, класс ядра — цвет, внизу частота.
 fn cores(list: &[(f32, Option<u32>, usize)], h: f32, max: usize) -> impl Widget {
     let h = h.max(16.0);

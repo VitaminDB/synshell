@@ -407,6 +407,7 @@ pub fn sampler(mem: impl Fn() -> (u64, u64) + Send + 'static) {
         .spawn(move || {
             let mut last = Instant::now();
             let mut last_read = proc_read_bytes();
+            let mut last_prefill = synaptix::facade::llm::prefill_tokens_total();
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 let dt = last.elapsed().as_secs_f32().max(0.001);
@@ -428,7 +429,10 @@ pub fn sampler(mem: impl Fn() -> (u64, u64) + Send + 'static) {
                         _ => running += 1,
                     }
                 }
-                r.history.push_back(MetricsSample { t_ms: now_ms(), tps: tokens as f32 / dt, running, waiting, ram, vram, disk_read_bps });
+                let prefill = synaptix::facade::llm::prefill_tokens_total();
+                let prefill_tps = prefill.saturating_sub(last_prefill) as f32 / dt;
+                last_prefill = prefill;
+                r.history.push_back(MetricsSample { t_ms: now_ms(), tps: tokens as f32 / dt, running, waiting, ram, vram, disk_read_bps, prefill_tps });
                 while r.history.len() > HISTORY {
                     r.history.pop_front();
                 }

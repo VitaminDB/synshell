@@ -759,6 +759,9 @@ pub struct MetricsSample {
     /// Чтение службы с диска, байт/с.
     #[serde(default)]
     pub disk_read_bps: u64,
+    /// Префилл языковых моделей, токенов в секунду (пройденные куски).
+    #[serde(default)]
+    pub prefill_tps: f32,
 }
 
 /// KV-сессия языковой модели (контекст чата программы).
