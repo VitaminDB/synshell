@@ -366,6 +366,7 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         state.check_idle();
         state.watch_shell();
         state.flush_stale_copies();
+        state.reap_dead_x11();
         TimeoutAction::ToDuration(Duration::from_secs(1))
     }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
 

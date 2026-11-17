@@ -298,12 +298,36 @@ impl State {
         self.relayout();
     }
 
+    /// Убрать окна X11, которых уже нет: поверхность умерла (DestroyNotify) или Xwayland
+    /// уничтожил её wl_surface, а Unmap/DestroyNotify до нас не дошёл (smithay отбрасывает
+    /// события по номерам последовательности). Без этого окно умершего Wine-приложения
+    /// оставалось на панели и в «Ресурсах» навсегда. Зовётся раз в секунду.
+    pub fn reap_dead_x11(&mut self) {
+        let dead: Vec<_> = self
+            .core
+            .wm
+            .windows
+            .iter()
+            .filter(|m| m.window.x11_surface().is_some_and(|x| !x.alive() || x.wl_surface().is_some_and(|s| !smithay::reexports::wayland_server::Resource::is_alive(&s))))
+            .map(|m| m.id)
+            .collect();
+        for id in dead {
+            tracing::info!(id, "окно X11 исчезло без Unmap/DestroyNotify — убираю");
+            self.unmap_window(id, true);
+        }
+    }
+
+    /// Наше окно для поверхности X11 — по xwm и id окна, а не через `PartialEq`: smithay в
+    /// DestroyNotify помечает поверхность мёртвой до вызова `destroyed_window`, а мёртвые поверхности
+    /// друг другу не равны. Если клиент умер без UnmapNotify (убит, упал), окно оставалось в списке
+    /// навсегда: висело на панели и в «Ресурсах», «Убить» било в несуществующий PID.
     fn x11_id(&self, window: &X11Surface) -> Option<crate::wm::WindowId> {
+        let key = (window.xwm_id(), window.window_id());
         self.core
             .wm
             .windows
             .iter()
-            .find(|m| m.window.x11_surface() == Some(window))
+            .find(|m| m.window.x11_surface().is_some_and(|x| (x.xwm_id(), x.window_id()) == key))
             .map(|m| m.id)
     }
 }

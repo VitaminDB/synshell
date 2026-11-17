@@ -1149,13 +1149,19 @@ impl State {
 
     pub fn kill_window(&mut self, id: WindowId) {
         let Some(m) = self.core.wm.get(id) else { return };
+        // Окно X11, которого на сервере уже нет (клиент умер), — просто убрать из списка.
+        if m.window.x11_surface().is_some_and(|x| !x.alive()) {
+            self.unmap_window(id, true);
+            return;
+        }
         let pid = self.window_pid(m);
         if let Some(pid) = pid {
             if pid > 1 && pid != std::process::id() as i32 {
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
+                // SAFETY: только сигнал чужому процессу.
+                if unsafe { libc::kill(pid, libc::SIGKILL) } == 0 {
+                    return;
                 }
-                return;
+                tracing::info!(id, pid, err = %std::io::Error::last_os_error(), "kill окна не прошёл — прошу закрыться");
             }
         }
         self.close_window(id);
