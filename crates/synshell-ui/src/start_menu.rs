@@ -495,7 +495,14 @@ fn search(st: St) -> impl Widget {
 }
 
 fn results(ctx: ShellCtx, st: St) -> impl Widget {
-    let items = st.results.get_untracked();
+    // Список — своим `rx` по результатам: переключатель тела при том же ключе содержимое не
+    // пересобирает, и список оставался от прошлой буквы («vol» → «Выполнить «vo»»).
+    let list = rx(move || -> Box<dyn Widget> { Box::new(results_list(st, st.results.get())) });
+    let _ = ctx;
+    ScrollView::new().vertical().child(list).class("start-scroll")
+}
+
+fn results_list(st: St, items: Vec<Item>) -> Column {
     let sel = st.selected;
     let mut col = Column::new().gap(2.0).child(Text::new(t!("Лучшие совпадения")).class("start-caption"));
     if items.is_empty() {
@@ -518,19 +525,21 @@ fn results(ctx: ShellCtx, st: St) -> impl Widget {
             .child(launcher::item_icon(&it, "start-row-icon"))
             .child(text.class("grow"))
             .class("start-row-body");
-        col = col.child(
-            GestureDetector::new()
-                .on_hover_change(move |h| {
-                    if h {
-                        sel.set(i);
-                    }
-                })
-                .on_click(move || it2.activate(ShellCtx::get()))
-                .child(Stack::new().child(row).child(content)),
-        );
+        let mut g = GestureDetector::new()
+            .on_hover_change(move |h| {
+                if h {
+                    sel.set(i);
+                }
+            })
+            .on_click(move || it2.activate(ShellCtx::get()));
+        // Программа в результатах — то же меню, что у значков первого экрана.
+        if let Item::App(e) = &it {
+            let (id, id2) = (e.id.clone(), e.id.clone());
+            g = g.on_secondary_click(move |_| open_menu(st, id.clone())).on_long_press(move |_| open_menu(st, id2.clone()));
+        }
+        col = col.child(g.child(Stack::new().child(row).child(content)));
     }
-    let _ = ctx;
-    ScrollView::new().vertical().child(col).class("start-scroll")
+    col
 }
 
 // ─── Закреплённые и рекомендуемые ────────────────────────────────────────────
