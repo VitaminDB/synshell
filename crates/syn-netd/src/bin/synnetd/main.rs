@@ -16,6 +16,7 @@ mod route;
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -81,6 +82,20 @@ impl Shared {
             note = self.apps.error.lock().unwrap().clone();
         }
         Status { config: self.cfg.read().unwrap().clone(), uplinks, active, note, running: self.apps.running(), can_edit: can_edit(uid) }
+    }
+}
+
+/// Снять в дочернем процессе блокировку сигналов: служба блокирует SIGTERM
+/// и SIGINT, чтобы ловить их в своём потоке, а маска наследуется через exec —
+/// без этого `ip monitor` не завершался по SIGTERM и остановка службы висела.
+fn unblock_signals(cmd: &mut std::process::Command) {
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
+            Ok(())
+        });
     }
 }
 
@@ -175,7 +190,17 @@ fn main() -> anyhow::Result<()> {
     {
         let sh = shared.clone();
         std::thread::Builder::new().name("monitor".into()).spawn(move || loop {
-            match std::process::Command::new("ip").args(["monitor", "link", "address", "route"]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn() {
+            let mut cmd = std::process::Command::new("ip");
+            cmd.args(["monitor", "link", "address", "route"]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+            unblock_signals(&mut cmd);
+            // Умирает вместе со службой.
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                    Ok(())
+                });
+            }
+            match cmd.spawn() {
                 Ok(mut child) => {
                     if let Some(out) = child.stdout.take() {
                         for _ in BufReader::new(out).lines().map_while(Result::ok) {
