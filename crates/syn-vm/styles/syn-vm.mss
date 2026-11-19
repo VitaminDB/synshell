@@ -509,8 +509,22 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .host-line.warn .host-icon { icon-color: var(--warning); }
 .host-line.bad .host-icon { icon-color: var(--danger); }
 .host-line.ok .host-icon { icon-color: var(--success); }
-.page.under-bar { padding-top: 76px; }
+.page.under-bar { padding-top: 72px; }
 .off-name { font-size: 26px; font-weight: 700; color: #ffffff; }
 .off-sub { font-size: 13px; color: #ffffffa0; }
 .fill { width: 100%; height: 100%; }
 .sheet-body .page.settings { max-width: 100%; }
+
+/* Тонкий заголовок окна */
+.titlebar-slim {
+    background: linear-gradient(180deg, #1b1c23, #131419);
+    border-bottom: 1px solid #ffffff12;
+}
+.tl-drag { height: 34px; width: 100%; padding: 0px 12px; }
+.tl-logo { padding: 3px; border-radius: 7px; background: linear-gradient(135deg, var(--accent), #b77cff); }
+.tl-icon { icon-size: 14px; icon-color: #ffffff; }
+.tl-app { font-size: 13px; font-weight: 600; color: #ffffffd9; }
+.tl-sep { font-size: 13px; color: #ffffff59; }
+.tl-name { font-size: 13px; font-weight: 600; color: #ffffff; max-width: 360px; }
+.tl-state { font-size: 12px; color: #ffffff80; }
+.tl-controls { padding: 0px 6px 0px 0px; }

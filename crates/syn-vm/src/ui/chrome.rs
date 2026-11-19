@@ -66,19 +66,36 @@ pub fn topbar(st: St) -> W {
         let tab = st.tab.get();
         let full = st.fullscreen.get();
         let on_desk = st.desk_from.get().is_some();
-        let win = st.window.get();
         // Мышь захвачена игрой — панели нет (Ctrl+Alt — освободить).
         if sel.as_deref().is_some_and(super::capture::active) {
             return vec![];
         }
         let vm = sel.as_deref().and_then(|id| st.vm(id));
         let power = vm.as_ref().and_then(|v| live.get(&v.id)).map(|l| l.power).unwrap_or_default();
+        let _ = bar_offset();
         let mini = MINI.load(Ordering::Relaxed);
 
-        let grip = WindowDragRegion::new().child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
+        // Ручка: тянуть панель в любое место над экраном; двойной щелчок — сверху по центру.
+        let grip = GestureDetector::new()
+            .cursor(CursorIcon::Move)
+            .on_pan_update(move |u| {
+                let mut o = bar_offset().lock().unwrap();
+                *o = clamp_offset(st, (o.0 + u.delta.x, o.1 + u.delta.y));
+                drop(o);
+                state::poke(st);
+            })
+            .on_pan_end(|_| save_bar())
+            .on_double_click(move || {
+                *bar_offset().lock().unwrap() = (0.0, 0.0);
+                save_bar();
+                state::poke(st);
+            })
+            .child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
+        let grip = Tooltip::new(grip, t!("Передвинуть панель (двойной щелчок — на место)")).delay_ms(600);
         let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip).child(vm_chip(st, vm.as_ref(), power, switcher));
         let fold = icon_btn(if mini { icons::CHEVRON_RIGHT } else { icons::CHEVRON_LEFT }, if mini { t!("Развернуть панель") } else { t!("Свернуть панель") }, move || {
             MINI.store(!MINI.load(Ordering::Relaxed), Ordering::Relaxed);
+            save_bar();
             super::screen::close_menus(st);
             state::poke(st);
         });
@@ -112,9 +129,7 @@ pub fn topbar(st: St) -> W {
                 .child(icon_btn(if full { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }, t!("Во весь экран (Ctrl+Alt+F)"), move || super::screen::toggle_full(st)))
                 .child(fold);
         }
-        if synshell_common::window_controls(false) && !full {
-            bar = bar.child(vsep()).child(DecoratedBox::new().class("bar-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(win.maximized).active(win.focused)));
-        }
+        let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
         let mut panel = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(bar).class(if mini { "top-bar mini" } else { "top-bar" }));
         if let Some(v) = vm.as_ref().filter(|_| power.on()) {
             panel = panel.child(super::screen::guest_menus(st, &v.id));
@@ -124,7 +139,10 @@ pub fn topbar(st: St) -> W {
             Column::new()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(syngui::widgets::ClickAway::new(panel).on_away(move || super::screen::close_menus(st)))
-                .class("top-wrap"),
+                .class("top-wrap")
+                .style("padding-top", StyleValue::px(10.0 + dy + if full { 0.0 } else { TITLE_H }))
+                .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
+                .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
         )]
     }))
 }
@@ -183,11 +201,11 @@ pub fn overlay_layer(st: St) -> W {
             .child(DecoratedBox::new().class("ov-scrim").style("width", vp.width).style("height", vp.height));
         vec![boxed(
             Stack::new().fit(StackFit::Expand).child(scrim).child(
-                Column::new().cross_axis_alignment(CrossAxisAlignment::Center).class("ov-place").child(GestureDetector::new().child(
+                Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(GestureDetector::new().child(
                     Animated::new(DecoratedBox::new().child(sheet))
                         .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(160).build())
                         .translate_y(Animation::spring().from(-14.0).to(0.0).stiffness(420.0).damping(32.0).build()),
-                )),
+                )).class("ov-place").style("padding-top", StyleValue::px(if st.fullscreen.get_untracked() { 64.0 } else { 64.0 + TITLE_H })),
             ),
         )]
     }))
@@ -578,4 +596,84 @@ mod tests {
         assert_eq!(desk_step(&mut c, None), Ok(None));
         assert!(!log.lock().unwrap().iter().any(|x| x.contains("move-to-workspace")));
     }
+}
+
+// ─── Положение плавающей панели ─────────────────────────────────────────
+// Сдвиг (логические пиксели) от места по умолчанию — сверху по центру под заголовком; панель
+// тянут за ручку слева, двойной щелчок по ручке — обратно. Запоминается вместе со свёрнутостью
+// в `<данные>/syn-vm/screen-bar` («dx dy свёрнута»).
+
+/// Высота заголовка окна.
+pub const TITLE_H: f32 = 34.0;
+
+fn bar_file() -> std::path::PathBuf {
+    crate::model::root().join("screen-bar")
+}
+
+fn bar_offset() -> &'static std::sync::Mutex<(f32, f32)> {
+    static O: std::sync::OnceLock<std::sync::Mutex<(f32, f32)>> = std::sync::OnceLock::new();
+    O.get_or_init(|| {
+        let v = std::fs::read_to_string(bar_file()).ok().and_then(|s| {
+            let mut it = s.split_whitespace().filter_map(|x| x.parse::<f32>().ok());
+            let o = (it.next()?, it.next()?);
+            MINI.store(it.next().is_some_and(|m| m != 0.0), Ordering::Relaxed);
+            Some(o)
+        });
+        std::sync::Mutex::new(v.unwrap_or((0.0, 0.0)))
+    })
+}
+
+/// Сдвиг в пределах окна.
+fn clamp_offset(st: St, (dx, dy): (f32, f32)) -> (f32, f32) {
+    let _ = st;
+    let vp = viewport_size().get_untracked();
+    let mx = (vp.width / 2.0 - 140.0).max(0.0);
+    (dx.clamp(-mx, mx), dy.clamp(0.0, (vp.height - TITLE_H - 80.0).max(0.0)))
+}
+
+fn save_bar() {
+    let (dx, dy) = *bar_offset().lock().unwrap();
+    let mini = MINI.load(Ordering::Relaxed) as u8;
+    let _ = std::fs::write(bar_file(), format!("{dx:.0} {dy:.0} {mini}\n"));
+}
+
+// ─── Заголовок окна ─────────────────────────────────────────────────────
+
+/// Тонкий заголовок: знак, «Машины · имя» с состоянием, кнопки окна. За него окно
+/// перетаскивается, двойной щелчок разворачивает. Во весь экран не показывается.
+pub fn titlebar(st: St) -> W {
+    let title = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let sel = st.sel.get();
+        let live = st.live.get();
+        let vm = sel.as_deref().and_then(|id| st.vm(id));
+        let mut row = Row::new()
+            .gap(9.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().child(Icon::new(icons::LAYERS).class("tl-icon")).class("tl-logo"))
+            .child(Text::new(t!("Машины")).class("tl-app"));
+        if let Some(v) = vm {
+            let power = live.get(&v.id).map(|l| l.power).unwrap_or_default();
+            row = row
+                .child(Text::new("·".to_string()).class("tl-sep"))
+                .child(DecoratedBox::new().class(format!("dot {}", power.class())))
+                .child(Text::new(v.name.clone()).max_lines(1).elide(Elide::End).class("tl-name"))
+                .child(Text::new(syngui::i18n::t(power.title())).max_lines(1).class("tl-state"));
+        }
+        vec![boxed(row)]
+    });
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![boxed(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let drag = WindowDragRegion::new().child(
+        DecoratedBox::new()
+            .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(title))
+            .class("tl-drag"),
+    );
+    let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(drag).class("grow"));
+    if synshell_common::window_controls(false) {
+        row = row.child(DecoratedBox::new().child(controls).class("tl-controls"));
+    }
+    boxed(DecoratedBox::new().child(row).class("titlebar-slim").style("height", StyleValue::px(TITLE_H)))
 }

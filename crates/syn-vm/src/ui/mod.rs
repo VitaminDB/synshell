@@ -216,12 +216,15 @@ fn titlebar(st: St, narrow: bool) -> W {
 /// Во всё окно: экран открытой машины (выключенная — кнопка запуска на её последнем кадре)
 /// или, если машина не выбрана, библиотека.
 fn stage(st: St) -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
+    let content = Reactive::new(move || -> Vec<W> {
         match st.sel.get() {
             Some(_) => vec![screen::page(st, st.fullscreen.get())],
             None => vec![library::page(st, false)],
         }
-    }))
+    });
+    // Сверху — тонкий заголовок окна (во весь экран его нет).
+    let title = Reactive::new(move || -> Vec<W> { if st.fullscreen.get() { vec![] } else { vec![chrome::titlebar(st)] } });
+    boxed(Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(title).child(DecoratedBox::new().child(content).class("grow")))
 }
 
 /// Слой только для широкого окна (на телефоне — свои заголовок и вкладки).
