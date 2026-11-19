@@ -200,9 +200,12 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         NetMode::Nat => {
             let mut nd = String::from("user,id=net0");
             if share == Some(ShareMode::Smb) {
-                // Свой smbd на 10.0.2.4:445 (как делает QEMU для smb=, но со всеми папками машины).
+                // Свой smbd на 10.0.2.4:445 (как делает QEMU для smb=, но со всеми папками машины) и на 139 —
+                // NetBIOS-сеанс: Windows 9x/NT4 ходят только туда (XP — на 445).
                 let cmd = smb_command(vm)?;
-                nd.push_str(&format!(",guestfwd=tcp:10.0.2.4:445-cmd:{}", cmd.replace(',', ",,")));
+                for port in [445, 139] {
+                    nd.push_str(&format!(",guestfwd=tcp:10.0.2.4:{port}-cmd:{}", cmd.replace(',', ",,")));
+                }
             }
             for f in &vm.forwards {
                 if f.host > 0 && f.guest > 0 {
@@ -674,6 +677,17 @@ pub fn syn_gpu_bin() -> Option<PathBuf> {
     c.into_iter().find(|p| ok(p))
 }
 
+/// Имя пользователя из базы пользователей (getpwuid), не из окружения.
+fn user_name() -> Option<String> {
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_name.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned())
+    }
+}
+
 /// Домашний каталог пользователя из базы пользователей (getpwuid), не из окружения.
 fn user_home() -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
@@ -814,9 +828,11 @@ fn smb_command(vm: &Vm) -> Result<String> {
     for d in ["private", "lock", "state", "cache", "ncalrpc"] {
         std::fs::create_dir_all(dir.join(d))?;
     }
-    let user = std::env::var("USER").unwrap_or_else(|_| "nobody".into());
+    let user = user_name().unwrap_or_else(|| "nobody".into());
     let mut conf = format!(
-        "[global]\nprivate dir={d}/private\ninterfaces=127.0.0.1\nbind interfaces only=yes\npid directory={d}\nlock directory={d}/lock\nstate directory={d}/state\ncache directory={d}/cache\nncalrpc dir={d}/ncalrpc\nlog file={d}/log.smbd\nsmb passwd file={d}/smbpasswd\nsecurity = user\nmap to guest = Bad User\nload printers = no\nprinting = bsd\ndisable spoolss = yes\nusershare max shares = 0\n",
+        "[global]\nprivate dir={d}/private\ninterfaces=127.0.0.1\nbind interfaces only=yes\npid directory={d}\nlock directory={d}/lock\nstate directory={d}/state\ncache directory={d}/cache\nncalrpc dir={d}/ncalrpc\nlog file={d}/log.smbd\nsmb passwd file={d}/smbpasswd\nsecurity = user\nmap to guest = Bad User\nload printers = no\nprinting = bsd\ndisable spoolss = yes\nusershare max shares = 0\n\
+         server min protocol = LANMAN1\nhost msdfs = no\nlanman auth = yes\nntlm auth = yes\nnetbios name = HOST\nserver string = syn-vm\n\
+         workgroup = WORKGROUP\n",
         d = dir.display()
     );
     for (path, name) in vm.share_dirs().iter().zip(vm.share_names(true)) {

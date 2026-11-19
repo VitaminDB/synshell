@@ -453,6 +453,8 @@ impl ShareMode {
     pub fn resolve(self, os: OsKind) -> ShareMode {
         match self {
             ShareMode::Auto if os.is_windows() => ShareMode::Virtiofs,
+            // Старые Windows: virtiofs/9p нет — общая папка по SMB (SMB1/LANMAN, `\\10.0.2.4\qemu`).
+            ShareMode::Auto if os == OsKind::WindowsXp => ShareMode::Smb,
             ShareMode::Auto => ShareMode::P9,
             m => m,
         }
