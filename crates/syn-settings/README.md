@@ -19,6 +19,7 @@
 - **Panels and docks** — any edge of any monitor, floating or stuck to the edge, auto-hide, length, alignment, reserved space.
 - **Workspace** — window behavior, workspaces and their default layout, window rules, launcher, notifications.
 - **Devices** — keyboard and layouts, shortcuts, mouse and touchpad, monitors (scale, HDR), Wi-Fi, Bluetooth, sound (outputs, inputs and per-app volume), USB devices, VPN (NetworkManager, WireGuard with key generation), device link (synlink), game mode, hardware overview with live sensors.
+- **Internet connections** — several connections at once (Wi-Fi, cable, a phone over USB; the `synnetd` service): links with live speed, “primary link only” or “all links at once” mode, primary link choice, USB modems without NetworkManager, and a choice per application — e.g. a torrent client over all links and the browser over Wi-Fi only.
 - **Phone** — mobile network, calls and SMS, modem info, gestures, vibration.
 - **System** — power and CPU governors, power alerts (low and critical battery, clean shutdown near 0 %, idle-sleep warning, unexpected power-off report, linked devices going to sleep or off), neural networks and the assistant, location and camera permissions, language, date and time, lock and idle, autostart, default applications (written to `mimeapps.list`), session, “About”.
 - **Search** across all pages, in the interface language and in Russian.
@@ -28,6 +29,8 @@
 | Appearance | Wallpaper | Panels |
 |---|---|---|
 | ![Appearance](docs/screenshots/appearance-en.png) | ![Wallpaper](docs/screenshots/wallpaper-en.png) | ![Panels](docs/screenshots/panels-en.png) |
+
+![Internet connections](docs/screenshots/uplinks-en.png)
 
 ## Install
 
