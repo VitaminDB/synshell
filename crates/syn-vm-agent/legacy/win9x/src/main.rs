@@ -15,6 +15,7 @@ extern crate alloc;
 
 mod msvcrt;
 mod win;
+mod mouse;
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -892,6 +893,11 @@ fn run() -> u32 {
         }
     };
     log(&format!("агент запущен ({})", os_tag()));
+    // Мышь 9x без захвата (vmmouse → курсор), см. mouse.rs.
+    {
+        let mut tid = 0u32;
+        unsafe { CreateThread(core::ptr::null(), 0, mouse::thread, core::ptr::null_mut(), 0, &mut tid) };
+    }
     #[allow(static_mut_refs)]
     unsafe {
         InitializeCriticalSection(CS.as_mut_ptr());

@@ -199,6 +199,15 @@ unsafe extern "system" {
     pub fn GetClipboardData(fmt: u32) -> HANDLE;
     pub fn SetClipboardData(fmt: u32, h: HANDLE) -> HANDLE;
     pub fn IsClipboardFormatAvailable(fmt: u32) -> i32;
+    pub fn SetCursorPos(x: i32, y: i32) -> i32;
+    pub fn GetSystemMetrics(i: i32) -> i32;
+    pub fn GetClipCursor(r: *mut i32) -> i32;
+    pub fn mouse_event(flags: u32, dx: u32, dy: u32, data: u32, extra: usize);
+}
+
+#[link(name = "winmm", kind = "raw-dylib", import_name_type = "undecorated")]
+unsafe extern "system" {
+    pub fn timeBeginPeriod(ms: u32) -> u32;
 }
 
 #[link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated")]
