@@ -730,6 +730,10 @@ fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
     let log = vm.dir().join("syn-gpu.log");
     let mut c = Command::new(&bin);
     c.arg("--socket").arg(&sock).arg("--log").arg(&log);
+    // Общая папка — и для DOS/Windows 9x: их редиректор SYNSHARE.COM ходит к файловому серверу syn-gpu.
+    if let Some(d) = vm.share_dirs().into_iter().next() {
+        c.arg("--share").arg(d);
+    }
     let extra: Vec<String> = vm.gpu3d_args.split_whitespace().map(String::from).collect();
     if !extra.iter().any(|a| a == "--cpu-latency-us") {
         c.args(["--cpu-latency-us", "0"]);
