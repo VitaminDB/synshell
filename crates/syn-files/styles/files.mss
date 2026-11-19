@@ -891,3 +891,55 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
 .excl-row { padding: 4px 4px 4px 10px; border-radius: 10px; background: var(--field); border: 1px solid var(--divider); }
 .excl-icon { font-size: 16px; icon-size: 16px; color: var(--muted); }
 .excl-name { font-size: 13px; color: var(--fg); }
+
+/* ── Занятое место (правая половина окна) ──────────────────────── */
+
+.usage { background: var(--content); border-left: 1px solid var(--divider); }
+.us-head { padding: 10px 10px 8px 14px; border-bottom: 1px solid var(--divider); }
+.us-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.us-sub { font-size: 11px; color: var(--muted); }
+.us-title-icon { color: var(--accent); font-size: 22px; icon-size: 22px; }
+.us-status { font-size: 12px; color: var(--muted); }
+.us-spinner { padding: 0px 4px; color: var(--accent); accent-color: var(--accent); }
+.us-chart-wrap { padding: 10px; }
+.us-chart {
+    width: 100%;
+    height: 100%;
+    color: var(--fg);
+    center-color: var(--hover);
+    label-font-size: 12px;
+}
+.us-hover { padding: 0px 12px 10px 12px; align-items: center; }
+.us-hover-title { font-size: 12px; color: var(--fg); }
+.us-hover-sub { font-size: 12px; color: var(--muted); }
+.us-list { border-top: 1px solid var(--divider); }
+.us-list-body { padding: 6px; }
+.us-row {
+    height: 34px;
+    padding: 0px 6px 0px 10px;
+    border-radius: 6px;
+    align-items: center;
+    transition: background 80ms ease;
+    &:hover { background: var(--hover); }
+}
+.us-row.rest { &:hover { background: transparent; } }
+.us-row-icon { font-size: 18px; icon-size: 18px; color: var(--muted); }
+.us-row-icon.dir { color: var(--accent); }
+.us-name { font-size: 13px; color: var(--fg); }
+.us-pct { font-size: 11px; color: var(--muted); width: 44px; text-align: right; }
+.us-size { font-size: 12px; color: var(--fg); width: 72px; text-align: right; }
+.us-bar { width: 72px; height: 6px; border-radius: 3px; background: var(--pressed); }
+.us-bar-fill { height: 6px; border-radius: 3px; }
+.us-trash { width: 26px; height: 26px; }
+.us-trash .icon { font-size: 16px; icon-size: 16px; color: var(--muted); }
+.us-toggle {
+    height: 28px;
+    padding: 0px 10px;
+    border-radius: 6px;
+    align-items: center;
+    transition: background 100ms ease;
+    &:hover { background: var(--hover); }
+}
+.us-toggle .icon { font-size: 16px; icon-size: 16px; color: var(--muted); }
+.us-toggle.on { background: var(--accent-soft); }
+.us-toggle.on .icon { color: var(--accent); }

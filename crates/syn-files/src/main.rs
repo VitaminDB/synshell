@@ -32,6 +32,7 @@ mod tags;
 mod state;
 use synshell_common::thumbs;
 mod trash;
+mod usage;
 mod ui;
 mod viewer;
 

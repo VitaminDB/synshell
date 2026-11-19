@@ -11,6 +11,7 @@ pub mod settings;
 pub mod sidebar;
 pub mod termpanel;
 pub mod toolbar;
+pub mod usage;
 pub mod view;
 
 use syngui::prelude::*;
@@ -176,4 +177,7 @@ pub mod icons {
     pub const SETTINGS: &str = "\u{e8b8}";
     pub const BLOCK: &str = "\u{e14b}";
     pub const HISTORY: &str = "\u{e889}";
+    /// donut_large — «Занятое место».
+    pub const DONUT: &str = "\u{e917}";
+    pub const HOURGLASS: &str = "\u{e88b}";
 }

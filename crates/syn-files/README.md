@@ -15,6 +15,7 @@
 - **Tabs and two panes** — tabs in the title bar, a second pane with F3; the tabs of the last session come back on start.
 - **Four views** — icons, tiles, list and details, icon size from a slider; thumbnails of images and videos (HEIC/AVIF too).
 - **Preview panel** (F11) — a large preview with type, size, resolution, date and location.
+- **Disk usage** (status bar button, Ctrl+Shift+U) — the right half of the window, like Baobab/Filelight: folder rings of the open folder and a list by size; click a ring to open the folder, the center to go up; move to trash or delete permanently right from the list and menu.
 - **Archives as folders** — zip, 7z, rar, tar.* and others open like a folder (read-only), including nested ones and password-protected archives; “Extract” in the archive bar.
 - **File operations in the background** — progress, pause and cancel, a question on name conflicts, Ctrl+Z undoes the last operation; trash per the freedesktop spec, including trash on other drives.
 - **Batch rename** — by template (`{name}`, `{ext}`, `{n}`), text or regex replacement, case change, with a preview; one Ctrl+Z undoes it.

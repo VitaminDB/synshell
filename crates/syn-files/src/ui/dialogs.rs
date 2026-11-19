@@ -48,10 +48,10 @@ fn names(paths: &[PathBuf]) -> String {
     }
 }
 
-fn confirm_delete(paths: Vec<PathBuf>) -> W {
+fn confirm_delete(paths: Vec<PathBuf>, permanent: bool) -> W {
     let p2 = paths.clone();
     let from_trash = paths.iter().all(|p| crate::trash::contains(p));
-    let permanent = from_trash || !state::ctx().cfg.get_untracked().files.confirm_trash;
+    let permanent = permanent || from_trash;
     let body = Text::new(if permanent {
         t!("Удалить {v} навсегда? Это действие нельзя отменить.", v = names(&paths))
     } else {
@@ -626,7 +626,7 @@ pub fn dialogs() -> W {
     let card = Reactive::new(move || -> Vec<W> {
         let Some(d) = state::ctx().dialog.get() else { return vec![] };
         let content = match d {
-            Dialog::ConfirmDelete { paths } => confirm_delete(paths),
+            Dialog::ConfirmDelete { paths, permanent } => confirm_delete(paths, permanent),
             Dialog::ConfirmEmptyTrash => confirm_empty_trash(),
             Dialog::OpenWith { paths, mime } => open_with(paths, mime),
             Dialog::Properties { paths } if !paths.is_empty() => properties(paths),

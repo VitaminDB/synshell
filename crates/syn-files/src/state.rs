@@ -108,7 +108,8 @@ pub struct Toast {
 /// Модальные окна.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Dialog {
-    ConfirmDelete { paths: Vec<PathBuf> },
+    /// `permanent` — навсегда (Shift+Delete), иначе — в корзину.
+    ConfirmDelete { paths: Vec<PathBuf>, permanent: bool },
     ConfirmEmptyTrash,
     OpenWith { paths: Vec<PathBuf>, mime: String },
     Properties { paths: Vec<PathBuf> },
@@ -136,6 +137,14 @@ pub struct Ctx {
     /// Встроенный терминал под файлами (F12) и доля высоты над ним.
     pub terminal: RwSignal<bool>,
     pub terminal_ratio: RwSignal<f32>,
+    /// Панель «Занятое место» справа, доля ширины файлов, доля высоты кольца над списком.
+    pub usage: RwSignal<bool>,
+    pub usage_ratio: RwSignal<f32>,
+    pub usage_chart_ratio: RwSignal<f32>,
+    /// Сектор или строка под указателем (id кольца).
+    pub usage_hover: RwSignal<Option<u64>>,
+    /// Растёт, когда дерево занятого места изменилось.
+    pub usage_rev: RwSignal<u64>,
     pub clip: RwSignal<Option<Clip>>,
     pub jobs_rev: RwSignal<u64>,
     pub thumbs_rev: RwSignal<u64>,
@@ -240,6 +249,11 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         preview: use_signal(load_session_file().map(|s| s.preview).unwrap_or(false)),
         terminal: use_signal(false),
         terminal_ratio: use_signal(0.66f32),
+        usage: use_signal(load_session_file().map(|s| s.usage).unwrap_or(false) && !phone_device()),
+        usage_ratio: use_signal(load_session_file().and_then(|s| s.usage_ratio).filter(|r| (0.2..0.85).contains(r)).unwrap_or(0.5)),
+        usage_chart_ratio: use_signal(load_session_file().and_then(|s| s.usage_chart_ratio).filter(|r| (0.2..0.85).contains(r)).unwrap_or(0.58)),
+        usage_hover: use_signal(None),
+        usage_rev: use_signal(0u64),
         preview_ratio: use_signal(load_session_file().and_then(|s| s.preview_ratio).filter(|r| (0.3..0.9).contains(r)).unwrap_or(PREVIEW_RATIO)),
         clip: use_signal(None),
         jobs_rev: use_signal(0u64),
@@ -973,6 +987,13 @@ struct Session {
     preview: bool,
     #[serde(default)]
     preview_ratio: Option<f32>,
+    /// Панель «Занятое место» и её доли.
+    #[serde(default)]
+    usage: bool,
+    #[serde(default)]
+    usage_ratio: Option<f32>,
+    #[serde(default)]
+    usage_chart_ratio: Option<f32>,
 }
 
 /// Файлам — столько ширины, остальное — панели просмотра.
@@ -1016,6 +1037,9 @@ pub fn save_session() {
         sidebar_width: Some(ctx.sidebar_width.get_untracked().round()),
         preview: ctx.preview.get_untracked(),
         preview_ratio: Some((ctx.preview_ratio.get_untracked() * 1000.0).round() / 1000.0),
+        usage: ctx.usage.get_untracked(),
+        usage_ratio: Some((ctx.usage_ratio.get_untracked() * 1000.0).round() / 1000.0),
+        usage_chart_ratio: Some((ctx.usage_chart_ratio.get_untracked() * 1000.0).round() / 1000.0),
     };
     let f = session_file();
     if let Some(d) = f.parent() {
@@ -1069,6 +1093,13 @@ pub fn connect_background() {
     // пересортировать панели, отсортированные по размеру.
     let sizes_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let sizes_finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    crate::usage::set_notify(|| {
+        run_on_main_thread(|| {
+            if let Some(ctx) = try_ctx() {
+                ctx.usage_rev.update(|r| *r += 1);
+            }
+        })
+    });
     crate::gitstatus::set_notify(|| {
         run_on_main_thread(|| {
             if let Some(ctx) = try_ctx() {

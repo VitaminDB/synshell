@@ -271,6 +271,7 @@ pub fn start(op: Op) -> Arc<Job> {
             let undo = run(&j);
             j.progress.finished.store(true, Ordering::SeqCst);
             crate::dirsize::invalidate(&j.op.touched());
+            crate::usage::invalidate(&j.op.touched());
             if let Some(u) = undo {
                 push_undo(u);
             }

@@ -333,11 +333,11 @@ pub fn trash_selected(p: Pane) {
     }
     if matches!(p.loc.get_untracked(), Location::Trash) {
         // Из корзины — только навсегда.
-        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths }));
+        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths, permanent: true }));
         return;
     }
     if state::ctx().cfg.get_untracked().files.confirm_trash {
-        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths }));
+        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths, permanent: false }));
         return;
     }
     let n = paths.len();
@@ -348,7 +348,7 @@ pub fn trash_selected(p: Pane) {
 pub fn delete_selected(p: Pane) {
     let paths = state::selected_paths(p);
     if !paths.is_empty() {
-        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths }));
+        state::ctx().dialog.set(Some(Dialog::ConfirmDelete { paths, permanent: true }));
     }
 }
 
@@ -1160,6 +1160,7 @@ pub fn key(k: Key, m: Modifiers) -> bool {
         Key::F9 => toggle_sidebar(),
         Key::F11 => toggle_preview(),
         Key::F12 => crate::ui::termpanel::toggle(),
+        Key::U if ctrl && m.shift && !state::is_phone() => crate::ui::usage::toggle(),
         Key::Delete if m.shift => delete_selected(p),
         Key::Delete => trash_selected(p),
         Key::Left if m.alt => state::go_back(p),

@@ -139,6 +139,7 @@ fn status_bar() -> W {
             .gap(12.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(DecoratedBox::new().class("grow").child(info))
+            .child(super::usage::status_button())
             .child(zoom_bar())
             .child(views),
     )
@@ -273,6 +274,12 @@ fn body() -> W {
         // Панель просмотра — справа от файлов (на телефоне её нет).
         let content: W = if ctx.preview.get() && !state::is_phone() {
             boxed(SplitView::new(DecoratedBox::new().class("grow").child(content), DecoratedBox::new().class("grow").child(super::preview::panel())).ratio_signal(ctx.preview_ratio).min_size(220.0).class("preview-split"))
+        } else {
+            content
+        };
+        // Занятое место — правая половина окна (кольцо папок и чистка).
+        let content: W = if ctx.usage.get() && !state::is_phone() {
+            boxed(SplitView::new(DecoratedBox::new().class("grow").child(content), DecoratedBox::new().class("grow").child(super::usage::panel())).ratio_signal(ctx.usage_ratio).min_size(280.0).class("usage-split"))
         } else {
             content
         };
