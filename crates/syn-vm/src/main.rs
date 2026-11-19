@@ -60,6 +60,7 @@ fn main() {
     let mut target: Option<String> = None;
     let mut tab: Option<Tab> = None;
     let mut shot: Option<String> = None;
+    let mut switcher = false;
     let mut wizard: Option<usize> = None;
     let mut size = (1280u32, 800u32);
     let mut scale = 2.0f64;
@@ -86,6 +87,8 @@ fn main() {
             "--open" => target = args.next(),
             "--wizard" => wizard = args.next().and_then(|s| s.parse().ok()),
             "--screenshot" => shot = args.next(),
+            // Снимок с открытым переключателем машин.
+            "--switcher" => switcher = true,
             "--size" => {
                 if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
                     size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
@@ -144,6 +147,7 @@ fn main() {
                         }
                     }
                 }
+                st.switcher.set(switcher);
                 if let Some(step) = wizard {
                     ui::new_vm(st);
                     st.wiz.set(Some(step));

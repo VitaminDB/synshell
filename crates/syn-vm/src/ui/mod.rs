@@ -1,8 +1,10 @@
-//! Окно: на широком экране — боковая панель машин с живыми миниатюрами и страница
-//! справа; на узком (телефон) — библиотека, по тапу — страница машины с «назад».
+//! Окно: на широком экране — экран машины во всё окно и плавающая панель сверху
+//! ([`chrome`]: переключатель машин, настройки, снимки — поверх экрана); на узком (телефон) —
+//! библиотека, по тапу — страница машины с «назад».
 //! Поверх — мастер создания, подтверждения и уведомления.
 
 pub(crate) mod capture;
+mod chrome;
 mod library;
 mod overview;
 pub mod parts;
@@ -13,19 +15,16 @@ mod wizard;
 
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use syngui::widgets::{EventHook, KeyReply, LiveView};
+use syngui::widgets::{EventHook, KeyReply};
 use syngui::GestureDetector;
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
-use syngui::CursorIcon;
 
 use crate::model::Vm;
-use crate::qemu;
 use crate::state::{self, icons, Confirm, Draft, Power, St, Tab};
 use parts::{boxed, btn, icon_btn, spacer, W};
 
 /// Уже этой ширины — телефонная раскладка.
 pub const NARROW_BELOW: f32 = 760.0;
-const SIDEBAR_W: f32 = 290.0;
 
 /// Открыть машину (или библиотеку — `None`).
 pub fn open(st: St, id: Option<String>, tab: Option<Tab>) {
@@ -44,7 +43,10 @@ pub fn open(st: St, id: Option<String>, tab: Option<Tab>) {
     }
     if let Some(id) = id {
         let on = st.power(&id).on();
-        let tab = tab.unwrap_or(if changed { if on { Tab::Screen } else { Tab::Overview } } else { st.tab.get_untracked() });
+        // На широком экране машина открывается экраном (выключенная — кнопкой запуска на нём),
+        // обзор и настройки — панели поверх; на телефоне — вкладки, у выключенной — обзор.
+        let narrow = syngui::viewport::viewport_below(NARROW_BELOW).get_untracked();
+        let tab = tab.unwrap_or(if changed { if on || !narrow { Tab::Screen } else { Tab::Overview } } else { st.tab.get_untracked() });
         st.tab.set(tab);
         if on {
             state::attach(st, &id);
@@ -73,7 +75,11 @@ pub fn set_tab(st: St, tab: Tab) {
 
 /// Клавиатура уходит гостю целиком, пока виден его экран.
 pub fn sync_grab(st: St) {
-    let on = st.sel.get_untracked().is_some() && st.tab.get_untracked() == Tab::Screen && st.draft.get_untracked().is_none() && st.confirm.get_untracked().is_none();
+    let on = st.sel.get_untracked().is_some()
+        && st.tab.get_untracked() == Tab::Screen
+        && !st.switcher.get_untracked()
+        && st.draft.get_untracked().is_none()
+        && st.confirm.get_untracked().is_none();
     syngui::input::set_keyboard_grab(on);
 }
 
@@ -94,15 +100,20 @@ pub fn close_wizard(st: St) {
 }
 
 pub fn root(st: St) -> EventHook {
+    chrome::desk_test(st);
     let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
     let body = move || Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
+        let n = narrow.get();
+        if !n {
+            // Экран машины во всё окно, панель — поверх (свой заголовок окна — она же).
+            return vec![stage(st)];
+        }
         let full = st.fullscreen.get() && st.sel.get().is_some();
         if full {
             return vec![screen::page(st, true)];
         }
-        let n = narrow.get();
-        let page = if n { phone(st) } else { desktop(st) };
+        let page = phone(st);
         // Заголовок с кнопками окна — и на телефоне (там без рамки и изменения размера).
         if !synshell_common::window_controls(false) {
             return vec![page];
@@ -139,6 +150,10 @@ pub fn root(st: St) -> EventHook {
             }
             // Esc закрывает окна поверх; на экране машины клавиши уходят гостю.
             if k == Key::Escape && !syngui::input::keyboard_grab() {
+                if st.confirm.get_untracked().is_none() && st.wiz.get_untracked().is_none() && (st.switcher.get_untracked() || (st.sel.get_untracked().is_some() && st.tab.get_untracked() != Tab::Screen && !narrow.get_untracked())) {
+                    chrome::close_overlays(st);
+                    return KeyReply::Handled;
+                }
                 if st.confirm.get_untracked().is_some() {
                     st.confirm.set(None);
                     sync_grab(st);
@@ -161,6 +176,8 @@ pub fn root(st: St) -> EventHook {
             let stack = Stack::new()
                 .fit(StackFit::Expand)
                 .child(DecoratedBox::new().child(body()).class("root"))
+                .child(wide_only(narrow, move || chrome::overlay_layer(st)))
+                .child(wide_only(narrow, move || chrome::topbar(st)))
                 .child(toast_layer(st))
                 .child(wizard::layer(st))
                 .child(confirm_layer(st));
@@ -188,9 +205,6 @@ fn titlebar(st: St, narrow: bool) -> W {
         vec![boxed(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
     });
     let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if !narrow {
-        row = row.child(DecoratedBox::new().class("tb-left").style("width", StyleValue::px(SIDEBAR_W)).child(WindowDragRegion::new().child(brand())));
-    }
     row = row
         .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space").child(title))))
         .child(DecoratedBox::new().class("window-controls").child(controls));
@@ -199,153 +213,20 @@ fn titlebar(st: St, narrow: bool) -> W {
 
 // ─── Компьютер ──────────────────────────────────────────────────────────
 
-fn desktop(st: St) -> W {
-    let main = Reactive::new(move || -> Vec<W> {
+/// Во всё окно: экран открытой машины (выключенная — кнопка запуска на её последнем кадре)
+/// или, если машина не выбрана, библиотека.
+fn stage(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
         match st.sel.get() {
-            Some(id) => vec![vm_page(st, id, false)],
+            Some(_) => vec![screen::page(st, st.fullscreen.get())],
             None => vec![library::page(st, false)],
         }
-    });
-    boxed(
-        Row::new()
-            .gap(0.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(sidebar(st))
-            .child(DecoratedBox::new().child(main).class("main grow")),
-    )
+    }))
 }
 
-fn sidebar(st: St) -> W {
-    let list = Reactive::new(move || -> Vec<W> {
-        let vms = st.vms.get();
-        let live = st.live.get();
-        let busy = st.busy.get();
-        let sel = st.sel.get();
-        let q = st.query.get().to_lowercase();
-        st.thumb_tick.get();
-        let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-        // Сначала работающие.
-        let mut items: Vec<&Vm> = vms.iter().filter(|v| q.is_empty() || v.name.to_lowercase().contains(&q)).collect();
-        items.sort_by_key(|v| !live.get(&v.id).is_some_and(|l| l.power.on()));
-        for vm in items {
-            let l = live.get(&vm.id).cloned().unwrap_or_default();
-            col = col.child(nav_item(st, vm, &l, busy.get(&vm.id).cloned(), sel.as_deref() == Some(vm.id.as_str())));
-        }
-        if vms.is_empty() {
-            col = col.child(Text::new(t!("Машин пока нет")).class("muted small pad"));
-        }
-        vec![boxed(col)]
-    });
-    let home = Reactive::new(move || -> Vec<W> {
-        let active = st.sel.get().is_none();
-        vec![boxed(
-            GestureDetector::new().cursor(CursorIcon::Pointer).on_click(move || open(st, None, None)).child(
-                DecoratedBox::new()
-                    .child(
-                        Row::new()
-                            .gap(10.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
-                            .child(Icon::new(icons::APPS).class("nav-home-icon"))
-                            .child(Text::new(t!("Все машины")).class("nav-title grow"))
-                            .child(Reactive::new(move || -> Vec<W> {
-                                let n = st.live.get().values().filter(|l| l.power.on()).count();
-                                if n == 0 {
-                                    vec![]
-                                } else {
-                                    vec![boxed(DecoratedBox::new().child(Text::new(n.to_string()).class("count-label")).class("count"))]
-                                }
-                            })),
-                    )
-                    .class(if active { "nav-home active" } else { "nav-home" }),
-            ),
-        )]
-    });
-    let search = TextField::new()
-        .placeholder(t!("Поиск"))
-        .prefix_icon(icons::SEARCH)
-        .on_change(move |s: &str| st.query.set(s.to_string()))
-        .class("search");
-    boxed(
-        Column::new()
-            .gap(12.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(btn(icons::ADD, t!("Новая машина"), "primary wide", move || new_vm(st)))
-            .child(search)
-            .child(home)
-            .child(ScrollView::new().vertical().child(list).class("grow"))
-            .child(host_card())
-            .class("sidebar")
-            .style("width", StyleValue::px(SIDEBAR_W)),
-    )
-}
-
-fn brand() -> W {
-    boxed(
-        Row::new()
-            .gap(11.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(DecoratedBox::new().child(Icon::new(icons::LAYERS).class("brand-icon")).class("brand-logo"))
-            .child(Column::new().gap(0.0).child(Text::new(t!("Машины")).class("brand-title")).child(Text::new(t!("QEMU · KVM")).class("muted small")))
-            .class("brand"),
-    )
-}
-
-/// Пункт машины: миниатюра, имя, состояние; у работающей — нагрузка.
-fn nav_item(st: St, vm: &Vm, l: &state::Live, busy: Option<String>, active: bool) -> W {
-    let id = vm.id.clone();
-    let sub = match (&busy, l.power) {
-        (Some(b), _) => b.clone(),
-        (None, Power::Running) => t!("Работает · {c}%", c = format!("{:.0}", l.cpu)),
-        (None, Power::Off) => format!("{} · {}", syngui::i18n::t(vm.os.title()), parts::ago(vm.last_run)),
-        (None, p) => syngui::i18n::t(p.title()),
-    };
-    let thumb: W = match state::thumb(vm) {
-        Some(f) => boxed(DecoratedBox::new().child(LiveView::new(f).fit(ImageFit::Cover).class("nav-thumb-img")).clip(true).class("nav-thumb")),
-        None => parts::badge(parts::os_icon(vm.os), Some(vm.accent()), 40.0),
-    };
-    let dot = DecoratedBox::new().class(format!("dot {}", l.power.class()));
-    let row = Row::new()
-        .gap(11.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(thumb)
-        .child(
-            Column::new()
-                .gap(2.0)
-                .child(Row::new().gap(7.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(vm.name.clone()).max_lines(1).class("nav-title grow")).child(dot))
-                .child(Text::new(sub).max_lines(1).class("nav-sub"))
-                .class("grow"),
-        );
-    let mut item = DecoratedBox::new().child(row).class(if active { "nav-item active" } else { "nav-item" });
-    if active {
-        item = item.style("border-color", vm.accent().with_alpha(0.6));
-    }
-    boxed(GestureDetector::new().cursor(CursorIcon::Pointer).on_click(move || open(st, Some(id.clone()), None)).child(item))
-}
-
-/// Внизу панели: есть ли KVM и QEMU, свободное место.
-fn host_card() -> W {
-    let kvm = qemu::kvm_available();
-    let qemu_ok = qemu::qemu_installed();
-    let (icon, cls, title) = if !qemu_ok {
-        (icons::ERROR, "host bad", t!("QEMU не установлен"))
-    } else if !kvm {
-        (icons::WARNING, "host warn", t!("Без KVM — медленно"))
-    } else {
-        (icons::BOLT, "host ok", t!("KVM включён"))
-    };
-    let free = crate::model::free_space().map(|b| t!("свободно {v}", v = parts::bytes(b))).unwrap_or_default();
-    let sub = format!("{} · {} · {}", parts::cores(crate::model::host_cpus()), parts::mem_mb(crate::model::host_memory_mb()), free);
-    boxed(
-        DecoratedBox::new()
-            .child(
-                Row::new()
-                    .gap(10.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Icon::new(icon).class("host-icon"))
-                    .child(Column::new().gap(1.0).child(Text::new(title).max_lines(1).class("host-title")).child(Text::new(sub).max_lines(2).class("muted small")).class("grow")),
-            )
-            .class(cls),
-    )
+/// Слой только для широкого окна (на телефоне — свои заголовок и вкладки).
+fn wide_only(narrow: RwSignal<bool>, f: impl Fn() -> W + Send + Sync + 'static) -> W {
+    boxed(Reactive::new(move || -> Vec<W> { if narrow.get() { vec![] } else { vec![f()] } }))
 }
 
 // ─── Телефон ────────────────────────────────────────────────────────────

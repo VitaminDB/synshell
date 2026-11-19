@@ -1,5 +1,5 @@
 //! Экран машины: кадр гостя во всю область, мышь и клавиатура уходят гостю;
-//! сверху — плавающая панель (сочетания клавиш, буфер обмена, снимок, полный экран).
+//! кнопки работы с гостем — на верхней панели окна ([`super::chrome`]).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -19,44 +19,6 @@ static CTRL: AtomicBool = AtomicBool::new(false);
 static ALT: AtomicBool = AtomicBool::new(false);
 static RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-// ─── Положение панели над экраном гостя ─────────────────────────────────
-// Сдвиг (логические пиксели) от места по умолчанию — сверху по центру; панель тянут за ручку
-// слева, двойной щелчок по ручке — обратно в центр. Рядом с ручкой — свернуть/развернуть:
-// свёрнутая панель — только ручка и кнопка «развернуть», почти не закрывает экран гостя.
-// Запоминается в `<данные>/syn-vm/screen-bar` («dx dy свёрнута»).
-
-static BAR_MINI: AtomicBool = AtomicBool::new(false);
-
-fn bar_file() -> std::path::PathBuf {
-    model::root().join("screen-bar")
-}
-
-fn bar_offset() -> &'static std::sync::Mutex<(f32, f32)> {
-    static O: std::sync::OnceLock<std::sync::Mutex<(f32, f32)>> = std::sync::OnceLock::new();
-    O.get_or_init(|| {
-        let v = std::fs::read_to_string(bar_file()).ok().and_then(|s| {
-            let mut it = s.split_whitespace().filter_map(|x| x.parse::<f32>().ok());
-            let o = (it.next()?, it.next()?);
-            BAR_MINI.store(it.next().is_some_and(|m| m != 0.0), Ordering::Relaxed);
-            Some(o)
-        });
-        std::sync::Mutex::new(v.unwrap_or((0.0, 0.0)))
-    })
-}
-
-/// Сдвиг в пределах области экрана (`view_size` — физические пиксели).
-fn clamp_offset(st: St, (dx, dy): (f32, f32)) -> (f32, f32) {
-    let k = syngui::scale::pixel_ratio().max(0.1);
-    let (w, h) = st.view_size.get_untracked();
-    let (w, h) = (w as f32 / k, h as f32 / k);
-    let mx = (w / 2.0 - 120.0).max(0.0);
-    (dx.clamp(-mx, mx), dy.clamp(0.0, (h - 70.0).max(0.0)))
-}
-
-fn save_bar(o: (f32, f32)) {
-    let mini = BAR_MINI.load(Ordering::Relaxed) as u8;
-    let _ = std::fs::write(bar_file(), format!("{:.0} {:.0} {mini}\n", o.0, o.1));
-}
 
 pub fn page(st: St, full: bool) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
@@ -159,14 +121,6 @@ pub fn page(st: St, full: bool) -> W {
         if power == Power::Paused {
             stack = stack.child(paused_veil(st, &vm.id));
         }
-        let tid = vm.id.clone();
-        stack = stack.child(Reactive::new(move || -> Vec<W> {
-            st.bar_tick.get();
-            if super::capture::active(&tid) {
-                return vec![];
-            }
-            vec![toolbar(st, &tid, full)]
-        }));
         vec![boxed(DecoratedBox::new().child(stack).class(if full { "screen-wrap full" } else { "screen-wrap" }))]
     }))
 }
@@ -448,7 +402,9 @@ fn record_button(st: St, id: String) -> W {
     boxed(Tooltip::new(b, t!("Запись экрана гостя в видео (Видео/Записи экрана)")).delay_ms(500))
 }
 
-fn toolbar(st: St, id: &str, full: bool) -> W {
+/// Кнопки работы с гостем для верхней панели окна: захват мыши (3D), сочетания клавиш, буфер
+/// обмена, снимок, запись, разрешение под окно, режим экрана, DLSS.
+pub(super) fn guest_tools(st: St, id: &str) -> Vec<W> {
     let (a, b, c, d, e) = (id.to_string(), id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
     let size = match state::desktop_layer(id).filter(|_| st.vm(id).is_some_and(|v| state::display_now(&v) == model::DisplayModel::SynGpu)) {
@@ -459,90 +415,48 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     // Кадры от syn-gpu (основная видеокарта или 3D) — их можно пропустить через DLSS 5.
     let syn_gpu = gpu3d || st.vm(id).is_some_and(|v| state::display_now(&v) == model::DisplayModel::SynGpu);
     let cap_id = id.to_string();
-    // Ручка: тянуть панель в любое место экрана; двойной щелчок — сверху по центру.
-    let grip = GestureDetector::new()
-        .cursor(CursorIcon::Move)
-        .on_pan_update(move |u| {
-            let mut o = bar_offset().lock().unwrap();
-            *o = clamp_offset(st, (o.0 + u.delta.x, o.1 + u.delta.y));
-            drop(o);
-            state::poke(st);
-        })
-        .on_pan_end(|_| save_bar(*bar_offset().lock().unwrap()))
-        .on_double_click(move || {
-            *bar_offset().lock().unwrap() = (0.0, 0.0);
-            save_bar((0.0, 0.0));
-            state::poke(st);
-        })
-        .child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
-    // Свернуть/развернуть: кнопка сразу за ручкой, на том же месте в обоих видах.
-    let _ = bar_offset();
-    let mini = BAR_MINI.load(Ordering::Relaxed);
-    let fold = icon_btn(
-        if mini { icons::CHEVRON_RIGHT } else { icons::CHEVRON_LEFT },
-        if mini { t!("Развернуть панель") } else { t!("Свернуть панель") },
-        move || {
-            BAR_MINI.store(!BAR_MINI.load(Ordering::Relaxed), Ordering::Relaxed);
-            st.keys_menu.set(false);
-            st.modes_menu.set(false);
-            save_bar(*bar_offset().lock().unwrap());
-            state::poke(st);
-        },
-    );
-    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip).child(fold);
-    if mini {
-        // Свёрнута: идущая запись остаётся видна (и её можно остановить).
-        let recording = st.live.get_untracked().get(id).is_some_and(|l| l.rec_since != 0);
-        let bar = bar.children(recording.then(|| record_button(st, id.to_string())));
-        let bar = DecoratedBox::new().child(bar).class("float-bar mini");
-        let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
-        return boxed(
-            Column::new()
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(bar)
-                .class("float-wrap")
-                .style("padding-top", StyleValue::px(10.0 + dy))
-                .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
-                .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
-        );
-    }
-    bar = bar.child(DecoratedBox::new().class("vsep"));
+    let mut out: Vec<W> = Vec::new();
     if gpu3d {
         // Захват мыши для игр (камера в 3D-играх читает сырые смещения); Ctrl+Alt — выход.
-        bar = bar
-            .child(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)"), move || {
-                if let Some(vm) = st.vm(&cap_id) {
-                    super::capture::log(&vm, "нажата кнопка захвата");
-                    super::capture::start(st, &vm);
-                }
-            }))
-            .child(DecoratedBox::new().class("vsep"));
+        out.push(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)"), move || {
+            if let Some(vm) = st.vm(&cap_id) {
+                super::capture::log(&vm, "нажата кнопка захвата");
+                super::capture::start(st, &vm);
+            }
+        }));
     }
-    let bar = bar
-        .child(icon_btn(icons::KEYBOARD, t!("Ctrl+Alt+Del"), move || combo(&a, keymap::CTRL_ALT_DEL)))
-        .child(icon_btn(icons::MORE, t!("Другие сочетания"), move || {
-            st.modes_menu.set(false);
-            st.keys_menu.set(!st.keys_menu.get_untracked());
-        }))
-        .child(DecoratedBox::new().class("vsep"))
-        .child(icon_btn(icons::PASTE, t!("Напечатать текст из буфера (Ctrl+Alt+V)"), move || type_clipboard(&b)))
-        .child(icon_btn(icons::CAMERA, t!("Снимок экрана"), move || state::screenshot(st, &c)))
-        .child(record_button(st, id.to_string()))
-        .child(icon_btn(
-            icons::FIT,
-            if auto { t!("Разрешение под окно: включено") } else { t!("Разрешение под окно: выключено") },
-            move || {
-                state::edit(st, |v| v.auto_resize = !v.auto_resize);
-                state::fit_guest(st);
-                let on = st.vm(&d).map(|v| v.auto_resize).unwrap_or(false);
-                state::toast(st, if on { t!("Разрешение гостя подстраивается под окно") } else { t!("Разрешение гостя больше не меняется") });
-            },
-        ))
-        .child(mode_button(st, &e, size))
-        .children(syn_gpu.then(|| dlss_button(st, id)))
-        .child(DecoratedBox::new().class("vsep"))
-        .child(icon_btn(if full { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }, t!("Во весь экран (Ctrl+Alt+F)"), move || toggle_full(st)));
-    let bar = DecoratedBox::new().child(bar).class(if auto { "float-bar auto" } else { "float-bar" });
+    out.push(icon_btn(icons::KEYBOARD, t!("Ctrl+Alt+Del"), move || combo(&a, keymap::CTRL_ALT_DEL)));
+    out.push(icon_btn(icons::MORE, t!("Другие сочетания"), move || {
+        st.modes_menu.set(false);
+        st.keys_menu.set(!st.keys_menu.get_untracked());
+    }));
+    out.push(icon_btn(icons::PASTE, t!("Напечатать текст из буфера (Ctrl+Alt+V)"), move || type_clipboard(&b)));
+    out.push(icon_btn(icons::CAMERA, t!("Снимок экрана"), move || state::screenshot(st, &c)));
+    out.push(record_button(st, id.to_string()));
+    out.push(icon_btn(
+        icons::FIT,
+        if auto { t!("Разрешение под окно: включено") } else { t!("Разрешение под окно: выключено") },
+        move || {
+            state::edit(st, |v| v.auto_resize = !v.auto_resize);
+            state::fit_guest(st);
+            let on = st.vm(&d).map(|v| v.auto_resize).unwrap_or(false);
+            state::toast(st, if on { t!("Разрешение гостя подстраивается под окно") } else { t!("Разрешение гостя больше не меняется") });
+        },
+    ));
+    out.push(mode_button(st, &e, size));
+    if syn_gpu {
+        out.push(dlss_button(st, id));
+    }
+    out
+}
+
+/// Идёт запись экрана гостя (кнопка остаётся и на свёрнутой панели).
+pub(super) fn recording(st: St, id: &str) -> Option<W> {
+    st.live.get_untracked().get(id).is_some_and(|l| l.rec_since != 0).then(|| record_button(st, id.to_string()))
+}
+
+/// Списки под верхней панелью: сочетания клавиш и режимы экрана.
+pub(super) fn guest_menus(st: St, id: &str) -> W {
     let id2 = id.to_string();
     let menu = Reactive::new(move || -> Vec<W> {
         if !st.keys_menu.get() {
@@ -578,20 +492,7 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
                 .class("menu"),
         )]
     });
-    // Сверху по центру со сдвигом: отступ слева/справа сдвигает центр, сверху — вниз.
-    let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
-    // Панель и её списки: нажатие в любом месте окна мимо них (шапка, вкладки, список машин,
-    // заголовок) закрывает открытый список; кнопки самой панели — внутри и переключают его сами.
-    let panel = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(bar).child(menu).child(modes_menu(st, id.to_string()));
-    boxed(
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(syngui::widgets::ClickAway::new(panel).on_away(move || close_menus(st)))
-            .class("float-wrap")
-            .style("padding-top", StyleValue::px(10.0 + dy))
-            .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
-            .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
-    )
+    boxed(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(menu).child(modes_menu(st, id.to_string())))
 }
 
 // ─── Режим экрана и масштаб: кнопка и выпадающий список ─────────────────
@@ -1024,7 +925,7 @@ fn waiting(text: String) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(CircularProgress::new().indeterminate().size(36.0).stroke_width(3.5))
             .child(Text::new(text).class("muted"))
-            .class("screen-wrap"),
+            .class("screen-wrap fill"),
     )
 }
 
@@ -1033,7 +934,7 @@ fn off(st: St, vm: &crate::model::Vm, busy: Option<String>) -> W {
     let id = vm.id.clone();
     let mut stack = Stack::new().fit(StackFit::Expand);
     if let Some(f) = state::thumb(vm) {
-        stack = stack.child(DecoratedBox::new().child(LiveView::new(f).class("screen")).style("opacity", StyleValue::Number(0.35)));
+        stack = stack.child(DecoratedBox::new().child(LiveView::new(f).fit(ImageFit::Contain).class("screen")).style("opacity", StyleValue::Number(0.35)));
     }
     let action: W = match busy {
         Some(b) => boxed(
@@ -1053,7 +954,12 @@ fn off(st: St, vm: &crate::model::Vm, busy: Option<String>) -> W {
                         .on_click(move || state::start(st, &id))
                         .child(DecoratedBox::new().child(Icon::new(icons::PLAY).class("big-play-icon")).class("big-play")),
                 )
-                .child(Text::new(t!("Машина выключена")).class("veil-title"))
+                .child(Text::new(vm.name.clone()).max_lines(1).class("off-name"))
+                .child(
+                    Text::new(format!("{} · {} · {} · {}", t!("Выключена"), syngui::i18n::t(vm.os.title()), parts::cores(vm.cpus), parts::mem_mb(vm.memory_mb)))
+                        .max_lines(1)
+                        .class("off-sub"),
+                )
                 .child(Text::new(if vm.cdrom.is_empty() { t!("Нажмите, чтобы запустить") } else { t!("В приводе: {f}", f = parts::file_name(&vm.cdrom)) }).max_lines(2).class("veil-sub")),
         ),
     };

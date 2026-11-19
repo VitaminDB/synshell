@@ -60,7 +60,6 @@ pub mod icons {
     pub const DRAG: &str = "\u{E945}";
     pub const ANDROID: &str = "\u{E859}";
     pub const WINDOW: &str = "\u{F088}";
-    pub const APPS: &str = "\u{E5C3}";
     pub const BOLT: &str = "\u{EA0B}";
     pub const FOLDER_OPEN: &str = "\u{E2C8}";
     pub const CHECK_CIRCLE: &str = "\u{E86C}";
@@ -275,6 +274,10 @@ pub struct St {
     pub gpu: RwSignal<Option<(String, std::result::Result<crate::gputools::Status, String>)>>,
     /// Устройство syn-gpu и наш драйвер в госте открытой машины (через агент).
     pub gpu_presence: RwSignal<Option<(String, crate::gputools::Presence)>>,
+    /// Открыт переключатель машин (карусель сверху).
+    pub switcher: RwSignal<bool>,
+    /// Окно перенесено на свой рабочий стол synshell: индекс стола (с 0), откуда пришли.
+    pub desk_from: RwSignal<Option<u32>>,
 }
 
 impl St {
@@ -309,6 +312,8 @@ impl St {
             tools: use_signal(None),
             gpu: use_signal(None),
             gpu_presence: use_signal(None),
+            switcher: use_signal(false),
+            desk_from: use_signal(None),
         }
     }
 

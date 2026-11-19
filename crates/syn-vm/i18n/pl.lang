@@ -516,6 +516,20 @@
 "Не удалось подключить мышь для игр: {e}" = "Nie udało się podłączyć myszy do gier: {e}"
 "Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Mysz przechwycona przez grę — Ctrl+Alt, aby zwolnić"
 
+# src/ui/chrome.rs
+"Настройки машины" = "Ustawienia maszyny"
+"Вернуть окно на прежний рабочий стол" = "Przenieś okno z powrotem na poprzedni obszar roboczy"
+"На свой рабочий стол: машина займёт свободный рабочий стол целиком" = "Na własny obszar roboczy: maszyna zajmie cały wolny obszar"
+"Машины: переключить, создать" = "Maszyny: przełącz, utwórz"
+"Закрыть (Esc)" = "Zamknij (Esc)"
+"Поиск машины" = "Szukaj maszyny"
+"{all} · работают {n}" = "{all} · uruchomione: {n}"
+"Дальше" = "Dalej"
+"Из образа системы или диска" = "Z obrazu systemu lub dysku"
+"нет связи с synwm: {e}" = "brak połączenia z synwm: {e}"
+"synwm не нашёл окно машин" = "synwm nie znalazł okna maszyn"
+"Свободного рабочего стола нет — машина во весь экран на этом. Число столов — в Параметрах → Рабочие столы." = "Brak wolnego obszaru roboczego — maszyna działa na pełnym ekranie na bieżącym. Liczbę obszarów ustawisz w Ustawienia → Obszary robocze."
+
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Utwórz maszynę z obrazu systemu — Linux, Windows, BSD"
 "{n} всего · {r} работает" = "Łącznie {n} · uruchomione {r}"

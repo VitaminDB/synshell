@@ -513,6 +513,20 @@
 "Не удалось подключить мышь для игр: {e}" = "Oyun faresi bağlanamadı: {e}"
 "Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Fare oyun tarafından yakalandı — bırakmak için Ctrl+Alt"
 
+# src/ui/chrome.rs
+"Настройки машины" = "Makine ayarları"
+"Вернуть окно на прежний рабочий стол" = "Pencereyi önceki çalışma alanına geri taşı"
+"На свой рабочий стол: машина займёт свободный рабочий стол целиком" = "Kendi çalışma alanına: makine boş bir çalışma alanını tamamen kaplar"
+"Машины: переключить, создать" = "Makineler: geçiş yap, oluştur"
+"Закрыть (Esc)" = "Kapat (Esc)"
+"Поиск машины" = "Makine ara"
+"{all} · работают {n}" = "{all} · {n} çalışıyor"
+"Дальше" = "İleri"
+"Из образа системы или диска" = "Sistem kalıbından veya diskten"
+"нет связи с synwm: {e}" = "synwm ile bağlantı yok: {e}"
+"synwm не нашёл окно машин" = "synwm makineler penceresini bulamadı"
+"Свободного рабочего стола нет — машина во весь экран на этом. Число столов — в Параметрах → Рабочие столы." = "Boş çalışma alanı yok — makine bu alanda tam ekran açılır. Çalışma alanı sayısı: Ayarlar → Çalışma alanları."
+
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Sistem kalıbından makine oluşturun — Linux, Windows, BSD"
 "{n} всего · {r} работает" = "toplam {n} · {r} çalışıyor"

@@ -19,7 +19,7 @@ pub fn page(st: St, narrow: bool) -> W {
         let busy = st.busy.get();
         st.thumb_tick.get();
         let vw = viewport_size().get().width;
-        let w = if narrow { vw - 28.0 } else { (vw - 290.0 - 56.0).max(320.0) };
+        let w = if narrow { vw - 28.0 } else { (vw - 56.0).max(320.0) };
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         col = col.child(head(st, &vms, &live, narrow));
         if let Some(b) = host_banner() {
@@ -40,7 +40,7 @@ pub fn page(st: St, narrow: bool) -> W {
                 .collect();
             col = col.child(Grid::new(cols).gap(gap).children(cards));
         }
-        vec![boxed(col.class(if narrow { "page narrow" } else { "page" }))]
+        vec![boxed(col.class(if narrow { "page narrow" } else { "page under-bar" }))]
     });
     let mut stack = Stack::new().fit(StackFit::Expand).child(ScrollView::new().vertical().child(content));
     if narrow {
