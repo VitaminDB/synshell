@@ -535,7 +535,13 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let (local, guest) = (a.pos(1, n_!("ФАЙЛ"))?, a.pos(2, n_!("ПУТЬ_В_ГОСТЕ"))?);
-            let n = if use_agent(&vm, a)? { crate::agent::Client::connect(&vm)?.push(Path::new(&local), &guest)? } else { qga::push(&vm, Path::new(&local), &guest)? };
+            let n = if let Some(n) = share_push(&vm, a, Path::new(&local), &guest)? {
+                n
+            } else if use_agent(&vm, a)? {
+                crate::agent::Client::connect(&vm)?.push(Path::new(&local), &guest)?
+            } else {
+                qga::push(&vm, Path::new(&local), &guest)?
+            };
             eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
@@ -543,7 +549,13 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let (guest, local) = (a.pos(1, n_!("ПУТЬ_В_ГОСТЕ"))?, a.pos(2, n_!("ФАЙЛ"))?);
-            let n = if use_agent(&vm, a)? { crate::agent::Client::connect(&vm)?.pull(&guest, Path::new(&local))? } else { qga::pull(&vm, &guest, Path::new(&local))? };
+            let n = if let Some(n) = share_pull(&vm, a, &guest, Path::new(&local))? {
+                n
+            } else if use_agent(&vm, a)? {
+                crate::agent::Client::connect(&vm)?.pull(&guest, Path::new(&local))?
+            } else {
+                qga::pull(&vm, &guest, Path::new(&local))?
+            };
             eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
@@ -1215,6 +1227,94 @@ fn get_key(t: &toml::Value, k: &str) -> Option<String> {
 /// `ключ=значение`: значение разбирается как TOML (`4`, `true`, `[…]`), иначе — строка.
 /// Идти через свой агент: не просили qemu-ga (--qga, --detach) и агент на связи; --user —
 /// только через него.
+/// Старая Windows (XP; агент 9x/XP на COM — медленно) с общей папкой SMB: файлы — через неё. `None` — не тот случай.
+fn share_xfer_root(vm: &Vm, a: &Args) -> Option<(PathBuf, String)> {
+    if a.has("--qga") || vm.os != model::OsKind::WindowsXp || vm.share() != Some(model::ShareMode::Smb) || !crate::agent::online(vm) {
+        return None;
+    }
+    let dir = PathBuf::from(vm.share_dirs().into_iter().next()?);
+    Some((dir, r"\\10.0.2.4\qemu".to_string()))
+}
+
+/// Каталог обмена в общей папке (своё имя на вызов) и его путь в госте.
+fn share_xfer_dir(root: &Path, unc: &str) -> Result<(PathBuf, String)> {
+    let tag = format!("{}-{}", std::process::id(), model::now());
+    let host = root.join(".syn-vm").join(&tag);
+    std::fs::create_dir_all(&host)?;
+    Ok((host, format!(r"{unc}\.syn-vm\{tag}")))
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> Result<u64> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dst)?;
+        let mut n = 0;
+        for e in std::fs::read_dir(src)?.flatten() {
+            n += copy_tree(&e.path(), &dst.join(e.file_name()))?;
+        }
+        Ok(n)
+    } else {
+        Ok(std::fs::copy(src, dst).with_context(|| src.display().to_string())?)
+    }
+}
+
+/// Команда гостя через агент (cmd /c …): код выхода. xcopy без настоящего stdin молча выходит — `< NUL`.
+fn guest_cmd(vm: &Vm, line: &str) -> Result<i32> {
+    let argv = vec!["cmd".to_string(), "/c".to_string(), line.to_string()];
+    let mut err = Vec::new();
+    let r = crate::agent::Client::connect(vm)?.exec(&argv, false, None, &[], None, std::time::Duration::from_secs(600), &mut |k, d| {
+        if k == 2 {
+            err.extend_from_slice(d);
+        }
+    })?;
+    if r.code != 0 {
+        eprintln!("{}", String::from_utf8_lossy(&err));
+    }
+    Ok(r.code)
+}
+
+/// --push через общую папку: файл/каталог — в папку хоста, гость копирует его к себе (xcopy).
+fn share_push(vm: &Vm, a: &Args, local: &Path, guest: &str) -> Result<Option<u64>> {
+    let Some((root, unc)) = share_xfer_root(vm, a) else { return Ok(None) };
+    let (host, gdir) = share_xfer_dir(&root, &unc)?;
+    let name = local.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    let n = copy_tree(local, &host.join(&name))?;
+    let line = if local.is_dir() {
+        format!(r#"xcopy "{gdir}\{name}" "{guest}" /E /I /Y /Q < NUL"#)
+    } else {
+        format!(r#"copy /y "{gdir}\{name}" "{guest}""#)
+    };
+    let code = guest_cmd(vm, &line);
+    let _ = std::fs::remove_dir_all(&host);
+    let _ = std::fs::remove_dir(root.join(".syn-vm"));
+    match code? {
+        0 => Ok(Some(n)),
+        c => bail!("{}", t!("копирование в госте через общую папку не удалось (код {c})", c = c)),
+    }
+}
+
+/// --pull через общую папку: гость копирует файл/каталог в папку хоста, оттуда — на место.
+fn share_pull(vm: &Vm, a: &Args, guest: &str, local: &Path) -> Result<Option<u64>> {
+    let Some((root, unc)) = share_xfer_root(vm, a) else { return Ok(None) };
+    let (host, gdir) = share_xfer_dir(&root, &unc)?;
+    let name = guest.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next().unwrap_or("file").to_string();
+    // Каталог? (одна простая команда — скобки if/else агент XP не передаёт)
+    let is_dir = guest_cmd(vm, &format!(r#"if exist "{guest}\*" exit 7"#))? == 7;
+    let line = if is_dir {
+        format!(r#"xcopy "{guest}" "{gdir}\{name}" /E /I /Y /Q < NUL"#)
+    } else {
+        format!(r#"copy /y "{guest}" "{gdir}\{name}""#)
+    };
+    let code = guest_cmd(vm, &line)?;
+    if code != 0 {
+        let _ = std::fs::remove_dir_all(&host);
+        bail!("{}", t!("копирование из гостя через общую папку не удалось (код {c})", c = code));
+    }
+    let r = copy_tree(&host.join(&name), local);
+    let _ = std::fs::remove_dir_all(&host);
+    let _ = std::fs::remove_dir(root.join(".syn-vm"));
+    Ok(Some(r?))
+}
+
 fn use_agent(vm: &Vm, a: &Args) -> Result<bool> {
     if a.has("--qga") {
         if a.has("--user") {
