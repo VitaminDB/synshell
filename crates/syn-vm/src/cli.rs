@@ -1227,21 +1227,45 @@ fn get_key(t: &toml::Value, k: &str) -> Option<String> {
 /// `ключ=значение`: значение разбирается как TOML (`4`, `true`, `[…]`), иначе — строка.
 /// Идти через свой агент: не просили qemu-ga (--qga, --detach) и агент на связи; --user —
 /// только через него.
-/// Старая Windows (XP; агент 9x/XP на COM — медленно) с общей папкой SMB: файлы — через неё. `None` — не тот случай.
-fn share_xfer_root(vm: &Vm, a: &Args) -> Option<(PathBuf, String)> {
-    if a.has("--qga") || vm.os != model::OsKind::WindowsXp || vm.share() != Some(model::ShareMode::Smb) || !crate::agent::online(vm) {
-        return None;
-    }
-    let dir = PathBuf::from(vm.share_dirs().into_iter().next()?);
-    Some((dir, r"\\10.0.2.4\qemu".to_string()))
+/// Обмен файлами через общую папку: XP — SMB (`\\10.0.2.4\qemu`, cmd), Windows 9x — диск H: SYNSHARE (command.com,
+/// имена 8.3). Агент старых систем на COM медленный — файлы идут через папку. `None` — не тот случай.
+struct Xfer {
+    root: PathBuf,
+    /// Путь корня папки в госте.
+    guest: String,
+    nt: bool,
 }
 
-/// Каталог обмена в общей папке (своё имя на вызов) и его путь в госте.
-fn share_xfer_dir(root: &Path, unc: &str) -> Result<(PathBuf, String)> {
-    let tag = format!("{}-{}", std::process::id(), model::now());
-    let host = root.join(".syn-vm").join(&tag);
+fn share_xfer_root(vm: &Vm, a: &Args) -> Option<Xfer> {
+    if a.has("--qga") || !crate::agent::online(vm) {
+        return None;
+    }
+    let root = PathBuf::from(vm.share_dirs().into_iter().next()?);
+    if vm.os == model::OsKind::WindowsXp && vm.share() == Some(model::ShareMode::Smb) {
+        return Some(Xfer { root, guest: r"\\10.0.2.4\qemu".into(), nt: true });
+    }
+    // Windows 9x с агентом и syn-gpu (SYNSHARE ходит в файловый сервер syn-vga).
+    let agent = crate::agent::Client::connect(vm).ok()?.info().ok()??.agent;
+    (agent.contains("-9x") && vm.os != model::OsKind::WindowsXp && vm.gpu_on()).then(|| Xfer { root, guest: "H:".into(), nt: false })
+}
+
+/// Каталог обмена в общей папке (своё имя на вызов, 8.3) и его путь в госте.
+fn share_xfer_dir(x: &Xfer) -> Result<(PathBuf, String)> {
+    let tag = format!("T{:07}", (std::process::id() as u64 * 1000 + model::now() % 1000) % 10_000_000);
+    let host = x.root.join("SVXFER").join(&tag);
     std::fs::create_dir_all(&host)?;
-    Ok((host, format!(r"{unc}\.syn-vm\{tag}")))
+    Ok((host, format!(r"{}\SVXFER\{tag}", x.guest)))
+}
+
+fn share_xfer_done(x: &Xfer, host: &Path) {
+    let _ = std::fs::remove_dir_all(host);
+    let _ = std::fs::remove_dir(x.root.join("SVXFER"));
+}
+
+/// Имя годится для DOS (8.3) — его увидит Windows 9x на диске SYNSHARE как есть.
+fn is_83(name: &str) -> bool {
+    let (b, e) = name.rsplit_once('.').unwrap_or((name, ""));
+    !b.is_empty() && b.len() <= 8 && e.len() <= 3 && !e.contains('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || "!#$%&'()-@^_`{}~.".contains(c))
 }
 
 fn copy_tree(src: &Path, dst: &Path) -> Result<u64> {
@@ -1258,8 +1282,14 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<u64> {
 }
 
 /// Команда гостя через агент (cmd /c …): код выхода. xcopy без настоящего stdin молча выходит — `< NUL`.
-fn guest_cmd(vm: &Vm, line: &str) -> Result<i32> {
-    let argv = vec!["cmd".to_string(), "/c".to_string(), line.to_string()];
+fn guest_cmd(vm: &Vm, nt: bool, line: &str) -> Result<i32> {
+    // Агент 9x склеивает argv, беря в кавычки слова с пробелами: строка для command.com — словами.
+    let mut argv = vec![if nt { "cmd" } else { "command" }.to_string(), "/c".to_string()];
+    if nt {
+        argv.push(line.to_string());
+    } else {
+        argv.extend(line.split_whitespace().map(str::to_string));
+    }
     let mut err = Vec::new();
     let r = crate::agent::Client::connect(vm)?.exec(&argv, false, None, &[], None, std::time::Duration::from_secs(600), &mut |k, d| {
         if k == 2 {
@@ -1274,18 +1304,58 @@ fn guest_cmd(vm: &Vm, line: &str) -> Result<i32> {
 
 /// --push через общую папку: файл/каталог — в папку хоста, гость копирует его к себе (xcopy).
 fn share_push(vm: &Vm, a: &Args, local: &Path, guest: &str) -> Result<Option<u64>> {
-    let Some((root, unc)) = share_xfer_root(vm, a) else { return Ok(None) };
-    let (host, gdir) = share_xfer_dir(&root, &unc)?;
+    let Some(x) = share_xfer_root(vm, a) else { return Ok(None) };
     let name = local.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    if !x.nt && !is_83(&name) {
+        return Ok(None); // длинное имя 9x увидит как NAME~1 — через агента
+    }
+    let (host, gdir) = share_xfer_dir(&x)?;
     let n = copy_tree(local, &host.join(&name))?;
+    if !x.nt && local.is_dir() {
+        // xcopy у 9x (xcopy32) с диском SYNSHARE не работает (висит, не обратившись к нему): .BAT из md/copy.
+        let mut bat = format!("@echo off\r\nmd \"{guest}\"\r\n");
+        let mut ok83 = true;
+        fn walk(dir: &Path, rel: &str, bat: &mut String, ok83: &mut bool, src: &str, dst: &str) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let nm = e.file_name().to_string_lossy().into_owned();
+                *ok83 &= is_83(&nm);
+                let r = if rel.is_empty() { nm.clone() } else { format!(r"{rel}\{nm}") };
+                if e.path().is_dir() {
+                    bat.push_str(&format!("md \"{dst}\\{r}\"\r\n"));
+                    walk(&e.path(), &r, bat, ok83, src, dst);
+                } else {
+                    bat.push_str(&format!("copy /y \"{src}\\{r}\" \"{dst}\\{r}\"\r\n"));
+                }
+            }
+        }
+        walk(local, "", &mut bat, &mut ok83, &format!(r"{gdir}\{name}"), guest);
+        if !ok83 {
+            share_xfer_done(&x, &host);
+            return Ok(None);
+        }
+        bat.push_str(&format!("if exist \"{guest}\\NUL\" md {gdir}\\OK\r\n"));
+        std::fs::write(host.join("DO.BAT"), bat)?;
+        let r = guest_cmd(vm, false, &format!(r"{gdir}\DO.BAT"));
+        let ok = host.join("OK").exists();
+        share_xfer_done(&x, &host);
+        r?;
+        if !ok {
+            bail!("{}", t!("копирование в госте через общую папку не удалось (код {c})", c = 1));
+        }
+        return Ok(Some(n));
+    }
     let line = if local.is_dir() {
         format!(r#"xcopy "{gdir}\{name}" "{guest}" /E /I /Y /Q < NUL"#)
     } else {
         format!(r#"copy /y "{gdir}\{name}" "{guest}""#)
     };
-    let code = guest_cmd(vm, &line);
-    let _ = std::fs::remove_dir_all(&host);
-    let _ = std::fs::remove_dir(root.join(".syn-vm"));
+    let code = if x.nt {
+        guest_cmd(vm, true, &line)
+    } else {
+        // Код выхода через агента 9x ненадёжен: метка (каталог; вывод команды агент сам перенаправляет) — копия на месте.
+        guest_cmd(vm, false, &line).and_then(|_| guest_cmd(vm, false, &format!(r#"if exist "{guest}" md {gdir}\OK"#))).map(|_| if host.join("OK").exists() { 0 } else { 1 })
+    };
+    share_xfer_done(&x, &host);
     match code? {
         0 => Ok(Some(n)),
         c => bail!("{}", t!("копирование в госте через общую папку не удалось (код {c})", c = c)),
@@ -1294,24 +1364,63 @@ fn share_push(vm: &Vm, a: &Args, local: &Path, guest: &str) -> Result<Option<u64
 
 /// --pull через общую папку: гость копирует файл/каталог в папку хоста, оттуда — на место.
 fn share_pull(vm: &Vm, a: &Args, guest: &str, local: &Path) -> Result<Option<u64>> {
-    let Some((root, unc)) = share_xfer_root(vm, a) else { return Ok(None) };
-    let (host, gdir) = share_xfer_dir(&root, &unc)?;
+    let Some(x) = share_xfer_root(vm, a) else { return Ok(None) };
+    let (host, gdir) = share_xfer_dir(&x)?;
     let name = guest.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next().unwrap_or("file").to_string();
-    // Каталог? (одна простая команда — скобки if/else агент XP не передаёт)
-    let is_dir = guest_cmd(vm, &format!(r#"if exist "{guest}\*" exit 7"#))? == 7;
-    let line = if is_dir {
-        format!(r#"xcopy "{guest}" "{gdir}\{name}" /E /I /Y /Q < NUL"#)
+    // В папке хоста — 8.3-имя (9x), на месте — исходное.
+    let tmp = if x.nt { name.clone() } else { "DATA".to_string() };
+    // Каталог? (одна простая команда — скобки if/else агент XP не передаёт; у 9x — метка в папке)
+    let is_dir = if x.nt {
+        guest_cmd(vm, true, &format!(r#"if exist "{guest}\*" exit 7"#))? == 7
     } else {
-        format!(r#"copy /y "{guest}" "{gdir}\{name}""#)
+        guest_cmd(vm, false, &format!(r#"if exist "{guest}\NUL" md {gdir}\ISDIR"#))?;
+        host.join("ISDIR").exists()
     };
-    let code = guest_cmd(vm, &line)?;
-    if code != 0 {
-        let _ = std::fs::remove_dir_all(&host);
+    if !x.nt && is_dir {
+        // Без xcopy (см. share_push): файлы — в папку под номерами F1, F2…, раскладка по местам — на хосте.
+        let entries = crate::agent::Client::connect(vm)?.list(guest)?;
+        let files: Vec<_> = entries.iter().filter(|e| !e.dir).collect();
+        let mut bat = String::from("@echo off\r\n");
+        for (i, e) in files.iter().enumerate() {
+            bat.push_str(&format!("copy /y \"{guest}\\{}\" {gdir}\\F{}\r\n", e.path.replace('/', "\\"), i + 1));
+        }
+        bat.push_str(&format!("md {gdir}\\OK\r\n"));
+        std::fs::write(host.join("DO.BAT"), bat)?;
+        let r = guest_cmd(vm, false, &format!(r"{gdir}\DO.BAT"));
+        let res = (|| -> Result<u64> {
+            r?;
+            if !host.join("OK").exists() {
+                bail!("{}", t!("копирование из гостя через общую папку не удалось (код {c})", c = 1));
+            }
+            std::fs::create_dir_all(local)?;
+            for e in entries.iter().filter(|e| e.dir) {
+                std::fs::create_dir_all(local.join(&e.path))?;
+            }
+            let mut n = 0;
+            for (i, e) in files.iter().enumerate() {
+                let dst = local.join(&e.path);
+                if let Some(p) = dst.parent() {
+                    std::fs::create_dir_all(p)?;
+                }
+                n += std::fs::copy(host.join(format!("F{}", i + 1)), &dst).with_context(|| e.path.clone())?;
+            }
+            Ok(n)
+        })();
+        share_xfer_done(&x, &host);
+        return res.map(Some);
+    }
+    let line = if is_dir {
+        format!(r#"xcopy "{guest}" "{gdir}\{tmp}" /E /I /Y /Q < NUL"#)
+    } else {
+        format!(r#"copy /y "{guest}" "{gdir}\{tmp}""#)
+    };
+    let code = guest_cmd(vm, x.nt, &line)?;
+    if code != 0 || !host.join(&tmp).exists() {
+        share_xfer_done(&x, &host);
         bail!("{}", t!("копирование из гостя через общую папку не удалось (код {c})", c = code));
     }
-    let r = copy_tree(&host.join(&name), local);
-    let _ = std::fs::remove_dir_all(&host);
-    let _ = std::fs::remove_dir(root.join(".syn-vm"));
+    let r = copy_tree(&host.join(&tmp), local);
+    share_xfer_done(&x, &host);
     Ok(Some(r?))
 }
 
