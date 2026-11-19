@@ -358,6 +358,11 @@ pub fn guest_cursor(id: &str, draw: bool) -> Option<(crate::present::GuestCursor
     p.cursor().map(|c| (c, p.cursor_frame()))
 }
 
+/// Гость спрятал курсор (по сообщениям CURSOR сервера syn-gpu).
+pub fn guest_cursor_hidden(id: &str) -> bool {
+    presents().lock().unwrap().get(id).is_some_and(|p| p.guest_hidden())
+}
+
 /// Рабочий стол гостя на карте syn-gpu (кадры DESKTOP).
 pub fn desktop_layer(id: &str) -> Option<crate::present::Layer> {
     presents().lock().unwrap().get(id).and_then(|p| p.desktop())

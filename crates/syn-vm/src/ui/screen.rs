@@ -111,7 +111,7 @@ pub fn page(st: St, full: bool) -> W {
             // (аппаратный, от syn-gpu) рисуется в кадре, в его месте.
             let cursor_layer: Option<W> = state::guest_cursor(&id, syn_display && super::capture::active(&id)).and_then(|(c, f)| {
                 let (x, y, w, h) = game_rect(st, fit, integer, guest, (c.x, c.y, c.width, c.height))?;
-                Some(boxed(Positioned::new(LiveView::new(f).fit(ImageFit::Fill).pixelated(true)).at(x, y).dimensions(w, h)))
+                Some(boxed(Positioned::new(LiveView::new(f).fit(ImageFit::Fill).pixelated(true).transparent(true)).at(x, y).dimensions(w, h)))
             });
             let screen: W = match cursor_layer {
                 Some(cl) => boxed(Stack::new().fit(StackFit::Expand).child(screen).child(cl)),
@@ -189,6 +189,30 @@ pub fn close_menus(st: St) {
 
 /// Щелчок по полноэкранной игре (flags&2) у машины с 3D — захват мыши; сам щелчок уходит гостю.
 /// Окно игры не во весь экран — обычный щелчок (меню, лаунчеры): захват — кнопкой или Ctrl+Alt+G.
+/// Автозахват мыши (машины с syn-gpu): курсор гостя спрятан, а мышь двигают дольше 250 мс подряд — игра с
+/// обзором мышью (с планшетом она возвращает курсор в центр и получает огромные сдвиги: «бешеная
+/// чувствительность»). Порог отсекает Windows, прячущую курсор при наборе текста: от движения он сразу виден.
+fn auto_capture(st: St, id: &str) {
+    static SINCE: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+    let mut g = SINCE.lock().unwrap();
+    if !state::guest_cursor_hidden(id) {
+        *g = None;
+        return;
+    }
+    match g.as_ref() {
+        Some((gid, t)) if gid == id => {
+            if t.elapsed() >= std::time::Duration::from_millis(250) {
+                *g = None;
+                drop(g);
+                if let Some(vm) = st.vm(id).filter(|v| v.gpu_on()) {
+                    super::capture::start_auto(st, &vm);
+                }
+            }
+        }
+        _ => *g = Some((id.to_string(), std::time::Instant::now())),
+    }
+}
+
 fn try_capture(st: St, id: &str) {
     // Гость сам перевёл мышь в относительную (DOS: игра через SYNMOUSE.COM, или мышь PS/2 без
     // драйвера) — захват на его мыши.
@@ -271,6 +295,8 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
         }
     } else if let LiveInput::Down { button: MouseButton::Left, .. } = e {
         try_capture(st, id);
+    } else if let LiveInput::Move { .. } = e {
+        auto_capture(st, id);
     }
     match e {
         LiveInput::Move { x, y } => s.pointer(x, y),

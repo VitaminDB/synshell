@@ -30,6 +30,8 @@ struct Cap {
     locked_seen: bool,
     /// Своя мышь гостя (без `usb-mouse`): на выходе планшет не возвращается.
     own: bool,
+    /// Включён сам: гость спрятал курсор (обзор мышью в игре); снимается, когда курсор снова виден.
+    auto: bool,
 }
 
 /// Машины, у которых активная мышь QEMU сейчас относительная (по `query-mice`).
@@ -126,15 +128,30 @@ pub fn active(id: &str) -> bool {
 /// Включить захват (в фоне: относительная мышь подключается около секунды): мышь гостя —
 /// относительной, указатель — запереть. Итог и ошибки — уведомлением и в журнал.
 pub fn start(st: crate::state::St, vm: &Vm) {
-    begin(st, vm, false)
+    begin(st, vm, false, false)
+}
+
+/// Автозахват: гость спрятал курсор и мышь двигают (игра с обзором мышью — с планшетом она возвращает курсор
+/// в центр и получает огромные сдвиги). Снимается сам, когда курсор гостя снова виден ([`guest_cursor_shown`]).
+pub fn start_auto(st: crate::state::St, vm: &Vm) {
+    log(vm, "курсор гостя спрятан и мышь двигают — автозахват");
+    begin(st, vm, false, true)
+}
+
+/// Курсор гостя снова виден: снять автозахват этой машины (не ручной). Из потока вывода кадров.
+pub fn guest_cursor_shown(id: &str) {
+    let auto = CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == id && c.auto);
+    if auto {
+        run_on_main_thread(|| stop("курсор гостя снова виден"));
+    }
 }
 
 /// Захват на своей относительной мыши гостя (DOS: PS/2, vmmouse в относительном режиме).
 pub fn start_own(st: crate::state::St, vm: &Vm) {
-    begin(st, vm, true)
+    begin(st, vm, true, false)
 }
 
-fn begin(st: crate::state::St, vm: &Vm, own: bool) {
+fn begin(st: crate::state::St, vm: &Vm, own: bool, auto: bool) {
     if CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == vm.id) {
         log(vm, "уже включён — повторный вход пропущен");
         return;
@@ -143,7 +160,7 @@ fn begin(st: crate::state::St, vm: &Vm, own: bool) {
     let v = vm.clone();
     if own {
         log(vm, "своя относительная мышь гостя, запираю указатель");
-        lock(st, v, true);
+        lock(st, v, true, false);
         return;
     }
     std::thread::spawn(move || {
@@ -155,11 +172,11 @@ fn begin(st: crate::state::St, vm: &Vm, own: bool) {
             return;
         }
         log(&v, "мышь активна, запираю указатель");
-        run_on_main_thread(move || lock(st, v, false));
+        run_on_main_thread(move || lock(st, v, false, auto));
     });
 }
 
-fn lock(st: crate::state::St, vm: Vm, own: bool) {
+fn lock(st: crate::state::St, vm: Vm, own: bool, auto: bool) {
     if let Err(e) = syngui::signal::set_pointer_lock(true) {
         log(&vm, &format!("указатель не заперся: {e}"));
         if !own {
@@ -277,7 +294,7 @@ fn lock(st: crate::state::St, vm: Vm, own: bool) {
     syngui::signal::on_raw_motion(Some(Box::new(move |dx, dy| {
         let _ = mtx.send(Ev::Motion(dx, dy));
     })));
-    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false, own });
+    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false, own, auto });
     log(&vm, "включён");
     // Панель над экраном — скрыть (перерисовка).
     crate::state::poke(st);
