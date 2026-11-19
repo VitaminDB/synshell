@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use syngui::signal::RwSignal;
@@ -390,12 +391,14 @@ struct Shared {
     conn: Connection,
     sig: TraySignals,
     icon_px: i32,
-    watcher: Option<Arc<Mutex<WatcherState>>>,
+    watcher: Arc<Mutex<WatcherState>>,
+    /// Имя наблюдателя наше (иначе список берём у чужого).
+    own: AtomicBool,
 }
 
 fn watcher_items(sh: &Shared) -> Vec<String> {
-    if let Some(w) = &sh.watcher {
-        return w.lock().unwrap().items.clone();
+    if sh.own.load(Ordering::Relaxed) {
+        return sh.watcher.lock().unwrap().items.clone();
     }
     Proxy::new(&sh.conn, WATCHER, WATCHER_PATH, WATCHER)
         .ok()
@@ -447,23 +450,32 @@ pub fn start(sig: TraySignals, icon_px: i32) {
 
 fn run(sig: TraySignals, icon_px: i32, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> zbus::Result<()> {
     let conn = Connection::session()?;
-    // Свой наблюдатель, если на шине его ещё нет.
+    // Свой наблюдатель — без вытеснения и с очередью (как имя уведомлений):
+    // вторая оболочка (вложенный synwm для проверок) не отбирает трей у живой,
+    // а освободилось имя — его сразу получает следующая в очереди. Раньше zbus
+    // просил «заменить и не ждать»: после выхода второй оболочки имя
+    // оставалось без владельца, и трей пустел до перезапуска оболочки.
     let st = Arc::new(Mutex::new(WatcherState::default()));
-    let own_watcher = match conn.request_name(WATCHER) {
-        Ok(()) => {
-            conn.object_server().at(WATCHER_PATH, Watcher { st: st.clone() })?;
+    conn.object_server().at(WATCHER_PATH, Watcher { st: st.clone() })?;
+    let own_watcher = match conn.request_name_with_flags(WATCHER, zbus::fdo::RequestNameFlags::AllowReplacement.into()) {
+        Ok(zbus::fdo::RequestNameReply::PrimaryOwner | zbus::fdo::RequestNameReply::AlreadyOwner) => {
             log::info!("трей: свой {WATCHER}");
             true
         }
-        Err(_) => {
-            log::info!("трей: {WATCHER} уже есть, становимся хостом");
+        Ok(_) => {
+            log::info!("трей: {WATCHER} уже есть — хост, наблюдатель в очереди");
+            false
+        }
+        Err(e) => {
+            log::warn!("трей: {WATCHER}: {e}");
             false
         }
     };
+    let unique = conn.unique_name().map(|n| n.to_string()).unwrap_or_default();
     let host = format!("org.kde.StatusNotifierHost-{}", std::process::id());
     let _ = conn.request_name(host.as_str());
     let _ = conn.call_method(Some(WATCHER), WATCHER_PATH, Some(WATCHER), "RegisterStatusNotifierHost", &(host.as_str(),));
-    let sh = Arc::new(Shared { conn: conn.clone(), sig, icon_px, watcher: own_watcher.then_some(st) });
+    let sh = Arc::new(Shared { conn: conn.clone(), sig, icon_px, watcher: st, own: AtomicBool::new(own_watcher) });
     resync(&sh);
 
     // Подписки: каждое правило — свой итератор в своём потоке → один канал.
@@ -524,12 +536,23 @@ fn run(sig: TraySignals, icon_px: i32, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> zb
             }
             "NameOwnerChanged" => {
                 let Ok((name, _old, new)) = msg.body().deserialize::<(String, String, String)>() else { continue };
+                if name == WATCHER {
+                    let mine = !unique.is_empty() && new == unique;
+                    if mine && !sh.own.swap(true, Ordering::Relaxed) {
+                        log::info!("трей: {WATCHER} освободился — теперь свой");
+                        let _ = conn.call_method(Some(WATCHER), WATCHER_PATH, Some(WATCHER), "RegisterStatusNotifierHost", &(host.as_str(),));
+                    } else if !mine {
+                        sh.own.store(false, Ordering::Relaxed);
+                    }
+                    let _ = tx.send(Cmd::Resync);
+                    continue;
+                }
                 if !new.is_empty() {
                     continue;
                 }
-                if let Some(w) = &sh.watcher {
+                {
                     let gone: Vec<String> = {
-                        let mut st = w.lock().unwrap();
+                        let mut st = sh.watcher.lock().unwrap();
                         let gone: Vec<String> = st.items.iter().filter(|s| split_item(s).0 == name).cloned().collect();
                         st.items.retain(|s| split_item(s).0 != name);
                         st.hosts.retain(|h| *h != name);
