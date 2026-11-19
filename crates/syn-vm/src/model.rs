@@ -771,6 +771,14 @@ impl Vm {
                 out.push(d.clone());
             }
         }
+        // Старые системы (XP, 9x, DOS: SMB или SYNSHARE.COM) — общая папка есть всегда: не задана — своя папка машины
+        // в «Общедоступных» (~/Public/<машина>), создаётся при первом обращении.
+        if out.is_empty() && self.shared_dir.is_empty() && self.shares.is_empty() && matches!(self.os, OsKind::WindowsXp | OsKind::Other) && self.firmware == Firmware::Bios {
+            let d = synshell_common::paths::user_dir_or_default("PUBLICSHARE").join(&self.name);
+            if std::fs::create_dir_all(&d).is_ok() {
+                out.push(d.to_string_lossy().into_owned());
+            }
+        }
         out
     }
 
