@@ -20,6 +20,7 @@ mod models;
 mod modem;
 mod vpn;
 mod net;
+mod uplinks;
 mod panels;
 mod power;
 mod system;
@@ -172,6 +173,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Устройства"),
         keywords: n_!("беспроводная сеть интернет пароль подключение iwd networkmanager точка доступа"),
         build: net::wifi,
+    },
+    PageDef {
+        id: "uplinks",
+        title: n_!("Подключения к интернету"),
+        icon: "\u{E335}",
+        group: n_!("Устройства"),
+        keywords: n_!("интернет несколько подключений два канала одновременно multipath основной канал usb-модем модем телефон по usb раздача кабель wi-fi торрент загрузки программы synnetd маршрут"),
+        build: uplinks::uplinks,
     },
     PageDef {
         id: "audio",

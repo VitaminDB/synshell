@@ -7336,6 +7336,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-netd"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-nfc"
 version = "0.2.0"
 dependencies = [
@@ -7508,6 +7521,7 @@ dependencies = [
  "syn-assist",
  "syn-assist-voice",
  "syn-modem",
+ "syn-netd",
  "syn-system",
  "synaptix-graph",
  "synaptixd",

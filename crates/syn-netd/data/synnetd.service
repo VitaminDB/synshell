@@ -1,0 +1,14 @@
+[Unit]
+Description=synnetd: несколько подключений к интернету одновременно (основной канал или все сразу, выбор для программ, USB-модемы)
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+ExecStart=/usr/bin/synnetd
+Restart=on-failure
+RestartSec=3
+StateDirectory=synnetd
+StateDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

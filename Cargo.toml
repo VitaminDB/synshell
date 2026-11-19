@@ -15,6 +15,7 @@ members = [
     "crates/syn-settings",
     "crates/syn-files",
     "crates/syn-fsd",
+    "crates/syn-netd",
     "crates/syn-shot",
     "crates/syn-system",
     "crates/syn-pkg",
@@ -80,6 +81,7 @@ syn-modem = { path = "crates/syn-modem" }
 synshell-ui = { path = "crates/synshell-ui" }
 syn-keyboard = { path = "crates/syn-keyboard" }
 syn-fsd = { path = "crates/syn-fsd", default-features = false }
+syn-netd = { path = "crates/syn-netd", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
 synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix-flow = { path = "crates/synaptix-flow" }

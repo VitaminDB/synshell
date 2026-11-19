@@ -7,4 +7,5 @@ post_install() {
         echo ":: или включите экран входа synshell: systemctl enable synlogin.service (и перезагрузите)"
     fi
     echo ":: журнал изменений файлов: systemctl enable --now synfsd (история — в «Свойствах» Проводника)"
+    echo ":: несколько подключений к интернету (Wi-Fi + USB-модем + кабель): systemctl enable --now synnetd (Параметры → Подключения к интернету)"
 }

@@ -73,6 +73,11 @@ documentation in `docs/` is in Russian.
   handling, its own screen-sharing and screenshot portal (ScreenCast/Screenshot: monitor picked in a
   shell dialog, frames from synwm over `wlr-screencopy` straight into PipeWire buffers by
   `syn-screencast`) for browsers, OBS and other apps.
+- **Several internet connections at once** (the `synnetd` service): Wi-Fi, cable and a phone over
+  USB work together — one primary channel with the rest as fallbacks, or all of them at once
+  (connections are spread across channels); each application can have its own choice, e.g. a
+  torrent client over all channels and the browser over Wi-Fi only. A USB modem is brought up
+  without NetworkManager. See [docs/NETD.md](docs/NETD.md).
 
 ### Layouts
 
@@ -313,6 +318,7 @@ The documentation in [`docs/`](docs/) is **in Russian**:
 - [LINK.md](docs/LINK.md) — linking the phone and the computer: screen, input, files, notifications, ssh, MCP.
 - [SOUNDS.md](docs/SOUNDS.md) — event sounds and sound themes (own themes made by synthesis and ACE-Step, freedesktop themes).
 - [GAMESHELL.md](docs/GAMESHELL.md) — game mode: switching modes on the fly, fullscreen window policy, game library (Steam, .desktop, custom), gamepad.
+- [NETD.md](docs/NETD.md) — several internet connections at once (Wi-Fi, cable, USB modem): one primary channel or all together, a choice per application.
 
 The fully commented default config is
 [crates/synshell-common/default-config.toml](crates/synshell-common/default-config.toml).
