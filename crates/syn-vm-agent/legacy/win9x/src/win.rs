@@ -147,6 +147,7 @@ unsafe extern "system" {
     pub fn GetLastError() -> u32;
     pub fn GetModuleHandleA(name: *const u8) -> isize;
     pub fn GetProcAddress(m: isize, name: *const u8) -> *const u8;
+    pub fn DeviceIoControl(h: HANDLE, code: u32, inb: *const u8, inl: u32, outb: *mut u8, outl: u32, ret: *mut u32, ov: *mut u8) -> i32;
     pub fn MultiByteToWideChar(cp: u32, flags: u32, s: *const u8, n: i32, w: *mut u16, wn: i32) -> i32;
     pub fn WideCharToMultiByte(cp: u32, flags: u32, w: *const u16, wn: i32, s: *mut u8, n: i32, def: *const u8, used: *mut i32) -> i32;
     pub fn GetCurrentProcess() -> HANDLE;

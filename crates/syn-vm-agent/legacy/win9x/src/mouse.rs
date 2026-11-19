@@ -16,8 +16,25 @@ const READ_ID: u32 = 0x4541_4552;
 const REQ_ABSOLUTE: u32 = 0x5342_4152;
 const DISABLE: u32 = 0x0000_00f5;
 
+/// Дескриптор SYNGPU.VXD, если бэкдор идёт через него (Windows 95: IN из кольца 3 VMM выполняет сам, без
+/// «волшебного» EAX, — QEMU такой запрос не узнаёт; VxD драйвера экрана syn-gpu делает IN из кольца 0).
+static mut VXD: HANDLE = 0;
+const OP_SYNGPU_BACKDOOR: u32 = 0x5003;
+
 /// in eax, dx с EBX = arg, ECX = cmd → (eax, ebx, ecx, edx).
 fn backdoor(cmd: u32, arg: u32) -> (u32, u32, u32, u32) {
+    let h = unsafe { VXD };
+    if h != 0 {
+        let inb = [arg, cmd];
+        let mut out = [0u32; 4];
+        let mut ret = 0u32;
+        unsafe { DeviceIoControl(h, OP_SYNGPU_BACKDOOR, inb.as_ptr().cast(), 8, out.as_mut_ptr().cast(), 16, &mut ret, core::ptr::null_mut()) };
+        return (out[0], out[1], out[2], out[3]);
+    }
+    backdoor_ring3(cmd, arg)
+}
+
+fn backdoor_ring3(cmd: u32, arg: u32) -> (u32, u32, u32, u32) {
     let (a, b, c, d): (u32, u32, u32, u32);
     unsafe {
         asm!(
@@ -61,7 +78,20 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
     }
     // Sleep(1) у 95 — 55 мс без этого.
     unsafe { timeBeginPeriod(1) };
-    let (_, b, _, _) = backdoor(CMD_GETVERSION, 0);
+    let (_, mut b, _, _) = backdoor(CMD_GETVERSION, 0);
+    if b != VM_MAGIC {
+        // Windows 95: через VxD драйвера экрана syn-gpu.
+        let h = unsafe { CreateFileA(b"\\\\.\\SYNGPU.VXD\0".as_ptr(), 0, 0, core::ptr::null(), OPEN_EXISTING, 0x0400_0000, 0) };
+        if h != INVALID {
+            unsafe { VXD = h };
+            b = backdoor(CMD_GETVERSION, 0).1;
+            if b != VM_MAGIC {
+                unsafe { VXD = 0 };
+            } else {
+                crate::log("мышь: бэкдор через SYNGPU.VXD");
+            }
+        }
+    }
     if b != VM_MAGIC {
         crate::log("мышь: бэкдора VMware нет — курсор захватывается (PS/2)");
         return 0;
