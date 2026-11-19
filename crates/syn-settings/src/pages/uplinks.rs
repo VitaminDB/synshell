@@ -206,7 +206,8 @@ fn menu_apps() -> Vec<DesktopEntry> {
 }
 
 fn app_for_exe(exe: &str) -> Option<DesktopEntry> {
-    xdg::apps().iter().find(|e| exe_of(e) == exe).cloned()
+    // Не ярлык игры Steam (`steam steam://…`) вместо самого Steam.
+    xdg::apps().iter().find(|e| exe_of(e) == exe && !e.exec.contains("://")).cloned()
 }
 
 fn app_icon(e: Option<&DesktopEntry>) -> W {
@@ -245,14 +246,24 @@ fn titled(title: String, body: W) -> W {
     boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(title).class("group-title")).child(body))
 }
 
-fn policy_dropdown(exe: String, cur: Option<AppPolicy>) -> W {
+/// Выбор для программы: как в системе, основной, все каналы или конкретный
+/// канал (каждый подключённый и выбранный раньше, если сейчас не подключён).
+fn policy_dropdown(exe: String, cur: Option<AppPolicy>, uplinks: &[syn_netd::Uplink]) -> W {
+    let mut dd = Dropdown::new()
+        .width(260.0)
+        .item(DropdownItem::new("system", t!("Как в системе")))
+        .item(DropdownItem::new("primary", t!("Только основной канал")))
+        .item(DropdownItem::new("both", t!("Все каналы сразу")));
+    for u in uplinks {
+        dd = dd.item(DropdownItem::new(format!("iface:{}", u.iface), t!("Только {k} · {i}", k = kind_name(&u.kind), i = u.iface)));
+    }
+    if let Some(AppPolicy::Iface(i)) = &cur {
+        if !uplinks.iter().any(|u| u.iface == *i) {
+            dd = dd.item(DropdownItem::new(format!("iface:{i}"), t!("Только {i} (не подключён)", i = i)));
+        }
+    }
     boxed(
-        Dropdown::new()
-            .width(220.0)
-            .item(DropdownItem::new("system", t!("Как в системе")))
-            .item(DropdownItem::new("primary", t!("Только основной канал")))
-            .item(DropdownItem::new("both", t!("Все каналы сразу")))
-            .selected(cur.map(|p| p.id()).unwrap_or("system").to_string())
+        dd.selected(cur.map(|p| p.id()).unwrap_or_else(|| "system".into()))
             .on_change(move |v: &str| {
                 let (exe, p) = (exe.clone(), AppPolicy::from_id(v));
                 change(move |c| match p {
@@ -402,11 +413,16 @@ pub fn uplinks() -> W {
             .iter()
             .map(|(exe, p)| {
                 let e = app_for_exe(exe);
-                let hint = match running.get(exe) {
+                let mut hint = match running.get(exe) {
                     Some(n) => t!("Запущена · процессов {n}", n = n),
                     None => t!("Процесс {p}", p = exe),
                 };
-                app_row(e.as_ref(), exe, hint, policy_dropdown(exe.clone(), Some(*p)))
+                if let AppPolicy::Iface(i) = p {
+                    if !st.uplinks.iter().any(|u| u.iface == *i) {
+                        hint = t!("{h} · канал {i} не подключён — через основной", h = hint, i = i);
+                    }
+                }
+                app_row(e.as_ref(), exe, hint, policy_dropdown(exe.clone(), Some(p.clone()), &st.uplinks))
             })
             .collect();
         out.push(titled(
@@ -446,7 +462,7 @@ pub fn uplinks() -> W {
                 Column::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(TextField::new().placeholder(t!("Найти программу")).on_change(move |v| s.filter.set(v.to_string())))
+                    .child(TextField::new().text(s.filter.get_untracked()).placeholder(t!("Найти программу")).on_change(move |v| s.filter.set(v.to_string())))
                     .child(list),
             ),
         )]

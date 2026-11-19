@@ -1787,7 +1787,7 @@ fn vram_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 Column::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(TextField::new().placeholder(t!("Найти программу")).on_change(move |v| filter.set(v.to_string())))
+                    .child(TextField::new().text(filter.get_untracked()).placeholder(t!("Найти программу")).on_change(move |v| filter.set(v.to_string())))
                     .child(list),
             ),
         )]

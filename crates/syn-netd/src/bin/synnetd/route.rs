@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use serde_json::Value;
-use syn_netd::{Config, Mode, Uplink};
+use syn_netd::{AppPolicy, Config, Mode, Uplink};
 
 pub const PRIO_FIRST: u32 = 10000;
 pub const PRIO_LAST: u32 = 10299;
@@ -237,10 +237,16 @@ fn s(v: &[&str]) -> Vec<String> {
 /// модема) — тогда в режиме «основной» это семейство через другие каналы
 /// недоступно, и программы сразу берут IPv4 через основной канал, а не
 /// уходят на модем по IPv6 мимо выбора.
-fn plan_family(fam: Fam, gws: &[Gw], addrs: &BTreeMap<String, Vec<(String, u8)>>, cfg: &Config, primary: Option<&str>, out: &mut Vec<Vec<String>>) {
+///
+/// `others` — каналы другого семейства: канал, выбранный программе, подключён,
+/// но без этого семейства — оно ей закрыто (а не уходит через другой канал).
+fn plan_family(fam: Fam, gws: &[Gw], others: &[Gw], addrs: &BTreeMap<String, Vec<(String, u8)>>, cfg: &Config, primary: Option<&str>, out: &mut Vec<Vec<String>>) {
     let pri = gws.iter().find(|g| Some(g.iface.as_str()) == primary);
+    // Каналы, выбранные программам.
+    let chosen: BTreeSet<&str> = cfg.apps.values().filter_map(|p| if let AppPolicy::Iface(i) = p { Some(i.as_str()) } else { None }).collect();
+    let closed = |i: &str| !gws.iter().any(|g| g.iface == i) && others.iter().any(|g| g.iface == i);
     // Один канал и он же основной — всё как без службы.
-    if gws.is_empty() || (gws.len() == 1 && pri.is_some()) {
+    if gws.is_empty() || (gws.len() == 1 && pri.is_some() && !chosen.iter().any(|i| closed(i))) {
         return;
     }
     let f = fam.flag();
@@ -279,6 +285,19 @@ fn plan_family(fam: Fam, gws: &[Gw], addrs: &BTreeMap<String, Vec<(String, u8)>>
     out.push(c);
     // Правила.
     out.push(s(&[f, "rule", "add", "pref", &PRIO_FIRST.to_string(), "lookup", "main", "suppress_prefixlength", "0"]));
+    // Программы с выбором «только этот канал» — раньше всего остального:
+    // канал есть — его таблица, подключён без этого семейства — закрыто, не
+    // подключён — как «только основной» (ниже).
+    for i in &chosen {
+        let m = format!("{:#x}", syn_netd::iface_mark(i));
+        if let Some(g) = gws.iter().find(|g| g.iface == *i) {
+            out.push(s(&[f, "rule", "add", "pref", "10004", "fwmark", &m, "lookup", &(T_IF_BASE + g.ifindex).to_string()]));
+        } else if closed(i) {
+            out.push(s(&[f, "rule", "add", "pref", "10003", "fwmark", &m, "unreachable"]));
+        } else {
+            out.push(s(&[f, "rule", "add", "pref", "10100", "fwmark", &m, "lookup", &T_PRI.to_string()]));
+        }
+    }
     // У основного канала этого семейства нет: закрыть его раньше правил по
     // адресу источника — IPv6 при ошибке первого поиска маршрута сам
     // выбирает адрес источника и ищет снова (ip6_dst_lookup_tail), и правило
@@ -311,8 +330,8 @@ pub fn plan(snap: &Snapshot, cfg: &Config) -> Plan {
         return Plan { cmds: vec![], primary, note: Some(format!("vpn:{v}")) };
     }
     let mut cmds = Vec::new();
-    plan_family(Fam::V4, &snap.v4, &snap.addrs4, cfg, primary.as_deref(), &mut cmds);
-    plan_family(Fam::V6, &snap.v6, &snap.addrs6, cfg, primary.as_deref(), &mut cmds);
+    plan_family(Fam::V4, &snap.v4, &snap.v6, &snap.addrs4, cfg, primary.as_deref(), &mut cmds);
+    plan_family(Fam::V6, &snap.v6, &snap.v4, &snap.addrs6, cfg, primary.as_deref(), &mut cmds);
     let note = if cmds.is_empty() { Some(if snap.v4.is_empty() && snap.v6.is_empty() { "none".into() } else { "single".into() }) } else { None };
     Plan { cmds, primary, note }
 }
@@ -467,6 +486,28 @@ mod tests {
         // Основной — модем: IPv6 как без службы.
         let j = joined(&plan(&s, &Config { primary: "usb0".into(), ..Default::default() }));
         assert!(!j.iter().any(|c| c.starts_with("-6")), "{j:#?}");
+    }
+
+    #[test]
+    fn app_on_specific_iface() {
+        let mut s = snap();
+        // IPv6 только у Wi-Fi.
+        s.v6 = vec![Gw { iface: "wlan0".into(), ifindex: 5, via: Some("fe80::1".into()), metric: 1024 }];
+        let mut cfg = Config::default();
+        cfg.apps.insert("qbittorrent".into(), AppPolicy::Iface("usb0".into()));
+        cfg.apps.insert("browser".into(), AppPolicy::Iface("usb9".into()));
+        let j = joined(&plan(&s, &cfg));
+        let usb = format!("{:#x}", syn_netd::iface_mark("usb0"));
+        let gone = format!("{:#x}", syn_netd::iface_mark("usb9"));
+        // IPv4 — таблица модема.
+        assert!(j.contains(&format!("-4 rule add pref 10004 fwmark {usb} lookup 2007")), "{j:#?}");
+        // У модема нет IPv6, а у Wi-Fi есть: закрыто, а не мимо выбора.
+        assert!(j.contains(&format!("-6 rule add pref 10003 fwmark {usb} unreachable")), "{j:#?}");
+        // Не подключённый канал — через основной.
+        assert!(j.contains(&format!("-4 rule add pref 10100 fwmark {gone} lookup 1991")));
+        // Правило канала стоит раньше правил по адресу источника.
+        let pos = |p: &str| j.iter().position(|c| c.contains(p)).unwrap();
+        assert!(pos(&format!("10004 fwmark {usb}")) < pos("10010 from"));
     }
 
     #[test]

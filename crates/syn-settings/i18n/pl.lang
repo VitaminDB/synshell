@@ -1851,6 +1851,9 @@
 "Готовые оформления рабочего стола: панели, меню, уведомления, рамки окон." = "Gotowe style pulpitu: panele, menu, powiadomienia, ramki okien."
 
 # src/pages/uplinks.rs
+"Только {k} · {i}" = "Tylko {k} · {i}"
+"Только {i} (не подключён)" = "Tylko {i} (niepodłączone)"
+"{h} · канал {i} не подключён — через основной" = "{h} · łącze {i} niepodłączone — przez główne"
 "Служба synnetd не установлена (пакет synshell-core)." = "Usługa synnetd nie jest zainstalowana (pakiet synshell-core)."
 "Служба synnetd не запущена." = "Usługa synnetd nie działa."
 "Настройки сети: {e}" = "Ustawienia sieci: {e}"

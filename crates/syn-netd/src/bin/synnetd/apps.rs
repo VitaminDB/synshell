@@ -22,7 +22,6 @@ use crate::route::{MARK_BOTH, MARK_PRIMARY};
 
 pub const RESCAN: Duration = Duration::from_secs(10);
 const CG_ROOT: &str = "/sys/fs/cgroup";
-const PREFIX: &str = "synnet-";
 
 /// Сведения о процессе.
 struct Proc {
@@ -48,7 +47,7 @@ fn read_proc(pid: i32, cfg: &Config) -> Option<Proc> {
         let argv: Vec<String> = std::fs::read(format!("{base}/cmdline"))
             .map(|b| b.split(|c| *c == 0).filter(|s| !s.is_empty()).take(8).map(|s| String::from_utf8_lossy(s).into_owned()).collect())
             .unwrap_or_default();
-        cfg.apps.iter().find(|(name, _)| syn_netd::program_matches(name, &exe, &comm, &argv)).map(|(n, p)| (n.clone(), *p))
+        cfg.apps.iter().find(|(name, _)| syn_netd::program_matches(name, &exe, &comm, &argv)).map(|(n, p)| (n.clone(), p.clone()))
     };
     Some(Proc { ppid, cgroup, rule })
 }
@@ -56,7 +55,7 @@ fn read_proc(pid: i32, cfg: &Config) -> Option<Proc> {
 /// Путь cgroup без своего хвоста `/synnet-*` и что там было.
 fn split_ours(cg: &str) -> (&str, Option<AppPolicy>) {
     if let Some((base, last)) = cg.rsplit_once('/') {
-        if let Some(p) = last.strip_prefix(PREFIX).and_then(AppPolicy::from_id) {
+        if let Some(p) = AppPolicy::from_cgroup_name(last) {
             return (if base.is_empty() { "/" } else { base }, Some(p));
         }
     }
@@ -120,7 +119,7 @@ fn find_ours(dir: &Path, depth: u32, out: &mut HashSet<PathBuf>) {
             continue;
         }
         let p = e.path();
-        if e.file_name().to_str().and_then(|n| n.strip_prefix(PREFIX)).and_then(AppPolicy::from_id).is_some() {
+        if e.file_name().to_str().and_then(AppPolicy::from_cgroup_name).is_some() {
             out.insert(p);
         } else {
             find_ours(&p, depth + 1, out);
@@ -130,7 +129,10 @@ fn find_ours(dir: &Path, depth: u32, out: &mut HashSet<PathBuf>) {
 
 pub struct Apps {
     cfg: Arc<RwLock<Config>>,
-    progs: Option<(OwnedFd, OwnedFd)>,
+    /// Ядро загружает BPF-программы (проверено при запуске).
+    bpf_ok: bool,
+    /// Программы меток по значению метки — загружаются, когда понадобились.
+    progs: Mutex<HashMap<u32, Arc<OwnedFd>>>,
     /// Под-cgroup, где уже есть программа (чтобы не спрашивать ядро каждый раз).
     attached: Mutex<HashSet<PathBuf>>,
     running: Mutex<Vec<AppRunning>>,
@@ -140,24 +142,29 @@ pub struct Apps {
     marked: Mutex<HashMap<i32, u32>>,
 }
 
-fn mark_of(p: Option<AppPolicy>) -> u32 {
+fn mark_of(p: Option<&AppPolicy>) -> u32 {
     match p {
         Some(AppPolicy::Both) => MARK_BOTH,
         Some(AppPolicy::Primary) => MARK_PRIMARY,
+        Some(AppPolicy::Iface(i)) => syn_netd::iface_mark(i),
         None => 0,
     }
 }
 
 impl Apps {
     pub fn new(cfg: Arc<RwLock<Config>>) -> Apps {
-        let progs = match (crate::bpf::load(MARK_BOTH), crate::bpf::load(MARK_PRIMARY)) {
-            (Ok(a), Ok(b)) => Some((a, b)),
-            (Err(e), _) | (_, Err(e)) => {
+        let mut progs = HashMap::new();
+        let bpf_ok = match crate::bpf::load(MARK_BOTH) {
+            Ok(p) => {
+                progs.insert(MARK_BOTH, Arc::new(p));
+                true
+            }
+            Err(e) => {
                 tracing::warn!("BPF: {e} — выбор канала для программ недоступен");
-                None
+                false
             }
         };
-        let error = if progs.is_none() { Some("bpf".to_string()) } else { None };
+        let error = if bpf_ok { None } else { Some("bpf".to_string()) };
         // Свои cgroup прежних запусков.
         let mut known = HashSet::new();
         find_ours(Path::new(CG_ROOT), 0, &mut known);
@@ -168,7 +175,7 @@ impl Apps {
                 None
             }
         };
-        Apps { cfg, progs, attached: Mutex::new(known), running: Mutex::new(Vec::new()), error: Mutex::new(error), tgid, marked: Mutex::new(HashMap::new()) }
+        Apps { cfg, bpf_ok, progs: Mutex::new(progs), attached: Mutex::new(known), running: Mutex::new(Vec::new()), error: Mutex::new(error), tgid, marked: Mutex::new(HashMap::new()) }
     }
 
     /// Занести процесс в таблицу меток (0 — убрать).
@@ -201,17 +208,39 @@ impl Apps {
         self.running.lock().unwrap().clone()
     }
 
+    /// Программа, ставящая метку `mark`.
+    fn prog(&self, mark: u32) -> Option<Arc<OwnedFd>> {
+        if !self.bpf_ok {
+            return None;
+        }
+        let mut p = self.progs.lock().unwrap();
+        if let Some(f) = p.get(&mark) {
+            return Some(f.clone());
+        }
+        match crate::bpf::load(mark) {
+            Ok(f) => {
+                let f = Arc::new(f);
+                p.insert(mark, f.clone());
+                Some(f)
+            }
+            Err(e) => {
+                tracing::warn!("BPF: {e}");
+                None
+            }
+        }
+    }
+
     /// Перенести процесс туда, где он должен быть.
     fn place(&self, pid: i32, cur: &str, want: Option<AppPolicy>) -> bool {
-        self.set_mark(pid, mark_of(want));
+        self.set_mark(pid, mark_of(want.as_ref()));
         let (base, now) = split_ours(cur);
         if now == want {
             return true;
         }
-        let target = match want {
+        let target = match &want {
             Some(p) => {
-                let Some((both, pri)) = &self.progs else { return false };
-                let path = if base == "/" { format!("/{PREFIX}{}", p.id()) } else { format!("{base}/{PREFIX}{}", p.id()) };
+                let Some(prog) = self.prog(mark_of(Some(p))) else { return false };
+                let path = if base == "/" { format!("/{}", p.cgroup_name()) } else { format!("{base}/{}", p.cgroup_name()) };
                 let dir = cg_dir(&path);
                 if !dir.exists() {
                     if let Err(e) = std::fs::create_dir(&dir) {
@@ -220,8 +249,7 @@ impl Apps {
                     }
                 }
                 if !self.attached.lock().unwrap().contains(&dir) {
-                    let prog = if p == AppPolicy::Both { both } else { pri };
-                    if let Err(e) = crate::bpf::attach(&dir, prog) {
+                    if let Err(e) = crate::bpf::attach(&dir, &prog) {
                         tracing::warn!("BPF на {}: {e}", dir.display());
                         let _ = std::fs::remove_dir(&dir);
                         return false;
@@ -238,7 +266,7 @@ impl Apps {
                 // Сокеты, открытые до переноса (перенос идёт через 1–5 мс
                 // после exec, а программа успевает спросить DNS или открыть
                 // соединение), — пометить так же.
-                mark_existing(pid, mark_of(want));
+                mark_existing(pid, mark_of(want.as_ref()));
                 // Ушли из своей под-cgroup — убрать её, если опустела.
                 if now.is_some() {
                     let _ = std::fs::remove_dir(cg_dir(cur));
@@ -261,7 +289,7 @@ impl Apps {
         let Some(p) = read_proc(pid, &cfg) else { return };
         drop(cfg);
         if let Some((_, policy)) = p.rule {
-            if self.place(pid, &p.cgroup, Some(policy)) {
+            if self.place(pid, &p.cgroup, Some(policy.clone())) {
                 // Потомки, успевшие запуститься до переноса.
                 let cfg = Config::default();
                 let mut todo = children(pid);
@@ -272,7 +300,7 @@ impl Apps {
                         break;
                     }
                     if let Some(q) = read_proc(c, &cfg) {
-                        self.place(c, &q.cgroup, Some(policy));
+                        self.place(c, &q.cgroup, Some(policy.clone()));
                     }
                     todo.extend(children(c));
                 }
@@ -294,7 +322,7 @@ impl Apps {
                 procs.insert(pid, p);
             }
         }
-        let mut counts: BTreeMap<(String, &'static str), u32> = BTreeMap::new();
+        let mut counts: BTreeMap<(String, String), u32> = BTreeMap::new();
         let mut dirs: HashSet<String> = HashSet::new();
         for (&pid, p) in &procs {
             // Выбор ближайшего предка с правилом.
@@ -320,7 +348,7 @@ impl Apps {
             if now.is_some() {
                 dirs.insert(p.cgroup.clone());
             }
-            if self.place(pid, &p.cgroup, want.as_ref().map(|w| w.1)) {
+            if self.place(pid, &p.cgroup, want.as_ref().map(|w| w.1.clone())) {
                 if let Some((name, pol)) = want {
                     *counts.entry((name, pol.id())).or_default() += 1;
                 }
@@ -328,7 +356,7 @@ impl Apps {
         }
         // Опустевшие свои cgroup.
         self.prune(dirs.into_iter().map(|d| cg_dir(&d)));
-        *self.running.lock().unwrap() = counts.into_iter().map(|((app, policy), n)| AppRunning { app, policy: policy.into(), processes: n }).collect();
+        *self.running.lock().unwrap() = counts.into_iter().map(|((app, policy), n)| AppRunning { app, policy, processes: n }).collect();
     }
 
     /// Убрать опустевшие свои cgroup (и все известные).
@@ -368,6 +396,7 @@ mod tests {
         assert_eq!(split_ours("/user.slice/session-4.scope/synnet-primary"), ("/user.slice/session-4.scope", Some(AppPolicy::Primary)));
         assert_eq!(split_ours("/user.slice/session-4.scope"), ("/user.slice/session-4.scope", None));
         assert_eq!(split_ours("/synnet-both"), ("/", Some(AppPolicy::Both)));
+        assert_eq!(split_ours("/u/s.scope/synnet-if-enp128s20f0u1"), ("/u/s.scope", Some(AppPolicy::Iface("enp128s20f0u1".into()))));
         assert_eq!(split_ours("/x/synnet-weird"), ("/x/synnet-weird", None));
     }
 }

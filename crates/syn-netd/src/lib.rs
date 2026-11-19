@@ -42,21 +42,26 @@ pub enum Mode {
     Both,
 }
 
-/// Выбор для программы.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
-#[serde(rename_all = "snake_case")]
+/// Выбор для программы. В настройках и протоколе — строкой: `primary`,
+/// `both`, `iface:<интерфейс>`.
+#[derive(Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum AppPolicy {
     /// Только основной канал.
     Primary,
     /// Все каналы одновременно.
     Both,
+    /// Только этот канал (интерфейс: `wlan0`, `enp128s20f0u1`). Не
+    /// подключён — через основной; нет у него IPv6 (а у других есть) — IPv6
+    /// программе закрыт, она идёт по IPv4 через свой канал.
+    Iface(String),
 }
 
 impl AppPolicy {
-    pub fn id(self) -> &'static str {
+    pub fn id(&self) -> String {
         match self {
-            AppPolicy::Primary => "primary",
-            AppPolicy::Both => "both",
+            AppPolicy::Primary => "primary".into(),
+            AppPolicy::Both => "both".into(),
+            AppPolicy::Iface(i) => format!("iface:{i}"),
         }
     }
 
@@ -64,8 +69,55 @@ impl AppPolicy {
         match s {
             "primary" => Some(AppPolicy::Primary),
             "both" => Some(AppPolicy::Both),
-            _ => None,
+            _ => s.strip_prefix("iface:").filter(|i| valid_iface(i)).map(|i| AppPolicy::Iface(i.to_string())),
         }
+    }
+
+    /// Имя под-cgroup программы: `synnet-both`, `synnet-primary`, `synnet-if-wlan0`.
+    pub fn cgroup_name(&self) -> String {
+        match self {
+            AppPolicy::Primary => "synnet-primary".into(),
+            AppPolicy::Both => "synnet-both".into(),
+            AppPolicy::Iface(i) => format!("synnet-if-{i}"),
+        }
+    }
+
+    pub fn from_cgroup_name(s: &str) -> Option<AppPolicy> {
+        match s.strip_prefix("synnet-")? {
+            "primary" => Some(AppPolicy::Primary),
+            "both" => Some(AppPolicy::Both),
+            x => x.strip_prefix("if-").filter(|i| valid_iface(i)).map(|i| AppPolicy::Iface(i.to_string())),
+        }
+    }
+}
+
+/// Имя сетевого интерфейса: 1–15 байт без «/», пробелов и «:».
+pub fn valid_iface(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 15 && s.bytes().all(|b| b.is_ascii_graphic() && b != b'/' && b != b':')
+}
+
+/// Метка сокетов программ с выбором «только канал `iface`»: из имени, чтобы
+/// не зависеть от порядка в настройках и номера интерфейса (у USB-модема он
+/// меняется при каждом подключении).
+pub fn iface_mark(iface: &str) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in iface.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    0x5360_0000 | (h & 0x000f_ffff)
+}
+
+impl Serialize for AppPolicy {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.id())
+    }
+}
+
+impl<'de> Deserialize<'de> for AppPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        AppPolicy::from_id(&s).ok_or_else(|| serde::de::Error::custom(format!("неизвестный выбор «{s}»")))
     }
 }
 
@@ -230,11 +282,28 @@ mod tests {
     }
 
     #[test]
+    fn policies() {
+        for p in [AppPolicy::Primary, AppPolicy::Both, AppPolicy::Iface("wlan0".into())] {
+            assert_eq!(AppPolicy::from_id(&p.id()), Some(p.clone()));
+            assert_eq!(AppPolicy::from_cgroup_name(&p.cgroup_name()), Some(p));
+        }
+        assert_eq!(AppPolicy::from_id("iface:"), None);
+        assert_eq!(AppPolicy::from_id("iface:a/b"), None);
+        assert_eq!(AppPolicy::from_cgroup_name("synnet-weird"), None);
+        // Метки каналов стабильны, различаются и не совпадают с «основной»/«все».
+        assert_eq!(iface_mark("wlan0"), iface_mark("wlan0"));
+        assert_ne!(iface_mark("wlan0"), iface_mark("enp128s20f0u1"));
+        assert_eq!(iface_mark("usb0") & 0xfff0_0000, 0x5360_0000);
+    }
+
+    #[test]
     fn config_roundtrip() {
         let mut c = Config::default();
         c.mode = Mode::Both;
         c.apps.insert("qbittorrent".into(), AppPolicy::Both);
+        c.apps.insert("firefox".into(), AppPolicy::Iface("enp128s20f0u1".into()));
         let j = serde_json::to_string(&c).unwrap();
+        assert!(j.contains(r#""firefox":"iface:enp128s20f0u1""#), "{j}");
         assert_eq!(serde_json::from_str::<Config>(&j).unwrap(), c);
         // Пустой JSON — значения по умолчанию.
         assert_eq!(serde_json::from_str::<Config>("{}").unwrap(), Config::default());

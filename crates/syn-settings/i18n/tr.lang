@@ -1850,6 +1850,9 @@
 "Готовые оформления рабочего стола: панели, меню, уведомления, рамки окон." = "Hazır masaüstü görünümleri: paneller, menüler, bildirimler, pencere çerçeveleri."
 
 # src/pages/uplinks.rs
+"Только {k} · {i}" = "Yalnızca {k} · {i}"
+"Только {i} (не подключён)" = "Yalnızca {i} (bağlı değil)"
+"{h} · канал {i} не подключён — через основной" = "{h} · {i} bağlantısı yok — birincil üzerinden"
 "Служба synnetd не установлена (пакет synshell-core)." = "synnetd hizmeti kurulu değil (synshell-core paketi)."
 "Служба synnetd не запущена." = "synnetd hizmeti çalışmıyor."
 "Настройки сети: {e}" = "Ağ ayarları: {e}"

@@ -117,7 +117,7 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
             c.apps.remove(*name);
         }
         ["app", name, p] => {
-            let p = syn_netd::AppPolicy::from_id(p).ok_or_else(|| anyhow::anyhow!("выбор: primary, both или system"))?;
+            let p = syn_netd::AppPolicy::from_id(p).ok_or_else(|| anyhow::anyhow!("выбор: primary, both, iface:<канал> или system"))?;
             c.apps.insert(name.to_string(), p);
         }
         ["usb-dhcp", "on"] => c.usb_dhcp = true,
@@ -127,7 +127,7 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
              synnetd status                  — состояние (JSON)\n\
              synnetd mode primary|both       — основной канал или все сразу\n\
              synnetd primary <iface>|auto    — основной канал\n\
-             synnetd app <имя> primary|both|system — выбор для программы\n\
+             synnetd app <имя> primary|both|iface:<канал>|system — выбор для программы\n\
              synnetd usb-dhcp on|off         — поднимать USB-модемы самой службой"
         ),
     }
