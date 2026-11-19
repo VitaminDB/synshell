@@ -788,20 +788,32 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool, pos: &'static str) -> i
     }
     let buttons: Vec<(String, String)> = n.actions.iter().filter(|(k, _)| k != "default").cloned().collect();
     if !buttons.is_empty() {
-        let mut row = Row::new().gap(8.0).class("notif-actions");
-        for (key, label) in buttons {
+        // Две короткие кнопки — в строку; больше или длинные подписи — столбцом во всю ширину
+        // (в строку третья уезжала за край карточки).
+        let stacked = buttons.len() > 2 || buttons.iter().map(|(_, l)| l.chars().count()).sum::<usize>() > 30;
+        let mk = |key: String, label: String| {
             let nn = n.clone();
-            row = row.child(
-                InputArea::new(DecoratedBox::new().child(Text::new(label).max_lines(1).class("notif-action-label")).class("notif-action"))
-                    .pointer()
-                    .on_click(move |b, _, _| {
-                        if b == MouseButton::Left {
-                            invoke(ShellCtx::get(), &nn, &key);
-                        }
-                    }),
-            );
+            InputArea::new(DecoratedBox::new().child(Text::new(label).max_lines(1).class("notif-action-label")).class("notif-action"))
+                .pointer()
+                .on_click(move |b, _, _| {
+                    if b == MouseButton::Left {
+                        invoke(ShellCtx::get(), &nn, &key);
+                    }
+                })
+        };
+        if stacked {
+            let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("notif-actions stacked");
+            for (key, label) in buttons {
+                col = col.child(mk(key, label));
+            }
+            text = text.child(col);
+        } else {
+            let mut row = Row::new().gap(8.0).class("notif-actions");
+            for (key, label) in buttons {
+                row = row.child(mk(key, label));
+            }
+            text = text.child(row);
         }
-        text = text.child(row);
     }
     head = head.child(text.class("grow"));
     if let Some((w, h, rgba)) = &n.image {

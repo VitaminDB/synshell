@@ -8872,6 +8872,7 @@ dependencies = [
  "syn-assist-voice",
  "syn-keyboard",
  "syn-modem",
+ "syn-netd",
  "syn-notes-proto",
  "syn-system",
  "synaptixd",

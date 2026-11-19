@@ -1888,6 +1888,14 @@
 "Все программы идут как в системе. Добавьте программу ниже, чтобы выбрать для неё канал." = "Wszystkie programy działają jak w systemie. Dodaj program poniżej, aby wybrać dla niego łącze."
 "Полезно все каналы сразу" = "Zyskują na wszystkich łączach"
 "Несколько подключений сразу: Wi-Fi, кабель, телефон по USB. Один канал основной или все вместе — для всей системы и для каждой программы." = "Kilka połączeń naraz: Wi-Fi, kabel, telefon przez USB. Jedno łącze główne albo wszystkie razem — dla całego systemu i dla każdego programu."
+"Телефоны по USB" = "Telefony przez USB"
+"Спрашивать при подключении" = "Pytaj przy podłączeniu"
+"Модем — интернет через телефон" = "Modem — internet przez telefon"
+"Только зарядка и файлы" = "Tylko ładowanie i pliki"
+"Подключён · {i} · управляет NetworkManager" = "Podłączony · {i} · zarządza NetworkManager"
+"Подключён · {i} · ждёт вашего выбора — интернет через него не идёт" = "Podłączony · {i} · czeka na Twój wybór — internet przez niego nie idzie"
+"Подключён · {i}" = "Podłączony · {i}"
+"Не подключён" = "Niepodłączony"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "magistrala {bus} · urządzenie {dev}"

@@ -134,11 +134,14 @@ pub struct Config {
     pub apps: BTreeMap<String, AppPolicy>,
     /// Поднимать USB-модемы, которые никто не настраивает (свой DHCP).
     pub usb_dhcp: bool,
+    /// Решения по USB-модемам (телефонам): ключ устройства ([`UsbModem::key`]) → выбор и имя.
+    /// Нет решения — служба модем не поднимает и спрашивает пользователя (уведомление оболочки).
+    pub usb_devices: BTreeMap<String, UsbDecision>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true }
+        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new() }
     }
 }
 
@@ -164,6 +167,40 @@ pub struct Uplink {
     pub tx_bytes: u64,
 }
 
+/// Как использовать телефон, подключённый по USB.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum UsbChoice {
+    /// Интернет через телефон: служба поднимает модем и берёт адрес.
+    Modem,
+    /// Только зарядка и файлы: модем не трогать.
+    No,
+}
+
+/// Запомненное решение по устройству.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct UsbDecision {
+    pub choice: UsbChoice,
+    /// Имя устройства для показа («Apple Inc. iPhone»).
+    #[serde(default)]
+    pub name: String,
+}
+
+/// USB-модем (телефон в режиме модема), подключённый сейчас.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct UsbModem {
+    /// Устройство: `vid:pid:серийный` (у iPhone серийный — UDID), без серийного — MAC.
+    pub key: String,
+    pub iface: String,
+    /// Производитель и модель из USB («Apple Inc. iPhone»).
+    pub name: String,
+    pub driver: String,
+    /// Решение пользователя (`None` — ещё не спрашивали или не ответил).
+    pub choice: Option<UsbChoice>,
+    /// Интерфейсом управляет NetworkManager или systemd-networkd — служба его не трогает.
+    pub managed_elsewhere: bool,
+}
+
 /// Сколько процессов программы сейчас идут по своему выбору.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct AppRunning {
@@ -183,6 +220,9 @@ pub struct Status {
     pub running: Vec<AppRunning>,
     /// Может ли спросивший менять настройки (root или группа `wheel`).
     pub can_edit: bool,
+    /// USB-модемы, подключённые сейчас.
+    #[serde(default)]
+    pub usb_modems: Vec<UsbModem>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -308,4 +348,18 @@ mod tests {
         // Пустой JSON — значения по умолчанию.
         assert_eq!(serde_json::from_str::<Config>("{}").unwrap(), Config::default());
     }
+}
+
+/// Запомнить выбор для USB-модема (`None` — забыть: спросить снова).
+pub fn set_usb_choice(key: &str, name: &str, choice: Option<UsbChoice>) -> std::io::Result<Status> {
+    let mut c = status()?.config;
+    match choice {
+        Some(choice) => {
+            c.usb_devices.insert(key.to_string(), UsbDecision { choice, name: name.to_string() });
+        }
+        None => {
+            c.usb_devices.remove(key);
+        }
+    }
+    set_config(c)
 }

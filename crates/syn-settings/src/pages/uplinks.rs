@@ -406,6 +406,62 @@ pub fn uplinks() -> W {
             ],
         ));
 
+        // Телефоны по USB: подключённые сейчас и запомненные.
+        let mut phones: Vec<W> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let usb_row = |key: String, name: String, hint: String, cur: Option<syn_netd::UsbChoice>| -> W {
+            let label = name.clone();
+            let dd = Dropdown::new()
+                .width(260.0)
+                .item(DropdownItem::new("ask", t!("Спрашивать при подключении")))
+                .item(DropdownItem::new("modem", t!("Модем — интернет через телефон")))
+                .item(DropdownItem::new("no", t!("Только зарядка и файлы")))
+                .selected(match cur {
+                    Some(syn_netd::UsbChoice::Modem) => "modem",
+                    Some(syn_netd::UsbChoice::No) => "no",
+                    None => "ask",
+                }.to_string())
+                .on_change(move |v: &str| {
+                    let choice = match v {
+                        "modem" => Some(syn_netd::UsbChoice::Modem),
+                        "no" => Some(syn_netd::UsbChoice::No),
+                        _ => None,
+                    };
+                    let (k, n) = (key.clone(), name.clone());
+                    change(move |c| match choice {
+                        Some(choice) => {
+                            c.usb_devices.insert(k, syn_netd::UsbDecision { choice, name: n });
+                        }
+                        None => {
+                            c.usb_devices.remove(&k);
+                        }
+                    });
+                });
+            row(label, hint, dd)
+        };
+        for m in &st.usb_modems {
+            seen.insert(m.key.clone());
+            let name = if m.name.is_empty() { m.iface.clone() } else { m.name.clone() };
+            let hint = if m.managed_elsewhere {
+                t!("Подключён · {i} · управляет NetworkManager", i = m.iface)
+            } else if m.choice.is_none() {
+                t!("Подключён · {i} · ждёт вашего выбора — интернет через него не идёт", i = m.iface)
+            } else {
+                t!("Подключён · {i}", i = m.iface)
+            };
+            phones.push(usb_row(m.key.clone(), name, hint, m.choice));
+        }
+        for (k, d) in &c.usb_devices {
+            if seen.contains(k) {
+                continue;
+            }
+            let name = if d.name.is_empty() { k.clone() } else { d.name.clone() };
+            phones.push(usb_row(k.clone(), name, t!("Не подключён"), Some(d.choice)));
+        }
+        if !phones.is_empty() {
+            out.push(group(t!("Телефоны по USB"), phones));
+        }
+
         // Программы со своим выбором.
         let running: HashMap<String, u32> = st.running.iter().map(|r| (r.app.clone(), r.processes)).collect();
         let rows: Vec<W> = c

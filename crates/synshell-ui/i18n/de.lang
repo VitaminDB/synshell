@@ -878,6 +878,12 @@
 "Меню изменилось" = "Das Menü hat sich geändert"
 "Меню пусто" = "Das Menü ist leer"
 
+# src/usb_modem.rs
+"Телефон по USB: {name}" = "Telefon über USB: {name}"
+"Подключить как модем" = "Als Modem verwenden"
+"Подключить как модем — интернет через телефон? Пока вы не выбрали, интернет через него не идёт: работают зарядка и файлы." = "Als Modem verwenden — Internet über das Telefon? Solange Sie nicht gewählt haben, läuft kein Internet darüber: Laden und Dateien funktionieren."
+"Только зарядка и файлы" = "Nur Laden und Dateien"
+
 # src/usb_notify.rs
 "Подключено: {name}" = "Verbunden: {name}"
 "Отключено: {name}" = "Getrennt: {name}"

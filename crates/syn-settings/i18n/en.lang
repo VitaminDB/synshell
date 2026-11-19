@@ -1887,6 +1887,14 @@
 "Все программы идут как в системе. Добавьте программу ниже, чтобы выбрать для неё канал." = "All apps use the system default. Add an app below to choose a link for it."
 "Полезно все каналы сразу" = "Benefit from all links at once"
 "Несколько подключений сразу: Wi-Fi, кабель, телефон по USB. Один канал основной или все вместе — для всей системы и для каждой программы." = "Several connections at once: Wi-Fi, cable, phone over USB. One primary link or all together — for the whole system and for each app."
+"Телефоны по USB" = "Phones over USB"
+"Спрашивать при подключении" = "Ask when connected"
+"Модем — интернет через телефон" = "Modem — internet through the phone"
+"Только зарядка и файлы" = "Charging and files only"
+"Подключён · {i} · управляет NetworkManager" = "Connected · {i} · managed by NetworkManager"
+"Подключён · {i} · ждёт вашего выбора — интернет через него не идёт" = "Connected · {i} · waiting for your choice — no internet goes through it"
+"Подключён · {i}" = "Connected · {i}"
+"Не подключён" = "Not connected"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "bus {bus} · device {dev}"

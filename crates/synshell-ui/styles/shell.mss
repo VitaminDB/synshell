@@ -820,6 +820,7 @@ Text {
 .notif-close .icon { icon-size: 16px; icon-color: var(--muted); }
 .notif-close:hover { background-color: var(--hover); }
 .notif-actions { padding-top: 8px; }
+.notif-actions.stacked .notif-action-label { text-align: center; width: 100%; }
 /* Кнопки действий — тональные «таблетки» */
 .notif-action {
     padding: 7px 16px;

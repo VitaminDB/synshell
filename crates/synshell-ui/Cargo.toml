@@ -13,6 +13,7 @@ syngui-layer.workspace = true
 syn-system.workspace = true
 synaptixd.workspace = true
 syn-modem.workspace = true
+syn-netd.workspace = true
 syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n", "markdown-syntax", "ffmpeg", "sfx"] }
 syn-assist.workspace = true
 syn-notes-proto.workspace = true

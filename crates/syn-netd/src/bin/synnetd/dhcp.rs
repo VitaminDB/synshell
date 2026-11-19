@@ -8,7 +8,7 @@
 //! Маршрут по умолчанию — с метрикой [`crate::route::USB_METRIC`], DNS —
 //! systemd-resolved (`resolvctl dns`), если он запущен.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,27 +20,51 @@ pub const USB_MODEM_DRIVERS: &[&str] = &["rndis_host", "cdc_ether", "cdc_ncm", "
 /// Сколько ждать, не настроит ли интерфейс кто-то другой.
 const GRACE: Duration = Duration::from_secs(5);
 
+fn read_trim(p: impl AsRef<std::path::Path>) -> String {
+    std::fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default()
+}
+
+/// Сведения об устройстве USB интерфейса: ключ (`vid:pid:серийный`, без серийного — MAC) и имя.
+fn usb_identity(iface: &str) -> (String, String) {
+    let mac = read_trim(format!("/sys/class/net/{iface}/address"));
+    // device → интерфейс USB (3-1:4.2), его родитель — само устройство (3-1) с serial/idVendor.
+    let dev = std::fs::canonicalize(format!("/sys/class/net/{iface}/device")).ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let Some(dev) = dev else { return (mac, String::new()) };
+    let (vid, pid, serial) = (read_trim(dev.join("idVendor")), read_trim(dev.join("idProduct")), read_trim(dev.join("serial")));
+    let name = [read_trim(dev.join("manufacturer")), read_trim(dev.join("product"))].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
+    let key = if !serial.is_empty() && !vid.is_empty() { format!("{vid}:{pid}:{serial}") } else { mac };
+    (key, name)
+}
+
 /// USB-модемы: интерфейсы с драйвером из [`USB_MODEM_DRIVERS`], кроме
 /// функции гаджета (это мы — телефон, раздающий сеть по USB).
-pub fn usb_modems() -> Vec<String> {
-    // Проверка: `SYNNETD_TEST_USB=veth1,veth2` — считать интерфейсы модемами.
-    if let Ok(t) = std::env::var("SYNNETD_TEST_USB") {
-        return t.split(',').filter(|s| std::path::Path::new(&format!("/sys/class/net/{s}")).exists()).map(str::to_string).collect();
-    }
+pub fn usb_modems() -> Vec<syn_netd::UsbModem> {
     let mut v = Vec::new();
+    // Проверка: `SYNNETD_TEST_USB=veth1,veth2` — считать интерфейсы модемами.
+    let test: Option<Vec<String>> = std::env::var("SYNNETD_TEST_USB").ok().map(|t| t.split(',').map(str::to_string).collect());
     for e in std::fs::read_dir("/sys/class/net").into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
         let p = e.path();
         let driver = std::fs::read_link(p.join("device/driver")).ok().and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_default();
-        if !USB_MODEM_DRIVERS.contains(&driver.as_str()) {
-            continue;
+        match &test {
+            Some(t) => {
+                if !t.contains(&name) {
+                    continue;
+                }
+            }
+            None => {
+                if !USB_MODEM_DRIVERS.contains(&driver.as_str()) {
+                    continue;
+                }
+                if std::fs::canonicalize(p.join("device")).is_ok_and(|d| d.to_string_lossy().contains("gadget")) {
+                    continue;
+                }
+            }
         }
-        if std::fs::canonicalize(p.join("device")).is_ok_and(|d| d.to_string_lossy().contains("gadget")) {
-            continue;
-        }
-        v.push(name);
+        let (key, dev_name) = usb_identity(&name);
+        v.push(syn_netd::UsbModem { key, iface: name.clone(), name: dev_name, driver, choice: None, managed_elsewhere: managed_elsewhere(&name) });
     }
-    v.sort();
+    v.sort_by(|a, b| a.iface.cmp(&b.iface));
     v
 }
 
@@ -81,6 +105,8 @@ pub struct Dhcp {
     seen: HashMap<String, Instant>,
     workers: HashMap<String, Worker>,
     ours: Arc<Mutex<Vec<String>>>,
+    /// Интерфейсы, поднятые службой (опустить, если модем не нужен).
+    raised: HashSet<String>,
 }
 
 impl Dhcp {
@@ -89,47 +115,66 @@ impl Dhcp {
         self.ours.clone()
     }
 
-    /// Шаг: новые модемы поднять, через [`GRACE`] без адреса — свой DHCP;
-    /// ушедшие — забыть.
-    pub fn tick(&mut self, enabled: bool) -> bool {
-        let modems = usb_modems();
-        let mut changed = false;
-        self.seen.retain(|k, _| modems.contains(k));
-        let gone: Vec<String> = self.workers.keys().filter(|k| !enabled || !modems.contains(k)).cloned().collect();
-        for k in gone {
+    /// Шаг: модем с решением «модем» поднять и через [`GRACE`] без адреса — свой DHCP; без
+    /// решения или «только зарядка» — не трогать (поднятый службой — опустить), чтобы телефон
+    /// не уходил в режим модема сам. Возвращает модемы с решениями (для состояния).
+    pub fn tick(&mut self, cfg: &syn_netd::Config) -> Vec<syn_netd::UsbModem> {
+        let mut modems = usb_modems();
+        for m in &mut modems {
+            m.choice = cfg.usb_devices.get(&m.key).map(|d| d.choice);
+        }
+        let want = |m: &syn_netd::UsbModem| cfg.usb_dhcp && m.choice == Some(syn_netd::UsbChoice::Modem) && !m.managed_elsewhere;
+        let names: Vec<String> = modems.iter().map(|m| m.iface.clone()).collect();
+        self.seen.retain(|k, _| names.contains(k));
+        self.raised.retain(|k| names.contains(k));
+        // Модем ушёл или больше не нужен — остановить свой DHCP (адрес и маршрут снимаются).
+        let stop: Vec<String> = self.workers.keys().filter(|k| !modems.iter().any(|m| m.iface == **k && want(m))).cloned().collect();
+        for k in stop {
             if let Some(w) = self.workers.remove(&k) {
+                tracing::info!("{k}: USB-модем больше не используется — адрес снят");
                 w.stop.store(true, Ordering::SeqCst);
-                changed = true;
             }
         }
-        if !enabled {
-            return changed;
-        }
-        for m in modems {
-            if self.workers.contains_key(&m) {
+        for m in &modems {
+            let i = &m.iface;
+            if !want(m) {
+                self.seen.remove(i);
+                // Поднимали мы (или адрес остался от прошлого запуска службы — маршрут с её
+                // метрикой) — снять адрес и опустить: телефон перестаёт раздавать.
+                let leftover = !m.managed_elsewhere
+                    && ip(&["-4", "route", "show", "default", "dev", i, "metric", &USB_METRIC.to_string()]).is_ok_and(|s| !s.trim().is_empty());
+                if leftover {
+                    tracing::info!("{i}: остался адрес службы, а модем не нужен (нет решения или «только зарядка») — снимаю");
+                    let _ = ip(&["-4", "route", "del", "default", "dev", i, "metric", &USB_METRIC.to_string()]);
+                    let _ = ip(&["-4", "addr", "flush", "dev", i, "scope", "global"]);
+                }
+                if (self.raised.remove(i) || leftover) && !m.managed_elsewhere {
+                    let _ = ip(&["link", "set", "dev", i, "down"]);
+                }
                 continue;
             }
-            let first = *self.seen.entry(m.clone()).or_insert_with(|| {
-                if !managed_elsewhere(&m) {
-                    // Интерфейс модема никто не поднимает.
-                    let _ = ip(&["link", "set", "dev", &m, "up"]);
-                }
+            if self.workers.contains_key(i) {
+                continue;
+            }
+            let first = *self.seen.entry(i.clone()).or_insert_with(|| {
+                // Интерфейс модема никто не поднимает.
+                let _ = ip(&["link", "set", "dev", i, "up"]);
+                self.raised.insert(i.clone());
                 Instant::now()
             });
-            if first.elapsed() < GRACE || has_ipv4(&m) || managed_elsewhere(&m) {
+            if first.elapsed() < GRACE || has_ipv4(i) {
                 continue;
             }
-            tracing::info!("{m}: USB-модем без адреса — свой DHCP");
+            tracing::info!("{i}: USB-модем без адреса — свой DHCP");
             let stop = Arc::new(AtomicBool::new(false));
-            let (st, ours, name) = (stop.clone(), self.ours.clone(), m.clone());
-            let _ = std::thread::Builder::new().name(format!("dhcp-{m}")).spawn(move || {
+            let (st, ours, name) = (stop.clone(), self.ours.clone(), i.clone());
+            let _ = std::thread::Builder::new().name(format!("dhcp-{i}")).spawn(move || {
                 client(&name, &st, &ours);
                 ours.lock().unwrap().retain(|x| *x != name);
             });
-            self.workers.insert(m, Worker { stop });
-            changed = true;
+            self.workers.insert(i.clone(), Worker { stop });
         }
-        changed
+        modems
     }
 }
 

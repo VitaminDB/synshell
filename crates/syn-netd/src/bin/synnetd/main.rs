@@ -71,6 +71,7 @@ struct Shared {
     cfg: Arc<RwLock<Config>>,
     apps: apps::Apps,
     net: Mutex<(Vec<Uplink>, bool, Option<String>)>,
+    usb: Mutex<Vec<syn_netd::UsbModem>>,
     wake: Wake,
     rescan: Wake,
 }
@@ -81,7 +82,7 @@ impl Shared {
         if note.is_none() {
             note = self.apps.error.lock().unwrap().clone();
         }
-        Status { config: self.cfg.read().unwrap().clone(), uplinks, active, note, running: self.apps.running(), can_edit: can_edit(uid) }
+        Status { config: self.cfg.read().unwrap().clone(), uplinks, active, note, running: self.apps.running(), can_edit: can_edit(uid), usb_modems: self.usb.lock().unwrap().clone() }
     }
 }
 
@@ -120,6 +121,21 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
             let p = syn_netd::AppPolicy::from_id(p).ok_or_else(|| anyhow::anyhow!("выбор: primary, both, iface:<канал> или system"))?;
             c.apps.insert(name.to_string(), p);
         }
+        ["usb", key, choice] => {
+            let name = syn_netd::status()?.usb_modems.into_iter().find(|m| m.key == *key).map(|m| m.name).unwrap_or_default();
+            match *choice {
+                "modem" => {
+                    c.usb_devices.insert(key.to_string(), syn_netd::UsbDecision { choice: syn_netd::UsbChoice::Modem, name });
+                }
+                "no" => {
+                    c.usb_devices.insert(key.to_string(), syn_netd::UsbDecision { choice: syn_netd::UsbChoice::No, name });
+                }
+                "ask" => {
+                    c.usb_devices.remove(*key);
+                }
+                _ => anyhow::bail!("выбор: modem, no или ask"),
+            }
+        }
         ["usb-dhcp", "on"] => c.usb_dhcp = true,
         ["usb-dhcp", "off"] => c.usb_dhcp = false,
         _ => anyhow::bail!(
@@ -128,6 +144,7 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
              synnetd mode primary|both       — основной канал или все сразу\n\
              synnetd primary <iface>|auto    — основной канал\n\
              synnetd app <имя> primary|both|iface:<канал>|system — выбор для программы\n\
+             synnetd usb <ключ> modem|no|ask  — телефон по USB: модем, только зарядка, спросить снова\n\
              synnetd usb-dhcp on|off         — поднимать USB-модемы самой службой"
         ),
     }
@@ -152,6 +169,7 @@ fn main() -> anyhow::Result<()> {
         apps: apps::Apps::new(cfg.clone()),
         cfg,
         net: Mutex::new((Vec::new(), false, None)),
+        usb: Mutex::new(Vec::new()),
         wake: Wake::default(),
         rescan: Wake::default(),
     });
@@ -258,7 +276,13 @@ fn main() -> anyhow::Result<()> {
     let mut last: Option<route::Plan> = None;
     loop {
         let cfg = shared.cfg.read().unwrap().clone();
-        dhcp.tick(cfg.usb_dhcp);
+        let modems = dhcp.tick(&cfg);
+        if *shared.usb.lock().unwrap() != modems {
+            for m in modems.iter().filter(|m| m.choice.is_none() && !m.managed_elsewhere) {
+                tracing::info!("{}: USB-модем {} ({}) — ждём решения пользователя", m.iface, m.name, m.key);
+            }
+            *shared.usb.lock().unwrap() = modems;
+        }
         let snap = route::read();
         let plan = route::plan(&snap, &cfg);
         if last.as_ref().map(|l| &l.cmds) != Some(&plan.cmds) {

@@ -1887,6 +1887,14 @@
 "Все программы идут как в системе. Добавьте программу ниже, чтобы выбрать для неё канал." = "Tüm programlar sistemdeki gibi çalışır. Bir programa bağlantı seçmek için aşağıdan ekleyin."
 "Полезно все каналы сразу" = "Tüm bağlantılardan yararlananlar"
 "Несколько подключений сразу: Wi-Fi, кабель, телефон по USB. Один канал основной или все вместе — для всей системы и для каждой программы." = "Aynı anda birkaç bağlantı: Wi-Fi, kablo, USB üzerinden telefon. Tek ana bağlantı ya da hepsi birlikte — tüm sistem ve her program için."
+"Телефоны по USB" = "USB ile telefonlar"
+"Спрашивать при подключении" = "Bağlanınca sor"
+"Модем — интернет через телефон" = "Modem — internet telefon üzerinden"
+"Только зарядка и файлы" = "Yalnızca şarj ve dosyalar"
+"Подключён · {i} · управляет NetworkManager" = "Bağlı · {i} · NetworkManager yönetiyor"
+"Подключён · {i} · ждёт вашего выбора — интернет через него не идёт" = "Bağlı · {i} · seçiminizi bekliyor — internet onun üzerinden geçmiyor"
+"Подключён · {i}" = "Bağlı · {i}"
+"Не подключён" = "Bağlı değil"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "veri yolu {bus} · aygıt {dev}"

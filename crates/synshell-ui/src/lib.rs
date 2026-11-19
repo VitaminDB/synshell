@@ -31,6 +31,7 @@ pub mod desk;
 pub mod daemons;
 pub mod devices;
 pub mod usb_notify;
+mod usb_modem;
 pub mod dock;
 pub mod flip_dnd;
 pub mod edit;
@@ -169,6 +170,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         notifications::start(ctx);
         devices::start(ctx);
         usb_notify::start(ctx);
+        usb_modem::start(ctx);
         autonomy::start(ctx);
         link::start(ctx);
         clipboard::start(ctx);
