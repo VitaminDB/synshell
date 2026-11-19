@@ -68,6 +68,8 @@ pub mod icons {
     pub const DASHBOARD: &str = "\u{E871}";
     pub const EXPAND: &str = "\u{E5CF}";
     pub const COLLAPSE: &str = "\u{E5CE}";
+    pub const CHEVRON_LEFT: &str = "\u{E5CB}";
+    pub const CHEVRON_RIGHT: &str = "\u{E5CC}";
     pub const DNS: &str = "\u{E875}";
     pub const SPARK: &str = "\u{E65F}";
     pub const DEVICES: &str = "\u{E1B1}";
@@ -1023,6 +1025,28 @@ pub fn attach(st: St, id: &str) {
             std::thread::sleep(Duration::from_secs(2));
         }
     });
+}
+
+/// Снимок окна (`--screenshot --tab screen`): экран работающей машины без поллеров окна —
+/// подключиться, дождаться первого кадра (до 5 с), разрешение гостя не трогать.
+pub fn attach_for_shot(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    if qemu::pid(&vm).is_none() {
+        return;
+    }
+    let s = Session::open(vm.vnc_path(), Duration::from_secs(5), Arc::new(|| {}), Arc::new(|_| {}));
+    let t0 = std::time::Instant::now();
+    while s.size() == (0, 0) && s.alive() && t0.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Первый кадр целиком.
+    std::thread::sleep(Duration::from_millis(300));
+    if s.size() == (0, 0) {
+        return;
+    }
+    st.guest_size.set(s.size());
+    sessions().lock().unwrap().insert(id.to_string(), s);
+    st.connected.set(true);
 }
 
 fn on_note(st: St, id: &str, n: Note) {

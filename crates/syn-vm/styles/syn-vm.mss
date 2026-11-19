@@ -276,6 +276,9 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 }
 .float-bar .ibtn-icon { icon-color: #ffffff; icon-size: 19px; }
 .float-bar .ibtn { padding: 7px; &:hover { background-color: #ffffff22; } }
+.float-bar.mini { padding: 2px 4px; background-color: #16161c88; box-shadow: 0 4px 14px #00000044; }
+.float-bar.mini .ibtn { padding: 5px; }
+.float-bar.mini .ibtn-icon { icon-color: #ffffffcc; icon-size: 18px; }
 .float-bar.auto .ibtn-icon { icon-color: #ffffff; }
 .vsep { width: 1px; height: 20px; background-color: #ffffff2a; margin: 0px 4px; }
 .menu {

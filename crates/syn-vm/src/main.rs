@@ -138,6 +138,9 @@ fn main() {
                                 l.mem_hist = vec![b.rss as f32 / (vm.memory_mb.max(1) as f32 * 1048576.0) * 100.0; 2];
                             }
                             st.live.set(live);
+                            if tab == Some(Tab::Screen) {
+                                state::attach_for_shot(st, id);
+                            }
                         }
                     }
                 }

@@ -21,7 +21,11 @@ static RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // ─── Положение панели над экраном гостя ─────────────────────────────────
 // Сдвиг (логические пиксели) от места по умолчанию — сверху по центру; панель тянут за ручку
-// слева, двойной щелчок по ручке — обратно в центр. Запоминается в `<данные>/syn-vm/screen-bar`.
+// слева, двойной щелчок по ручке — обратно в центр. Рядом с ручкой — свернуть/развернуть:
+// свёрнутая панель — только ручка и кнопка «развернуть», почти не закрывает экран гостя.
+// Запоминается в `<данные>/syn-vm/screen-bar` («dx dy свёрнута»).
+
+static BAR_MINI: AtomicBool = AtomicBool::new(false);
 
 fn bar_file() -> std::path::PathBuf {
     model::root().join("screen-bar")
@@ -32,7 +36,9 @@ fn bar_offset() -> &'static std::sync::Mutex<(f32, f32)> {
     O.get_or_init(|| {
         let v = std::fs::read_to_string(bar_file()).ok().and_then(|s| {
             let mut it = s.split_whitespace().filter_map(|x| x.parse::<f32>().ok());
-            Some((it.next()?, it.next()?))
+            let o = (it.next()?, it.next()?);
+            BAR_MINI.store(it.next().is_some_and(|m| m != 0.0), Ordering::Relaxed);
+            Some(o)
         });
         std::sync::Mutex::new(v.unwrap_or((0.0, 0.0)))
     })
@@ -48,7 +54,8 @@ fn clamp_offset(st: St, (dx, dy): (f32, f32)) -> (f32, f32) {
 }
 
 fn save_bar(o: (f32, f32)) {
-    let _ = std::fs::write(bar_file(), format!("{:.0} {:.0}\n", o.0, o.1));
+    let mini = BAR_MINI.load(Ordering::Relaxed) as u8;
+    let _ = std::fs::write(bar_file(), format!("{:.0} {:.0} {mini}\n", o.0, o.1));
 }
 
 pub fn page(st: St, full: bool) -> W {
@@ -440,7 +447,38 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
             state::poke(st);
         })
         .child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
-    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip);
+    // Свернуть/развернуть: кнопка сразу за ручкой, на том же месте в обоих видах.
+    let _ = bar_offset();
+    let mini = BAR_MINI.load(Ordering::Relaxed);
+    let fold = icon_btn(
+        if mini { icons::CHEVRON_RIGHT } else { icons::CHEVRON_LEFT },
+        if mini { t!("Развернуть панель") } else { t!("Свернуть панель") },
+        move || {
+            BAR_MINI.store(!BAR_MINI.load(Ordering::Relaxed), Ordering::Relaxed);
+            st.keys_menu.set(false);
+            st.modes_menu.set(false);
+            save_bar(*bar_offset().lock().unwrap());
+            state::poke(st);
+        },
+    );
+    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip).child(fold);
+    if mini {
+        // Свёрнута: идущая запись остаётся видна (и её можно остановить).
+        let recording = st.live.get_untracked().get(id).is_some_and(|l| l.rec_since != 0);
+        let bar = bar.children(recording.then(|| record_button(st, id.to_string())));
+        let bar = DecoratedBox::new().child(bar).class("float-bar mini");
+        let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
+        return boxed(
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(bar)
+                .class("float-wrap")
+                .style("padding-top", StyleValue::px(10.0 + dy))
+                .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
+                .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
+        );
+    }
+    bar = bar.child(DecoratedBox::new().class("vsep"));
     if gpu3d {
         // Захват мыши для игр (камера в 3D-играх читает сырые смещения); Ctrl+Alt — выход.
         bar = bar

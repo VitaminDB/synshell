@@ -655,6 +655,8 @@
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Gastbildschirm als Video aufnehmen (Videos/Записи экрана)"
 "Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = "Maus für ein Spiel erfassen (Strg+Alt+G; Strg+Alt – freigeben)"
 "Ctrl+Alt+Del" = "Strg+Alt+Entf"
+"Свернуть панель" = "Leiste einklappen"
+"Развернуть панель" = "Leiste ausklappen"
 "Другие сочетания" = "Weitere Tastenkombinationen"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Text aus der Zwischenablage tippen (Strg+Alt+V)"
 "Снимок экрана" = "Bildschirmfoto"
