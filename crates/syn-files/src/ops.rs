@@ -27,6 +27,32 @@ pub enum Op {
 }
 
 impl Op {
+    /// Папка, куда операция кладёт файлы.
+    pub fn dest(&self) -> Option<&Path> {
+        match self {
+            Op::Copy { dest, .. } | Op::Move { dest, .. } | Op::Extract { dest, .. } => Some(dest),
+            _ => None,
+        }
+    }
+
+    /// Та же операция в другую папку.
+    pub fn with_dest(&self, to: PathBuf) -> Op {
+        let mut op = self.clone();
+        if let Op::Copy { dest, .. } | Op::Move { dest, .. } | Op::Extract { dest, .. } = &mut op {
+            *dest = to;
+        }
+        op
+    }
+
+    /// Исходные файлы копирования, перемещения, распаковки.
+    pub fn sources(&self) -> &[PathBuf] {
+        match self {
+            Op::Copy { srcs, .. } | Op::Move { srcs, .. } => srcs,
+            Op::Extract { archives, .. } => archives,
+            _ => &[],
+        }
+    }
+
     /// Что операция меняет (размеры папок вокруг пересчитать).
     pub fn touched(&self) -> Vec<PathBuf> {
         match self {
@@ -737,6 +763,7 @@ fn copy_file(r: &mut Runner, src: &Path, dst: &Path, m: &std::fs::Metadata) -> s
     let mut from = std::fs::File::open(src)?;
     let mut to = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(dst)?;
     let mut buf = vec![0u8; 1 << 20];
+    let mut written = 0u64;
     loop {
         if r.cancelled() {
             drop(to);
@@ -748,11 +775,42 @@ fn copy_file(r: &mut Runner, src: &Path, dst: &Path, m: &std::fs::Metadata) -> s
             break;
         }
         to.write_all(&buf[..n])?;
+        written += n as u64;
         r.p.done_bytes.fetch_add(n as u64, Ordering::Relaxed);
         r.tick(src);
     }
     let _ = to.set_permissions(std::fs::Permissions::from_mode(m.mode() & 0o7777));
     set_mtime(&to, m);
+    close_checked(to)?;
+    check_size(dst, written).inspect_err(|_| {
+        let _ = std::fs::remove_file(dst);
+    })
+}
+
+/// Закрыть с проверкой: у gvfs (телефоны, сетевые папки) ошибка записи
+/// иногда приходит только при закрытии, а `drop` её молча теряет.
+fn close_checked(f: std::fs::File) -> std::io::Result<()> {
+    use std::os::unix::io::IntoRawFd;
+    if unsafe { libc::close(f.into_raw_fd()) } != 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() != Some(libc::EINTR) {
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// Копия оборвалась без ошибки (айфон по AFC, gvfs) — размер на месте меньше
+/// записанного: сообщить, а не считать файл скопированным.
+fn check_size(dst: &Path, written: u64) -> std::io::Result<()> {
+    let got = std::fs::metadata(dst)?.len();
+    if got != written {
+        return Err(std::io::Error::other(t!(
+            "копия оборвалась: записано {a} из {b}",
+            a = synshell_common::drives::format_size(got),
+            b = synshell_common::drives::format_size(written)
+        )));
+    }
     Ok(())
 }
 
@@ -975,6 +1033,16 @@ mod tests {
         wait(&j);
         assert_eq!(std::fs::read_to_string(b.join("x.txt")).unwrap(), "old");
         assert_eq!(std::fs::read_to_string(b.join("x (1).txt")).unwrap(), "new");
+    }
+
+    #[test]
+    fn short_copy_is_error() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("a");
+        std::fs::write(&f, b"12345").unwrap();
+        assert!(super::check_size(&f, 5).is_ok());
+        let e = super::check_size(&f, 9).unwrap_err().to_string();
+        assert!(e.contains("оборвалась"), "{e}");
     }
 
     #[test]

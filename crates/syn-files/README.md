@@ -23,7 +23,7 @@
 - **Tags and ratings** in extended attributes, compatible with Dolphin.
 - **Git status** of files and folders inside a repository.
 - **Folder sizes** counted in the background.
-- **Drives and devices** — USB drives and partitions (udisks), Android phones (MTP), cameras (PTP), iPhone, files of devices linked with synlink.
+- **Drives and devices** — USB drives and partitions (udisks), Android phones (MTP), cameras (PTP), iPhone (photos and videos from the phone; files sent to it go to the folder of a chosen app and show up in Files → On My iPhone), files of devices linked with synlink.
 - **Network locations** — “Connect to Server…”: SFTP, SMB, FTP, WebDAV, NFS via gvfs, with password and host-key prompts.
 - **Terminal panel** (F12) in the open folder.
 - **Image viewer** — `synfiles --viewer`: zoom to the cursor, a thumbnail strip, all images of the folder, EXIF rotation, move to trash, “Open with”.

@@ -118,6 +118,8 @@ pub enum Dialog {
     Connect { uri: String, auto: bool },
     /// Пароль архива с корнем монтирования `root`; `wrong` — прошлый не подошёл.
     ArchivePassword { root: PathBuf, wrong: bool },
+    /// Вставка в том «iPhone — фото и видео»: выбрать программу на айфоне.
+    IphoneTarget { op: crate::ops::Op, udid: String },
 }
 
 #[derive(Clone, Copy)]

@@ -633,6 +633,7 @@ pub fn dialogs() -> W {
             Dialog::BatchRename { paths } if !paths.is_empty() => batch_rename(paths),
             Dialog::Connect { uri, auto } => connect(uri, auto),
             Dialog::ArchivePassword { root, wrong } => archive_password(root, wrong),
+            Dialog::IphoneTarget { op, udid } => iphone_target(op, udid),
             _ => return vec![],
         };
         vec![boxed(GestureDetector::new().cursor(CursorIcon::Default).child(content))]
@@ -645,4 +646,76 @@ pub fn dialogs() -> W {
                 .child(card),
         ),
     )
+}
+
+/// Вставка в том «iPhone — фото и видео»: туда iOS файлы не покажет. Выбор
+/// программы с общим доступом к файлам — файлы лягут в её папку на
+/// «Документы на iPhone» и появятся в «Файлы → На iPhone → Программа».
+fn iphone_target(op: Op, udid: String) -> W {
+    use synshell_common::drives::{iphone_apps, iphone_default_app, IphoneApp};
+    let apps = use_signal(None::<std::result::Result<Vec<IphoneApp>, String>>);
+    std::thread::spawn(move || apps.set(Some(iphone_apps(&udid))));
+    let verb = match op {
+        Op::Move { .. } => t!("Переместить"),
+        Op::Extract { .. } => t!("Распаковать"),
+        _ => t!("Скопировать"),
+    };
+    let go = {
+        let op = op.clone();
+        move |a: &IphoneApp| {
+            close();
+            ops::start(op.with_dest(a.dir.clone()));
+            state::toast(t!("Появится на iPhone в «Файлы → На iPhone → {name}»", name = a.name));
+        }
+    };
+    let srcs = op.sources().to_vec();
+    let go2 = go.clone();
+    let list = Reactive::new(move || -> Vec<W> {
+        let col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let v = match apps.get() {
+            None => return vec![boxed(Text::new(t!("Открываю «Документы на iPhone»…")).class("meta"))],
+            Some(Err(e)) => return vec![boxed(Text::new(e).class("rename-bad"))],
+            Some(Ok(v)) => v,
+        };
+        if v.is_empty() {
+            return vec![boxed(Text::new(t!("На iPhone нет программ с общим доступом к файлам. Установите, например, iMovie или Pages.")).class("dialog-text"))];
+        }
+        let best = iphone_default_app(&v, &srcs);
+        let mut col = col;
+        for (i, a) in v.iter().enumerate() {
+            let a2 = a.clone();
+            let go = go.clone();
+            col = col.child(
+                GestureDetector::new().on_click(move || go(&a2)).child(
+                    DecoratedBox::new().class(if Some(i) == best { "app-row best" } else { "app-row" }).child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Icon::new(icons::PHONE).class("icon"))
+                            .child(Text::new(a.name.clone()).max_lines(1).class("grow"))
+                            .child(Text::new(if Some(i) == best { t!("подходит лучше") } else { String::new() }).max_lines(1).class("meta")),
+                    ),
+                ),
+            );
+        }
+        vec![boxed(col)]
+    });
+    let primary = Reactive::new(move || -> Vec<W> {
+        let Some(Ok(v)) = apps.get() else { return vec![] };
+        let Some(i) = iphone_default_app(&v, &op.sources().to_vec()) else { return vec![] };
+        let a = v[i].clone();
+        let go = go2.clone();
+        vec![boxed(Button::new(format!("{verb} — {}", a.name)).class("primary").autofocus(true).on_click(move || go(&a)))]
+    });
+    let body = Column::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(
+            Text::new(t!(
+                "В «iPhone — фото и видео» файлы на телефоне не видны — ни в «Фото», ни в «Файлах». Выберите программу: файлы появятся на iPhone в «Файлы → На iPhone → программа»."
+            ))
+            .class("dialog-text"),
+        )
+        .child(bx("app-list", ScrollView::new().vertical().child(list)));
+    card(&t!("Куда положить на iPhone"), boxed(body), vec![boxed(Button::new(t!("Отмена")).on_click(close)), boxed(primary)])
 }

@@ -584,6 +584,7 @@ ProgressBar {
     border-radius: 6px;
     &:hover { background: var(--row-hover); }
 }
+.app-row.best { background: var(--selection, var(--row-hover)); }
 
 Toggle {
     width: 40px;

@@ -54,7 +54,7 @@ pub fn drop_into(dest: &Path, d: &DragData, m: Modifiers) {
     } else {
         Op::Copy { srcs, dest: dest.to_path_buf() }
     };
-    ops::start(op);
+    crate::actions::start_into(op);
 }
 
 fn same_device(a: &Path, b: &Path) -> bool {

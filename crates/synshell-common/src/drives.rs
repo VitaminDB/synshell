@@ -415,6 +415,77 @@ fn apple_media(out: &mut Vec<Gadget>) {
     }
 }
 
+/// Айфон: `path` — внутри тома «iPhone — фото и видео» (корень AFC,
+/// `gvfs/afc:host=UDID` без порта). Это служебный медиараздел: записанное
+/// туда iOS не показывает ни в «Фото», ни в «Файлах». Возвращает UDID.
+pub fn iphone_media_udid(path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(gvfs_root()).ok()?;
+    let first = unescape(&rel.components().next()?.as_os_str().to_string_lossy());
+    let host = first.strip_prefix("afc:host=")?;
+    (!host.is_empty() && !host.contains(',')).then(|| host.to_string())
+}
+
+/// Программа айфона с общим доступом к файлам.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IphoneApp {
+    /// `com.apple.iMovie`.
+    pub id: String,
+    /// «iMovie».
+    pub name: String,
+    /// Корень контейнера программы (это и есть её Documents).
+    pub dir: PathBuf,
+}
+
+/// Программы айфона с общим доступом к файлам — том «Документы на iPhone»
+/// (`afc://UDID:3/`, house_arrest). Положенное в папку программы видно на
+/// телефоне в «Файлы → На iPhone → Программа». Том монтируется, если нужно.
+/// Блокирующий вызов.
+pub fn iphone_apps(udid: &str) -> Result<Vec<IphoneApp>, String> {
+    let uri = format!("afc://{udid}:3/");
+    let root = match gvfs_dir(&uri).filter(|p| p.is_dir()) {
+        Some(p) => p,
+        None => {
+            gio(&["mount", &uri]).map_err(|e| t!("{e}. Разблокируйте iPhone и нажмите «Доверять»", e = e))?;
+            gvfs_dir(&uri).ok_or_else(|| t!("gvfs смонтировал устройство, но его папки нет"))?
+        }
+    };
+    let list = gio(&["list", "-a", "standard::display-name", &uri])?;
+    let mut apps = parse_app_list(&list, &root);
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    Ok(apps)
+}
+
+fn parse_app_list(list: &str, root: &Path) -> Vec<IphoneApp> {
+    list.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            let id = *f.first()?;
+            if id.is_empty() || f.get(2) != Some(&"(directory)") {
+                return None;
+            }
+            let name = f.iter().find_map(|x| x.strip_prefix("standard::display-name=")).filter(|n| !n.is_empty()).unwrap_or(id);
+            Some(IphoneApp { id: id.to_string(), name: name.to_string(), dir: root.join(id) })
+        })
+        .collect()
+}
+
+/// Какую программу предложить для файлов: видео и фото — iMovie, документы —
+/// Pages / Numbers / Keynote, звук — GarageBand; иначе iMovie или первая.
+pub fn iphone_default_app(apps: &[IphoneApp], files: &[PathBuf]) -> Option<usize> {
+    let pick = |id: &str| apps.iter().position(|a| a.id == id);
+    let ext = |p: &PathBuf| p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let kind = |e: &str| match e {
+        "pages" | "doc" | "docx" | "rtf" | "txt" | "odt" | "pdf" | "md" => "com.apple.Pages",
+        "numbers" | "xls" | "xlsx" | "csv" | "ods" => "com.apple.Numbers",
+        "key" | "ppt" | "pptx" | "odp" => "com.apple.Keynote",
+        "mp3" | "m4a" | "wav" | "aif" | "aiff" | "flac" | "ogg" | "opus" | "band" => "com.apple.mobilegarageband",
+        _ => "com.apple.iMovie",
+    };
+    let first = files.first().map(|p| kind(&ext(p))).unwrap_or("com.apple.iMovie");
+    let same = files.iter().all(|p| kind(&ext(p)) == first);
+    (if same { pick(first) } else { None }).or_else(|| pick("com.apple.iMovie")).or(if apps.is_empty() { None } else { Some(0) })
+}
+
 /// Папка gvfs для адреса: `mtp://HOST/` → `/run/user/UID/gvfs/mtp:host=HOST`.
 /// Имена папок экранированы как URI — сравниваем раскодированные.
 fn gvfs_dir(uri: &str) -> Option<PathBuf> {
@@ -544,5 +615,25 @@ mod tests {
         assert_eq!(super::unescape("gphoto2:host=usb%3A003%2C028"), "gphoto2:host=usb:003,028");
         assert_eq!(super::unescape("mtp:host=SAMSUNG_X"), "mtp:host=SAMSUNG_X");
         assert_eq!(super::unescape("100%"), "100%");
+    }
+
+    #[test]
+    fn iphone() {
+        use std::path::{Path, PathBuf};
+        let g = super::gvfs_root();
+        assert_eq!(super::iphone_media_udid(&g.join("afc:host=0000-AB/DCIM")).as_deref(), Some("0000-AB"));
+        assert_eq!(super::iphone_media_udid(&g.join("afc:host=0000-AB,port=3/com.apple.iMovie")), None);
+        assert_eq!(super::iphone_media_udid(Path::new("/home/x")), None);
+        let list = "com.apple.iMovie\t0\t(directory)\tstandard::display-name=iMovie\nkz.egov.mobile\t0\t(directory)\tstandard::display-name=eGov Mobile\ncom.apple.Pages\t0\t(directory)\tstandard::display-name=Pages\nx.txt\t3\t(regular)\tstandard::display-name=x.txt\n";
+        let apps = super::parse_app_list(list, Path::new("/r"));
+        assert_eq!(apps.len(), 3);
+        assert_eq!(apps[1].name, "eGov Mobile");
+        assert_eq!(apps[1].dir, PathBuf::from("/r/kz.egov.mobile"));
+        let d = |f: &[&str]| super::iphone_default_app(&apps, &f.iter().map(PathBuf::from).collect::<Vec<_>>()).map(|i| apps[i].id.as_str());
+        assert_eq!(d(&["a.mp4", "b.MOV"]), Some("com.apple.iMovie"));
+        assert_eq!(d(&["a.docx"]), Some("com.apple.Pages"));
+        assert_eq!(d(&["a.docx", "b.mp4"]), Some("com.apple.iMovie"));
+        assert_eq!(d(&["a.xlsx"]), Some("com.apple.iMovie"));
+        assert_eq!(super::iphone_default_app(&[], &[]), None);
     }
 }

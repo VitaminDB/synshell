@@ -575,3 +575,4 @@
 # syn-modem src/bin/synmodem.rs — USSD
 "нет ответа сети" = "şebekeden yanıt yok"
 "(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(şebeke yanıt bekliyor: synmodem ussd reply METİN)"
+"{e}. Разблокируйте iPhone и нажмите «Доверять»" = "{e}. iPhone’un kilidini açın ve “Güven”e dokunun"

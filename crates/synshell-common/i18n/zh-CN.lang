@@ -575,3 +575,4 @@
 # syn-modem src/bin/synmodem.rs — USSD
 "нет ответа сети" = "网络无响应"
 "(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "（网络等待回复：synmodem ussd reply 文本）"
+"{e}. Разблокируйте iPhone и нажмите «Доверять»" = "{e}。请解锁 iPhone 并轻点“信任”"

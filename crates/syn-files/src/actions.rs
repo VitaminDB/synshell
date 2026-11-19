@@ -301,6 +301,17 @@ pub fn can_paste() -> bool {
         || syngui::clipboard::available_mimes().iter().any(|m| m == "text/uri-list" || m == "x-special/gnome-copied-files")
 }
 
+/// Запустить копирование, перемещение или распаковку. В том «iPhone — фото и
+/// видео» файлы не кладём: iOS их там не покажет — спрашиваем, в папку какой
+/// программы на «Документы на iPhone» положить.
+pub fn start_into(op: Op) {
+    if let Some(udid) = op.dest().and_then(synshell_common::drives::iphone_media_udid) {
+        state::ctx().dialog.set(Some(Dialog::IphoneTarget { op, udid }));
+        return;
+    }
+    ops::start(op);
+}
+
 pub fn paste_into(dir: &Path) {
     let Some((paths, cut)) = read_clipboard() else {
         state::toast(t!("Буфер обмена пуст"));
@@ -311,7 +322,7 @@ pub fn paste_into(dir: &Path) {
         state::ctx().clip.set(None);
         syngui::clipboard::copy("");
     }
-    ops::start(op);
+    start_into(op);
 }
 
 pub fn copy_paths_text(paths: &[PathBuf]) {
@@ -869,7 +880,7 @@ pub fn extract_archive(info: &crate::archive::Info, subfolder: bool) {
         return;
     }
     if !info.encrypted {
-        ops::start(ops::Op::Extract { archives: vec![info.source.clone()], dest: parent, subfolder });
+        start_into(ops::Op::Extract { archives: vec![info.source.clone()], dest: parent, subfolder });
         return;
     }
     let dest = if subfolder { ops::free_name(&parent.join(ops::archive_stem(&info.source))) } else { parent };
@@ -879,7 +890,7 @@ pub fn extract_archive(info: &crate::archive::Info, subfolder: bool) {
     }
     let srcs: Vec<PathBuf> = std::fs::read_dir(&info.root).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
     if !srcs.is_empty() {
-        ops::start(ops::Op::Copy { srcs, dest });
+        start_into(ops::Op::Copy { srcs, dest });
     }
 }
 
@@ -964,7 +975,7 @@ pub fn run(p: Pane, id: &str) {
         }
         "extract-here" | "extract-sub" => {
             if let Some(d) = &dir {
-                ops::start(Op::Extract { archives: paths, dest: d.clone(), subfolder: id == "extract-sub" });
+                start_into(Op::Extract { archives: paths, dest: d.clone(), subfolder: id == "extract-sub" });
             }
         }
         "compress" => {
