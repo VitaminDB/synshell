@@ -123,10 +123,15 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
                 }
                 let (flags, ax, ay, _z) = backdoor(CMD_DATA, 4);
                 let (ax, ay) = (ax & 0xFFFF, ay & 0xFFFF);
-                if (ax, ay) != last && flags & 0x0001_0000 == 0 {
+                // Позиция — на каждом пакете, а не только при смене: на каждое событие vmmouse QEMU шлёт и в PS/2
+                // «пустой» пакет со сдвигом dx=1 (i8042 fake event), курсор Windows уползает — без возврата щелчки
+                // расходятся дальше допуска двойного щелчка.
+                if flags & 0x0001_0000 == 0 {
                     last = (ax, ay);
-                    let x = ((ax as i64 * sw as i64) >> 16) as i32;
-                    let y = ((ay as i64 * sh as i64) >> 16) as i32;
+                }
+                if last != (u32::MAX, u32::MAX) {
+                    let x = ((last.0 as i64 * sw as i64) >> 16) as i32;
+                    let y = ((last.1 as i64 * sh as i64) >> 16) as i32;
                     unsafe { SetCursorPos(x, y) };
                 }
                 // Кнопки vmmouse: 20h — левая, 10h — правая, 08h — средняя.
