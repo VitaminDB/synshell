@@ -91,7 +91,7 @@ pub fn interfaces(sys: &Sys) -> Vec<Interface> {
                 "vpn"
             } else if has("bridge") {
                 "bridge"
-            } else if name.starts_with("usb") || name.starts_with("rndis") || ["rndis_host", "cdc_ether", "cdc_ncm"].contains(&driver.as_str()) {
+            } else if name.starts_with("usb") || name.starts_with("rndis") || ["rndis_host", "cdc_ether", "cdc_ncm", "cdc_eem", "ipheth"].contains(&driver.as_str()) {
                 "usb"
             } else if !has("device") {
                 "virtual"

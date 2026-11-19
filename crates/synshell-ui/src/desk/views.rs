@@ -965,6 +965,38 @@ fn net_line(lead: Box<dyn Widget>, title: String, sub: String) -> impl Widget {
     Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(lead).class("res-net-lead")).child(col.class("grow"))
 }
 
+/// Цвета каналов на графике (приём суммы — цветом виджета, передача — оранжевым).
+const IF_COLORS: [&str; 4] = ["#66bb6a", "#ce93d8", "#4dd0e1", "#f06292"];
+
+fn if_color(i: usize) -> Color {
+    Color::from_hex(IF_COLORS[i % IF_COLORS.len()])
+}
+
+/// Имя канала: «Wi-Fi», «USB-модем»…; двух одного типа различает интерфейс.
+fn if_label(i: &data::IfStat, all: &[data::IfStat]) -> String {
+    let kind = match i.kind.as_str() {
+        "wifi" => "Wi-Fi".to_string(),
+        "ethernet" => t!("Кабель"),
+        "usb" => t!("USB-модем"),
+        "mobile" => t!("Мобильная"),
+        _ => return i.name.clone(),
+    };
+    if all.iter().filter(|x| x.kind == i.kind).count() > 1 {
+        format!("{kind} {}", i.name)
+    } else {
+        kind
+    }
+}
+
+/// Строка каналов под графиком: «● Wi-Fi ↓ 1,2 МБ/с  ● USB-модем ↓ 300 КБ/с».
+fn if_legend(ifaces: &[data::IfStat]) -> impl Widget {
+    let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    for (n, i) in ifaces.iter().enumerate() {
+        row = row.child(Text::new(format!("● {} ↓ {}", if_label(i, ifaces), human_rate(i.rx))).max_lines(1).class("desk-k").style("color", StyleValue::Color(mss_color(if_color(n)))));
+    }
+    row.style("height", StyleValue::px(16.0))
+}
+
 fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
     let sig = data::snap();
     Box::new(rx(move || {
@@ -980,19 +1012,38 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                 if foot {
                     lcx.h -= 18.0;
                 }
+                // Несколько каналов: сумма и линия каждого, подписи — строкой.
+                let multi = s.ifaces.len() >= 2 && cx.h >= 90.0;
+                if multi {
+                    lcx.h -= 16.0;
+                }
+                let rx_name = if multi { t!("Всего") } else { t!("Приём") };
+                let mut series: Vec<(&str, Vec<f32>, Color)> = vec![(&rx_name, to_k(&s.history.rx), rx_c)];
+                let tx_name = t!("Передача");
+                series.push((&tx_name, to_k(&s.history.tx), tx_c));
+                if multi {
+                    for (n, i) in s.ifaces.iter().enumerate() {
+                        if let Some((_, r, _)) = s.history.ifaces.iter().find(|(name, _, _)| *name == i.name) {
+                            series.push(("", to_k(r), if_color(n)));
+                        }
+                    }
+                }
                 let chart = line_view(
                     &format!("↓ {}", human_rate(s.net.0)),
                     &format!("↑ {}", human_rate(s.net.1)),
-                    &[(&t!("Приём"), to_k(&s.history.rx), rx_c), (&t!("Передача"), to_k(&s.history.tx), tx_c)],
+                    &series,
                     None,
                     &lcx,
                     |v| if v >= 1024.0 { format!("{:.0}M", v / 1024.0) } else { format!("{v:.0}K") },
                 );
-                if foot {
-                    Box::new(Column::new().gap(0.0).child(chart).child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"))) as Box<dyn Widget>
-                } else {
-                    Box::new(chart) as Box<dyn Widget>
+                let mut col = Column::new().gap(0.0).child(chart);
+                if multi {
+                    col = col.child(if_legend(&s.ifaces));
                 }
+                if foot {
+                    col = col.child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"));
+                }
+                Box::new(col) as Box<dyn Widget>
             }
             "bars" => {
                 let n = ((cx.w / 10.0) as usize).clamp(6, 40).min(cx.history);
@@ -1017,10 +1068,15 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .child(Text::new(format!("↓ {}", human_rate(s.net.0))).class("desk-value"))
                     .child(Text::new(format!("↑ {}", human_rate(s.net.1))).class("desk-value"))
+                    .children(if s.ifaces.len() >= 2 {
+                        s.ifaces.iter().map(|i| Box::new(kv(&if_label(i, &s.ifaces), format!("↓ {} ↑ {}", human_rate(i.rx), human_rate(i.tx)))) as Box<dyn Widget>).collect()
+                    } else {
+                        Vec::new()
+                    })
                     .child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"))
                     .style("height", StyleValue::px(cx.h)),
             ),
-            _ => Box::new(net_card(&ctx.network.get(), ctx.modem.get().as_ref(), s.net, s.net_total)),
+            _ => Box::new(net_card(&ctx.network.get(), ctx.modem.get().as_ref(), s.net, s.net_total, &s.ifaces)),
         }
     }))
 }
@@ -1031,7 +1087,7 @@ fn net_total_line(total: (u64, u64)) -> String {
     t!("Скачано {rx} · отдано {tx}", rx = human_bytes(total.0), tx = human_bytes(total.1))
 }
 
-fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Status>, rate: (f64, f64), total: (u64, u64)) -> impl Widget {
+fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Status>, rate: (f64, f64), total: (u64, u64), ifaces: &[data::IfStat]) -> impl Widget {
     let (glyph, title, sub) = match n.kind.as_str() {
         "wifi" if n.online => (mi::WIFI, n.connection.clone(), n.signal.map(|v| format!("Wi-Fi · {v} %")).unwrap_or_else(|| "Wi-Fi".into())),
         "ethernet" if n.online => (mi::ETHERNET, n.connection.clone(), t!("Проводная сеть").into()),
@@ -1042,6 +1098,17 @@ fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Sta
         let (title, sub) = crate::modem::summary(m);
         let bars = if m.radio { m.bars } else { None };
         col = col.child(net_line(Box::new(crate::modem::signal_bars(bars)), title, sub));
+    }
+    // Несколько каналов — скорость каждого.
+    if ifaces.len() >= 2 {
+        for (n, i) in ifaces.iter().enumerate() {
+            col = col.child(
+                Row::new()
+                    .gap(10.0)
+                    .child(Text::new(format!("● {}", if_label(i, ifaces))).max_lines(1).class("res-k grow").style("color", StyleValue::Color(mss_color(if_color(n)))))
+                    .child(Text::new(format!("↓ {}  ↑ {}", human_rate(i.rx), human_rate(i.tx))).class("res-k")),
+            );
+        }
     }
     col.child(Row::new().gap(10.0).child(Text::new(format!("↓ {}", human_rate(rate.0))).class("res-k grow")).child(Text::new(format!("↑ {}", human_rate(rate.1))).class("res-k")))
         .child(Text::new(net_total_line(total)).max_lines(1).class("res-k"))

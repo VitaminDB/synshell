@@ -42,6 +42,9 @@ pub struct Snap {
     /// Всего принято и передано с включения — физические интерфейсы (Wi-Fi, провод, модем, USB),
     /// без мостов и tap виртуальных машин, чей трафик уже учтён на физическом.
     pub net_total: (u64, u64),
+    /// Физические каналы (Wi-Fi, провод, модем, USB): скорость и итог по каждому — когда их
+    /// несколько, виджет «Сеть» показывает и каждый, и сумму.
+    pub ifaces: Vec<IfStat>,
     /// Видеопамять первого GPU, который её сообщает: занято, всего (у общей с ОЗУ — нет), имя.
     pub vram: Option<(u64, Option<u64>, String)>,
     pub npu: Option<syn_system::npu::Npu>,
@@ -65,6 +68,18 @@ pub struct History {
     /// Видеопамять, % (от своей или от ОЗУ, если общая).
     pub vram: Vec<f32>,
     pub npu: Vec<f32>,
+    /// По каналам: имя, приём, передача (байт/с).
+    pub ifaces: Vec<(String, Vec<f64>, Vec<f64>)>,
+}
+
+/// Канал: имя интерфейса, тип (`wifi`, `ethernet`, `usb`, `mobile`), байт/с и итог с включения.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct IfStat {
+    pub name: String,
+    pub kind: String,
+    pub rx: f64,
+    pub tx: f64,
+    pub total: (u64, u64),
 }
 
 #[derive(Clone, PartialEq)]
@@ -133,28 +148,51 @@ fn start_sampler(sig: RwSignal<Snap>) {
             let mut gpus: Vec<syn_system::gpu::GpuDevice> = Vec::new();
             let cpu_model = syn_system::thermal::cpu_short_name(&sys);
             let mut tick = 0u64;
-            let mut last_net: Option<(u64, u64)> = None;
+            let mut last_if: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+            let mut h_if: std::collections::BTreeMap<String, (VecDeque<f64>, VecDeque<f64>)> = std::collections::BTreeMap::new();
             cpu.sample();
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 if !VISIBLE.load(Ordering::Relaxed) {
                     // Счётчики сети обновятся при показе.
-                    last_net = None;
+                    last_if.clear();
                     continue;
                 }
                 let c = cpu.sample();
                 let temps = syn_system::thermal::sensors(&sys);
                 let mem = syn_system::memory::read(&sys).unwrap_or_default();
-                let (rx, tx) = syn_system::network::traffic(&sys);
-                let net = match last_net {
-                    Some((r0, t0)) => (rx.saturating_sub(r0) as f64, tx.saturating_sub(t0) as f64),
-                    None => (0.0, 0.0),
-                };
-                last_net = Some((rx, tx));
-                let net_total = syn_system::network::interfaces(&sys)
-                    .iter()
-                    .filter(|i| matches!(i.kind.as_str(), "wifi" | "ethernet" | "mobile" | "usb"))
-                    .fold((0, 0), |(r, t), i| (r + i.rx_bytes, t + i.tx_bytes));
+                // Только физические каналы: мосты и tap виртуальных машин уже учтены на них.
+                let phys: Vec<syn_system::network::Interface> =
+                    syn_system::network::interfaces(&sys).into_iter().filter(|i| matches!(i.kind.as_str(), "wifi" | "ethernet" | "mobile" | "usb")).collect();
+                let net_total = phys.iter().fold((0, 0), |(r, t), i| (r + i.rx_bytes, t + i.tx_bytes));
+                let mut ifaces: Vec<IfStat> = Vec::new();
+                let mut seen_if = std::collections::HashSet::new();
+                for i in &phys {
+                    let rate = match last_if.get(&i.name) {
+                        Some((r0, t0)) => (i.rx_bytes.saturating_sub(*r0) as f64, i.tx_bytes.saturating_sub(*t0) as f64),
+                        None => (0.0, 0.0),
+                    };
+                    last_if.insert(i.name.clone(), (i.rx_bytes, i.tx_bytes));
+                    // Выключенный и без трафика — не канал.
+                    if !i.up && rate == (0.0, 0.0) {
+                        continue;
+                    }
+                    seen_if.insert(i.name.clone());
+                    let h = h_if.entry(i.name.clone()).or_default();
+                    push(&mut h.0, rate.0);
+                    push(&mut h.1, rate.1);
+                    ifaces.push(IfStat { name: i.name.clone(), kind: i.kind.clone(), rx: rate.0, tx: rate.1, total: (i.rx_bytes, i.tx_bytes) });
+                }
+                // Порядок: кабель, Wi-Fi, затем модемы — цвета каналов не прыгают.
+                ifaces.sort_by_key(|i| match i.kind.as_str() {
+                    "ethernet" => 0,
+                    "wifi" => 1,
+                    "usb" => 2,
+                    _ => 3,
+                });
+                h_if.retain(|k, _| seen_if.contains(k));
+                last_if.retain(|k, _| phys.iter().any(|i| i.name == *k));
+                let net = ifaces.iter().fold((0.0, 0.0), |(r, t), i| (r + i.rx, t + i.tx));
                 let wins = windows_slot().lock().map(|w| w.clone()).unwrap_or_default();
                 let groups: Vec<(u64, syn_system::procs::Source)> =
                     wins.iter().map(|(id, app, _, pid)| (*id, usage_source(&sys, app, *pid))).collect();
@@ -225,6 +263,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     usbc: syn_system::usbc::ports(&sys),
                     net,
                     net_total,
+                    ifaces,
                     vram,
                     npu,
                     mounts: mounts.clone(),
@@ -236,6 +275,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                         battery: h_bat.iter().copied().collect(),
                         rx: h_rx.iter().copied().collect(),
                         tx: h_tx.iter().copied().collect(),
+                        ifaces: h_if.iter().map(|(n, (r, t))| (n.clone(), r.iter().copied().collect(), t.iter().copied().collect())).collect(),
                         temp: h_temp.iter().copied().collect(),
                         vram: h_vram.iter().copied().collect(),
                         npu: h_npu.iter().copied().collect(),

@@ -333,6 +333,10 @@
 "Заметки" = "Notlar"
 
 # src/desk/views.rs
+"Кабель" = "Kablo"
+"Мобильная" = "Mobil"
+"Всего" = "Toplam"
+"USB-модем" = "USB modem"
 "Новая заметка — коснитесь в режиме правки, чтобы изменить." = "Yeni not — değiştirmek için düzenleme kipinde dokunun."
 "Неизвестный виджет «{other}»" = "Bilinmeyen widget “{other}”"
 "процессор" = "işlemci"

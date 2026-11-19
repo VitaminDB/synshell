@@ -333,6 +333,10 @@
 "Заметки" = "Notas"
 
 # src/desk/views.rs
+"Кабель" = "Cabo"
+"Мобильная" = "Móvel"
+"Всего" = "Total"
+"USB-модем" = "Modem USB"
 "Новая заметка — коснитесь в режиме правки, чтобы изменить." = "Nova nota — toque nela no modo de edição para alterá-la."
 "Неизвестный виджет «{other}»" = "Widget desconhecido “{other}”"
 "процессор" = "processador"
