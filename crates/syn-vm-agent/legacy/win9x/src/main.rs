@@ -332,6 +332,23 @@ fn read_dir(dir: &str) -> Vec<(String, bool)> {
     out
 }
 
+/// Запустить без ожидания с обычным окном (игры, программы с окнами); pid.
+fn spawn_window(cmd: &str, cwd: Option<&str>) -> Option<u32> {
+    let mut c = cz(cmd);
+    let si = StartupInfo { cb: core::mem::size_of::<StartupInfo>() as u32, ..zeroed_si() };
+    let mut pi: ProcessInfo = unsafe { core::mem::zeroed() };
+    let cwd = cwd.map(cz);
+    let ok = unsafe { CreateProcessA(core::ptr::null(), c.as_mut_ptr(), core::ptr::null(), core::ptr::null(), 0, 0, core::ptr::null(), cwd.as_ref().map_or(core::ptr::null(), |c| c.as_ptr()), &si, &mut pi) } != 0;
+    if !ok {
+        return None;
+    }
+    unsafe {
+        CloseHandle(pi.thread);
+        CloseHandle(pi.process);
+    }
+    Some(pi.pid)
+}
+
 /// Запустить без ожидания (без окна консоли).
 fn spawn_detached(cmd: &str, cwd: Option<&str>) -> bool {
     let mut c = cz(cmd);
@@ -896,6 +913,15 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
             tx(&Frame::new(hello()));
         }
         Msg::Ping { id } => tx(&Frame::new(Msg::Pong { id })),
+        // Без ожидания (--detach): запустить отдельно — без наследования дескрипторов агента и без чтения вывода,
+        // окно программы — как обычно. Раньше detach не различался: поток ждал выхода (игра — вечно) и держал агента.
+        Msg::Exec { id, argv, cwd, detach: true, .. } => {
+            let cmd = join_argv(&argv);
+            match spawn_window(&cmd, cwd.as_deref()) {
+                Some(pid) => tx(&Frame::new(Msg::Started { id, pid })),
+                None => err(port, id, format!("не запустилось: {cmd} (ошибка {})", unsafe { GetLastError() })),
+            }
+        }
         Msg::Exec { id, argv, cwd, .. } => {
             let job = alloc::boxed::Box::new(Job { id, cmd: join_argv(&argv), cwd });
             let p = alloc::boxed::Box::into_raw(job) as *mut u8;
