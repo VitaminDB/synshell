@@ -664,18 +664,33 @@ pub fn vga_accel_lib() -> Option<PathBuf> {
 
 /// Программа сервера syn-gpu: `SYN_GPU` или `syn-gpu` в PATH.
 pub fn syn_gpu_bin() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("SYN_GPU").map(PathBuf::from).filter(|p| p.is_file()) {
-        return Some(p);
+    // Без переменных окружения (окно из сеанса рабочего стола получает другой PATH): постоянные места —
+    // пакет и ссылка на сборку syn-virt в ~/.local/bin (на время пересборки повисает — сервер всё равно есть).
+    let ok = |p: &Path| p.is_file() || p.is_symlink();
+    let mut c = vec![PathBuf::from("/usr/bin/syn-gpu"), PathBuf::from("/usr/lib/syn-gpu/syn-gpu")];
+    if let Some(home) = user_home() {
+        c.push(home.join(".local/bin/syn-gpu"));
     }
-    // Ссылка на сборку syn-virt (~/.local/bin/syn-gpu → target/…) на время пересборки повисает —
-    // сервер всё равно есть.
-    std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("syn-gpu")).find(|p| p.is_file() || p.is_symlink()))
+    c.into_iter().find(|p| ok(p))
+}
+
+/// Домашний каталог пользователя из базы пользователей (getpwuid), не из окружения.
+fn user_home() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_dir.is_null() {
+            return None;
+        }
+        let dir = std::ffi::CStr::from_ptr((*pw).pw_dir);
+        Some(PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes())))
+    }
 }
 
 /// Запустить сервер видеокарты syn-gpu машины (уже работает — оставить) и дождаться его сокета
 /// vfio-user. Сервер живёт, пока QEMU подключён, и выходит после выключения машины сам.
 fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
-    let run = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp")).join("syn-gpu");
+    let run = synshell_common::paths::runtime_dir().join("syn-gpu");
     std::fs::create_dir_all(&run)?;
     let sock = run.join(format!("{}.sock", vm.id));
     let pidf = run.join(format!("{}.pid", vm.id));
@@ -696,7 +711,7 @@ fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
             }
         }
     }
-    let bin = syn_gpu_bin().context(t!("Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)"))?;
+    let bin = syn_gpu_bin().context(t!("Нет сервера 3D-видеокарты syn-gpu (/usr/bin/syn-gpu, /usr/lib/syn-gpu или ~/.local/bin/syn-gpu)"))?;
     let _ = std::fs::remove_file(&sock);
     let log = vm.dir().join("syn-gpu.log");
     let mut c = Command::new(&bin);

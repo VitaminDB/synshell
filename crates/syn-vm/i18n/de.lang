@@ -398,7 +398,7 @@
 "QEMU завершился с ошибкой ({st})" = "QEMU wurde mit einem Fehler beendet ({st})"
 "QEMU не ответил за минуту — смотрите {p}" = "QEMU hat nicht innerhalb einer Minute geantwortet – siehe {p}"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "Eine BIOS-Maschine mit der Grafikkarte syn-gpu braucht ein QEMU, dessen vfio-user-pci die Eigenschaft x-vga hat (Patch von syn-virt): in SYN_VM_QEMU angeben oder UEFI-Firmware wählen"
-"Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)" = "Kein syn-gpu-3D-Grafikserver (Variable SYN_GPU oder syn-gpu im PATH)"
+"Нет сервера 3D-видеокарты syn-gpu (/usr/bin/syn-gpu, /usr/lib/syn-gpu или ~/.local/bin/syn-gpu)" = "Kein syn-gpu-3D-Grafikserver (/usr/bin/syn-gpu, /usr/lib/syn-gpu, ~/.local/bin/syn-gpu)"
 "Сервер syn-gpu завершился ({st}): {tail}" = "syn-gpu-Server beendet ({st}): {tail}"
 "Сервер syn-gpu не открыл сокет за 5 с — журнал: {p}" = "syn-gpu-Server hat den Socket nicht innerhalb von 5 s geöffnet — Protokoll: {p}"
 "машина «{n}»" = "Maschine „{n}“"

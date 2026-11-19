@@ -395,7 +395,7 @@
 "QEMU завершился с ошибкой ({st})" = "QEMU がエラーで終了しました（{st}）"
 "QEMU не ответил за минуту — смотрите {p}" = "QEMU が 1 分以内に応答しませんでした — {p} を確認してください"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "BIOS と syn-gpu グラフィックカードのマシンには、vfio-user-pci に x-vga プロパティがある QEMU（syn-virt のパッチ）が必要です：SYN_VM_QEMU で指定するか、UEFI ファームウェアを選んでください"
-"Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)" = "syn-gpu 3D グラフィックサーバーがありません（SYN_GPU 変数または PATH 内の syn-gpu）"
+"Нет сервера 3D-видеокарты syn-gpu (/usr/bin/syn-gpu, /usr/lib/syn-gpu или ~/.local/bin/syn-gpu)" = "syn-gpu 3D グラフィックサーバーがありません（SYN_GPU 変数または PATH 内の syn-gpu） (/usr/bin/syn-gpu, /usr/lib/syn-gpu, ~/.local/bin/syn-gpu)"
 "Сервер syn-gpu завершился ({st}): {tail}" = "syn-gpu サーバーが終了しました（{st}）：{tail}"
 "Сервер syn-gpu не открыл сокет за 5 с — журнал: {p}" = "syn-gpu サーバーが 5 秒以内にソケットを開きませんでした — ログ：{p}"
 "машина «{n}»" = "マシン「{n}」"

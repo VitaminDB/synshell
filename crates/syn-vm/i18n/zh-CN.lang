@@ -395,7 +395,7 @@
 "QEMU завершился с ошибкой ({st})" = "QEMU 出错退出（{st}）"
 "QEMU не ответил за минуту — смотрите {p}" = "QEMU 一分钟内无响应——请查看 {p}"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "使用 BIOS 和 syn-gpu 显卡的虚拟机需要 vfio-user-pci 带 x-vga 属性的 QEMU（syn-virt 补丁）：请在 SYN_VM_QEMU 中指定，或改用 UEFI 固件"
-"Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)" = "没有 syn-gpu 3D 显卡服务器（SYN_GPU 变量或 PATH 中的 syn-gpu）"
+"Нет сервера 3D-видеокарты syn-gpu (/usr/bin/syn-gpu, /usr/lib/syn-gpu или ~/.local/bin/syn-gpu)" = "没有 syn-gpu 3D 显卡服务器（SYN_GPU 变量或 PATH 中的 syn-gpu） (/usr/bin/syn-gpu, /usr/lib/syn-gpu, ~/.local/bin/syn-gpu)"
 "Сервер syn-gpu завершился ({st}): {tail}" = "syn-gpu 服务器已退出（{st}）：{tail}"
 "Сервер syn-gpu не открыл сокет за 5 с — журнал: {p}" = "syn-gpu 服务器未在 5 秒内打开套接字 — 日志：{p}"
 "машина «{n}»" = "虚拟机“{n}”"

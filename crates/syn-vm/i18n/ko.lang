@@ -395,7 +395,7 @@
 "QEMU завершился с ошибкой ({st})" = "QEMU가 오류로 종료됨 ({st})"
 "QEMU не ответил за минуту — смотрите {p}" = "QEMU가 1분 안에 응답하지 않음 — {p} 확인"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "BIOS와 syn-gpu 그래픽 카드를 쓰는 머신에는 vfio-user-pci에 x-vga 속성이 있는 QEMU(syn-virt 패치)가 필요합니다: SYN_VM_QEMU에 지정하거나 UEFI 펌웨어를 선택하세요"
-"Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)" = "syn-gpu 3D 그래픽 서버가 없습니다(SYN_GPU 변수 또는 PATH의 syn-gpu)"
+"Нет сервера 3D-видеокарты syn-gpu (/usr/bin/syn-gpu, /usr/lib/syn-gpu или ~/.local/bin/syn-gpu)" = "syn-gpu 3D 그래픽 서버가 없습니다 (/usr/bin/syn-gpu, /usr/lib/syn-gpu, ~/.local/bin/syn-gpu)"
 "Сервер syn-gpu завершился ({st}): {tail}" = "syn-gpu 서버가 종료됨({st}): {tail}"
 "Сервер syn-gpu не открыл сокет за 5 с — журнал: {p}" = "syn-gpu 서버가 5초 안에 소켓을 열지 않았습니다 — 로그: {p}"
 "машина «{n}»" = "머신 “{n}”"
