@@ -19,13 +19,15 @@ pub enum OsKind {
     Windows10,
     /// Windows 7 SP1 (и Vista, 8): BIOS, SATA, USB 1.1/2.0 (xHCI у Windows 7 своего драйвера нет).
     Windows7,
+    /// Windows XP / 2000: BIOS, i440fx, IDE/SATA, Realtek, USB 1.1; мышь — планшет usb-tablet (не DOS-машина).
+    WindowsXp,
     Bsd,
     Android,
     Other,
 }
 
 impl OsKind {
-    pub const ALL: [OsKind; 7] = [OsKind::Linux, OsKind::Windows11, OsKind::Windows10, OsKind::Windows7, OsKind::Bsd, OsKind::Android, OsKind::Other];
+    pub const ALL: [OsKind; 8] = [OsKind::Linux, OsKind::Windows11, OsKind::Windows10, OsKind::Windows7, OsKind::WindowsXp, OsKind::Bsd, OsKind::Android, OsKind::Other];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -33,6 +35,7 @@ impl OsKind {
             OsKind::Windows11 => n_!("Windows 11"),
             OsKind::Windows10 => n_!("Windows 10 и 8.1"),
             OsKind::Windows7 => n_!("Windows 7"),
+            OsKind::WindowsXp => n_!("Windows XP"),
             OsKind::Bsd => n_!("BSD"),
             OsKind::Android => n_!("Android x86"),
             OsKind::Other => n_!("Другая"),
@@ -45,6 +48,7 @@ impl OsKind {
             OsKind::Windows11 => n_!("UEFI с Secure Boot и TPM 2.0 — как требует установщик"),
             OsKind::Windows10 => n_!("UEFI, диск SATA — драйверы virtio не нужны"),
             OsKind::Windows7 => n_!("BIOS, диск SATA, сеть Realtek, USB 1.1 — всё со встроенными драйверами"),
+            OsKind::WindowsXp => n_!("Windows XP и 2000: BIOS, IDE, сеть Realtek, USB 1.1, планшет — мышь без захвата"),
             OsKind::Bsd => n_!("FreeBSD, OpenBSD, NetBSD"),
             OsKind::Android => n_!("Android-x86, Bliss OS"),
             OsKind::Other => n_!("Совместимое железо: BIOS, SATA, e1000"),
@@ -62,6 +66,8 @@ impl OsKind {
             Some(OsKind::Windows11)
         } else if f.contains("win7") || f.contains("windows_7") || f.contains("windows7") || f.contains("win_7") || f.contains("windows 7") {
             Some(OsKind::Windows7)
+        } else if f.contains("winxp") || f.contains("windows_xp") || f.contains("windows xp") || f.contains("win_xp") || (f.contains("xp") && f.contains("sp")) {
+            Some(OsKind::WindowsXp)
         } else if f.contains("win") && (f.contains("10") || f.contains("7") || f.contains("8") || f.contains("server")) {
             Some(OsKind::Windows10)
         } else if ["bsd"].iter().any(|k| f.contains(k)) {
@@ -87,6 +93,7 @@ impl OsKind {
             OsKind::Windows11 => (4, 8192, 80),
             OsKind::Windows10 => (4, 4096, 64),
             OsKind::Windows7 => (2, 4096, 40),
+            OsKind::WindowsXp => (2, 1024, 32),
             OsKind::Linux => (4, 4096, 40),
             OsKind::Android => (4, 4096, 32),
             OsKind::Bsd => (2, 2048, 32),
@@ -130,6 +137,16 @@ impl OsKind {
                 vm.clipboard = false;
                 // своих драйверов virtio-serial для Windows 7 нет — агент ходит по сети (guestfwd)
                 vm.guest_tools = GuestTools::SynVm;
+            }
+            OsKind::WindowsXp => {
+                // ACPI XP не понимает 64-битное окно PCI: chipset i440fx, куча syn-gpu 1 ГиБ (BAR2 ниже 4 ГБ).
+                vm.firmware = Firmware::Bios;
+                vm.chipset = Chipset::I440fx;
+                vm.disk_bus = DiskBus::Sata;
+                vm.nic = NicModel::Rtl8139;
+                vm.display = DisplayModel::Std;
+                vm.clipboard = false;
+                vm.gpu3d_args = "--heap-gib 1".into();
             }
             OsKind::Other => {
                 vm.firmware = Firmware::Bios;

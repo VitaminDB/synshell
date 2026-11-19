@@ -29,7 +29,7 @@ Run SYNGPU.COM from this folder. Changes to this disk are not saved.\r\n";
 
 /// Машина, которой нужен этот диск: BIOS, не Windows и не Linux (DOS, FreeDOS и подобные).
 pub fn is_dos(vm: &Vm) -> bool {
-    vm.firmware == Firmware::Bios && !vm.os.is_windows() && vm.os != OsKind::Linux
+    vm.firmware == Firmware::Bios && !vm.os.is_windows() && !matches!(vm.os, OsKind::Linux | OsKind::WindowsXp)
 }
 
 /// Диск подключается при запуске: включён, BIOS и syn-gpu.

@@ -952,6 +952,8 @@
 "Windows 10 и 8.1" = "Windows 10 ve 8.1"
 "Windows 7" = "Windows 7"
 "BIOS, диск SATA, сеть Realtek, USB 1.1 — всё со встроенными драйверами" = "BIOS, SATA disk, Realtek ağ, USB 1.1 — hepsi yerleşik sürücülerle"
+"Windows XP" = "Windows XP"
+"Windows XP и 2000: BIOS, IDE, сеть Realtek, USB 1.1, планшет — мышь без захвата" = "Windows XP ve 2000: BIOS, IDE, Realtek ağı, USB 1.1, tablet — yakalamasız fare"
 "Монитор гостя выключен" = "Konuğun monitörü kapalı"
 "Гость погасил экран для экономии энергии — машина работает. Щёлкните, чтобы разбудить." = "Konuk, enerji tasarrufu için ekranı kapattı — makine çalışıyor. Uyandırmak için tıklayın."
 "Разбудить" = "Uyandır"

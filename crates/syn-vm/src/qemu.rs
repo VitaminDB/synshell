@@ -104,7 +104,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_input_path().display())]);
     push(&["-display", "none"]);
     push(&["-vnc", &format!("unix:{}", vm.vnc_path().display())]);
-    push(&["-rtc", if vm.os.is_windows() { "base=localtime" } else { "base=utc" }]);
+    push(&["-rtc", if vm.os.is_windows() || vm.os == OsKind::WindowsXp { "base=localtime" } else { "base=utc" }]);
 
     // Прошивка.
     if vm.firmware != Firmware::Bios {
@@ -1087,6 +1087,16 @@ mod tests {
         assert!(crate::dostools::is_dos(&vm));
         let j = args(&vm).unwrap().join(" ");
         assert!(!j.contains("usb-tablet") && j.contains("qemu-xhci,id=xhci"));
+    }
+
+    #[test]
+    fn winxp_has_usb_tablet() {
+        // XP — не DOS: абсолютный планшет на UHCI, мышь без захвата
+        let mut vm = OsKind::WindowsXp.preset();
+        vm.id = "x".into();
+        assert!(!crate::dostools::is_dos(&vm));
+        let j = args(&vm).unwrap().join(" ");
+        assert!(j.contains("usb-tablet,bus=xhci.0") && j.contains("piix3-usb-uhci,id=xhci") && j.contains("base=localtime"));
     }
 
     #[test]

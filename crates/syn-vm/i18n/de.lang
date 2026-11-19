@@ -952,6 +952,8 @@
 "Windows 10 и 8.1" = "Windows 10 und 8.1"
 "Windows 7" = "Windows 7"
 "BIOS, диск SATA, сеть Realtek, USB 1.1 — всё со встроенными драйверами" = "BIOS, SATA-Platte, Realtek-Netzwerk, USB 1.1 — alles mit eingebauten Treibern"
+"Windows XP" = "Windows XP"
+"Windows XP и 2000: BIOS, IDE, сеть Realtek, USB 1.1, планшет — мышь без захвата" = "Windows XP und 2000: BIOS, IDE, Realtek-Netzwerk, USB 1.1, Tablet — Maus ohne Einfangen"
 "Монитор гостя выключен" = "Der Monitor des Gastes ist aus"
 "Гость погасил экран для экономии энергии — машина работает. Щёлкните, чтобы разбудить." = "Der Gast hat den Bildschirm zum Energiesparen abgeschaltet — die Maschine läuft. Klicken Sie, um ihn aufzuwecken."
 "Разбудить" = "Aufwecken"
