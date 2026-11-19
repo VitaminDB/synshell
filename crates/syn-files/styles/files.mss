@@ -907,11 +907,12 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
     height: 100%;
     color: var(--fg);
     center-color: var(--hover);
+    separator-color: var(--content);
     label-font-size: 12px;
 }
 .us-hover { padding: 0px 12px 10px 12px; align-items: center; }
-.us-hover-title { font-size: 12px; color: var(--fg); }
-.us-hover-sub { font-size: 12px; color: var(--muted); }
+.us-hover-title { font-size: 12px; color: var(--fg); text-align: center; }
+.us-hover-sub { font-size: 12px; color: var(--muted); text-align: center; }
 .us-list { border-top: 1px solid var(--divider); }
 .us-list-body { padding: 6px; }
 .us-row {
