@@ -991,7 +991,7 @@ pub fn attach(st: St, id: &str) {
         let p = vm.qmp_input_path();
         s.set_qmp_keys(if p.exists() { p } else { vm.qmp_path() });
     }
-    if vm.syn_tools() {
+    if vm.agent_clipboard() {
         follow_guest_clip(&vm);
     }
     sessions().lock().unwrap().insert(id_s.clone(), s);
@@ -1166,7 +1166,7 @@ fn follow_guest_clip(vm: &Vm) {
 
 pub fn offer_clipboard(id: &str) {
     // Свои инструменты: буфер обмена — через агента syn-vm (spice-agent в госте нет).
-    if let Some(vm) = mirror().lock().unwrap().iter().find(|v| v.id == id && v.syn_tools()).cloned() {
+    if let Some(vm) = mirror().lock().unwrap().iter().find(|v| v.id == id && v.agent_clipboard()).cloned() {
         // Текст, иначе картинка PNG.
         let item = syngui::clipboard::paste().filter(|t| !t.is_empty()).map(|t| ("text/plain".to_string(), t.into_bytes())).or_else(|| syngui::clipboard::paste_mime(&["image/png"]).filter(|(_, d)| !d.is_empty() && d.len() < 15 << 20));
         if let Some((mime, data)) = item {

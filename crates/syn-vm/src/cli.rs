@@ -70,7 +70,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --agent-install МАШИНА [ФАЙЛ]          поставить или обновить свой агент в госте (службой)
   --agent-status МАШИНА                  агент на связи: версия, система, пользователь сеанса
   --agent-log МАШИНА [--follow]          журнал гостя: OutputDebugString, журнал событий, journald
-  --clipboard МАШИНА set ТЕКСТ|watch     буфер обмена гостя через агента (Windows со своими инструментами)
+  --clipboard МАШИНА set ТЕКСТ|watch     буфер обмена гостя через агента (Windows 7–11, XP, 9x)
                                           set-image ФАЙЛ.png — картинку
   --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)
   --sync-time МАШИНА                     часы гостя по компьютеру

@@ -84,6 +84,8 @@ fn locked<R>(f: impl FnOnce() -> R) -> R {
 /// Кадры хосту от всех потоков: пишет в порт только главный поток (между чтениями) — запись в COM из
 /// другого потока, пока главный ждёт в ReadFile, у синхронного дескриптора стоит (Wine — навсегда).
 static mut OUTQ: Vec<Frame> = Vec::new();
+/// Последний виденный текст буфера обмена.
+static mut CLIP_LAST: Option<String> = None;
 
 /// Кадр хосту — из любого потока (уйдёт в ближайшие 200 мс, ответы главного потока — сразу).
 #[allow(static_mut_refs)]
@@ -257,8 +259,18 @@ fn install() -> u32 {
         let mut tries = 0;
         while unsafe { CopyFileA(cz(&me).as_ptr(), cz(&exe).as_ptr(), 0) } == 0 {
             tries += 1;
+            // NT: занятый exe нельзя перезаписать, но можно переименовать — старый уходит в SYNAGENT.OLD.
+            if tries == 4 && is_nt() {
+                let old = format!("{home}\\SYNAGENT.OLD");
+                unsafe {
+                    DeleteFileA(cz(&old).as_ptr());
+                    MoveFileA(cz(&exe).as_ptr(), cz(&old).as_ptr());
+                }
+            }
             if tries > 30 {
-                log(&format!("установка: не удалось скопировать {me} → {exe}"));
+                // Не оставаться без агента: работать из нового файла как есть.
+                log(&format!("установка: не удалось скопировать {me} → {exe} — запуск {me}"));
+                spawn_detached(&format!("{me} run"), None);
                 return 2;
             }
             unsafe { Sleep(500) };
@@ -881,8 +893,26 @@ fn run() -> u32 {
     }
     tx(&Frame::new(hello()));
     let mut up: Option<Upload> = None;
+    let mut clip_at = 0u32;
     loop {
         flush(&mut port);
+        // Буфер обмена гостя → хост (опрос раз в полсекунды; свой текст от хоста эхом не возвращается).
+        let now = unsafe { GetTickCount() };
+        if now.wrapping_sub(clip_at) >= 500 {
+            clip_at = now;
+            if let Some(t) = clip_get() {
+                #[allow(static_mut_refs)]
+                let last = unsafe { &mut CLIP_LAST };
+                if last.as_deref() != Some(t.as_str()) {
+                    let first = last.is_none();
+                    *last = Some(t.clone());
+                    // Начальное содержимое при запуске агента хосту не навязывать.
+                    if !first && !t.is_empty() {
+                        tx(&Frame::with_data(Msg::Clip { mime: "text/plain".into() }, t.into_bytes()));
+                    }
+                }
+            }
+        }
         let f = port.poll();
         // Брошенная передача (хост оборвал по тайм-ауту) — закрыть файл, иначе он останется занятым.
         if up.as_ref().is_some_and(|u| unsafe { GetTickCount() }.wrapping_sub(u.t) > 60_000) {
@@ -1016,6 +1046,14 @@ fn handle(port: &mut Port, up: &mut Option<Upload>, f: Frame) {
             }
         }
         // Остальное (журналы, буфер обмена, разрешение, общие папки) у старых систем пока не поддержано.
+        // Буфер обмена хоста → гость (текст; картинок 9x/XP не принимает).
+        Msg::Clip { ref mime } if mime == "text/plain" => {
+            let t = String::from_utf8_lossy(&f.data).into_owned();
+            if clip_set(&t) {
+                // Запомнить как прочитается обратно — чтобы не отослать хосту эхом.
+                unsafe { CLIP_LAST = clip_get().or(Some(t)) };
+            }
+        }
         Msg::Stdin { .. } | Msg::Logs { .. } | Msg::Clip { .. } | Msg::Mode { .. } | Msg::Share { .. } => {}
         Msg::Status { .. } => {}
         _ => {}

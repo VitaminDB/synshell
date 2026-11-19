@@ -133,6 +133,7 @@ unsafe extern "system" {
     pub fn GetFileAttributesA(name: *const u8) -> u32;
     pub fn DeleteFileA(name: *const u8) -> i32;
     pub fn CopyFileA(from: *const u8, to: *const u8, fail_if_exists: i32) -> i32;
+    pub fn MoveFileA(from: *const u8, to: *const u8) -> i32;
     pub fn CreateProcessA(app: *const u8, cmd: *mut u8, pa: *const SecurityAttributes, ta: *const SecurityAttributes, inherit: i32, flags: u32, env: *const u8, cwd: *const u8, si: *const StartupInfo, pi: *mut ProcessInfo) -> i32;
     pub fn WaitForSingleObject(h: HANDLE, ms: u32) -> u32;
     pub fn GetExitCodeProcess(h: HANDLE, code: *mut u32) -> i32;
@@ -192,6 +193,89 @@ fn read_head(path: &str, n: usize) -> Option<Vec<u8>> {
 #[link(name = "user32", kind = "raw-dylib", import_name_type = "undecorated")]
 unsafe extern "system" {
     pub fn ExitWindowsEx(flags: u32, reason: u32) -> i32;
+    pub fn OpenClipboard(wnd: isize) -> i32;
+    pub fn CloseClipboard() -> i32;
+    pub fn EmptyClipboard() -> i32;
+    pub fn GetClipboardData(fmt: u32) -> HANDLE;
+    pub fn SetClipboardData(fmt: u32, h: HANDLE) -> HANDLE;
+    pub fn IsClipboardFormatAvailable(fmt: u32) -> i32;
+}
+
+#[link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated")]
+unsafe extern "system" {
+    pub fn GlobalAlloc(flags: u32, n: usize) -> HANDLE;
+    pub fn GlobalFree(h: HANDLE) -> HANDLE;
+    pub fn GlobalLock(h: HANDLE) -> *mut u8;
+    pub fn GlobalUnlock(h: HANDLE) -> i32;
+    pub fn GlobalSize(h: HANDLE) -> usize;
+}
+
+const CF_TEXT: u32 = 1;
+const CF_UNICODETEXT: u32 = 13;
+
+/// Текст буфера обмена (переводы строк — \n): XP — Юникод, 9x — кодовая страница системы.
+pub fn clip_get() -> Option<String> {
+    unsafe {
+        let nt = is_nt();
+        let fmt = if nt && IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 { CF_UNICODETEXT } else { CF_TEXT };
+        if IsClipboardFormatAvailable(fmt) == 0 || OpenClipboard(0) == 0 {
+            return None;
+        }
+        let h = GetClipboardData(fmt);
+        let p = if h != 0 { GlobalLock(h) } else { core::ptr::null_mut() };
+        let text = if p.is_null() {
+            None
+        } else {
+            let size = GlobalSize(h);
+            let t = if fmt == CF_UNICODETEXT {
+                let w = core::slice::from_raw_parts(p as *const u16, size / 2);
+                String::from_utf16_lossy(&w[..w.iter().position(|&c| c == 0).unwrap_or(w.len())])
+            } else {
+                from_ansi(zstr(core::slice::from_raw_parts(p, size)))
+            };
+            GlobalUnlock(h);
+            Some(t.replace("\r\n", "\n"))
+        };
+        CloseClipboard();
+        text
+    }
+}
+
+/// Текст в буфер обмена (\n → \r\n).
+pub fn clip_set(text: &str) -> bool {
+    let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
+    let (fmt, bytes): (u32, Vec<u8>) = if is_nt() {
+        (CF_UNICODETEXT, text.encode_utf16().chain(core::iter::once(0)).flat_map(|c| c.to_le_bytes()).collect())
+    } else {
+        let mut b = to_ansi(&text);
+        b.push(0);
+        (CF_TEXT, b)
+    };
+    unsafe {
+        // GMEM_MOVEABLE | GMEM_DDESHARE
+        let h = GlobalAlloc(0x2002, bytes.len());
+        if h == 0 {
+            return false;
+        }
+        let p = GlobalLock(h);
+        if p.is_null() {
+            GlobalFree(h);
+            return false;
+        }
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
+        GlobalUnlock(h);
+        if OpenClipboard(0) == 0 {
+            GlobalFree(h);
+            return false;
+        }
+        EmptyClipboard();
+        let ok = SetClipboardData(fmt, h) != 0;
+        if !ok {
+            GlobalFree(h);
+        }
+        CloseClipboard();
+        ok
+    }
 }
 
 #[link(name = "advapi32", kind = "raw-dylib", import_name_type = "undecorated")]

@@ -816,6 +816,11 @@ impl Vm {
         self.os.is_windows() && self.guest_tools == GuestTools::SynVm
     }
 
+    /// Буфер обмена через агента syn-vm: свои инструменты Windows 7–11 или агент 9x/XP (COM2).
+    pub fn agent_clipboard(&self) -> bool {
+        self.syn_tools() || (self.guest_agent && matches!(self.os, OsKind::WindowsXp | OsKind::Other))
+    }
+
     /// Видеокарта syn-gpu подключена: «3D-ускорение» или syn-gpu — основная видеокарта.
     pub fn gpu_on(&self) -> bool {
         self.gpu3d || self.display == DisplayModel::SynGpu
