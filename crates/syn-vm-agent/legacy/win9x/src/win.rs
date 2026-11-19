@@ -303,22 +303,33 @@ pub fn cz(s: &str) -> Vec<u8> {
     v
 }
 
-/// UTF-8 → кодовая страница системы (ANSI). Латиница — как есть; остальное — через UTF-16 (CP_UTF8 у
-/// Windows 98/NT4 и новее; у Windows 95 нелатинские имена не переводятся).
+/// UTF-8 → кодовая страница системы (ANSI). Латиница — как есть; остальное — через UTF-16 (сам Rust: CP_UTF8
+/// у Windows 95 нет — кириллические пути раньше уходили байтами UTF-8).
 pub fn to_ansi(s: &str) -> Vec<u8> {
     if s.is_ascii() {
         return s.as_bytes().to_vec();
     }
     unsafe {
-        let n = MultiByteToWideChar(65001, 0, s.as_ptr(), s.len() as i32, core::ptr::null_mut(), 0);
-        if n <= 0 {
-            return s.as_bytes().to_vec();
-        }
-        let mut w = alloc::vec![0u16; n as usize];
-        MultiByteToWideChar(65001, 0, s.as_ptr(), s.len() as i32, w.as_mut_ptr(), n);
+        let w: Vec<u16> = s.encode_utf16().collect();
+        let n = w.len() as i32;
         let m = WideCharToMultiByte(0, 0, w.as_ptr(), n, core::ptr::null_mut(), 0, core::ptr::null(), core::ptr::null_mut());
         let mut out = alloc::vec![0u8; m.max(0) as usize];
         WideCharToMultiByte(0, 0, w.as_ptr(), n, out.as_mut_ptr(), m, core::ptr::null(), core::ptr::null_mut());
+        out
+    }
+}
+
+/// UTF-8 → кодовая страница DOS (OEM, cp866 у русской Windows): текст .BAT для command.com.
+pub fn to_oem(s: &str) -> Vec<u8> {
+    if s.is_ascii() {
+        return s.as_bytes().to_vec();
+    }
+    unsafe {
+        let w: Vec<u16> = s.encode_utf16().collect();
+        let n = w.len() as i32;
+        let m = WideCharToMultiByte(1, 0, w.as_ptr(), n, core::ptr::null_mut(), 0, core::ptr::null(), core::ptr::null_mut());
+        let mut out = alloc::vec![0u8; m.max(0) as usize];
+        WideCharToMultiByte(1, 0, w.as_ptr(), n, out.as_mut_ptr(), m, core::ptr::null(), core::ptr::null_mut());
         out
     }
 }

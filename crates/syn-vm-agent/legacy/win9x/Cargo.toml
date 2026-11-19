@@ -20,6 +20,9 @@ bench = false
 [dependencies]
 syn-vm-agent = { path = "../..", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
+# SHA-256 только программный: Windows 95/98 не включают SSE (CR4.OSFXSR), а cpufeatures смотрит лишь CPUID —
+# на хостовом CPU выбирались SHA-NI и агент падал «некорректной инструкцией» на первом куске файла (--push, обновление).
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 
 [profile.release]
 opt-level = "s"

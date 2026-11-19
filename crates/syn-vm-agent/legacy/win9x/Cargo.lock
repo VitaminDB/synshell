@@ -171,6 +171,7 @@ name = "syn-vm-agent-win9x"
 version = "0.2.0"
 dependencies = [
  "serde_json",
+ "sha2",
  "syn-vm-agent",
 ]
 

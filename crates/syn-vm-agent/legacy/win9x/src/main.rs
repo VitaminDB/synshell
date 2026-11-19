@@ -564,7 +564,8 @@ fn run_dos(cmd: &str, cwd: Option<&str>, out_file: &str, timeout_ms: u32, id: u6
         bat += &format!("if errorlevel {n} echo {n} > {code_file}\r\n");
     }
     let bat_path = format!("{home}\\RUN.BAT");
-    write_file(&bat_path, &to_ansi(&bat));
+    // command.com читает .BAT в кодовой странице DOS (OEM), не ANSI — иначе кириллические пути ломались.
+    write_file(&bat_path, &to_oem(&bat));
     let pif = format!("{home}\\RUN.PIF");
     let line = if exists(&pif) {
         pif
@@ -752,7 +753,11 @@ impl Port {
                     if unsafe { GetTickCount() }.wrapping_sub(t0) > 200 {
                         break;
                     }
-                    unsafe { Sleep(1) };
+                    // Посреди кадра не спать: Sleep(1) у Windows 95 — до 55 мс, а FIFO 16550 (16 байт) на 115200 бод
+                    // переполняется за ~1,4 мс — байты терялись, большие кадры (файлы, обновление агента) не доходили.
+                    if self.buf.is_empty() {
+                        unsafe { Sleep(1) };
+                    }
                 }
             }
         } else {

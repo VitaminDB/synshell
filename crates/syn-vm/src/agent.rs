@@ -801,12 +801,14 @@ impl Client {
         self.put_file(exe, &tmp)?;
         let id = self.id();
         self.send(Frame::new(Msg::Update { id, path: tmp }))?;
-        self.recv_for(id, Some(Duration::from_secs(30)))?;
+        // Перезапуск агента — ожидаемое событие: посредник сообщает «агент перезапустился посреди операции»
+        // и на сам Update, и на запросы во время перезапуска — это не ошибка обновления.
+        let _ = self.recv_for(id, Some(Duration::from_secs(30)));
         // Ждать новый экземпляр (служба перезапускает агент), а не прежнее приветствие.
         let t0 = Instant::now();
         loop {
             std::thread::sleep(Duration::from_millis(300));
-            if let Some(i) = self.info()? {
+            if let Ok(Some(i)) = self.info() {
                 if Some(i.instance) != old {
                     return Ok(());
                 }
