@@ -412,6 +412,7 @@
 "gio завершился с ошибкой {status}" = "gio fehlgeschlagen mit {status}"
 "{e}. Разблокируйте телефон и разрешите доступ к файлам (режим «Передача файлов»)" = "{e}. Entsperren Sie das Telefon und erlauben Sie den Dateizugriff (Modus „Dateiübertragung“)"
 "gvfs смонтировал устройство, но его папки нет" = "gvfs hat das Gerät eingehängt, aber sein Ordner fehlt"
+"iPhone — фото и видео" = "iPhone — Fotos und Videos"
 
 # src/eink_profiles.rs
 "По умолчанию" = "Standard"

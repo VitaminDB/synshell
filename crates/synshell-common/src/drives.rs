@@ -389,7 +389,30 @@ pub fn gadgets() -> Vec<Gadget> {
             out.push(Gadget { title: if title.is_empty() { uri.clone() } else { title }, uri, kind, mount });
         }
     }
+    apple_media(&mut out);
     out
+}
+
+/// Айфон: монитор AFC показывает только «Документы на iPhone»
+/// (`afc://UDID:3/`, файлы программ), а фото отдаёт монитору gphoto2 — по PTP
+/// айфон часто показывает пустую папку. Фото и видео (DCIM) надёжно читаются
+/// через корень AFC `afc://UDID/` — добавляем его вместо тома gphoto2 того же
+/// айфона.
+fn apple_media(out: &mut Vec<Gadget>) {
+    let udids: Vec<String> = out
+        .iter()
+        .filter_map(|g| g.uri.strip_prefix("afc://")?.split('/').next()?.split_once(':').map(|(u, _)| u.to_string()))
+        .collect();
+    for udid in udids {
+        let uri = format!("afc://{udid}/");
+        if out.iter().any(|g| g.uri == uri) {
+            continue;
+        }
+        let plain = udid.replace('-', "");
+        out.retain(|g| !(g.uri.starts_with("gphoto2://") && g.uri.contains(&plain)));
+        let mount = gvfs_dir(&uri).filter(|p| p.is_dir());
+        out.push(Gadget { title: t!("iPhone — фото и видео").into(), uri, kind: Kind::Phone, mount });
+    }
 }
 
 /// Папка gvfs для адреса: `mtp://HOST/` → `/run/user/UID/gvfs/mtp:host=HOST`.
@@ -397,7 +420,11 @@ pub fn gadgets() -> Vec<Gadget> {
 fn gvfs_dir(uri: &str) -> Option<PathBuf> {
     let (scheme, rest) = uri.split_once("://")?;
     let host = unescape(rest.split('/').next()?);
-    let want = format!("{scheme}:host={host}");
+    // `afc://UDID:3/` → `afc:host=UDID,port=3`.
+    let want = match host.rsplit_once(':') {
+        Some((h, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => format!("{scheme}:host={h},port={port}"),
+        _ => format!("{scheme}:host={host}"),
+    };
     let root = gvfs_root();
     let rd = std::fs::read_dir(&root).ok()?;
     rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).find(|n| unescape(n) == want).map(|n| root.join(n))
