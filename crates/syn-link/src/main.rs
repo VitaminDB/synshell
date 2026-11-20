@@ -26,6 +26,8 @@ mod ssh;
 mod synaptix;
 mod sandbox;
 mod wifi;
+mod atspi;
+mod uitree;
 mod winshot;
 
 use std::io::{Read, Write};
@@ -361,6 +363,10 @@ fn cli(args: &[String]) -> Result<()> {
             for e in link::Client::connect()?.subscribe()? {
                 println!("{}", serde_json::to_string(&e?)?);
             }
+        }
+        "ui-tree" => {
+            let pid: i32 = args.get(1).and_then(|p| p.parse().ok()).context(t!("нужен pid"))?;
+            println!("{}", serde_json::to_string(&uitree::local_tree(pid)?)?);
         }
         "sandbox" => {
             let opt = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();

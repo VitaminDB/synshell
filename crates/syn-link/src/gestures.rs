@@ -94,6 +94,25 @@ fn press_at(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
     send(device, s, vec![InputEvent::Button { button: BTN_LEFT, pressed: true }])
 }
 
+/// Правая кнопка мыши в точке (на сенсорном — долгое нажатие).
+pub fn right_click(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
+    if s.touch {
+        return hold(device, s, x, y, 800);
+    }
+    let (fx, fy) = s.frac(x, y);
+    send(device, s, vec![InputEvent::Motion { x: fx, y: fy }])?;
+    std::thread::sleep(Duration::from_millis(30));
+    send(device, s, vec![InputEvent::Button { button: 0x111, pressed: true }])?;
+    std::thread::sleep(Duration::from_millis(60));
+    send(device, s, vec![InputEvent::Button { button: 0x111, pressed: false }])
+}
+
+/// Навести указатель (подсказки, меню по наведению).
+pub fn hover(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
+    let (fx, fy) = s.frac(x, y);
+    send(device, s, vec![InputEvent::Motion { x: fx, y: fy }])
+}
+
 pub fn tap(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
     hold(device, s, x, y, 60)
 }

@@ -130,6 +130,15 @@ fn tools() -> Value {
              "form_factor": {"type": "string", "enum": ["desktop", "phone", "tablet", "game"]},
              "shell": {"type": "string", "description": t!("своя оболочка (путь к собранному бинарнику) вместо установленной")},
              "synwm": {"type": "string", "description": t!("свой synwm (путь к собранному бинарнику)")}}), &["action"])},
+        {"name": "ui", "description": t!("Элементы окна (кнопки, поля, пункты, тексты) с ролями, подписями и рамками — из программы (syngui, AT-SPI: GTK, Qt, браузеры), без снимка. Для игр и OpenGL дерева нет — снимок."),
+         "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("окно: часть app_id или заголовка, pid:N, id:N")},
+             "filter": {"type": "string", "description": t!("часть текста или #id")}, "role": {"type": "string"}}), &["device", "window"])},
+        {"name": "press", "description": t!("Нажать элемент окна по тексту (подпись, значение, подсказка) — настоящим вводом в его центр; value — затем набрать текст (поле). via a11y — действием через дерево syngui, без мыши."),
+         "inputSchema": schema(json!({"device": dev, "window": {"type": "string"}, "text": {"type": "string", "description": t!("часть текста элемента или #id из ui")},
+             "role": {"type": "string"}, "index": num(&t!("какой по счёту из подходящих (0)")),
+             "action": {"type": "string", "enum": ["click", "double", "right", "long", "hover"]},
+             "value": {"type": "string", "description": t!("текст для поля")},
+             "via": {"type": "string", "enum": ["input", "a11y"]}}), &["device", "window", "text"])},
         {"name": "wait", "description": t!("Дождаться окна (появится или закроется) вместо пауз: возвращает строку окна."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N")},
              "gone": {"type": "boolean", "description": t!("ждать, пока закроется")}, "timeout_s": num(&t!("тайм-аут, с (10)"))}), &["device", "window"])},
@@ -288,6 +297,37 @@ impl Server {
     /// Экран для жестов: вывод последнего снимка (снимок окна — его вывод).
     fn screen(&self, device: &str) -> Result<gestures::Screen> {
         gestures::screen(device, self.shots.get(device).and_then(|s| s.output.as_deref()))
+    }
+
+
+    /// Элементы окна: syngui или AT-SPI; песочница и другие устройства — через
+    /// `synlink ui-tree` там (у песочницы своя шина доступности).
+    fn ui_tree(&self, device: &str, w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
+        let pid = w.pid.context(t!("у окна нет pid (X11-программа без _NET_WM_PID?)"))?;
+        if matches!(device, "local" | "self" | "") {
+            return crate::uitree::local_tree(pid);
+        }
+        let exe = if crate::sandbox::device_name(device).is_some() {
+            std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "synlink".into())
+        } else {
+            "synlink".into()
+        };
+        let (code, out, err) = exec(device, &format!("{} ui-tree {pid}", sh_quote(&exe)), None, 30)?;
+        if code != 0 {
+            bail!("{}", if err.trim().is_empty() { out } else { err });
+        }
+        Ok(serde_json::from_str(out.trim())?)
+    }
+
+    /// Точка окна (логические пиксели окна) → пиксели кадра его вывода; экран для жестов.
+    fn window_point(&self, device: &str, w: &synshell_common::ipc::WindowInfo, x: f64, y: f64) -> Result<(gestures::Screen, f64, f64)> {
+        let outs = crate::winshot::outputs(device)?;
+        let o = crate::winshot::output_of(&outs, w).context(t!("нет вывода"))?;
+        let s = gestures::screen(device, Some(&o.name))?;
+        let k = s.w / o.geometry[2].max(1) as f64;
+        let gx = w.geometry[0] as f64 + x - o.geometry[0] as f64;
+        let gy = w.geometry[1] as f64 + y - o.geometry[1] as f64;
+        Ok((s, gx * k, gy * k))
     }
 
     /// Снимок одного окна (с его меню и подсказками). `offscreen` — окно
@@ -456,6 +496,64 @@ impl Server {
                     }
                     other => bail!("{}", t!("action {other}: нужно start, stop или list", other = other)),
                 }
+            }
+            "ui" => {
+                let list = crate::winshot::windows(&device)?;
+                let w = crate::winshot::pick(&list, arg_str(a, "window")?)?.clone();
+                let t = self.ui_tree(&device, &w)?;
+                let q = a.get("filter").and_then(Value::as_str).unwrap_or("");
+                let role = a.get("role").and_then(Value::as_str);
+                let lines: Vec<String> = t.nodes.iter().filter(|n| crate::uitree::matches(n, q, role)).take(400).map(|n| n.line()).collect();
+                Ok(text(format!(
+                    "{}\n{}\n{}",
+                    crate::winshot::line(&w),
+                    t!("элементы ({src}): #id роль «текст» [x y w×h — логические пиксели окна]; нажать — press", src = t.source),
+                    if lines.is_empty() { t!("ничего не найдено").to_string() } else { lines.join("\n") }
+                )))
+            }
+            "press" => {
+                let list = crate::winshot::windows(&device)?;
+                let w = crate::winshot::pick(&list, arg_str(a, "window")?)?.clone();
+                let t = self.ui_tree(&device, &w)?;
+                let q = arg_str(a, "text")?;
+                let role = a.get("role").and_then(Value::as_str);
+                let idx = a.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let n = crate::uitree::best(&t, q, role, idx).cloned().with_context(|| t!("в окне нет элемента «{q}» — посмотрите ui", q = q))?;
+                let how = a.get("action").and_then(Value::as_str).unwrap_or("click");
+                if a.get("via").and_then(Value::as_str) == Some("a11y") {
+                    if t.source != "syngui" {
+                        bail!("{}", t!("via a11y — пока только у программ на syngui"));
+                    }
+                    let pid = w.pid.unwrap_or(0);
+                    let req = match a.get("value").and_then(Value::as_str) {
+                        Some(v) => format!("set {} {v}", n.id),
+                        None => format!("click {}", n.id),
+                    };
+                    if matches!(device.as_str(), "local" | "self" | "") || crate::sandbox::device_name(&device).is_some() {
+                        crate::uitree::syngui_request(pid, &req)?;
+                    } else {
+                        bail!("{}", t!("via a11y — только на этой машине и в песочнице"));
+                    }
+                    return Ok(text(t!("{how} через дерево: {n}", how = how, n = n.line().trim())));
+                }
+                let (cx, cy) = n.center();
+                let (s, x, y) = self.window_point(&device, &w, cx, cy)?;
+                match how {
+                    "double" => {
+                        gestures::tap(&device, &s, x, y)?;
+                        std::thread::sleep(Duration::from_millis(80));
+                        gestures::tap(&device, &s, x, y)?;
+                    }
+                    "long" => gestures::hold(&device, &s, x, y, 800)?,
+                    "right" => gestures::right_click(&device, &s, x, y)?,
+                    "hover" => gestures::hover(&device, &s, x, y)?,
+                    _ => gestures::tap(&device, &s, x, y)?,
+                }
+                if let Some(v) = a.get("value").and_then(Value::as_str) {
+                    std::thread::sleep(Duration::from_millis(120));
+                    gestures::text(&device, v)?;
+                }
+                Ok(text(t!("{how}: {n}", how = how, n = n.line().trim())))
             }
             "wait" => {
                 let q = arg_str(a, "window")?.to_string();
