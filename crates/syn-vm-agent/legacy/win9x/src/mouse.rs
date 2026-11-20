@@ -1,8 +1,11 @@
 //! Мышь Windows 9x без захвата: координаты курсора хоста из vmmouse (бэкдор VMware в QEMU, порт 5658h — как у
 //! SYNMOUSE.COM в DOS) → SetCursorPos, кнопки → mouse_event. У 9x нет абсолютной мыши (планшет USB 95 не знает), а
 //! PS/2 даёт только сдвиги — окно syn-vm приходилось захватывать. Абсолютный режим vmmouse делает его активной мышью
-//! QEMU, и syn-vm (query-mice) захват снимает сам. Игра заперла курсор (ClipCursor — DirectInput и полноэкранные
-//! игры) — vmmouse выключается, снова работает PS/2 со сдвигами, и syn-vm захватывает мышь для игры.
+//! QEMU, и syn-vm (query-mice) захват снимает сам. Игра спрятала курсор и рулит мышью сама (камера: курсор
+//! каждый кадр в центр, DirectInput) — vmmouse выключается, снова работает PS/2 со сдвигами, и syn-vm захватывает
+//! мышь для игры; курсор снова виден (меню, Alt+Tab) — опять без захвата. Запертый курсор (ClipCursor) захвата не
+//! требует: SetCursorPos сам держит курсор в прямоугольнике игры. У Windows 95 нет GetCursorInfo — там признак
+//! прежний: запертый курсор.
 use crate::win::*;
 use core::arch::asm;
 
@@ -72,6 +75,28 @@ fn clipped(sw: i32, sh: i32) -> bool {
     ok && (r[0] > 0 || r[1] > 0 || r[2] < sw || r[3] < sh)
 }
 
+type GetCursorInfoFn = unsafe extern "system" fn(*mut [u32; 6]) -> i32;
+
+/// GetCursorInfo (Windows 98 и новее; у 95 её нет — импорт через GetProcAddress).
+fn cursor_info_fn() -> Option<GetCursorInfoFn> {
+    let u = unsafe { GetModuleHandleA(b"user32.dll\0".as_ptr()) };
+    let f = unsafe { GetProcAddress(u, b"GetCursorInfo\0".as_ptr()) };
+    (!f.is_null()).then(|| unsafe { core::mem::transmute::<*const u8, GetCursorInfoFn>(f) })
+}
+
+/// Игра рулит мышью сама: курсор спрятан (CURSORINFO.flags без CURSOR_SHOWING). Нет GetCursorInfo — курсор заперт.
+fn game_owns_mouse(gci: Option<GetCursorInfoFn>, sw: i32, sh: i32) -> bool {
+    match gci {
+        Some(f) => {
+            // CURSORINFO: cbSize, flags, hCursor, ptScreenPos (x, y) — 20 байт.
+            let mut ci = [20u32, 0, 0, 0, 0, 0];
+            let ok = unsafe { f(&mut ci) } != 0;
+            ok && ci[1] & 1 == 0
+        }
+        None => clipped(sw, sh),
+    }
+}
+
 pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
     if is_nt() {
         return 0;
@@ -96,6 +121,10 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
         crate::log("мышь: бэкдора VMware нет — курсор захватывается (PS/2)");
         return 0;
     }
+    let gci = cursor_info_fn();
+    // Смена признака — только если он держится 300 мс (курсор мигает при смене окон и в играх на миг).
+    let mut owns = false;
+    let mut owns_since = unsafe { GetTickCount() };
     let mut on = false;
     let mut buttons = 0u32;
     let mut last = (u32::MAX, u32::MAX);
@@ -118,7 +147,13 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
                 crate::log("экран: режим сменился — перерисовка");
             }
         }
-        let want = !clipped(sw, sh);
+        let o = game_owns_mouse(gci, sw, sh);
+        if o != owns {
+            owns = o;
+            owns_since = now;
+        }
+        let settled = now.wrapping_sub(owns_since) >= 300;
+        let want = if settled { !owns } else { on };
         if want && !on {
             on = enable();
             last = (u32::MAX, u32::MAX);
@@ -126,7 +161,7 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
         } else if !want && on {
             backdoor(CMD_COMMAND, DISABLE);
             on = false;
-            crate::log("мышь: курсор заперт игрой — PS/2 (захват)");
+            crate::log(if gci.is_some() { "мышь: курсор спрятан игрой — PS/2 (захват)" } else { "мышь: курсор заперт игрой — PS/2 (захват)" });
         }
         if on {
             for _ in 0..32 {
