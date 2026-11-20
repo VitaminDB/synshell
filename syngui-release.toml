@@ -91,6 +91,8 @@ optdepends_en = [
   "gvfs-smb: Windows and Samba shares in the file manager",
   "git: git status in the file manager",
   "fuse3: archives as folders; files of linked devices",
+  "tesseract: on-screen text for the agent (synlink ui/press without an element tree)",
+  "tesseract-data-rus: Russian text for tesseract",
   "intel-media-driver: hardware video on Intel",
   "libva-mesa-driver: hardware video on AMD",
   "nvidia-utils: NVIDIA driver (NVENC, neural networks on the GPU)",
@@ -149,6 +151,8 @@ cross = [
 optdepends = [
   "openssh: ssh на связанные устройства",
   "fuse3: файлы связанных устройств в проводнике",
+  "tesseract: текст со снимка окна для агента (synlink ui/press без дерева элементов)",
+  "tesseract-data-rus: русский текст для tesseract",
 ]
 optdepends_en = [
   "openssh: ssh to linked devices",

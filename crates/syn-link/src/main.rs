@@ -28,6 +28,7 @@ mod sandbox;
 mod wifi;
 mod atspi;
 mod ocr;
+mod vision;
 mod uitree;
 mod winshot;
 

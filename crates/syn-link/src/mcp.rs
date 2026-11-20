@@ -136,11 +136,13 @@ fn tools() -> Value {
              "ocr": {"type": "boolean", "description": t!("текст со снимка окна (tesseract) вместо дерева — меню Wine, графические кнопки, игры; без дерева включается само")}}), &["device", "window"])},
         {"name": "press", "description": t!("Нажать элемент окна по тексту (подпись, значение, подсказка) — настоящим вводом в его центр; value — затем набрать текст (поле). via a11y — действием через дерево syngui, без мыши."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string"}, "text": {"type": "string", "description": t!("часть текста элемента или #id из ui")},
+             "describe": {"type": "string", "description": t!("вместо text — описание словами (значок без подписи, элемент игры): найдёт локальная модель со зрением; медленно, проверяйте снимком")},
+             "model": {"type": "string", "description": t!("модель со зрением synaptixd (по умолчанию самая лёгкая)")},
              "role": {"type": "string"}, "index": num(&t!("какой по счёту из подходящих (0)")),
              "action": {"type": "string", "enum": ["click", "double", "right", "long", "hover"]},
              "value": {"type": "string", "description": t!("текст для поля")},
              "via": {"type": "string", "enum": ["input", "a11y"]},
-             "ocr": {"type": "boolean", "description": t!("искать только на снимке (не в дереве)")}}), &["device", "window", "text"])},
+             "ocr": {"type": "boolean", "description": t!("искать только на снимке (не в дереве)")}}), &["device", "window"])},
         {"name": "wait", "description": t!("Дождаться окна (появится или закроется) вместо пауз: возвращает строку окна."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N")},
              "gone": {"type": "boolean", "description": t!("ждать, пока закроется")}, "timeout_s": num(&t!("тайм-аут, с (10)"))}), &["device", "window"])},
@@ -361,8 +363,9 @@ impl Server {
         Ok(())
     }
 
-    /// Текст на снимке окна (с его меню) — узлы в логических пикселях окна.
-    fn ocr_tree(&self, device: &str, list: &[synshell_common::ipc::WindowInfo], w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
+    /// Снимок окна (с его меню) в полном разрешении: PNG, левый верхний угол в
+    /// логических координатах окна, пикселей кадра на логический пиксель.
+    fn window_crop(&self, device: &str, list: &[synshell_common::ipc::WindowInfo], w: &synshell_common::ipc::WindowInfo) -> Result<(Vec<u8>, f64, f64, f64)> {
         let outs = crate::winshot::outputs(device)?;
         let o = crate::winshot::output_of(&outs, w).context(t!("нет вывода"))?.clone();
         let s = gestures::screen(device, Some(&o.name))?;
@@ -374,9 +377,14 @@ impl Server {
         let _ = std::fs::remove_file(&path);
         let png = crate::winshot::crop_png(&full, c)?;
         let kpx = s.w / o.geometry[2].max(1) as f64;
-        // Левый верхний угол вырезки — в логических координатах окна.
         let ox = o.geometry[0] as f64 + c[0] as f64 / kpx - w.geometry[0] as f64;
         let oy = o.geometry[1] as f64 + c[1] as f64 / kpx - w.geometry[1] as f64;
+        Ok((png, ox, oy, kpx))
+    }
+
+    /// Текст на снимке окна (с его меню) — узлы в логических пикселях окна.
+    fn ocr_tree(&self, device: &str, list: &[synshell_common::ipc::WindowInfo], w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
+        let (png, ox, oy, kpx) = self.window_crop(device, list, w)?;
         let mut nodes = crate::ocr::read(&png)?;
         for n in &mut nodes {
             n.bounds = [ox + n.bounds[0] / kpx, oy + n.bounds[1] / kpx, n.bounds[2] / kpx, n.bounds[3] / kpx];
@@ -596,6 +604,26 @@ impl Server {
             "press" => {
                 let list = crate::winshot::windows(&device)?;
                 let w = crate::winshot::pick(&list, arg_str(a, "window")?)?.clone();
+                // По описанию — моделью со зрением (значки без подписи, игры).
+                if let Some(d) = a.get("describe").and_then(Value::as_str).filter(|d| !d.trim().is_empty()) {
+                    let (png, ox, oy, kpx) = self.window_crop(&device, &list, &w)?;
+                    let (iw, ih, _) = crate::winshot::decode_rgba(&png)?;
+                    let (fx, fy, model) = crate::vision::locate(&png, d, a.get("model").and_then(Value::as_str))?;
+                    let (lx, ly) = (ox + fx * iw as f64 / kpx, oy + fy * ih as f64 / kpx);
+                    let (s, x, y) = self.window_point(&device, &w, lx, ly)?;
+                    match a.get("action").and_then(Value::as_str).unwrap_or("click") {
+                        "double" => {
+                            gestures::tap(&device, &s, x, y)?;
+                            std::thread::sleep(Duration::from_millis(80));
+                            gestures::tap(&device, &s, x, y)?;
+                        }
+                        "right" => gestures::right_click(&device, &s, x, y)?,
+                        "hover" => gestures::hover(&device, &s, x, y)?,
+                        "long" => gestures::hold(&device, &s, x, y, 800)?,
+                        _ => gestures::tap(&device, &s, x, y)?,
+                    }
+                    return Ok(text(t!("нажато «{d}» в точке окна ({x:.0}, {y:.0}) — нашла модель {model}; проверьте снимком", d = d, x = lx, y = ly, model = model)));
+                }
                 let q = arg_str(a, "text")?;
                 let role = a.get("role").and_then(Value::as_str);
                 let idx = a.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;

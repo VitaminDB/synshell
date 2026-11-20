@@ -610,6 +610,26 @@ fn agent_control() -> W {
                 ),
                 full,
             ),
+            crate::ui::row_inline(
+                t!("Искать элементы локальной моделью со зрением"),
+                t!("Когда у окна нет списка элементов и текста (значки, игры), ИИ может спросить модель synaptix. По умолчанию выключено: память видеокарты обычно занята, а ИИ быстрее разбирает снимок сам."),
+                Toggle::with_state(s.vision).on_change(|v| {
+                    let mut s = synshell_common::agent::load();
+                    s.vision = v;
+                    if let Err(e) = synshell_common::agent::save(&s) {
+                        eprintln!("agent.toml: {e}");
+                    }
+                }),
+            ),
+            crate::ui::row_inline(
+                t!("Модель со зрением"),
+                t!("Идентификатор модели synaptix; пусто — самая лёгкая из умеющих картинки"),
+                TextField::with_text(&s.vision_model).placeholder(t!("автоматически")).width(260.0).on_change(|v| {
+                    let mut s = synshell_common::agent::load();
+                    s.vision_model = v.trim().to_string();
+                    let _ = synshell_common::agent::save(&s);
+                }),
+            ),
         ],
     )
 }
