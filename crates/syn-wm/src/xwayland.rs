@@ -39,7 +39,7 @@ pub struct XwaylandState {
     pub display: Option<u32>,
     client: Client,
     /// Масштаб, уже сообщённый X11-клиентам (0 — ещё никакой).
-    scale: f64,
+    pub(crate) scale: f64,
     /// Разрешение экрана этого Xwayland (строка `[x11]`/`[[x11_app]]`).
     pub resolution: String,
     /// Файл режимов экрана для патченого Xwayland (`XWAYLAND_MODES_FILE`):

@@ -320,6 +320,24 @@ pub struct WindowInfo {
     /// завершит процесс (SIGTERM, затем SIGKILL) — карточки пишут «Закрыть принудительно».
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub close_forced: bool,
+    /// Окно X11 без управления композитором (override-redirect): меню, подсказки,
+    /// выпадающие списки Wine и X-программ.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub override_redirect: bool,
+    /// Окно X11: [x, y, w, h] так, как его видит X-сервер (пиксели этого Xwayland),
+    /// и масштаб Xwayland (`x11_geometry / x11_scale` ≈ `geometry`). Расхождение с
+    /// `geometry` — X-программа думает, что окно в другом месте.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x11_geometry: Option<[i32; 4]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x11_scale: Option<f64>,
+    /// Высота заголовка, который рисует композитор над `geometry` (0 — без него).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub decor_top: i32,
+}
+
+fn is_zero(v: &i32) -> bool {
+    *v == 0
 }
 
 /// Где на D-Bus меню GTK-программы: `org.gtk.Menus` по пути `menubar`,

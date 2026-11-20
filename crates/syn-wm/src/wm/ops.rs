@@ -1552,6 +1552,13 @@ impl State {
             touch_as_mouse: m.touch_as_mouse(),
             gtk_menu: m.window.toplevel().and_then(|t| crate::gtk_shell::menu(t.wl_surface())),
             close_forced: self.core.wm.close_watch.is_pending(m.id, std::time::Instant::now()),
+            override_redirect: m.override_redirect,
+            x11_geometry: m.window.x11_surface().map(|x| {
+                let g = x.geometry();
+                [g.loc.x, g.loc.y, g.size.w, g.size.h]
+            }),
+            x11_scale: m.window.x11_surface().and_then(|x| crate::xwayland::instance_of(&self.core.xwayland, x)).map(|i| i.scale),
+            decor_top: if m.has_titlebar() { self.core.deco_theme.height } else { 0 },
         }
     }
 

@@ -25,6 +25,7 @@ mod services;
 mod ssh;
 mod synaptix;
 mod wifi;
+mod winshot;
 
 use std::io::{Read, Write};
 

@@ -33,9 +33,18 @@ const INSTRUCTIONS: &str = n_!("synlink управляет устройства�
 После действия делайте новый снимок, чтобы увидеть результат. \
 Видео экрана — `record`: start, действия, stop (или start с duration_s).");
 
+/// Последний снимок устройства: пиксель снимка (x, y) → пиксель кадра вывода
+/// `output` (ox + x·k, oy + y·k). Снимок окна — со своим сдвигом.
+#[derive(Clone)]
+struct Shot {
+    k: f64,
+    ox: f64,
+    oy: f64,
+    output: Option<String>,
+}
+
 struct Server {
-    /// Уменьшение последнего снимка: устройство → (ширина снимка, полная ширина).
-    shots: HashMap<String, (f64, f64)>,
+    shots: HashMap<String, Shot>,
     /// Идущие записи экрана по устройству.
     recs: HashMap<String, Rec>,
 }
@@ -85,7 +94,9 @@ fn tools() -> Value {
         {"name": "screenshot", "description": t!("Снимок экрана устройства (PNG). Координаты для жестов — пиксели этого снимка."),
          "inputSchema": schema(json!({"device": dev, "max_size": num(&t!("длинная сторона снимка, px (по умолчанию 1280; 0 — без уменьшения)")),
              "output": {"type": "string", "description": t!("вывод (монитор), по умолчанию первый")},
-             "wake": {"type": "boolean", "description": t!("разбудить погашенный экран перед снимком (по умолчанию да)")}}), &["device"])},
+             "wake": {"type": "boolean", "description": t!("разбудить погашенный экран перед снимком (по умолчанию да)")},
+             "window": {"type": "string", "description": t!("снять только окно: часть app_id или заголовка, pid:N или id:N (из windows); вместе с его меню и подсказками; координаты жестов — в пикселях снимка окна")},
+             "offscreen": {"type": "boolean", "description": t!("окно рисуется отдельно: видно и перекрытое другими, но без меню (только local)")}}), &["device"])},
         {"name": "tap", "description": t!("Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка."),
          "inputSchema": schema(json!({"device": dev, "x": num(&t!("X, px снимка")), "y": num(&t!("Y, px снимка"))}), &["device", "x", "y"])},
         {"name": "long_press", "description": t!("Удержать палец/кнопку в точке (контекстные меню, выбор)."),
@@ -104,14 +115,21 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"device": dev, "combo": {"type": "string"}}), &["device", "combo"])},
         {"name": "action", "description": t!("Действие композитора synwm: back, shell home, shell launcher, shell notifications, shell quick-settings, shell recents, workspace 2, close, lock, screenshot…"),
          "inputSchema": schema(json!({"device": dev, "action": {"type": "string"}}), &["device", "action"])},
-        {"name": "windows", "description": t!("Окна на устройстве (заголовок, app_id, фокус, геометрия) — JSON."),
-         "inputSchema": schema(json!({"device": dev}), &["device"])},
+        {"name": "windows", "description": t!("Окна на устройстве: id, app_id, заголовок, pid, стол, геометрия; у X11 — положение глазами X-сервера (⚠ — не совпадает), popup — меню и подсказки X11."),
+         "inputSchema": schema(json!({"device": dev,
+             "filter": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N (меню программы показываются вместе с ней)")},
+             "popups": {"type": "boolean", "description": t!("показывать меню и подсказки X11 (по умолчанию да)")},
+             "json": {"type": "boolean", "description": t!("полный JSON вместо строк")}}), &["device"])},
+        {"name": "wait", "description": t!("Дождаться окна (появится или закроется) вместо пауз: возвращает строку окна."),
+         "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N")},
+             "gone": {"type": "boolean", "description": t!("ждать, пока закроется")}, "timeout_s": num(&t!("тайм-аут, с (10)"))}), &["device", "window"])},
         {"name": "exec", "description": t!("Выполнить команду оболочки на устройстве (sh -c) от пользователя сеанса; возвращает код, stdout, stderr."),
          "inputSchema": schema(json!({"device": dev, "command": {"type": "string"}, "cwd": {"type": "string"},
              "timeout_s": num(&t!("тайм-аут, с (120)"))}), &["device", "command"])},
         {"name": "logs", "description": t!("Журнал systemd устройства (journalctl): последние строки, фильтры по юниту и шаблону."),
          "inputSchema": schema(json!({"device": dev, "unit": {"type": "string", "description": t!("юнит, например synshell")},
-             "lines": num(&t!("строк (200)")), "grep": {"type": "string"}, "since": {"type": "string", "description": t!("например '-10min'")}}), &["device"])},
+             "lines": num(&t!("строк (200)")), "grep": {"type": "string"}, "since": {"type": "string", "description": t!("например '-10min'")},
+             "file": {"type": "string", "description": t!("вместо journalctl — файл журнала: shell (оболочка), synwm (композитор) или путь")}}), &["device"])},
         {"name": "notifications", "description": t!("Последние уведомления, пришедшие с устройств."),
          "inputSchema": schema(json!({"device": {"type": "string"}}), &[])},
         {"name": "read_file", "description": t!("Прочитать текстовый файл на устройстве."),
@@ -246,15 +264,61 @@ impl Server {
     }
 
     /// Пиксели снимка → пиксели экрана устройства.
-    fn scale(&self, device: &str, s: &gestures::Screen, x: f64, y: f64) -> (f64, f64) {
+    fn scale(&self, device: &str, _s: &gestures::Screen, x: f64, y: f64) -> (f64, f64) {
         match self.shots.get(device) {
-            Some((img_w, full_w)) if *img_w > 0.0 => {
-                let k = full_w / img_w;
-                let _ = s;
-                (x * k, y * k)
-            }
-            _ => (x, y),
+            Some(s) => (s.ox + x * s.k, s.oy + y * s.k),
+            None => (x, y),
         }
+    }
+
+    /// Экран для жестов: вывод последнего снимка (снимок окна — его вывод).
+    fn screen(&self, device: &str) -> Result<gestures::Screen> {
+        gestures::screen(device, self.shots.get(device).and_then(|s| s.output.as_deref()))
+    }
+
+    /// Снимок одного окна (с его меню и подсказками). `offscreen` — окно
+    /// рисуется отдельно (видно и перекрытое, но без меню; только эта машина).
+    fn window_shot(&mut self, device: &str, q: &str, a: &Value) -> Result<Value> {
+        let list = crate::winshot::windows(device)?;
+        let w = crate::winshot::pick(&list, q)?.clone();
+        let outs = crate::winshot::outputs(device)?;
+        let o = crate::winshot::output_of(&outs, &w).context(t!("нет вывода"))?.clone();
+        let max = a.get("max_size").and_then(Value::as_u64).unwrap_or(1280) as u32;
+        let s = gestures::screen(device, Some(&o.name))?;
+        let offscreen = a.get("offscreen").and_then(Value::as_bool).unwrap_or(false);
+        let (png, crop) = if offscreen {
+            if !matches!(device, "local" | "self" | "") {
+                bail!("{}", t!("offscreen — только для этой машины (local)"));
+            }
+            // Кадр окна — в логических пикселях (композитор не увеличивает).
+            let px = |v: i32| v.max(1) as u32;
+            let r = gestures::req(&Request::Wm { device: device.into(), wm: synshell_common::ipc::Request::Thumbnails { ids: vec![w.id], max: [px(w.geometry[2]).max(1), px(w.geometry[3]).max(1)] } })?;
+            let Response::Wm { wm: synshell_common::ipc::Response::Thumbnails { thumbs: thumbnails } } = r else { bail!("{}", t!("композитор не отдал окно")) };
+            let th = thumbnails.into_iter().next().context(t!("у окна ещё нет кадра"))?;
+            let rgba = std::fs::read(&th.path)?;
+            let _ = std::fs::remove_file(&th.path);
+            let png = crate::services::encode_png(th.width, th.height, &rgba)?;
+            // Где окно на экране (если видно): туда и пойдут щелчки.
+            let c = crate::winshot::to_frame(&o, s.w, s.h, w.geometry).unwrap_or([0, 0, th.width, th.height]);
+            (png, [c[0], c[1], c[2]])
+        } else {
+            let region = crate::winshot::region(&list, &w);
+            let c = crate::winshot::to_frame(&o, s.w, s.h, region).context(t!("окно за пределами экрана (свёрнуто или на другом столе?) — попробуйте offscreen"))?;
+            let r = gestures::req(&Request::Screenshot { device: device.into(), output: Some(o.name.clone()), path: None, max_size: Some(0) })?;
+            let Response::Screenshot { path, .. } = r else { bail!("{}", t!("нет снимка")) };
+            let full = std::fs::read(&path)?;
+            let _ = std::fs::remove_file(&path);
+            (crate::winshot::crop_png(&full, c)?, [c[0], c[1], c[2]])
+        };
+        let (iw, ih, png) = if max > 0 { crate::services::downscale_png(&png, max)? } else { let (w, h, _) = crate::winshot::decode_rgba(&png)?; (w, h, png) };
+        // crop = [x, y, ширина] того, что на снимке, в пикселях кадра вывода.
+        let k = crop[2] as f64 / iw.max(1) as f64;
+        self.shots.insert(device.to_string(), Shot { k, ox: crop[0] as f64, oy: crop[1] as f64, output: Some(o.name.clone()) });
+        let note = if w.minimized { t!(" (свёрнуто — щелчки не попадут)") } else { Default::default() };
+        Ok(json!({"content": [
+            {"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&png), "mimeType": "image/png"},
+            {"type": "text", "text": format!("{}{}\n{}", crate::winshot::line(&w), note, t!("снимок окна {iw}×{ih}; координаты tap/swipe/scroll — в пикселях этого снимка", iw = iw, ih = ih))},
+        ]}))
     }
 
     fn call(&mut self, name: &str, a: &Value) -> Result<Value> {
@@ -265,6 +329,9 @@ impl Server {
                 Ok(text(serde_json::to_string_pretty(&status)?))
             }
             "screenshot" => {
+                if let Some(q) = a.get("window").and_then(Value::as_str).filter(|q| !q.trim().is_empty()) {
+                    return self.window_shot(&device, q, a);
+                }
                 // Разбудить экран (погашенный монитор — клиенты стоят на полпути
                 // анимаций): нулевое движение указателя = активность.
                 if a.get("wake").and_then(Value::as_bool).unwrap_or(true) {
@@ -280,14 +347,14 @@ impl Server {
                 let png = std::fs::read(&path)?;
                 let _ = std::fs::remove_file(&path);
                 let full = gestures::screen(&device, Some(&output)).map(|s| (s.w, s.h)).unwrap_or((width as f64, height as f64));
-                self.shots.insert(device.clone(), (width as f64, full.0));
+                self.shots.insert(device.clone(), Shot { k: full.0 / (width as f64).max(1.0), ox: 0.0, oy: 0.0, output: Some(output.clone()) });
                 Ok(json!({"content": [
                     {"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&png), "mimeType": "image/png"},
                     {"type": "text", "text": t!("{device}: вывод {output}, снимок {width}×{height} (экран {sw}×{sh}); координаты жестов — в пикселях этого снимка", device = device, output = output, width = width, height = height, sw = full.0, sh = full.1)},
                 ]}))
             }
             "tap" | "long_press" => {
-                let s = gestures::screen(&device, None)?;
+                let s = self.screen(&device)?;
                 let (x, y) = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
                 if name == "tap" {
                     gestures::tap(&device, &s, x, y)?;
@@ -297,14 +364,14 @@ impl Server {
                 Ok(text(t!("готово")))
             }
             "swipe" => {
-                let s = gestures::screen(&device, None)?;
+                let s = self.screen(&device)?;
                 let p1 = self.scale(&device, &s, arg_num(a, "x1")?, arg_num(a, "y1")?);
                 let p2 = self.scale(&device, &s, arg_num(a, "x2")?, arg_num(a, "y2")?);
                 gestures::swipe(&device, &s, p1, p2, a.get("ms").and_then(Value::as_u64).unwrap_or(300))?;
                 Ok(text(t!("готово")))
             }
             "pinch" => {
-                let s = gestures::screen(&device, None)?;
+                let s = self.screen(&device)?;
                 let c = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
                 // Расстояния — в px снимка, как точки: тот же пересчёт.
                 let k = self.scale(&device, &s, 1000.0, 0.0).0 / 1000.0;
@@ -313,7 +380,7 @@ impl Server {
                 Ok(text(t!("готово")))
             }
             "scroll" => {
-                let s = gestures::screen(&device, None)?;
+                let s = self.screen(&device)?;
                 let (x, y) = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
                 gestures::scroll(&device, &s, x, y, arg_num(a, "steps")?, 0.0)?;
                 Ok(text(t!("готово")))
@@ -331,9 +398,40 @@ impl Server {
                 Ok(text(t!("готово")))
             }
             "windows" => {
-                let r = gestures::req(&Request::Wm { device, wm: synshell_common::ipc::Request::Windows })?;
-                let Response::Wm { wm } = r else { bail!("{}", t!("нет ответа")) };
-                Ok(text(serde_json::to_string_pretty(&wm)?))
+                let list = crate::winshot::windows(&device)?;
+                let q = a.get("filter").and_then(Value::as_str).filter(|q| !q.trim().is_empty());
+                let popups = a.get("popups").and_then(Value::as_bool).unwrap_or(true);
+                let sel: Vec<_> = list
+                    .iter()
+                    .filter(|w| popups || !w.override_redirect)
+                    .filter(|w| match q {
+                        None => true,
+                        Some(q) => crate::winshot::pick(std::slice::from_ref(*w), q).is_ok() || (w.override_redirect && crate::winshot::pick(&list, q).is_ok_and(|m| m.pid == w.pid && w.pid.is_some())),
+                    })
+                    .collect();
+                if a.get("json").and_then(Value::as_bool).unwrap_or(false) {
+                    return Ok(text(serde_json::to_string_pretty(&sel)?));
+                }
+                let lines: Vec<String> = sel.iter().map(|w| crate::winshot::line(w)).collect();
+                Ok(text(if lines.is_empty() { t!("окон нет").to_string() } else { lines.join("\n") }))
+            }
+            "wait" => {
+                let q = arg_str(a, "window")?.to_string();
+                let gone = a.get("gone").and_then(Value::as_bool).unwrap_or(false);
+                let deadline = std::time::Instant::now() + Duration::from_secs_f64(a.get("timeout_s").and_then(Value::as_f64).unwrap_or(10.0).clamp(0.1, 300.0));
+                loop {
+                    let list = crate::winshot::windows(&device)?;
+                    let found = crate::winshot::pick(&list, &q).ok().map(crate::winshot::line);
+                    match (&found, gone) {
+                        (Some(l), false) => return Ok(text(t!("есть: {l}", l = l))),
+                        (None, true) => return Ok(text(t!("окна «{q}» больше нет", q = q))),
+                        _ => {}
+                    }
+                    if std::time::Instant::now() > deadline {
+                        bail!("{}", if gone { t!("окно «{q}» не закрылось", q = q) } else { t!("окно «{q}» не появилось", q = q) });
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
             }
             "exec" => {
                 let t = a.get("timeout_s").and_then(Value::as_u64).unwrap_or(120);
@@ -342,6 +440,20 @@ impl Server {
                 Ok(text(format!("{}\n--- stdout ---\n{}\n--- stderr ---\n{}", t!("код выхода: {code}", code = code), clip(&out, 60_000), clip(&err, 20_000))))
             }
             "logs" => {
+                if let Some(f) = a.get("file").and_then(Value::as_str).filter(|f| !f.is_empty()) {
+                    let path = match f {
+                        "shell" => "\"${XDG_STATE_HOME:-$HOME/.local/state}/synwm/shell.log\"".to_string(),
+                        "synwm" => "\"${XDG_STATE_HOME:-$HOME/.local/state}/synwm/synwm.log\"".to_string(),
+                        p => sh_quote(p),
+                    };
+                    let n = a.get("lines").and_then(Value::as_u64).unwrap_or(200);
+                    let cmd = match a.get("grep").and_then(Value::as_str).filter(|g| !g.is_empty()) {
+                        Some(g) => format!("grep -a -E -- {} {path} | tail -n {n}", sh_quote(g)),
+                        None => format!("tail -n {n} -- {path}"),
+                    };
+                    let (code, out, err) = exec(&device, &cmd, None, 60)?;
+                    return Ok(text(format!("{}{}", clip(&out, 80_000), if code > 1 { t!("\n[код {code}] {err}", code = code, err = err) } else { String::new() })));
+                }
                 let mut cmd = String::from("journalctl --no-pager -o short-iso");
                 if let Some(u) = a.get("unit").and_then(Value::as_str) {
                     cmd.push_str(&format!(" -u {}", sh_quote(u)));

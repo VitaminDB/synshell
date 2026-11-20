@@ -969,7 +969,9 @@ where
     if geo.size.w <= 0 || geo.size.h <= 0 || max.0 <= 0 || max.1 <= 0 {
         return Ok(None);
     }
-    let s = (max.0 as f64 / geo.size.w as f64).min(max.1 as f64 / geo.size.h as f64).min(4.0);
+    let s = (max.0 as f64 / geo.size.w as f64).min(max.1 as f64 / geo.size.h as f64).min(1.0);
+    // Больше 1 содержимое не растёт (кадр клиента — в логических пикселях), а кадр
+    // становился больше — с пустой полосой справа и снизу.
     let size: Size<i32, Physical> = geo.size.to_f64().to_physical(s).to_i32_round();
     let size = Size::from((size.w.max(1), size.h.max(1)));
     let elements: Vec<WaylandSurfaceRenderElement<R>> =
