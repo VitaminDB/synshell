@@ -131,10 +131,42 @@ pub fn matches(n: &Node, q: &str, role: Option<&str>) -> bool {
     q.is_empty() || n.text().to_lowercase().contains(&q.to_lowercase())
 }
 
+/// Расстояние правки (Левенштейн) по буквам.
+fn edits(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + usize::from(a[i - 1] != b[j - 1]));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// Текст со снимка: распознавание путает 1/l/I, О/0 — слово, похожее на запрос
+/// (правка на каждые 5 букв), тоже подходит.
+fn fuzzy(text: &str, q: &str) -> bool {
+    let q = q.trim().to_lowercase();
+    let n = q.chars().count();
+    if n < 3 {
+        return false;
+    }
+    let allowed = (n / 5).max(1);
+    let t = text.to_lowercase();
+    let words: Vec<&str> = t.split_whitespace().collect();
+    let qn = q.split_whitespace().count().max(1);
+    words.windows(qn.min(words.len()).max(1)).any(|w| edits(&w.join(" "), &q) <= allowed || w.join(" ").starts_with(&q[..q.char_indices().nth(n.saturating_sub(allowed)).map(|(i, _)| i).unwrap_or(q.len())]))
+}
+
 /// Лучший узел: точное совпадение подписи важнее части, видимый (ненулевой) — обязателен.
 pub fn best<'a>(t: &'a Tree, q: &str, role: Option<&str>, index: usize) -> Option<&'a Node> {
     let ql = q.trim().to_lowercase();
     let mut v: Vec<&Node> = t.nodes.iter().filter(|n| n.bounds[2] > 0.0 && n.bounds[3] > 0.0 && matches(n, q, role)).collect();
+    if v.is_empty() && t.source == "ocr" {
+        v = t.nodes.iter().filter(|n| n.bounds[2] > 0.0 && n.bounds[3] > 0.0 && fuzzy(&n.text(), q)).collect();
+    }
     v.sort_by_key(|n| {
         let exact = n.label.as_deref().map(|l| l.trim().to_lowercase() == ql).unwrap_or(false);
         let clickable = matches!(n.role.as_str(), "button" | "checkbox" | "radiobutton" | "link" | "textfield" | "combobox" | "push button" | "menu item" | "check box" | "toggle button" | "text" | "entry");
@@ -163,6 +195,10 @@ mod tests {
         assert!(best(&t, "Скрытая", None, 0).is_none());
         assert_eq!(best(&t, "", Some("button"), 0).unwrap().id, 2);
         assert_eq!(t.nodes[1].center(), (70.0, 110.0));
+        assert!(fuzzy("Rectl (Прямоугольник)", "Rect1"));
+        assert!(fuzzy("Свойства,..", "Свойства"));
+        assert!(!fuzzy("Удалить", "Дублировать"));
+        assert_eq!(edits("rectl", "rect1"), 1);
     }
 }
 

@@ -132,13 +132,15 @@ fn tools() -> Value {
              "synwm": {"type": "string", "description": t!("свой synwm (путь к собранному бинарнику)")}}), &["action"])},
         {"name": "ui", "description": t!("Элементы окна (кнопки, поля, пункты, тексты) с ролями, подписями и рамками — из программы (syngui, AT-SPI: GTK, Qt, браузеры), без снимка. Для игр и OpenGL дерева нет — снимок."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("окно: часть app_id или заголовка, pid:N, id:N")},
-             "filter": {"type": "string", "description": t!("часть текста или #id")}, "role": {"type": "string"}}), &["device", "window"])},
+             "filter": {"type": "string", "description": t!("часть текста или #id")}, "role": {"type": "string"},
+             "ocr": {"type": "boolean", "description": t!("текст со снимка окна (tesseract) вместо дерева — меню Wine, графические кнопки, игры; без дерева включается само")}}), &["device", "window"])},
         {"name": "press", "description": t!("Нажать элемент окна по тексту (подпись, значение, подсказка) — настоящим вводом в его центр; value — затем набрать текст (поле). via a11y — действием через дерево syngui, без мыши."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string"}, "text": {"type": "string", "description": t!("часть текста элемента или #id из ui")},
              "role": {"type": "string"}, "index": num(&t!("какой по счёту из подходящих (0)")),
              "action": {"type": "string", "enum": ["click", "double", "right", "long", "hover"]},
              "value": {"type": "string", "description": t!("текст для поля")},
-             "via": {"type": "string", "enum": ["input", "a11y"]}}), &["device", "window", "text"])},
+             "via": {"type": "string", "enum": ["input", "a11y"]},
+             "ocr": {"type": "boolean", "description": t!("искать только на снимке (не в дереве)")}}), &["device", "window", "text"])},
         {"name": "wait", "description": t!("Дождаться окна (появится или закроется) вместо пауз: возвращает строку окна."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N")},
              "gone": {"type": "boolean", "description": t!("ждать, пока закроется")}, "timeout_s": num(&t!("тайм-аут, с (10)"))}), &["device", "window"])},
@@ -319,6 +321,30 @@ impl Server {
             bail!("{}", if err.trim().is_empty() { out } else { err });
         }
         Ok(serde_json::from_str(out.trim())?)
+    }
+
+
+    /// Текст на снимке окна (с его меню) — узлы в логических пикселях окна.
+    fn ocr_tree(&self, device: &str, list: &[synshell_common::ipc::WindowInfo], w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
+        let outs = crate::winshot::outputs(device)?;
+        let o = crate::winshot::output_of(&outs, w).context(t!("нет вывода"))?.clone();
+        let s = gestures::screen(device, Some(&o.name))?;
+        let region = crate::winshot::region(list, w);
+        let c = crate::winshot::to_frame(&o, s.w, s.h, region).context(t!("окно за пределами экрана"))?;
+        let r = gestures::req(&Request::Screenshot { device: device.into(), output: Some(o.name.clone()), path: None, max_size: Some(0) })?;
+        let Response::Screenshot { path, .. } = r else { bail!("{}", t!("нет снимка")) };
+        let full = std::fs::read(&path)?;
+        let _ = std::fs::remove_file(&path);
+        let png = crate::winshot::crop_png(&full, c)?;
+        let kpx = s.w / o.geometry[2].max(1) as f64;
+        // Левый верхний угол вырезки — в логических координатах окна.
+        let ox = o.geometry[0] as f64 + c[0] as f64 / kpx - w.geometry[0] as f64;
+        let oy = o.geometry[1] as f64 + c[1] as f64 / kpx - w.geometry[1] as f64;
+        let mut nodes = crate::ocr::read(&png)?;
+        for n in &mut nodes {
+            n.bounds = [ox + n.bounds[0] / kpx, oy + n.bounds[1] / kpx, n.bounds[2] / kpx, n.bounds[3] / kpx];
+        }
+        Ok(crate::uitree::Tree { source: "ocr".into(), nodes })
     }
 
     /// Точка окна (логические пиксели окна) → пиксели кадра его вывода; экран для жестов.
@@ -502,7 +528,15 @@ impl Server {
             "ui" => {
                 let list = crate::winshot::windows(&device)?;
                 let w = crate::winshot::pick(&list, arg_str(a, "window")?)?.clone();
-                let t = self.ui_tree(&device, &w)?;
+                let t = if a.get("ocr").and_then(Value::as_bool).unwrap_or(false) {
+                    self.ocr_tree(&device, &list, &w)?
+                } else {
+                    match self.ui_tree(&device, &w) {
+                        Ok(t) => t,
+                        // Дерева нет (игра, OpenGL, программа без доступности) — текст со снимка.
+                        Err(e) => self.ocr_tree(&device, &list, &w).map_err(|e2| anyhow::anyhow!("{e:#}; OCR: {e2:#}"))?,
+                    }
+                };
                 let q = a.get("filter").and_then(Value::as_str).unwrap_or("");
                 let role = a.get("role").and_then(Value::as_str);
                 let lines: Vec<String> = t.nodes.iter().filter(|n| crate::uitree::matches(n, q, role)).take(400).map(|n| n.line()).collect();
@@ -516,11 +550,20 @@ impl Server {
             "press" => {
                 let list = crate::winshot::windows(&device)?;
                 let w = crate::winshot::pick(&list, arg_str(a, "window")?)?.clone();
-                let t = self.ui_tree(&device, &w)?;
                 let q = arg_str(a, "text")?;
                 let role = a.get("role").and_then(Value::as_str);
                 let idx = a.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                let n = crate::uitree::best(&t, q, role, idx).cloned().with_context(|| t!("в окне нет элемента «{q}» — посмотрите ui", q = q))?;
+                // Сначала дерево программы; нет там — текст со снимка (меню Wine, графические кнопки, игры).
+                let tree = if a.get("ocr").and_then(Value::as_bool).unwrap_or(false) { None } else { self.ui_tree(&device, &w).ok() };
+                let from_tree = tree.as_ref().and_then(|t| crate::uitree::best(t, q, role, idx).cloned());
+                let (t, n) = match from_tree {
+                    Some(n) => (tree.unwrap(), n),
+                    None => {
+                        let t = self.ocr_tree(&device, &list, &w)?;
+                        let n = crate::uitree::best(&t, q, None, idx).cloned().with_context(|| t!("в окне нет элемента «{q}» ни в дереве, ни на снимке — посмотрите ui или screenshot", q = q))?;
+                        (t, n)
+                    }
+                };
                 let how = a.get("action").and_then(Value::as_str).unwrap_or("click");
                 if a.get("via").and_then(Value::as_str) == Some("a11y") {
                     if t.source != "syngui" {
