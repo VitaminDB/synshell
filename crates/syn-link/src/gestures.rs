@@ -17,6 +17,9 @@ pub struct Screen {
 }
 
 pub fn req(r: &Request) -> Result<Response> {
+    if let Some(res) = crate::sandbox::handle(r) {
+        return res;
+    }
     match link::request(r)? {
         Response::Error { message } => bail!("{message}"),
         other => Ok(other),
@@ -34,24 +37,28 @@ pub fn screen(device: &str, output: Option<&str>) -> Result<Screen> {
         None => outputs.first(),
     };
     let Some(o) = o else { bail!("{}", t!("нет вывода")) };
-    let touch = match req(&Request::Status)? {
-        Response::Status { status } => {
-            if matches!(device, "local" | "self" | "") {
-                status.me.kind.is_touch()
-            } else if let Ok(kind) = serde_json::from_value::<synshell_common::link::DeviceKind>(serde_json::Value::String(device.to_lowercase())) {
-                // Псевдоним по виду (phone, desktop…) — демон сам найдёт
-                // единственное такое устройство; ввод — по виду.
-                kind.is_touch()
-            } else {
-                status
-                    .peers
-                    .iter()
-                    .find(|p| p.id == device || p.name.eq_ignore_ascii_case(device) || crate::ssh::slug(&p.name) == device || p.id.starts_with(device))
-                    .map(|p| p.kind.is_touch())
-                    .unwrap_or(false)
+    let touch = if let Some(n) = crate::sandbox::device_name(device) {
+        crate::sandbox::load(&n).is_some_and(|s| s.touch())
+    } else {
+        match req(&Request::Status)? {
+            Response::Status { status } => {
+                if matches!(device, "local" | "self" | "") {
+                    status.me.kind.is_touch()
+                } else if let Ok(kind) = serde_json::from_value::<synshell_common::link::DeviceKind>(serde_json::Value::String(device.to_lowercase())) {
+                    // Псевдоним по виду (phone, desktop…) — демон сам найдёт
+                    // единственное такое устройство; ввод — по виду.
+                    kind.is_touch()
+                } else {
+                    status
+                        .peers
+                        .iter()
+                        .find(|p| p.id == device || p.name.eq_ignore_ascii_case(device) || crate::ssh::slug(&p.name) == device || p.id.starts_with(device))
+                        .map(|p| p.kind.is_touch())
+                        .unwrap_or(false)
+                }
             }
+            _ => false,
         }
-        _ => false,
     };
     // Пиксели кадра — текущий режим (с поворотом), логика×масштаб округляется иначе.
     let (w, h) = match o.current_mode.and_then(|i| o.modes.get(i)) {

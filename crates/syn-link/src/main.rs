@@ -24,6 +24,7 @@ mod screen;
 mod services;
 mod ssh;
 mod synaptix;
+mod sandbox;
 mod wifi;
 mod winshot;
 
@@ -39,6 +40,9 @@ synlink — связь оболочек synshell (телефон ↔ компь�
 synlink daemon                         демон (запускается сеансом сам)
 synlink status [--json]                эта машина, кабель, устройства
 synlink events                         события демона (JSON)
+synlink sandbox start [--name N] [--size 1600x900] [--form desktop|phone|game] [--shell ПУТЬ] [--synwm ПУТЬ]
+                                       песочница для проверок (вложенный synwm, свой D-Bus); устройство sandbox[:N]
+synlink sandbox stop [N] | list
 synlink pair УСТР | pair accept|reject УСТР   спаривание
 synlink unpair УСТР | disconnect УСТР
 synlink shot УСТР [-o ФАЙЛ] [--max N] [--output ВЫВОД]   снимок экрана (PNG)
@@ -356,6 +360,28 @@ fn cli(args: &[String]) -> Result<()> {
         "events" => {
             for e in link::Client::connect()?.subscribe()? {
                 println!("{}", serde_json::to_string(&e?)?);
+            }
+        }
+        "sandbox" => {
+            let opt = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
+            match args.get(1).map(String::as_str) {
+                Some("start") => {
+                    let o = sandbox::Opts {
+                        name: opt("--name").unwrap_or_default(),
+                        size: opt("--size").unwrap_or_default(),
+                        form_factor: opt("--form").unwrap_or_default(),
+                        shell: opt("--shell"),
+                        synwm: opt("--synwm"),
+                    };
+                    println!("{}", sandbox::describe(&sandbox::start(&o)?));
+                }
+                Some("stop") => sandbox::stop(args.get(2).map(String::as_str).filter(|n| !n.starts_with("--")).unwrap_or("default"))?,
+                Some("list") | None => {
+                    for s in sandbox::list() {
+                        println!("{}", sandbox::describe(&s));
+                    }
+                }
+                Some(other) => bail!("{}", t!("sandbox {other}: нужно start, stop или list", other = other)),
             }
         }
         "pair" => match args.get(1).map(String::as_str) {

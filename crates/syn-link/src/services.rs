@@ -9,8 +9,17 @@ use anyhow::{bail, Context, Result};
 use synshell_common::ipc::{Client, InputEvent, Request, Response};
 use synshell_tr::t;
 
-pub fn wm(req: Request) -> Result<Response> {
-    let mut c = Client::connect().with_context(|| t!("нет связи с композитором"))?;
+/// Композитор: живой (`None`) или песочницы (её сокет).
+fn connect(sock: Option<&std::path::Path>) -> Result<Client> {
+    Ok(match sock {
+        Some(p) => Client::connect_to(p),
+        None => Client::connect(),
+    }
+    .with_context(|| t!("нет связи с композитором"))?)
+}
+
+pub fn wm(sock: Option<&std::path::Path>, req: Request) -> Result<Response> {
+    let mut c = connect(sock)?;
     Ok(c.request(&req)?)
 }
 
@@ -21,8 +30,8 @@ pub fn old_wm(message: &str) -> Option<String> {
         .then(|| t!("композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите"))
 }
 
-pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
-    match wm(Request::Input { output, events })? {
+pub fn input(sock: Option<&std::path::Path>, output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
+    match wm(sock, Request::Input { output, events })? {
         Response::Ok => Ok(()),
         Response::Error { message } => bail!("{}", old_wm(&message).map(String::from).unwrap_or(message)),
         other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
@@ -32,8 +41,8 @@ pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
 /// Кадр вывода целиком: (вывод, ширина, высота, RGBA). Через поток кадров
 /// композитора (работает и на pixman, и при блокировке экрана), у старого
 /// композитора — через `capture`.
-pub fn frame(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
-    let mut c = Client::connect().with_context(|| t!("нет связи с композитором"))?;
+pub fn frame(sock: Option<&std::path::Path>, output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
+    let mut c = connect(sock)?;
     match c.request(&Request::FrameStream { output: output.clone(), cursor: false, video: None })? {
         Response::Frame { frame } => {
             let data = std::fs::read(&frame.path).with_context(|| t!("файл кадра"))?;
@@ -48,7 +57,7 @@ pub fn frame(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
         Response::Error { message } if !message.starts_with("неверный запрос") && !message.contains("unknown variant") => bail!("{message}"),
         _ => {
             // Композитор без потока кадров.
-            let mut c = Client::connect()?;
+            let mut c = connect(sock)?;
             let Response::Capture { capture } = c.request(&Request::Capture)? else { bail!("{}", t!("захват экрана не поддерживается")) };
             let o = match &output {
                 Some(n) => capture.outputs.iter().find(|o| &o.name == n),
@@ -65,8 +74,8 @@ pub fn frame(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
 }
 
 /// Снимок в PNG: (вывод, ширина, высота, PNG).
-pub fn screenshot(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
-    let (name, w, h, rgba) = frame(output)?;
+pub fn screenshot(sock: Option<&std::path::Path>, output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
+    let (name, w, h, rgba) = frame(sock, output)?;
     Ok((name, w, h, encode_png(w, h, &rgba)?))
 }
 

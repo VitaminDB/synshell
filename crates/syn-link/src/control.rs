@@ -41,11 +41,16 @@ pub async fn run(d: D) -> Result<()> {
 enum Target {
     Local,
     Remote(quinn::Connection),
+    /// Песочница агента (вложенный synwm): `sandbox`, `sandbox:ИМЯ`.
+    Sandbox(crate::sandbox::Sandbox),
 }
 
 fn target(d: &D, device: &str) -> Result<Target> {
     if device == "local" || device == "self" || device.is_empty() {
         return Ok(Target::Local);
+    }
+    if let Some(name) = crate::sandbox::device_name(device) {
+        return crate::sandbox::load(&name).map(Target::Sandbox).with_context(|| t!("песочница «{name}» не запущена — synlink sandbox start", name = name));
     }
     let id = d.resolve(device).with_context(|| t!("нет устройства «{device}»", device = device))?;
     if id == d.id.id {
@@ -186,7 +191,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
             Request::Screen { device, output, cursor, video } => {
                 let c = match target(&d, &device) {
                     Ok(Target::Remote(c)) => c,
-                    Ok(Target::Local) => {
+                    Ok(Target::Local | Target::Sandbox(_)) => {
                         write_line(&mut wr, &Response::Error { message: t!("трансляция своего экрана не нужна").into() }).await?;
                         continue;
                     }
@@ -274,6 +279,16 @@ async fn exec_streams(d: &D, device: &str, argv: Vec<String>, cwd: Option<String
         Target::Remote(c) => {
             let (w, r) = crate::rpc::open(&c, &Rpc::Exec { argv, cwd, pty }).await?;
             Ok((Box::new(w), Box::new(r)))
+        }
+        Target::Sandbox(s) => {
+            let argv = s.wrap(argv);
+            let (a, b) = tokio::io::duplex(1 << 16);
+            let (br, bw) = tokio::io::split(b);
+            tokio::spawn(async move {
+                let _ = crate::exec::serve(bw, br, argv, cwd, pty).await;
+            });
+            let (ar, aw) = tokio::io::split(a);
+            Ok((Box::new(aw), Box::new(ar)))
         }
         Target::Local => {
             let (a, b) = tokio::io::duplex(1 << 16);
@@ -475,7 +490,8 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
         }
         Request::Screenshot { device, output, path, max_size } => {
             let (name, mut w, mut h, mut png) = match target(d, &device)? {
-                Target::Local => tokio::task::spawn_blocking(move || crate::services::screenshot(output)).await??,
+                Target::Local => tokio::task::spawn_blocking(move || crate::services::screenshot(None, output)).await??,
+                Target::Sandbox(s) => tokio::task::spawn_blocking(move || crate::services::screenshot(Some(&s.socket), output)).await??,
                 Target::Remote(c) => match crate::rpc::call(&c, &Rpc::Screenshot { output }).await? {
                     Reply::Shot { output, width, height, png } => (output, width, height, png),
                     _ => bail!("{}", t!("неожиданный ответ")),
@@ -499,7 +515,8 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
         }
         Request::Input { device, output, events } => {
             match target(d, &device)? {
-                Target::Local => tokio::task::spawn_blocking(move || crate::services::input(output, events)).await??,
+                Target::Local => tokio::task::spawn_blocking(move || crate::services::input(None, output, events)).await??,
+                Target::Sandbox(s) => tokio::task::spawn_blocking(move || crate::services::input(Some(&s.socket), output, events)).await??,
                 Target::Remote(c) => {
                     crate::rpc::call(&c, &Rpc::Input { output, events: serde_json::to_string(&events)? }).await?;
                 }
@@ -508,7 +525,8 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
         }
         Request::Wm { device, wm } => {
             let resp = match target(d, &device)? {
-                Target::Local => tokio::task::spawn_blocking(move || crate::services::wm(wm)).await??,
+                Target::Local => tokio::task::spawn_blocking(move || crate::services::wm(None, wm)).await??,
+                Target::Sandbox(s) => tokio::task::spawn_blocking(move || crate::services::wm(Some(&s.socket), wm)).await??,
                 Target::Remote(c) => match crate::rpc::call(&c, &Rpc::Wm { request: serde_json::to_string(&wm)? }).await? {
                     Reply::Json(j) => serde_json::from_str(&j)?,
                     _ => bail!("{}", t!("неожиданный ответ")),

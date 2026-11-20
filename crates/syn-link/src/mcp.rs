@@ -31,7 +31,10 @@ const INSTRUCTIONS: &str = n_!("synlink управляет устройства�
 (снимок может быть уменьшен — пересчёт делается сам). На телефоне ввод идёт касаниями, на компьютере — мышью. \
 Системный «назад» телефона — action `back`; домой — action `shell home`. \
 После действия делайте новый снимок, чтобы увидеть результат. \
-Видео экрана — `record`: start, действия, stop (или start с duration_s).");
+Видео экрана — `record`: start, действия, stop (или start с duration_s). \
+Окна: `windows` (filter), снимок одного окна — `screenshot` с window (координаты жестов — в пикселях снимка окна), \
+ожидание — `wait` вместо пауз. Проверки, не трогая живой сеанс, — `sandbox` start: устройство `sandbox`, \
+программы внутри — exec (GUI через setsid -f … >/dev/null 2>&1). В живом сеансе пользователя щёлкать только по его просьбе.");
 
 /// Последний снимок устройства: пиксель снимка (x, y) → пиксель кадра вывода
 /// `output` (ox + x·k, oy + y·k). Снимок окна — со своим сдвигом.
@@ -120,6 +123,13 @@ fn tools() -> Value {
              "filter": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N (меню программы показываются вместе с ней)")},
              "popups": {"type": "boolean", "description": t!("показывать меню и подсказки X11 (по умолчанию да)")},
              "json": {"type": "boolean", "description": t!("полный JSON вместо строк")}}), &["device"])},
+        {"name": "sandbox", "description": t!("Песочница для проверок: вложенный synwm с оболочкой в окне на этом столе, свой D-Bus, копия настроек — живой сеанс не трогается. start возвращает устройство (sandbox или sandbox:ИМЯ) для screenshot/tap/windows/exec; exec запускает программы внутри (WAYLAND_DISPLAY, DISPLAY, D-Bus песочницы; GUI — через setsid -f). stop — закрыть, list — запущенные."),
+         "inputSchema": schema(json!({"action": {"type": "string", "enum": ["start", "stop", "list"]},
+             "name": {"type": "string", "description": t!("имя (по умолчанию default → устройство sandbox)")},
+             "size": {"type": "string", "description": t!("размер окна, например 1600x900")},
+             "form_factor": {"type": "string", "enum": ["desktop", "phone", "tablet", "game"]},
+             "shell": {"type": "string", "description": t!("своя оболочка (путь к собранному бинарнику) вместо установленной")},
+             "synwm": {"type": "string", "description": t!("свой synwm (путь к собранному бинарнику)")}}), &["action"])},
         {"name": "wait", "description": t!("Дождаться окна (появится или закроется) вместо пауз: возвращает строку окна."),
          "inputSchema": schema(json!({"device": dev, "window": {"type": "string", "description": t!("часть app_id или заголовка, pid:N, id:N")},
              "gone": {"type": "boolean", "description": t!("ждать, пока закроется")}, "timeout_s": num(&t!("тайм-аут, с (10)"))}), &["device", "window"])},
@@ -182,6 +192,10 @@ fn exec(device: &str, command: &str, cwd: Option<String>, timeout_s: u64) -> Res
 /// Команда с данными на stdin (поток `Request::Exec { stream: true }`): файл любого размера одним потоком,
 /// без предела длины командной строки.
 fn exec_stdin(device: &str, command: &str, data: Vec<u8>, timeout_s: u64) -> Result<(i32, String, String)> {
+    if let Some(n) = crate::sandbox::device_name(device) {
+        let s = crate::sandbox::load(&n).with_context(|| t!("песочница «{n}» не запущена", n = n))?;
+        return crate::sandbox::run(&s, &["/bin/sh".into(), "-c".into(), command.into()], None, Some(data), Duration::from_secs(timeout_s));
+    }
     use synshell_common::link::{self, ExecFrame};
     let mut c = link::Client::connect().with_context(|| t!("synlink не запущен"))?;
     match c.request(&Request::Exec {
@@ -414,6 +428,34 @@ impl Server {
                 }
                 let lines: Vec<String> = sel.iter().map(|w| crate::winshot::line(w)).collect();
                 Ok(text(if lines.is_empty() { t!("окон нет").to_string() } else { lines.join("\n") }))
+            }
+            "sandbox" => {
+                let name = a.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                match a.get("action").and_then(Value::as_str).unwrap_or("start") {
+                    "start" => {
+                        let o = crate::sandbox::Opts {
+                            name: name.clone(),
+                            size: a.get("size").and_then(Value::as_str).unwrap_or("").into(),
+                            form_factor: a.get("form_factor").and_then(Value::as_str).unwrap_or("").into(),
+                            shell: a.get("shell").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from),
+                            synwm: a.get("synwm").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from),
+                        };
+                        let s = crate::sandbox::start(&o)?;
+                        let dev = if s.name == "default" { "sandbox".to_string() } else { format!("sandbox:{}", s.name) };
+                        self.shots.remove(&dev);
+                        Ok(text(t!("запущена — устройство «{dev}»: {info}", dev = dev, info = crate::sandbox::describe(&s))))
+                    }
+                    "stop" => {
+                        let n = if name.is_empty() { "default".to_string() } else { name };
+                        crate::sandbox::stop(&n)?;
+                        Ok(text(t!("песочница «{n}» закрыта", n = n)))
+                    }
+                    "list" => {
+                        let l: Vec<String> = crate::sandbox::list().iter().map(crate::sandbox::describe).collect();
+                        Ok(text(if l.is_empty() { t!("песочниц нет").to_string() } else { l.join("\n") }))
+                    }
+                    other => bail!("{}", t!("action {other}: нужно start, stop или list", other = other)),
+                }
             }
             "wait" => {
                 let q = arg_str(a, "window")?.to_string();

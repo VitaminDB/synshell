@@ -113,7 +113,9 @@ impl State {
         }
         let modes_file = runtime.join(format!("synwm-x11-modes-{}-{}", std::process::id(), self.core.xwayland.len()));
         let _ = std::fs::write(&modes_file, "");
-        let mut env: Vec<(String, String)> = std::env::vars()
+        // vars_os: переменная не в UTF-8 (испорченный путь в `_`) не должна ронять композитор.
+        let mut env: Vec<(String, String)> = std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
             // smithay запускает Xwayland с чистым окружением. Выбор графического
             // драйвера ему нужен тот же, что композитору: без него на телефоне
             // (zink поверх turnip) glamor не поднимается — нет DRI3, X11-программы

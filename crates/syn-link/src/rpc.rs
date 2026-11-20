@@ -17,7 +17,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
     let Some(req) = proto::recv::<Rpc>(&mut r).await? else { return Ok(()) };
     match req {
         Rpc::Screenshot { output } => {
-            let res = tokio::task::spawn_blocking(move || crate::services::screenshot(output)).await?;
+            let res = tokio::task::spawn_blocking(move || crate::services::screenshot(None, output)).await?;
             let reply = match res {
                 Ok((output, width, height, png)) => Reply::Shot { output, width, height, png },
                 Err(e) => Reply::Err(format!("{e:#}")),
@@ -31,7 +31,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
                     let from = d.trusted(&peer).map(|t| t.name).unwrap_or_else(|| peer.clone());
                     let first = ev.first().map(|e| format!("{e:?}")).unwrap_or_default();
                     tracing::info!(from = %from, events = ev.len(), first = %first.chars().take(120).collect::<String>(), "удалённый ввод");
-                    match tokio::task::spawn_blocking(move || crate::services::input(output, ev)).await? {
+                    match tokio::task::spawn_blocking(move || crate::services::input(None, output, ev)).await? {
                         Ok(()) => Reply::Done,
                         Err(e) => Reply::Err(format!("{e:#}")),
                     }
@@ -42,7 +42,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
         }
         Rpc::Wm { request } => {
             let reply = match serde_json::from_str(&request) {
-                Ok(req) => match tokio::task::spawn_blocking(move || crate::services::wm(req)).await? {
+                Ok(req) => match tokio::task::spawn_blocking(move || crate::services::wm(None, req)).await? {
                     Ok(resp) => Reply::Json(serde_json::to_string(&resp)?),
                     Err(e) => Reply::Err(format!("{e:#}")),
                 },
