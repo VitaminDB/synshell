@@ -317,7 +317,7 @@ fn list(data: RwSignal<Data>, sel: RwSignal<Option<u64>>, all_apps: bool) -> Col
             .child(Text::new(t!("↓ принято")).class("th c-num"))
             .child(Text::new(t!("↑ передано")).class("th c-num"))
             .child(Text::new(t!("Длилось")).class("th c-dur"));
-        r = r.cross_axis_alignment(CrossAxisAlignment::Center).height(30.0).class("thead conns-thead");
+        r = r.cross_axis_alignment(CrossAxisAlignment::Center).class("thead conns-thead");
         vec![boxed(r)]
     });
     let rows = Reactive::new(move || -> Vec<W> {
