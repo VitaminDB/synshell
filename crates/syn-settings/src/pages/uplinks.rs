@@ -26,6 +26,8 @@ struct Sigs {
     rates: RwSignal<HashMap<String, (f64, f64)>>,
     show_all: RwSignal<bool>,
     filter: RwSignal<String>,
+    /// Подтверждение «Очистить журнал и архив».
+    clear: RwSignal<bool>,
 }
 
 thread_local! {
@@ -38,7 +40,7 @@ fn sigs() -> Sigs {
     SIGS.with(|c| match c.get() {
         Some(s) => s,
         None => {
-            let s = Sigs { st: use_signal(None), rates: use_signal(HashMap::new()), show_all: use_signal(false), filter: use_signal(String::new()) };
+            let s = Sigs { st: use_signal(None), rates: use_signal(HashMap::new()), show_all: use_signal(false), filter: use_signal(String::new()), clear: use_signal(false) };
             c.set(Some(s));
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
@@ -295,6 +297,87 @@ fn add_row(e: &DesktopEntry) -> W {
     )
 }
 
+/// Учёт трафика: расход по программам, журнал соединений, архив.
+fn traffic_card(s: Sigs, t: &syn_netd::TrafficConfig) -> W {
+    let mb = |n: u32| DropdownItem::new(n.to_string(), t!("{n} МБ", n = n));
+    let mut log = Dropdown::new().width(260.0);
+    let mut sizes = vec![16u32, 32, 64, 128, 256, 512, 1024];
+    if !sizes.contains(&t.log_mb) {
+        sizes.push(t.log_mb);
+        sizes.sort();
+    }
+    for n in sizes {
+        log = log.item(mb(n));
+    }
+    let log = log.selected(t.log_mb.to_string()).on_change(|v: &str| {
+        if let Ok(n) = v.parse::<u32>() {
+            change(move |c| c.traffic.log_mb = n);
+        }
+    });
+    let mut days = Dropdown::new().width(260.0);
+    let mut opts = vec![(31u32, t!("Месяц")), (93, t!("3 месяца")), (186, t!("Полгода")), (400, t!("Год")), (1100, t!("3 года"))];
+    if !opts.iter().any(|o| o.0 == t.days) {
+        opts.push((t.days, t!("{n} дн.", n = t.days)));
+    }
+    for (n, l) in opts {
+        days = days.item(DropdownItem::new(n.to_string(), l));
+    }
+    let days = days.selected(t.days.to_string()).on_change(|v: &str| {
+        if let Ok(n) = v.parse::<u32>() {
+            change(move |c| c.traffic.days = n);
+        }
+    });
+    let confirm = s.clear.get();
+    let actions: W = if confirm {
+        boxed(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(t!("Удалить журнал соединений и весь архив расхода?")).max_lines(2).class("grow"))
+                .child(button(t!("Удалить"), move || {
+                    s.clear.set(false);
+                    std::thread::spawn(|| {
+                        let r = syn_netd::clear_traffic();
+                        run_on_main_thread(move || {
+                            state::toast(match r {
+                                Ok(()) => t!("Журнал соединений и архив очищены"),
+                                Err(e) => t!("Очистка: {e}", e = e),
+                            })
+                        });
+                    });
+                }))
+                .child(button(t!("Отмена"), move || s.clear.set(false))),
+        )
+    } else {
+        boxed(
+            Row::new()
+                .gap(8.0)
+                .child(button(t!("Открыть в Мониторе ресурсов"), || {
+                    let _ = std::process::Command::new("syn-systeminfo").arg("network").spawn();
+                }))
+                .child(button(t!("Очистить журнал и архив"), move || s.clear.set(true))),
+        )
+    };
+    titled(
+        t!("Учёт трафика"),
+        card(vec![
+            row_inline(
+                t!("Считать трафик программ"),
+                t!("Сколько принимает и передаёт каждая программа, по часам и дням, и журнал соединений: кто, куда и когда соединялся. Смотреть — в Мониторе ресурсов → «Сеть»."),
+                Toggle::with_state(t.enabled).on_change(|on| change(move |c| c.traffic.enabled = on)),
+            ),
+            row(t!("Журнал соединений"), t!("Предел на диске: заполнился — самые старые записи удаляются."), boxed(log)),
+            row(t!("Архив расхода"), t!("Сколько хранить расход программ по дням."), boxed(days)),
+            row_inline(
+                t!("Имена узлов"),
+                t!("Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес"),
+                Toggle::with_state(t.hostnames).on_change(|on| change(move |c| c.traffic.hostnames = on)),
+            ),
+            boxed(DecoratedBox::new().child(actions).class("setting-row")),
+        ]),
+    )
+}
+
 // ─── Страница ────────────────────────────────────────────────────────────────
 
 pub fn uplinks() -> W {
@@ -489,6 +572,7 @@ pub fn uplinks() -> W {
         if !friendly.is_empty() {
             out.push(titled(t!("Полезно все каналы сразу"), card(friendly)));
         }
+        out.push(traffic_card(s, &c.traffic));
         vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
     });
     // Остальные программы — по кнопке, с поиском (поле вне `Reactive`

@@ -17,7 +17,10 @@
 - **Graphics and video memory** — load, frequency, temperature, power draw and video memory of every GPU (Intel, AMD, NVIDIA), and the neural networks of the synaptix service loaded on the GPU.
 - **NPU** — load and memory of the neural processor (Intel and other `accel` devices, Qualcomm).
 - **Memory** — applications, shared, kernel, file cache and free in one bar, swap, pending writes, memory pressure (PSI), the largest memory users.
-- **Network** — speed of every interface, totals since boot, addresses.
+- **Network** — speed of every interface with a sparkline, totals since boot, addresses, the uplink's role in synnetd (primary, backup, all at once). With the [synnetd](../../docs/NETD.md) service:
+  - **traffic per app** — right now (per second), today, 7 and 30 days: received, sent, share of each uplink (Wi-Fi, modem, cable), number of connections;
+  - **connection log** — double-click an app (tap on a phone) to open a window: who connected where (address, port, host name from DNS) and when, through which uplink, how much was received and sent, how long it lasted; search, time range (open now, hour, today, 7/30 days, whole log), record details;
+  - **archive** — daily usage for the last month as bars, hourly usage for the selected day and that day's apps. The log is a ring with a disk limit (64 MB by default), the archive is kept for a year; settings are in Settings → “Internet connections”.
 - **Storage** — read and write speed of every drive, partitions and free space.
 - **Sensors** — all temperature sensors, the hottest one in the graph.
 - **Power** — battery charge and power draw.
@@ -46,6 +49,7 @@ Depends on `synshell-core`. The whole desktop: `yay -S synshell-bin`. **From sou
 ```sh
 syn-systeminfo                  # overview
 syn-systeminfo gpu              # open a page: cpu, gpu, vram, npu, memory, network, disk, sensors, battery, processes
+syn-systeminfo --connections firefox   # connection window of an app for today (`-` for all)
 syn-systeminfo --list-pages     # page ids and titles
 syn-systeminfo --screenshot out.png --page cpu --size 1400x900 --scale 1 --history 60
                                 # render a page to PNG without a window, after collecting 60 s of graphs

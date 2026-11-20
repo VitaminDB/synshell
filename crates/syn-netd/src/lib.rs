@@ -137,11 +137,33 @@ pub struct Config {
     /// Решения по USB-модемам (телефонам): ключ устройства ([`UsbModem::key`]) → выбор и имя.
     /// Нет решения — служба модем не поднимает и спрашивает пользователя (уведомление оболочки).
     pub usb_devices: BTreeMap<String, UsbDecision>,
+    /// Учёт трафика по программам и журнал соединений.
+    pub traffic: TrafficConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new() }
+        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new(), traffic: TrafficConfig::default() }
+    }
+}
+
+/// Учёт трафика: расход по программам (по часам, архив по дням) и кольцевой
+/// журнал соединений (кто, куда, когда, сколько).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct TrafficConfig {
+    pub enabled: bool,
+    /// Журнал соединений: предел на диске, МБ (старые записи вытесняются).
+    pub log_mb: u32,
+    /// Архив расхода по программам: сколько дней хранить.
+    pub days: u32,
+    /// Записывать в журнал имена узлов (ответы DNS от systemd-resolved).
+    pub hostnames: bool,
+}
+
+impl Default for TrafficConfig {
+    fn default() -> Self {
+        TrafficConfig { enabled: true, log_mb: 64, days: 400, hostnames: true }
     }
 }
 
@@ -231,6 +253,14 @@ pub enum Request {
     Status,
     /// Заменить настройки целиком; ответ — новое состояние.
     SetConfig { config: Config },
+    /// Трафик программ сейчас и за сегодня.
+    Traffic,
+    /// Соединения из журнала (и открытые сейчас), новые первыми.
+    Connections { query: ConnQuery },
+    /// Архив расхода по дням (`from`, `to` — `ГГГГ-ММ-ДД` по местному времени, включительно).
+    Usage { from: String, to: String },
+    /// Очистить журнал соединений и архив (root и `wheel`).
+    ClearTraffic,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
@@ -240,6 +270,182 @@ pub struct Response {
     pub error: Option<String>,
     #[serde(default)]
     pub status: Option<Status>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<Traffic>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connections: Option<Vec<Conn>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Vec<DayUsage>>,
+}
+
+// ─── Учёт трафика ───────────────────────────────────────────────────────────
+
+/// Программа без своего процесса: ответы ядра, пересылка, VPN-туннель —
+/// разница между счётчиками канала и тем, что пришлось на программы.
+pub const APP_SYSTEM: &str = "";
+
+/// Трафик программы. Программа — имя исполняемого файла (у интерпретаторов —
+/// скрипта, у Wine — имя `.exe`), [`APP_SYSTEM`] — система.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct AppTraffic {
+    pub app: String,
+    /// Имя процесса (`comm`) последнего соединения.
+    #[serde(default)]
+    pub comm: String,
+    pub uid: u32,
+    /// Скорость за последнюю секунду, байт/с.
+    pub rx_bps: f64,
+    pub tx_bps: f64,
+    /// За сегодня (с полуночи по местному времени), байт.
+    pub rx_today: u64,
+    pub tx_today: u64,
+    /// Открытых соединений сейчас.
+    pub active: u32,
+    /// Соединений за сегодня.
+    #[serde(default)]
+    pub conns_today: u32,
+    /// За сегодня по каналам: интерфейс, принято, передано.
+    #[serde(default)]
+    pub ifaces: Vec<(String, u64, u64)>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Traffic {
+    pub enabled: bool,
+    /// Учёт не работает (ядро без BPF и т. п.).
+    #[serde(default)]
+    pub error: Option<String>,
+    pub apps: Vec<AppTraffic>,
+    /// Журнал соединений: занято на диске, байт; предел; самая старая запись (мс Unix).
+    #[serde(default)]
+    pub log_bytes: u64,
+    #[serde(default)]
+    pub log_limit: u64,
+    #[serde(default)]
+    pub log_since: Option<u64>,
+    /// Имена узлов приходят от systemd-resolved.
+    #[serde(default)]
+    pub dns: bool,
+    /// Спросивший видит всё (root, `wheel`) или только свои программы.
+    #[serde(default)]
+    pub all_users: bool,
+}
+
+/// Соединение (запись журнала или открытое сейчас).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Conn {
+    /// Начало и конец, мс Unix; конца нет — соединение открыто.
+    #[serde(rename = "t")]
+    pub start: u64,
+    #[serde(rename = "e", default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<u64>,
+    #[serde(rename = "a")]
+    pub app: String,
+    #[serde(rename = "c", default)]
+    pub comm: String,
+    #[serde(rename = "p", default)]
+    pub pid: i32,
+    #[serde(rename = "u", default)]
+    pub uid: u32,
+    /// `tcp`, `udp`, `icmp`…
+    #[serde(rename = "pr")]
+    pub proto: String,
+    /// Удалённый адрес и порт.
+    #[serde(rename = "r")]
+    pub remote: String,
+    #[serde(rename = "po", default)]
+    pub port: u16,
+    /// Имя узла (из ответа DNS), если известно.
+    #[serde(rename = "h", default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Канал (интерфейс последнего пакета).
+    #[serde(rename = "i", default)]
+    pub iface: String,
+    #[serde(default)]
+    pub rx: u64,
+    #[serde(default)]
+    pub tx: u64,
+    /// Входящее (к службе на этой машине), а не исходящее.
+    #[serde(rename = "in", default, skip_serializing_if = "std::ops::Not::not")]
+    pub incoming: bool,
+    /// UDP-сокет без `connect`, писавший многим адресам: сколько ещё адресов
+    /// (торрент, DHT) не записаны отдельно.
+    #[serde(rename = "m", default, skip_serializing_if = "is_zero")]
+    pub more: u32,
+    /// Другие адреса того же сокета (`адрес:порт`, до 16).
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+/// Отбор соединений.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct ConnQuery {
+    /// Программа ([`AppTraffic::app`]); `None` — все.
+    pub app: Option<String>,
+    /// Промежуток, мс Unix.
+    pub from: Option<u64>,
+    pub to: Option<u64>,
+    /// Подстрока в адресе, имени узла, процессе, канале.
+    pub text: String,
+    /// Только открытые сейчас.
+    pub active_only: bool,
+    pub limit: u32,
+}
+
+impl Default for ConnQuery {
+    fn default() -> Self {
+        ConnQuery { app: None, from: None, to: None, text: String::new(), active_only: false, limit: 2000 }
+    }
+}
+
+impl Conn {
+    pub fn matches(&self, q: &ConnQuery) -> bool {
+        if q.app.as_ref().is_some_and(|a| *a != self.app) {
+            return false;
+        }
+        if q.active_only && self.end.is_some() {
+            return false;
+        }
+        if q.from.is_some_and(|f| self.end.unwrap_or(u64::MAX) < f) || q.to.is_some_and(|t| self.start > t) {
+            return false;
+        }
+        let text = q.text.trim().to_lowercase();
+        if !text.is_empty() {
+            let hay = format!("{} {} {} {} {} {} {}", self.remote, self.port, self.host.as_deref().unwrap_or(""), self.comm, self.iface, self.app, self.also.join(" ")).to_lowercase();
+            if !text.split_whitespace().all(|w| hay.contains(w)) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Расход программы за день по одному каналу.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct UsageRow {
+    pub app: String,
+    pub uid: u32,
+    pub iface: String,
+    pub rx: u64,
+    pub tx: u64,
+    /// По часам: принято + передано, байт (24 значения; в дни перехода на летнее время — как есть).
+    #[serde(default)]
+    pub hours: Vec<u64>,
+    /// Соединений за день.
+    #[serde(default)]
+    pub conns: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct DayUsage {
+    /// `ГГГГ-ММ-ДД`.
+    pub day: String,
+    pub rows: Vec<UsageRow>,
 }
 
 /// Установлена ли служба.
@@ -271,6 +477,22 @@ pub fn status() -> std::io::Result<Status> {
 
 pub fn set_config(config: Config) -> std::io::Result<Status> {
     request(&Request::SetConfig { config })?.status.ok_or_else(|| std::io::Error::other("пустой ответ"))
+}
+
+pub fn traffic() -> std::io::Result<Traffic> {
+    request(&Request::Traffic)?.traffic.ok_or_else(|| std::io::Error::other("служба без учёта трафика (обновите synnetd)"))
+}
+
+pub fn connections(query: ConnQuery) -> std::io::Result<Vec<Conn>> {
+    request(&Request::Connections { query })?.connections.ok_or_else(|| std::io::Error::other("служба без учёта трафика (обновите synnetd)"))
+}
+
+pub fn usage(from: &str, to: &str) -> std::io::Result<Vec<DayUsage>> {
+    request(&Request::Usage { from: from.into(), to: to.into() })?.usage.ok_or_else(|| std::io::Error::other("служба без учёта трафика (обновите synnetd)"))
+}
+
+pub fn clear_traffic() -> std::io::Result<()> {
+    request(&Request::ClearTraffic).map(|_| ())
 }
 
 /// Подходит ли процесс под правило программы: совпадает имя процесса

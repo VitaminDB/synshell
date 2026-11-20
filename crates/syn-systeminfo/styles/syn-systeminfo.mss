@@ -161,3 +161,41 @@ TextField {
 .phone-head .csd-drag, .phone-head .csd-drag-space { height: 44px; }
 .phone-head .csd-drag-space { padding: 0px; }
 .phone-head .csd-controls { padding: 0px; }
+
+/* ── Сеть: программы, архив, журнал соединений ───────────────── */
+.net-app-icon { border-radius: 8px; }
+.net-col { width: 92px; }
+.net-col-s { width: 52px; }
+.net-share { width: 120px; }
+.net-rx { color: #22c3e6; }
+.net-tx { color: #ffca28; }
+.net-thead { padding: 6px 10px 2px 10px; }
+.net-foot { padding-top: 6px; }
+.net-bar { padding: 0px 1px; border-radius: 6px; background-color: #00000000; transition: background-color 120ms ease; &:hover { background-color: var(--hover); } }
+.net-bar.active { background-color: var(--surface-alt); }
+.net-bar-rx { background-color: #22c3e6; border-radius: 2px; }
+.net-bar-tx { background-color: #ffca28; border-radius: 2px; }
+.net-bar-label { font-size: 10px; color: var(--muted); text-align: center; height: 16px; padding-top: 3px; }
+.net-bar-label.active { color: var(--fg); font-weight: 700; }
+.conns-root { background-color: var(--bg); }
+.conns-toolbar { padding: 14px 18px 8px 18px; }
+.conns-thead { padding: 6px 28px 4px 28px; }
+.conns-body { padding: 0px 18px 10px 18px; }
+.conns-empty { padding: 20px 10px; }
+.conns-detail { margin: 0px 18px 14px 18px; border: 1px solid var(--border); }
+.conns-err { color: #ef5350; }
+.c-time { width: 92px; }
+.c-proc { width: 170px; }
+.c-proto { width: 66px; }
+.c-if { width: 120px; }
+.c-num { width: 80px; }
+.c-dur { width: 76px; text-align: right; }
+.conn-time { font-size: 13px; font-weight: 600; }
+.conn-host { font-size: 14px; font-weight: 600; }
+.conn-proto { padding: 2px 6px; border-radius: 6px; background-color: var(--surface-alt); }
+.conn-proto-label { font-size: 10px; font-weight: 700; color: var(--muted); text-align: center; }
+.conn-dot { width: 8px; height: 8px; border-radius: 4px; background-color: var(--border); }
+.conn-dot.open { background-color: #2ec27e; }
+.conn-open { color: #2ec27e; font-size: 12px; }
+.net-hour { background-color: #22c3e6aa; border-radius: 2px; }
+.net-hour.cur { background-color: #ffca28; }

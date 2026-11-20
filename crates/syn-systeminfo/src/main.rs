@@ -4,6 +4,8 @@
 //!   syn-systeminfo [СТРАНИЦА]       окно; страница — `cpu`, `gpu`, `vram`, `npu`, `memory`
 //!                                   (`ram`), `network`, `disk`, `sensors` (`temps`), `battery`,
 //!                                   `processes` (`apps`), `overview`
+//!   syn-systeminfo --connections ПРОГРАММА   окно соединений программы за сегодня (`-` — всех);
+//!                                   программа — имя исполняемого файла, как в synnetd
 //!   syn-systeminfo --list-pages
 //!   syn-systeminfo --screenshot out.png [--page id] [--size 420x860] [--scale 2] [--history СЕКУНД]
 //!                                   (`--history` — сначала копить замеры столько секунд: графики не пустые)
@@ -11,6 +13,7 @@
 //! Окно одно: повторный запуск (тап по виджету рабочего стола) передаёт страницу уже
 //! открытому окну через сокет `$XDG_RUNTIME_DIR/syn-systeminfo.sock` и выходит.
 
+mod netapps;
 mod sampler;
 mod state;
 mod ui;
@@ -33,11 +36,13 @@ fn main() {
     let mut size = (420u32, 860u32);
     let mut scale = 2.0f64;
     let mut history = 0u32;
+    // Окно соединений: программа (`-` — все).
+    let mut conns: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]"));
+                println!("{}", t!("syn-systeminfo [СТРАНИЦА] [--connections ПРОГРАММА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]"));
                 return;
             }
             "--list-pages" => {
@@ -55,6 +60,10 @@ fn main() {
             }
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
             "--history" => history = args.next().and_then(|s| s.parse().ok()).unwrap_or(0),
+            "--connections" => {
+                conns = args.next();
+                page = Page::Network;
+            }
             other if !other.starts_with('-') => match Page::parse(other) {
                 Some(p) => page = p,
                 None => eprintln!("{}", t!("неизвестная страница «{p}» (--list-pages)", p = other)),
@@ -69,6 +78,10 @@ fn main() {
         let snap = if history > 0 { sampler::collect(history) } else { sampler::once() };
         let r = syngui::shot::render_png(
             move || {
+                if let Some(app) = &conns {
+                    let app = (app != "-").then(|| app.clone());
+                    return ui::conns::snapshot(app, ui::conns::Range::Today, true);
+                }
                 let st = St::new(page);
                 st.snap.set_always(snap.clone());
                 ui::root(st)
@@ -90,7 +103,11 @@ fn main() {
     // Окно уже открыто — передать ему страницу.
     let sock = socket_path();
     if let Ok(mut s) = UnixStream::connect(&sock) {
-        if writeln!(s, "{}", page.id()).is_ok() {
+        let line = match &conns {
+            Some(app) => format!("conns:{app}"),
+            None => page.id().to_string(),
+        };
+        if writeln!(s, "{line}").is_ok() {
             return;
         }
     }
@@ -114,9 +131,19 @@ fn main() {
             if let Some(l) = listener.lock().ok().and_then(|mut l| l.take()) {
                 listen(l, st);
             }
+            if let Some(app) = conns.clone() {
+                run_on_main_thread(move || open_conns(&app));
+            }
             ui::root(st)
         });
     let _ = std::fs::remove_file(&sock);
+}
+
+/// Окно соединений программы (`-` — всех) за сегодня.
+fn open_conns(app: &str) {
+    let app = (app != "-" && !app.is_empty()).then(|| app.to_string());
+    let title = app.as_deref().map(|a| netapps::info(a).name).unwrap_or_else(|| t!("Все программы"));
+    ui::conns::open(app, title, ui::conns::Range::Today);
 }
 
 fn socket_path() -> PathBuf {
@@ -130,7 +157,13 @@ fn listen(l: UnixListener, st: St) {
         for conn in l.incoming().flatten() {
             let mut line = String::new();
             if BufReader::new(conn).read_line(&mut line).is_ok() {
-                if let Some(p) = Page::parse(&line) {
+                if let Some(app) = line.trim().strip_prefix("conns:") {
+                    let app = app.to_string();
+                    run_on_main_thread(move || {
+                        ui::open(st, Page::Network);
+                        open_conns(&app);
+                    });
+                } else if let Some(p) = Page::parse(&line) {
                     run_on_main_thread(move || ui::open(st, p));
                 }
             }

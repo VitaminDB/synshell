@@ -1,6 +1,6 @@
 [package]
 name = "syn-netd"
-description = "Несколько подключений к интернету одновременно: основной канал или оба (multipath), выбор для каждой программы, USB-модемы"
+description = "Несколько подключений к интернету одновременно: основной канал или оба (multipath), выбор для каждой программы, USB-модемы; учёт трафика программ и журнал соединений"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

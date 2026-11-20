@@ -25,7 +25,7 @@ const BPF_F_ALLOW_MULTI: u32 = 2;
 /// `offsetof(struct bpf_sock, mark)`: bound_dev_if, family, type, protocol — по 4 байта.
 const OFF_MARK: i16 = 16;
 
-fn insn(code: u8, dst: u8, src: u8, off: i16, imm: i32) -> [u8; 8] {
+pub fn insn(code: u8, dst: u8, src: u8, off: i16, imm: i32) -> [u8; 8] {
     let mut b = [0u8; 8];
     b[0] = code;
     b[1] = (dst & 0xf) | (src << 4);
@@ -34,15 +34,15 @@ fn insn(code: u8, dst: u8, src: u8, off: i16, imm: i32) -> [u8; 8] {
     b
 }
 
-fn bpf(cmd: libc::c_long, attr: &mut [u8]) -> libc::c_long {
+pub fn bpf(cmd: libc::c_long, attr: &mut [u8]) -> libc::c_long {
     unsafe { libc::syscall(libc::SYS_bpf, cmd, attr.as_mut_ptr(), attr.len() as libc::c_uint) }
 }
 
-fn put32(a: &mut [u8], off: usize, v: u32) {
+pub fn put32(a: &mut [u8], off: usize, v: u32) {
     a[off..off + 4].copy_from_slice(&v.to_ne_bytes());
 }
 
-fn put64(a: &mut [u8], off: usize, v: u64) {
+pub fn put64(a: &mut [u8], off: usize, v: u64) {
     a[off..off + 8].copy_from_slice(&v.to_ne_bytes());
 }
 
@@ -58,10 +58,15 @@ pub fn load(mark: u32) -> std::io::Result<OwnedFd> {
 
 /// Загрузить программу `BPF_CGROUP_INET_SOCK_CREATE`.
 fn load_code(code: &[u8], name: &[u8]) -> std::io::Result<OwnedFd> {
+    load_typed(code, name, BPF_PROG_TYPE_CGROUP_SOCK, BPF_CGROUP_INET_SOCK_CREATE)
+}
+
+/// Загрузить программу типа `prog_type` для точки `attach_type`.
+pub fn load_typed(code: &[u8], name: &[u8], prog_type: u32, attach_type: u32) -> std::io::Result<OwnedFd> {
     let license = c"GPL";
     let mut log = vec![0u8; 16384];
     let mut attr = [0u8; 144];
-    put32(&mut attr, 0, BPF_PROG_TYPE_CGROUP_SOCK);
+    put32(&mut attr, 0, prog_type);
     put32(&mut attr, 4, (code.len() / 8) as u32);
     put64(&mut attr, 8, code.as_ptr() as u64);
     put64(&mut attr, 16, license.as_ptr() as u64);
@@ -70,7 +75,7 @@ fn load_code(code: &[u8], name: &[u8]) -> std::io::Result<OwnedFd> {
     put64(&mut attr, 32, log.as_mut_ptr() as u64);
     let n = name.len().min(16);
     attr[48..48 + n].copy_from_slice(&name[..n]);
-    put32(&mut attr, 68, BPF_CGROUP_INET_SOCK_CREATE); // expected_attach_type
+    put32(&mut attr, 68, attach_type); // expected_attach_type
     let fd = bpf(BPF_PROG_LOAD, &mut attr);
     if fd < 0 {
         let e = std::io::Error::last_os_error();
@@ -158,7 +163,7 @@ impl TgidMarks {
         put32(&mut attr, 4, 4);
         put32(&mut attr, 8, 4);
         put32(&mut attr, 12, 16384);
-        attr[32..32 + 12].copy_from_slice(b"synnet_tgid\0"); // map_name
+        attr[28..28 + 12].copy_from_slice(b"synnet_tgid\0"); // map_name
         let fd = bpf(BPF_MAP_CREATE, &mut attr);
         if fd < 0 {
             return Err(std::io::Error::other(format!("BPF_MAP_CREATE: {}", std::io::Error::last_os_error())));

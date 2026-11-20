@@ -132,7 +132,26 @@ pub struct Snap {
     /// Окна (нет композитора synwm — None).
     pub apps: Option<Vec<App>>,
     pub hist: History,
+    /// synnetd: каналы, трафик программ, архив (снимается только на странице «Сеть»).
+    pub netd: NetD,
+    /// История скорости по интерфейсам: принято, передано.
+    pub if_hist: HashMap<String, (Hist, Hist)>,
 }
+
+/// Сведения от synnetd.
+#[derive(Clone, Default)]
+pub struct NetD {
+    /// Служба установлена.
+    pub installed: bool,
+    /// Состояние (каналы, режим); ошибка — служба не отвечает.
+    pub status: Option<std::result::Result<syn_netd::Status, String>>,
+    pub traffic: Option<std::result::Result<syn_netd::Traffic, String>>,
+    /// Архив за последние [`ARCHIVE_DAYS`] дней и сегодня (сегодняшний — для часов; расход за сегодня — из `traffic`).
+    pub usage: Vec<syn_netd::DayUsage>,
+}
+
+/// Сколько дней архива показывать.
+pub const ARCHIVE_DAYS: u64 = 30;
 
 impl Snap {
     pub fn rx(&self) -> f64 {
@@ -292,6 +311,15 @@ impl Sampler {
             })
             .collect();
         self.last_net = s.net.iter().map(|i| (i.info.name.clone(), (i.info.rx_bytes, i.info.tx_bytes))).collect();
+        for i in &s.net {
+            let h = s.if_hist.entry(i.info.name.clone()).or_default();
+            h.0.push(i.rx_bps as f32, HISTORY);
+            h.1.push(i.tx_bps as f32, HISTORY);
+        }
+        s.if_hist.retain(|k, _| s.net.iter().any(|i| i.info.name == *k));
+        if page == Page::Network {
+            netd(&mut s.netd, n);
+        }
         s.disks = self.disks.sample();
         if every(5) || s.mounts.is_empty() {
             s.mounts = syn_system::disk::mounts(sys);
@@ -379,6 +407,36 @@ fn apps(procs: &[syn_system::procs::Process]) -> Option<Vec<App>> {
         .collect();
     out.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb));
     Some(out)
+}
+
+/// synnetd: трафик — каждую секунду, состояние — раз в 5 с, архив — раз в минуту.
+fn netd(d: &mut NetD, n: u64) {
+    d.installed = syn_netd::installed();
+    let first = d.status.is_none();
+    d.traffic = Some(syn_netd::traffic().map_err(|e| e.to_string()));
+    if first || n % 5 == 0 {
+        d.status = Some(syn_netd::status().map_err(|e| e.to_string()));
+    }
+    if (first || n % 60 == 0 || d.usage.is_empty() && n % 10 == 0) && matches!(d.traffic, Some(Ok(_))) {
+        let now = syn_netd_now();
+        let from = day_str(now - ARCHIVE_DAYS * 86_400);
+        let to = day_str(now);
+        if let Ok(u) = syn_netd::usage(&from, &to) {
+            d.usage = u;
+        }
+    }
+}
+
+fn syn_netd_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Дата `ГГГГ-ММ-ДД` по местному времени.
+pub fn day_str(secs: u64) -> String {
+    let t = secs as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&t, &mut tm) };
+    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
 
 /// Модели synaptixd (нет службы — None).

@@ -11,7 +11,11 @@
 mod apps;
 mod bpf;
 mod dhcp;
+mod diag;
+mod dns;
 mod route;
+mod tbpf;
+mod traffic;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
@@ -74,6 +78,7 @@ struct Shared {
     usb: Mutex<Vec<syn_netd::UsbModem>>,
     wake: Wake,
     rescan: Wake,
+    traffic: traffic::Traffic,
 }
 
 impl Shared {
@@ -108,6 +113,37 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&st)?);
         return Ok(());
     }
+    match a.as_slice() {
+        ["traffic"] => {
+            println!("{}", serde_json::to_string_pretty(&syn_netd::traffic()?)?);
+            return Ok(());
+        }
+        ["conns", rest @ ..] => {
+            let mut q = syn_netd::ConnQuery { limit: 50, ..Default::default() };
+            if let Some(app) = rest.first().filter(|a| **a != "-") {
+                q.app = Some(app.to_string());
+            }
+            if let Some(t) = rest.get(1) {
+                q.text = t.to_string();
+            }
+            let mut out = std::io::stdout().lock();
+            for c in syn_netd::connections(q)? {
+                if writeln!(out, "{}", serde_json::to_string(&c)?).is_err() {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+        ["usage", from, to] => {
+            println!("{}", serde_json::to_string_pretty(&syn_netd::usage(from, to)?)?);
+            return Ok(());
+        }
+        ["traffic-clear"] => {
+            syn_netd::clear_traffic()?;
+            return Ok(());
+        }
+        _ => {}
+    }
     let mut c = syn_netd::status()?.config;
     match a.as_slice() {
         ["mode", "primary"] => c.mode = syn_netd::Mode::Primary,
@@ -138,6 +174,10 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
         }
         ["usb-dhcp", "on"] => c.usb_dhcp = true,
         ["usb-dhcp", "off"] => c.usb_dhcp = false,
+        ["traffic", "on"] => c.traffic.enabled = true,
+        ["traffic", "off"] => c.traffic.enabled = false,
+        ["traffic-log-mb", n] => c.traffic.log_mb = n.parse()?,
+        ["traffic-days", n] => c.traffic.days = n.parse()?,
         _ => anyhow::bail!(
             "synnetd                         — служба (root)\n\
              synnetd status                  — состояние (JSON)\n\
@@ -145,7 +185,14 @@ fn ctl(args: &[String]) -> anyhow::Result<()> {
              synnetd primary <iface>|auto    — основной канал\n\
              synnetd app <имя> primary|both|iface:<канал>|system — выбор для программы\n\
              synnetd usb <ключ> modem|no|ask  — телефон по USB: модем, только зарядка, спросить снова\n\
-             synnetd usb-dhcp on|off         — поднимать USB-модемы самой службой"
+             synnetd usb-dhcp on|off         — поднимать USB-модемы самой службой\n\
+             synnetd traffic                 — трафик программ сейчас и за сегодня (JSON)\n\
+             synnetd conns [программа|-] [текст] — последние соединения из журнала\n\
+             synnetd usage ГГГГ-ММ-ДД ГГГГ-ММ-ДД — архив расхода по дням\n\
+             synnetd traffic on|off          — учёт трафика\n\
+             synnetd traffic-log-mb N        — предел журнала соединений, МБ\n\
+             synnetd traffic-days N          — сколько дней хранить архив\n\
+             synnetd traffic-clear           — очистить журнал и архив"
         ),
     }
     let st = syn_netd::set_config(c)?;
@@ -165,6 +212,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("synnetd нужны права root (маршруты, cgroup, BPF)");
     }
     let cfg = Arc::new(RwLock::new(load_config()));
+    let cfg2 = cfg.clone();
     let shared = Arc::new(Shared {
         apps: apps::Apps::new(cfg.clone()),
         cfg,
@@ -172,10 +220,17 @@ fn main() -> anyhow::Result<()> {
         usb: Mutex::new(Vec::new()),
         wake: Wake::default(),
         rescan: Wake::default(),
+        traffic: traffic::Traffic::new(cfg2, state_dir().join("traffic")),
     });
 
+    // Только учёт трафика (проверка рядом с работающей службой: свой
+    // SYNNETD_SOCKET и SYNNETD_STATE_DIR, маршруты и программы не трогаются).
+    let traffic_only = std::env::var_os("SYNNETD_TRAFFIC_ONLY").is_some();
+
     // Остаток прежнего запуска.
-    route::teardown();
+    if !traffic_only {
+        route::teardown();
+    }
 
     // Сигналы: убрать за собой.
     {
@@ -196,16 +251,22 @@ fn main() -> anyhow::Result<()> {
             }
             let mut sig = 0;
             unsafe { libc::sigwait(&set, &mut sig) };
+            if traffic_only {
+                sh.traffic.shutdown();
+                let _ = std::fs::remove_file(socket_path());
+                std::process::exit(0);
+            }
             tracing::info!("остановка: свои правила убраны, программы возвращены");
             route::teardown();
             sh.apps.release_all();
+            sh.traffic.shutdown();
             let _ = std::fs::remove_file(socket_path());
             std::process::exit(0);
         })?;
     }
 
     // Изменения сети.
-    {
+    if !traffic_only {
         let sh = shared.clone();
         std::thread::Builder::new().name("monitor".into()).spawn(move || loop {
             let mut cmd = std::process::Command::new("ip");
@@ -234,7 +295,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Запуски процессов.
-    match procmon_subscribe() {
+    match if traffic_only { Err(std::io::Error::other("только учёт")) } else { procmon_subscribe() } {
         Ok(fd) => {
             let sh = shared.clone();
             std::thread::Builder::new().name("procmon".into()).spawn(move || procmon_listen(fd, &sh))?;
@@ -242,8 +303,30 @@ fn main() -> anyhow::Result<()> {
         Err(e) => tracing::warn!("proc connector: {e} — программы переносятся только пересмотром раз в {} с", apps::RESCAN.as_secs()),
     }
 
-    // Пересмотр процессов.
+    // Учёт трафика.
     {
+        let sh = shared.clone();
+        std::thread::Builder::new().name("traffic".into()).spawn(move || loop {
+            let t = std::time::Instant::now();
+            let uplinks: Vec<String> = {
+                let n = sh.net.lock().unwrap();
+                let mut v: Vec<String> = n.0.iter().map(|u| u.iface.clone()).collect();
+                // Каналы без маршрута по умолчанию, но с устройством (кабель в локальную сеть).
+                for e in std::fs::read_dir("/sys/class/net").into_iter().flatten().flatten() {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    if e.path().join("device").exists() && !v.contains(&name) {
+                        v.push(name);
+                    }
+                }
+                v
+            };
+            sh.traffic.tick(&uplinks);
+            std::thread::sleep(Duration::from_secs(1).saturating_sub(t.elapsed()).max(Duration::from_millis(200)));
+        })?;
+    }
+
+    // Пересмотр процессов.
+    if !traffic_only {
         let sh = shared.clone();
         std::thread::Builder::new().name("rescan".into()).spawn(move || loop {
             sh.apps.rescan();
@@ -271,6 +354,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     tracing::info!("synnetd запущен");
+    if traffic_only {
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+    }
     let mut dhcp = dhcp::Dhcp::default();
     let ours = dhcp.ours();
     let mut last: Option<route::Plan> = None;
@@ -441,10 +529,21 @@ fn serve(sh: &Shared, conn: UnixStream) -> anyhow::Result<()> {
     let mut line = String::new();
     BufReader::new(&conn).read_line(&mut line)?;
     let resp = match serde_json::from_str::<Request>(&line) {
-        Ok(Request::Status) => Response { ok: true, error: None, status: Some(sh.status(uid)) },
+        Ok(Request::Status) => Response { ok: true, status: Some(sh.status(uid)), ..Default::default() },
+        Ok(Request::Traffic) => Response { ok: true, traffic: Some(sh.traffic.snapshot(uid, can_edit(uid))), ..Default::default() },
+        Ok(Request::Connections { query }) => Response { ok: true, connections: Some(sh.traffic.connections(&query, uid, can_edit(uid))), ..Default::default() },
+        Ok(Request::Usage { from, to }) => Response { ok: true, usage: Some(sh.traffic.usage(&from, &to, uid, can_edit(uid))), ..Default::default() },
+        Ok(Request::ClearTraffic) => {
+            if can_edit(uid) {
+                sh.traffic.clear();
+                Response { ok: true, ..Default::default() }
+            } else {
+                Response { ok: false, error: Some("очищать журнал могут root и группа wheel".into()), ..Default::default() }
+            }
+        }
         Ok(Request::SetConfig { config }) => {
             if !can_edit(uid) {
-                Response { ok: false, error: Some("менять настройки сети могут root и группа wheel".into()), status: None }
+                Response { ok: false, error: Some("менять настройки сети могут root и группа wheel".into()), ..Default::default() }
             } else {
                 match save_config(&config) {
                     Ok(()) => {
@@ -454,13 +553,13 @@ fn serve(sh: &Shared, conn: UnixStream) -> anyhow::Result<()> {
                         sh.rescan.ring();
                         // Дать циклу применить, чтобы ответ уже был свежим.
                         std::thread::sleep(Duration::from_millis(600));
-                        Response { ok: true, error: None, status: Some(sh.status(uid)) }
+                        Response { ok: true, status: Some(sh.status(uid)), ..Default::default() }
                     }
-                    Err(e) => Response { ok: false, error: Some(format!("{e:#}")), status: None },
+                    Err(e) => Response { ok: false, error: Some(format!("{e:#}")), ..Default::default() },
                 }
             }
         }
-        Err(e) => Response { ok: false, error: Some(format!("запрос: {e}")), status: None },
+        Err(e) => Response { ok: false, error: Some(format!("запрос: {e}")), ..Default::default() },
     };
     let mut out = serde_json::to_string(&resp)?;
     out.push('\n');

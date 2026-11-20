@@ -156,6 +156,21 @@ pub mod icons {
     pub const CANCEL: &str = "\u{E5C9}";
     pub const SPEED: &str = "\u{E9E4}";
     pub const SLEEP: &str = "\u{E3A9}";
+    pub const APPS: &str = "\u{E5C3}";
+    pub const HISTORY: &str = "\u{E889}";
+    pub const ARCHIVE: &str = "\u{E149}";
+    pub const SETTINGS: &str = "\u{E8B8}";
+    pub const LIST_ALT: &str = "\u{E0EE}";
+    pub const COPY: &str = "\u{E14D}";
+}
+
+/// Период таблицы программ на странице «Сеть».
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NetPeriod {
+    Now,
+    Today,
+    Week,
+    Month,
 }
 
 /// Сортировка списка процессов.
@@ -190,6 +205,12 @@ pub struct St {
     pub confirm: RwSignal<Option<Confirm>>,
     /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
     pub window: RwSignal<syngui::window::WindowState>,
+    /// Сеть: период таблицы программ, выбранная программа, выбранный день архива.
+    pub net_period: RwSignal<NetPeriod>,
+    pub net_sel: RwSignal<Option<String>>,
+    pub net_day: RwSignal<Option<String>>,
+    /// Показать все программы, а не первые.
+    pub net_all: RwSignal<bool>,
 }
 
 impl St {
@@ -206,6 +227,10 @@ impl St {
             toast: use_signal(String::new()),
             confirm: use_signal(None),
             window: use_signal(syngui::window::WindowState::default()),
+            net_period: use_signal(NetPeriod::Today),
+            net_sel: use_signal(None),
+            net_day: use_signal(None),
+            net_all: use_signal(false),
         }
     }
 }

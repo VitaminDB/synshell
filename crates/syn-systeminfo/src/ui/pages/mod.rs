@@ -1,6 +1,7 @@
 //! Страницы: каркас (заголовок, главный график, прокрутка) и обзор.
 
 mod hw;
+mod net;
 mod procs;
 mod system;
 
@@ -37,7 +38,7 @@ pub fn page(st: St, page: Page) -> Column {
             Page::Vram => hw::vram(&cx, &s),
             Page::Npu => hw::npu(&cx, &s),
             Page::Memory => system::memory(&cx, &s),
-            Page::Network => system::network(&cx, &s),
+            Page::Network => net::network(&cx, &s),
             Page::Disk => system::disk(&cx, &s),
             Page::Sensors => system::sensors(&cx, &s),
             Page::Battery => system::battery(&cx, &s),
