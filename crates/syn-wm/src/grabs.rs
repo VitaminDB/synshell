@@ -147,6 +147,13 @@ impl PointerGrab<State> for MoveGrab {
             m.output = Some(o.name());
         }
         let (w, loc) = (m.window.clone(), m.loc);
+        // Окну X11 — новое положение сразу: свои всплывающие окна (меню Wine,
+        // подсказки, списки) оно ставит по своим координатам на экране X, и
+        // без этого после перетаскивания меню открывалось на старом месте.
+        if let Some(x) = m.window.x11_surface().cloned() {
+            let rect = Rectangle::new(loc, m.size());
+            crate::xwayland::x11_configure(&data.core.space, &data.core.xwayland, &x, rect);
+        }
         data.core.space.map_element(w, loc, false);
         data.sync_space();
         data.core.queue_redraw_all();
