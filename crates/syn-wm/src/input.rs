@@ -1062,6 +1062,12 @@ impl State {
     /// Клик по поверхности: фокус окну или слою.
     pub(crate) fn click_focus(&mut self, surface: &WlSurface) {
         if let Some(id) = self.window_for_surface_tree(surface) {
+            // Окно без фокуса (меню, подсказки, списки X11 — override-redirect) фокус не забирает: иначе
+            // владелец меню терял активность, Wine закрывала меню на нажатии, и щелчок по пункту уходил
+            // в окно под меню («Правка → Свойства...» в ShapeLab выделял фигуру на холсте).
+            if self.core.wm.get(id).is_some_and(|m| m.no_focus || m.override_redirect) {
+                return;
+            }
             if self.core.wm.focused != Some(id) || self.core.keyboard.current_focus().map(|f| f.0) != self.core.wm.get(id).and_then(|m| m.surface()) {
                 self.focus_window(Some(id));
             } else if self.core.config.windows.raise_on_focus {
