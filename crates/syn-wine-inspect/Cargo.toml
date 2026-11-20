@@ -1,0 +1,14 @@
+[package]
+name = "syn-wine-inspect"
+description = "Элементы окна программы Windows под Wine для агента synlink: дочерние окна, меню, открытые меню — с координатами"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-wine-inspect"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse"] }

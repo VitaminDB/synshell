@@ -86,8 +86,20 @@ pub fn syngui_request(pid: i32, req: &str) -> Result<Value> {
     Ok(v)
 }
 
-/// Дерево окна процесса на этой машине: syngui, иначе AT-SPI.
-pub fn local_tree(pid: i32) -> Result<Tree> {
+/// Окно X11 для помощника Wine: id окна, его [x, y, w, h] глазами X-сервера, масштаб Xwayland.
+#[derive(Debug, Clone, Copy)]
+pub struct X11Ctx {
+    pub id: u32,
+    pub geo: [i32; 4],
+    pub scale: f64,
+}
+
+/// Дерево окна процесса на этой машине: программа Windows под Wine — помощник
+/// syn-wine-inspect.exe, иначе syngui, иначе AT-SPI.
+pub fn local_tree(pid: i32, x11: Option<X11Ctx>) -> Result<Tree> {
+    if let Some(x) = x11.filter(|_| is_wine(pid)) {
+        return wine_tree(pid, x);
+    }
     match syngui_request(pid, "tree") {
         Ok(v) => {
             // Окно процесса — самое большое из известных (диалоги — отдельные окна, позже).
@@ -152,4 +164,77 @@ mod tests {
         assert_eq!(best(&t, "", Some("button"), 0).unwrap().id, 2);
         assert_eq!(t.nodes[1].center(), (70.0, 110.0));
     }
+}
+
+fn is_wine(pid: i32) -> bool {
+    std::fs::read_link(format!("/proc/{pid}/exe")).map(|p| p.to_string_lossy().contains("wine")).unwrap_or(false)
+}
+
+/// Помощник Windows: установленный, переопределённый или собранный рядом (разработка).
+fn wine_helper() -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("SYNLINK_WINE_INSPECT") {
+        return Some(p.into());
+    }
+    let sys = std::path::PathBuf::from("/usr/lib/synshell/syn-wine-inspect.exe");
+    if sys.exists() {
+        return Some(sys);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dev = exe.parent()?.parent()?.join("x86_64-pc-windows-gnu").join(exe.parent()?.file_name()?).join("syn-wine-inspect.exe");
+    dev.exists().then_some(dev)
+}
+
+/// Элементы окна программы под Wine: тот же Wine и префикс, что у неё.
+fn wine_tree(pid: i32, x: X11Ctx) -> Result<Tree> {
+    let helper = wine_helper().context(t!("нет syn-wine-inspect.exe (пакет synshell-link)"))?;
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe"))?;
+    let wine = exe.parent().map(|d| d.join("wine")).filter(|p| p.exists()).unwrap_or_else(|| "wine".into());
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+    let mut cmd = std::process::Command::new(&wine);
+    cmd.arg(&helper).arg(x.id.to_string()).env("WINEDEBUG", "-all").env_remove("_");
+    for kv in environ.split(|b| *b == 0) {
+        let kv = String::from_utf8_lossy(kv);
+        if let Some((k, v)) = kv.split_once('=') {
+            if matches!(k, "WINEPREFIX" | "WINEARCH" | "WINESERVER" | "WINEDLLPATH" | "WINELOADER") {
+                cmd.env(k, v);
+            }
+        }
+    }
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    let mut child = cmd.spawn().with_context(|| wine.display().to_string())?;
+    let mut out = child.stdout.take().context("stdout")?;
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::Read::read_to_string(&mut out, &mut s);
+        s
+    });
+    let t0 = std::time::Instant::now();
+    while child.try_wait()?.is_none() {
+        if t0.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            bail!("{}", t!("помощник Wine не ответил за 30 с"));
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    let text = reader.join().unwrap_or_default();
+    let v: Value = serde_json::from_str(text.lines().rev().find(|l| l.starts_with('{')).unwrap_or("{}")).context(t!("ответ помощника Wine"))?;
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        bail!("{}", v.get("error").and_then(Value::as_str).unwrap_or("?"));
+    }
+    let sc = if x.scale > 0.0 { x.scale } else { 1.0 };
+    let mut nodes = Vec::new();
+    for n in v.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default() {
+        let s: Vec<f64> = n.get("screen").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+        if s.len() != 4 || s[2] <= 0.0 || s[3] <= 0.0 {
+            continue;
+        }
+        let mut node: Node = serde_json::from_value(n.clone()).unwrap_or_default();
+        // Экран Wine = экран X: в логические пиксели окна.
+        node.bounds = [(s[0] - x.geo[0] as f64) / sc, (s[1] - x.geo[1] as f64) / sc, s[2] / sc, s[3] / sc];
+        if node.label.is_none() {
+            node.label = n.get("class").and_then(Value::as_str).filter(|c| !c.is_empty()).map(|c| format!("[{c}]"));
+        }
+        nodes.push(node);
+    }
+    Ok(Tree { source: "wine".into(), nodes })
 }

@@ -366,7 +366,13 @@ fn cli(args: &[String]) -> Result<()> {
         }
         "ui-tree" => {
             let pid: i32 = args.get(1).and_then(|p| p.parse().ok()).context(t!("нужен pid"))?;
-            println!("{}", serde_json::to_string(&uitree::local_tree(pid)?)?);
+            // ui-tree PID [X11-ID X Y W H МАСШТАБ] — окно X11 для программ под Wine.
+            let n = |i: usize| args.get(i).and_then(|v| v.parse::<f64>().ok());
+            let x11 = match (n(2), n(3), n(4), n(5), n(6), n(7)) {
+                (Some(id), Some(x), Some(y), Some(w), Some(h), Some(s)) => Some(uitree::X11Ctx { id: id as u32, geo: [x as i32, y as i32, w as i32, h as i32], scale: s }),
+                _ => None,
+            };
+            println!("{}", serde_json::to_string(&uitree::local_tree(pid, x11)?)?);
         }
         "sandbox" => {
             let opt = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();

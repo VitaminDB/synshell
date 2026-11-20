@@ -7593,6 +7593,8 @@ name = "syn-systeminfo"
 version = "0.2.0"
 dependencies = [
  "libc",
+ "serde_json",
+ "syn-netd",
  "syn-system",
  "synaptixd",
  "syngui",
@@ -7706,6 +7708,13 @@ dependencies = [
  "ureq",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "syn-wine-inspect"
+version = "0.2.0"
+dependencies = [
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

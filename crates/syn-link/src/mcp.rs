@@ -304,15 +304,17 @@ impl Server {
     /// `synlink ui-tree` там (у песочницы своя шина доступности).
     fn ui_tree(&self, device: &str, w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
         let pid = w.pid.context(t!("у окна нет pid (X11-программа без _NET_WM_PID?)"))?;
+        let x11 = w.x11_id.zip(w.x11_geometry).map(|(id, geo)| crate::uitree::X11Ctx { id, geo, scale: w.x11_scale.unwrap_or(1.0) });
+        let x11_args = x11.map(|x| format!(" {} {} {} {} {} {}", x.id, x.geo[0], x.geo[1], x.geo[2], x.geo[3], x.scale)).unwrap_or_default();
         if matches!(device, "local" | "self" | "") {
-            return crate::uitree::local_tree(pid);
+            return crate::uitree::local_tree(pid, x11);
         }
         let exe = if crate::sandbox::device_name(device).is_some() {
             std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "synlink".into())
         } else {
             "synlink".into()
         };
-        let (code, out, err) = exec(device, &format!("{} ui-tree {pid}", sh_quote(&exe)), None, 30)?;
+        let (code, out, err) = exec(device, &format!("{} ui-tree {pid}{x11_args}", sh_quote(&exe)), None, 30)?;
         if code != 0 {
             bail!("{}", if err.trim().is_empty() { out } else { err });
         }

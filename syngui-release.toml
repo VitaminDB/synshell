@@ -142,6 +142,10 @@ description_en = "synshell: computer and phone link — screen, input, files, no
 depends = ["synshell-core"]
 bins = ["synlink"]
 apps = ["synlink-view"]
+# Помощник агента для программ Windows под Wine (synlink ui/press): элементы окна и меню.
+cross = [
+  { bin = "syn-wine-inspect", target = "x86_64-pc-windows-gnu", to = "usr/lib/synshell/" },
+]
 optdepends = [
   "openssh: ssh на связанные устройства",
   "fuse3: файлы связанных устройств в проводнике",

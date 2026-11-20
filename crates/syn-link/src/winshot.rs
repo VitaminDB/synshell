@@ -57,7 +57,7 @@ pub fn pick<'a>(list: &'a [WindowInfo], q: &str) -> Result<&'a WindowInfo> {
     list.iter()
         .filter(|w| by_id || !w.override_redirect)
         .filter_map(|w| score(w, q).map(|s| (s, w)))
-        .max_by_key(|(s, w)| (*s, w.focused, !w.minimized, w.geometry[2] as i64 * w.geometry[3] as i64))
+        .max_by_key(|(s, w)| (*s, w.geometry[2] > 8 && w.geometry[3] > 8, w.focused, !w.minimized, w.geometry[2] as i64 * w.geometry[3] as i64))
         .map(|(_, w)| w)
         .with_context(|| {
             let names: Vec<String> = list.iter().filter(|w| !w.override_redirect).map(|w| format!("«{}» ({})", w.title, w.app_id)).collect();
