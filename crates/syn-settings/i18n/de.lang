@@ -1916,6 +1916,13 @@
 "Сколько хранить расход программ по дням." = "Wie lange der tägliche Verbrauch der Anwendungen aufbewahrt wird."
 "Имена узлов" = "Hostnamen"
 "Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес" = "Den Seitennamen aus der DNS-Antwort (systemd-resolved) protokollieren, nicht nur die Adresse"
+"Без сети" = "Kein Netzwerk"
+"Скорость: без ограничения" = "Geschwindigkeit: unbegrenzt"
+"Приём до {n} МБ/с" = "Empfang bis {n} MB/s"
+"Приём до {n} КБ/с" = "Empfang bis {n} KB/s"
+"Новые программы в сети" = "Neue Anwendungen im Netzwerk"
+"Уведомлять, когда программа впервые соединяется с интернетом: разрешить, запретить сеть или посмотреть соединения" = "Benachrichtigen, wenn sich eine Anwendung zum ersten Mal mit dem Internet verbindet: erlauben, Netzwerk sperren oder Verbindungen ansehen"
+"{h} · сеть запрещена" = "{h} · Netzwerk gesperrt"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "Bus {bus} · Gerät {dev}"
@@ -2243,3 +2250,16 @@
 "Вернуть раскладку по умолчанию" = "Standardanordnung wiederherstellen"
 "Сетка под доком" = "Raster unter dem Dock"
 "Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widgets und Symbole neben dem Dock reichen bis zum unteren Bildschirmrand; aus — das Raster endet über dem Dock"
+
+# src/pages/assistant.rs
+"Управление компьютером" = "Computersteuerung"
+"Отдавать ИИ полное управление" = "Der KI die volle Steuerung überlassen"
+"Пока ИИ управляет компьютером (вверху плашка «ИИ управляет»), ваши мышь, клавиатура и касания блокируются — случайно не помешаете. Забрать управление — {k}. Без этого ИИ не нажимает, пока вы работаете, а плашка даёт кнопку «Забрать»." = "Solange die KI den Computer steuert (oben der Hinweis „KI steuert“), sind Maus, Tastatur und Berührungen gesperrt – Sie können nicht versehentlich stören. Steuerung zurücknehmen – {k}. Ohne diese Option klickt die KI nicht, während Sie arbeiten, und der Hinweis bietet die Schaltfläche „Übernehmen“."
+"Искать элементы локальной моделью со зрением" = "Elemente mit einem lokalen Modell mit Bildverständnis suchen"
+"Когда у окна нет списка элементов и текста (значки, игры), ИИ может спросить модель synaptix. По умолчанию выключено: память видеокарты обычно занята, а ИИ быстрее разбирает снимок сам." = "Wenn ein Fenster keine Elementliste und keinen Text hat (Symbole, Spiele), kann die KI ein synaptix-Modell fragen. Standardmäßig aus: Der Grafikspeicher ist meist belegt, und die KI wertet das Bildschirmfoto selbst schneller aus."
+"Модель со зрением" = "Modell mit Bildverständnis"
+"Идентификатор модели synaptix; пусто — самая лёгкая из умеющих картинки" = "Kennung des synaptix-Modells; leer – das kleinste, das Bilder versteht"
+"автоматически" = "automatisch"
+
+# src/pages/mod.rs
+"ассистент помощник ии ai чат нейросеть голос вопрос инструменты управление компьютером блокировка ввода агент synlink" = "Assistent Helfer KI ai Chat neuronales Netz Stimme Frage Werkzeuge Computersteuerung Eingabesperre Agent synlink"

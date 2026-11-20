@@ -1917,6 +1917,13 @@
 "Сколько хранить расход программ по дням." = "Jak długo przechowywać dzienne zużycie programów."
 "Имена узлов" = "Nazwy hostów"
 "Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес" = "Zapisuj w dzienniku nazwę witryny z odpowiedzi DNS (systemd-resolved), a nie tylko adres"
+"Без сети" = "Bez sieci"
+"Скорость: без ограничения" = "Prędkość: bez limitu"
+"Приём до {n} МБ/с" = "Pobieranie do {n} MB/s"
+"Приём до {n} КБ/с" = "Pobieranie do {n} KB/s"
+"Новые программы в сети" = "Nowe programy w sieci"
+"Уведомлять, когда программа впервые соединяется с интернетом: разрешить, запретить сеть или посмотреть соединения" = "Powiadamiaj, gdy program po raz pierwszy łączy się z internetem: zezwól, zablokuj sieć lub zobacz połączenia"
+"{h} · сеть запрещена" = "{h} · sieć zablokowana"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "magistrala {bus} · urządzenie {dev}"
@@ -2244,3 +2251,16 @@
 "Вернуть раскладку по умолчанию" = "Przywróć układ domyślny"
 "Сетка под доком" = "Siatka pod dokiem"
 "Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widżety i ikony po bokach doku sięgają do dołu ekranu; wyłączone — siatka kończy się nad dokiem"
+
+# src/pages/assistant.rs
+"Управление компьютером" = "Sterowanie komputerem"
+"Отдавать ИИ полное управление" = "Oddawaj SI pełne sterowanie"
+"Пока ИИ управляет компьютером (вверху плашка «ИИ управляет»), ваши мышь, клавиатура и касания блокируются — случайно не помешаете. Забрать управление — {k}. Без этого ИИ не нажимает, пока вы работаете, а плашка даёт кнопку «Забрать»." = "Gdy SI steruje komputerem (u góry pasek „SI steruje”), mysz, klawiatura i dotyk są zablokowane — nie przeszkodzisz przypadkiem. Odebranie sterowania — {k}. Bez tego SI nie klika, gdy pracujesz, a pasek ma przycisk „Odbierz”."
+"Искать элементы локальной моделью со зрением" = "Szukaj elementów lokalnym modelem z widzeniem"
+"Когда у окна нет списка элементов и текста (значки, игры), ИИ может спросить модель synaptix. По умолчанию выключено: память видеокарты обычно занята, а ИИ быстрее разбирает снимок сам." = "Gdy okno nie ma listy elementów ani tekstu (ikony, gry), SI może zapytać model synaptix. Domyślnie wyłączone: pamięć karty graficznej jest zwykle zajęta, a SI szybciej sama analizuje zrzut."
+"Модель со зрением" = "Model z widzeniem"
+"Идентификатор модели synaptix; пусто — самая лёгкая из умеющих картинки" = "Identyfikator modelu synaptix; puste — najlżejszy z obsługujących obrazy"
+"автоматически" = "automatycznie"
+
+# src/pages/mod.rs
+"ассистент помощник ии ai чат нейросеть голос вопрос инструменты управление компьютером блокировка ввода агент synlink" = "asystent pomocnik si ai czat sieć neuronowa głos pytanie narzędzia sterowanie komputerem blokada wejścia agent synlink"

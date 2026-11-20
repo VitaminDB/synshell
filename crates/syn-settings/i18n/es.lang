@@ -1916,6 +1916,13 @@
 "Сколько хранить расход программ по дням." = "Cuánto tiempo conservar el consumo diario de las aplicaciones."
 "Имена узлов" = "Nombres de host"
 "Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес" = "Guardar en el registro el nombre del sitio de la respuesta DNS (systemd-resolved), no solo la dirección"
+"Без сети" = "Sin red"
+"Скорость: без ограничения" = "Velocidad: sin límite"
+"Приём до {n} МБ/с" = "Descarga hasta {n} MB/s"
+"Приём до {n} КБ/с" = "Descarga hasta {n} KB/s"
+"Новые программы в сети" = "Nuevas aplicaciones en la red"
+"Уведомлять, когда программа впервые соединяется с интернетом: разрешить, запретить сеть или посмотреть соединения" = "Avisar cuando una aplicación se conecte a Internet por primera vez: permitir, bloquear la red o ver las conexiones"
+"{h} · сеть запрещена" = "{h} · red bloqueada"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "bus {bus} · dispositivo {dev}"
@@ -2243,3 +2250,16 @@
 "Вернуть раскладку по умолчанию" = "Restaurar la disposición predeterminada"
 "Сетка под доком" = "Cuadrícula bajo el dock"
 "Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Widgets e iconos a los lados del dock llegan hasta el borde inferior; desactivado — la cuadrícula termina sobre el dock"
+
+# src/pages/assistant.rs
+"Управление компьютером" = "Control del ordenador"
+"Отдавать ИИ полное управление" = "Dar a la IA el control total"
+"Пока ИИ управляет компьютером (вверху плашка «ИИ управляет»), ваши мышь, клавиатура и касания блокируются — случайно не помешаете. Забрать управление — {k}. Без этого ИИ не нажимает, пока вы работаете, а плашка даёт кнопку «Забрать»." = "Mientras la IA controla el ordenador (arriba, el aviso «La IA tiene el control»), el ratón, el teclado y los toques se bloquean para que no interfieras por accidente. Recuperar el control: {k}. Sin esto, la IA no pulsa mientras trabajas y el aviso ofrece el botón «Recuperar»."
+"Искать элементы локальной моделью со зрением" = "Buscar elementos con un modelo local con visión"
+"Когда у окна нет списка элементов и текста (значки, игры), ИИ может спросить модель synaptix. По умолчанию выключено: память видеокарты обычно занята, а ИИ быстрее разбирает снимок сам." = "Cuando una ventana no tiene lista de elementos ni texto (iconos, juegos), la IA puede consultar a un modelo de synaptix. Desactivado por defecto: la memoria de vídeo suele estar ocupada y la IA analiza la captura más rápido por sí misma."
+"Модель со зрением" = "Modelo con visión"
+"Идентификатор модели synaptix; пусто — самая лёгкая из умеющих картинки" = "Identificador del modelo de synaptix; vacío: el más ligero que entiende imágenes"
+"автоматически" = "automático"
+
+# src/pages/mod.rs
+"ассистент помощник ии ai чат нейросеть голос вопрос инструменты управление компьютером блокировка ввода агент synlink" = "asistente ayudante ia chat red neuronal voz pregunta herramientas control del ordenador bloqueo de entrada agente synlink"

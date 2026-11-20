@@ -1916,6 +1916,13 @@
 "Сколько хранить расход программ по дням." = "Uygulamaların günlük kullanımının ne kadar süre saklanacağı."
 "Имена узлов" = "Ana makine adları"
 "Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес" = "Yalnızca adresi değil, DNS yanıtındaki (systemd-resolved) site adını da kaydet"
+"Без сети" = "Ağ yok"
+"Скорость: без ограничения" = "Hız: sınırsız"
+"Приём до {n} МБ/с" = "İndirme en fazla {n} MB/s"
+"Приём до {n} КБ/с" = "İndirme en fazla {n} KB/s"
+"Новые программы в сети" = "Ağdaki yeni uygulamalar"
+"Уведомлять, когда программа впервые соединяется с интернетом: разрешить, запретить сеть или посмотреть соединения" = "Bir uygulama internete ilk kez bağlandığında bildir: izin ver, ağı engelle veya bağlantıları gör"
+"{h} · сеть запрещена" = "{h} · ağ engellendi"
 
 # src/pages/usb.rs
 "шина {bus} · устройство {dev}" = "veri yolu {bus} · aygıt {dev}"
@@ -2243,3 +2250,16 @@
 "Вернуть раскладку по умолчанию" = "Varsayılan düzeni geri getir"
 "Сетка под доком" = "Dock altında ızgara"
 "Виджеты и значки по бокам от дока — до низа экрана; выключено — сетка кончается над доком" = "Dock’un yanlarındaki widget ve simgeler ekranın altına kadar iner; kapalı — ızgara dock’un üstünde biter"
+
+# src/pages/assistant.rs
+"Управление компьютером" = "Bilgisayar denetimi"
+"Отдавать ИИ полное управление" = "Yapay zekâya tam denetim ver"
+"Пока ИИ управляет компьютером (вверху плашка «ИИ управляет»), ваши мышь, клавиатура и касания блокируются — случайно не помешаете. Забрать управление — {k}. Без этого ИИ не нажимает, пока вы работаете, а плашка даёт кнопку «Забрать»." = "Yapay zekâ bilgisayarı denetlerken (üstte “Yapay zekâ denetimde” şeridi) fareniz, klavyeniz ve dokunmalarınız engellenir — yanlışlıkla araya girmezsiniz. Denetimi geri almak için — {k}. Bu kapalıyken siz çalışırken yapay zekâ tıklamaz, şerit ise “Geri al” düğmesi sunar."
+"Искать элементы локальной моделью со зрением" = "Öğeleri görme yetenekli yerel modelle ara"
+"Когда у окна нет списка элементов и текста (значки, игры), ИИ может спросить модель synaptix. По умолчанию выключено: память видеокарты обычно занята, а ИИ быстрее разбирает снимок сам." = "Pencerede öğe listesi ve metin yoksa (simgeler, oyunlar) yapay zekâ bir synaptix modeline sorabilir. Varsayılan olarak kapalı: ekran kartı belleği genellikle doludur ve yapay zekâ görüntüyü kendisi daha hızlı çözümler."
+"Модель со зрением" = "Görme modeli"
+"Идентификатор модели synaptix; пусто — самая лёгкая из умеющих картинки" = "synaptix model kimliği; boş — görüntü işleyebilenlerin en hafifi"
+"автоматически" = "otomatik"
+
+# src/pages/mod.rs
+"ассистент помощник ии ai чат нейросеть голос вопрос инструменты управление компьютером блокировка ввода агент synlink" = "asistan yardımcı yapay zeka ai sohbet sinir ağı ses soru araçlar bilgisayar denetimi girdi kilidi ajan synlink"
