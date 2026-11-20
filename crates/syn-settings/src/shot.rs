@@ -79,7 +79,17 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
     // приходит через очередь главного потока и запускает загрузку картинки
     // только в следующем кадре.
     let mut idle = 0;
-    for frame in 0..60 {
+    // SYNSETTINGS_SHOT_EVENTS="click 1097 241 | click 300 500": шаги через «|»
+    // (события — как у syngui::shot::parse_events), после каждого — пауза
+    // SYNSETTINGS_SHOT_WAIT_MS (1500 мс) на фоновую работу.
+    let mut steps: std::collections::VecDeque<Vec<syngui::input::Event>> = std::env::var("SYNSETTINGS_SHOT_EVENTS")
+        .unwrap_or_default()
+        .split('|')
+        .map(syngui::shot::parse_events)
+        .filter(|v| !v.is_empty())
+        .collect();
+    let step_wait = std::env::var("SYNSETTINGS_SHOT_WAIT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500u64);
+    for frame in 0..60 + 30 * steps.len() {
         // Фоновые декодеры картинок отдают результат через poll_bg —
         // в приложении его зовёт рендер каждого кадра.
         if let Some(store) = tree.image_store.as_ref() {
@@ -116,6 +126,16 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
                 // Миниатюры галереи обоев делаются в фоновых потоках.
                 || synshell_common::thumbs::pending() > 0;
             idle = if loading { 0 } else { idle + 1 };
+            if idle >= 2 && !steps.is_empty() {
+                for e in steps.pop_front().unwrap_or_default() {
+                    tree.handle_event(root, &e);
+                    syngui::signal::drain_and_run_effects();
+                    syngui::async_runtime::drain_main_thread_callbacks();
+                }
+                std::thread::sleep(Duration::from_millis(step_wait));
+                idle = 0;
+                continue;
+            }
             if idle >= 2 {
                 break;
             }

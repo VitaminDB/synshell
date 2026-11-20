@@ -23,6 +23,7 @@ mod net;
 mod uplinks;
 mod panels;
 mod power;
+mod printers;
 mod system;
 pub(crate) mod themes;
 mod usb;
@@ -205,6 +206,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Устройства"),
         keywords: n_!("usb юсб подключение отключение уведомления vid pid lsusb флешка телефон хаб"),
         build: usb::usb,
+    },
+    PageDef {
+        id: "printers",
+        title: n_!("Принтеры"),
+        icon: "\u{e8ad}",
+        group: n_!("Устройства"),
+        keywords: n_!("печать принтер мфу сканер cups очередь задания драйвер ppd бумага a4 двусторонняя цветная чёрно-белая по умолчанию ipp сеть usb пробная страница"),
+        build: printers::printers,
     },
     PageDef {
         id: "mobile-network",
