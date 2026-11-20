@@ -38,6 +38,8 @@ fn main() {
     let mut history = 0u32;
     // Окно соединений: программа (`-` — все).
     let mut conns: Option<String> = None;
+    // Снимок: выбранная программа на странице «Сеть» (с панелью действий).
+    let mut select: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -60,6 +62,7 @@ fn main() {
             }
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
             "--history" => history = args.next().and_then(|s| s.parse().ok()).unwrap_or(0),
+            "--select" => select = args.next(),
             "--connections" => {
                 conns = args.next();
                 page = Page::Network;
@@ -84,6 +87,7 @@ fn main() {
                 }
                 let st = St::new(page);
                 st.snap.set_always(snap.clone());
+                st.net_sel.set(select.clone());
                 ui::root(st)
             },
             &mss,

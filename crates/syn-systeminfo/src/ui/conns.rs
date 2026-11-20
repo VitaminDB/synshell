@@ -530,3 +530,30 @@ fn detail(data: RwSignal<Data>, sel: RwSignal<Option<u64>>) -> W {
         vec![boxed(DecoratedBox::new().child(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(kv)).class("card conns-detail"))]
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv() {
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_field("plain"), "plain");
+        let dir = std::env::temp_dir().join(format!("si-csv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // SAFETY: тест однопоточный по окружению — HOME меняется только здесь.
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::set_var("XDG_CONFIG_HOME", dir.join("nocfg"));
+        }
+        let c = Conn { start: 1_700_000_000_000, end: Some(1_700_000_002_500), app: "curl".into(), comm: "curl".into(), pid: 42, proto: "tcp".into(), remote: "1.2.3.4".into(), port: 443, host: Some("x.org".into()), iface: "wlan0".into(), rx: 10, tx: 20, also: vec!["5.6.7.8:443 (y, z)".into()], ..Default::default() };
+        let p = export_csv(&[c], Some("curl")).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("start,end,duration_s,app"));
+        assert!(lines[1].contains(",2.5,curl,curl,42,") && lines[1].contains(",tcp,out,1.2.3.4,443,x.org,wlan0,10,20,\"5.6.7.8:443 (y, z)\""), "{}", lines[1]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
