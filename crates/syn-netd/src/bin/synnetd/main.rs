@@ -373,7 +373,7 @@ fn main() -> anyhow::Result<()> {
         }
         let snap = route::read();
         let plan = route::plan(&snap, &cfg);
-        if last.as_ref().map(|l| &l.cmds) != Some(&plan.cmds) {
+        if last.as_ref().map(|l| (&l.cmds, &l.block)) != Some((&plan.cmds, &plan.block)) {
             let errs = route::apply(&plan);
             for e in &errs {
                 tracing::warn!("{e}");

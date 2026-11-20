@@ -32,6 +32,10 @@ pub const T_IF_BASE: u32 = 2000;
 /// Метки сокетов (ставит BPF-программа cgroup программы).
 pub const MARK_BOTH: u32 = 0x5359_0001;
 pub const MARK_PRIMARY: u32 = 0x5359_0002;
+/// «Без сети»: сокеты, открытые до переноса программы, получают эту метку, и
+/// правило 10001 `prohibit` обрывает их (смена `SO_MARK` сбрасывает маршрут
+/// сокета). Новые сокеты не создаёт сама BPF-программа cgroup.
+pub const MARK_BLOCK: u32 = 0x5359_0003;
 
 /// Метрика маршрута по умолчанию у USB-модемов, поднятых самой службой: выше
 /// Wi-Fi dhcpcd (3000+), чтобы подключение модема не уводило трафик с Wi-Fi —
@@ -215,6 +219,8 @@ pub struct Plan {
     /// Основной канал (по IPv4, без него — по IPv6).
     pub primary: Option<String>,
     pub note: Option<String>,
+    /// Правила «без сети» — ставятся всегда, даже с одним каналом и с VPN.
+    pub block: Vec<Vec<String>>,
 }
 
 impl Plan {
@@ -326,14 +332,19 @@ fn plan_family(fam: Fam, gws: &[Gw], others: &[Gw], addrs: &BTreeMap<String, Vec
 
 pub fn plan(snap: &Snapshot, cfg: &Config) -> Plan {
     let primary = primary_of(&snap.v4, cfg).or_else(|| primary_of(&snap.v6, cfg)).map(|g| g.iface.clone());
+    let block: Vec<Vec<String>> = if cfg.apps.values().any(|p| *p == AppPolicy::Block) {
+        [Fam::V4, Fam::V6].iter().map(|f| s(&[f.flag(), "rule", "add", "pref", "10001", "fwmark", &format!("{MARK_BLOCK:#x}"), "prohibit"])).collect()
+    } else {
+        Vec::new()
+    };
     if let Some(v) = &snap.vpn {
-        return Plan { cmds: vec![], primary, note: Some(format!("vpn:{v}")) };
+        return Plan { cmds: vec![], primary, note: Some(format!("vpn:{v}")), block };
     }
     let mut cmds = Vec::new();
     plan_family(Fam::V4, &snap.v4, &snap.v6, &snap.addrs4, cfg, primary.as_deref(), &mut cmds);
     plan_family(Fam::V6, &snap.v6, &snap.v4, &snap.addrs6, cfg, primary.as_deref(), &mut cmds);
     let note = if cmds.is_empty() { Some(if snap.v4.is_empty() && snap.v6.is_empty() { "none".into() } else { "single".into() }) } else { None };
-    Plan { cmds, primary, note }
+    Plan { cmds, primary, note, block }
 }
 
 /// Убрать всё своё: правила в своём диапазоне приоритетов и свои таблицы.
@@ -375,7 +386,7 @@ pub fn apply(plan: &Plan) -> Vec<String> {
         let _ = std::fs::write("/proc/sys/net/ipv4/fib_multipath_hash_policy", "1");
         let _ = std::fs::write("/proc/sys/net/ipv6/fib_multipath_hash_policy", "1");
     }
-    for c in &plan.cmds {
+    for c in plan.block.iter().chain(plan.cmds.iter()) {
         let a: Vec<&str> = c.iter().map(String::as_str).collect();
         if let Err(e) = ip(&a) {
             errs.push(e);

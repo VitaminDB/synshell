@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use syn_netd::{AppPolicy, AppRunning, Config};
 
-use crate::route::{MARK_BOTH, MARK_PRIMARY};
+use crate::route::{MARK_BLOCK, MARK_BOTH, MARK_PRIMARY};
 
 pub const RESCAN: Duration = Duration::from_secs(10);
 const CG_ROOT: &str = "/sys/fs/cgroup";
@@ -147,6 +147,7 @@ fn mark_of(p: Option<&AppPolicy>) -> u32 {
         Some(AppPolicy::Both) => MARK_BOTH,
         Some(AppPolicy::Primary) => MARK_PRIMARY,
         Some(AppPolicy::Iface(i)) => syn_netd::iface_mark(i),
+        Some(AppPolicy::Block) => MARK_BLOCK,
         None => 0,
     }
 }
@@ -217,7 +218,7 @@ impl Apps {
         if let Some(f) = p.get(&mark) {
             return Some(f.clone());
         }
-        match crate::bpf::load(mark) {
+        match if mark == MARK_BLOCK { crate::bpf::load_deny() } else { crate::bpf::load(mark) } {
             Ok(f) => {
                 let f = Arc::new(f);
                 p.insert(mark, f.clone());

@@ -54,6 +54,9 @@ pub enum AppPolicy {
     /// подключён — через основной; нет у него IPv6 (а у других есть) — IPv6
     /// программе закрыт, она идёт по IPv4 через свой канал.
     Iface(String),
+    /// Без сети: новые сокеты IPv4/IPv6 не создаются (EPERM), открытые
+    /// соединения обрываются (метка с правилом `prohibit`).
+    Block,
 }
 
 impl AppPolicy {
@@ -62,6 +65,7 @@ impl AppPolicy {
             AppPolicy::Primary => "primary".into(),
             AppPolicy::Both => "both".into(),
             AppPolicy::Iface(i) => format!("iface:{i}"),
+            AppPolicy::Block => "block".into(),
         }
     }
 
@@ -69,6 +73,7 @@ impl AppPolicy {
         match s {
             "primary" => Some(AppPolicy::Primary),
             "both" => Some(AppPolicy::Both),
+            "block" => Some(AppPolicy::Block),
             _ => s.strip_prefix("iface:").filter(|i| valid_iface(i)).map(|i| AppPolicy::Iface(i.to_string())),
         }
     }
@@ -79,6 +84,7 @@ impl AppPolicy {
             AppPolicy::Primary => "synnet-primary".into(),
             AppPolicy::Both => "synnet-both".into(),
             AppPolicy::Iface(i) => format!("synnet-if-{i}"),
+            AppPolicy::Block => "synnet-block".into(),
         }
     }
 
@@ -86,6 +92,7 @@ impl AppPolicy {
         match s.strip_prefix("synnet-")? {
             "primary" => Some(AppPolicy::Primary),
             "both" => Some(AppPolicy::Both),
+            "block" => Some(AppPolicy::Block),
             x => x.strip_prefix("if-").filter(|i| valid_iface(i)).map(|i| AppPolicy::Iface(i.to_string())),
         }
     }
@@ -139,11 +146,27 @@ pub struct Config {
     pub usb_devices: BTreeMap<String, UsbDecision>,
     /// Учёт трафика по программам и журнал соединений.
     pub traffic: TrafficConfig,
+    /// Ограничение скорости программ (ключ — как в [`Config::apps`]).
+    pub limits: BTreeMap<String, Limit>,
+}
+
+/// Ограничение скорости программы, КБ/с; 0 — без ограничения.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct Limit {
+    pub down_kbps: u32,
+    pub up_kbps: u32,
+}
+
+impl Limit {
+    pub fn is_none(&self) -> bool {
+        self.down_kbps == 0 && self.up_kbps == 0
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new(), traffic: TrafficConfig::default() }
+        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new(), traffic: TrafficConfig::default(), limits: BTreeMap::new() }
     }
 }
 
@@ -159,12 +182,32 @@ pub struct TrafficConfig {
     pub days: u32,
     /// Записывать в журнал имена узлов (ответы DNS от systemd-resolved).
     pub hostnames: bool,
+    /// Уведомлять, когда программа впервые выходит в сеть.
+    pub notify_new: bool,
 }
 
 impl Default for TrafficConfig {
     fn default() -> Self {
-        TrafficConfig { enabled: true, log_mb: 64, days: 400, hostnames: true }
+        TrafficConfig { enabled: true, log_mb: 64, days: 400, hostnames: true, notify_new: true }
     }
+}
+
+/// Программа, впервые вышедшая в сеть.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct NewApp {
+    pub app: String,
+    pub uid: u32,
+    #[serde(default)]
+    pub comm: String,
+    /// Когда, мс Unix.
+    pub at: u64,
+    /// Куда соединилась первым делом.
+    #[serde(default)]
+    pub remote: String,
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 /// Канал в интернет.
@@ -329,6 +372,12 @@ pub struct Traffic {
     /// Спросивший видит всё (root, `wheel`) или только свои программы.
     #[serde(default)]
     pub all_users: bool,
+    /// Программы, впервые вышедшие в сеть (последние, новые в конце).
+    #[serde(default)]
+    pub new_apps: Vec<NewApp>,
+    /// Уведомлять о них ([`TrafficConfig::notify_new`]).
+    #[serde(default)]
+    pub notify_new: bool,
 }
 
 /// Соединение (запись журнала или открытое сейчас).
@@ -491,6 +540,31 @@ pub fn usage(from: &str, to: &str) -> std::io::Result<Vec<DayUsage>> {
     request(&Request::Usage { from: from.into(), to: to.into() })?.usage.ok_or_else(|| std::io::Error::other("служба без учёта трафика (обновите synnetd)"))
 }
 
+/// Выбор для программы (`None` — как в системе).
+pub fn set_app_policy(app: &str, policy: Option<AppPolicy>) -> std::io::Result<Status> {
+    let mut c = status()?.config;
+    match policy {
+        Some(p) => {
+            c.apps.insert(app.to_string(), p);
+        }
+        None => {
+            c.apps.remove(app);
+        }
+    }
+    set_config(c)
+}
+
+/// Ограничение скорости программы (пустое — снять).
+pub fn set_app_limit(app: &str, limit: Limit) -> std::io::Result<Status> {
+    let mut c = status()?.config;
+    if limit.is_none() {
+        c.limits.remove(app);
+    } else {
+        c.limits.insert(app.to_string(), limit);
+    }
+    set_config(c)
+}
+
 pub fn clear_traffic() -> std::io::Result<()> {
     request(&Request::ClearTraffic).map(|_| ())
 }
@@ -545,7 +619,7 @@ mod tests {
 
     #[test]
     fn policies() {
-        for p in [AppPolicy::Primary, AppPolicy::Both, AppPolicy::Iface("wlan0".into())] {
+        for p in [AppPolicy::Primary, AppPolicy::Both, AppPolicy::Iface("wlan0".into()), AppPolicy::Block] {
             assert_eq!(AppPolicy::from_id(&p.id()), Some(p.clone()));
             assert_eq!(AppPolicy::from_cgroup_name(&p.cgroup_name()), Some(p));
         }

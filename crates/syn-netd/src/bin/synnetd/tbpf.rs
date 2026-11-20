@@ -23,6 +23,9 @@ const BPF_MAP_LOOKUP_ELEM: libc::c_long = 1;
 const BPF_MAP_DELETE_ELEM: libc::c_long = 3;
 const BPF_MAP_GET_NEXT_KEY: libc::c_long = 4;
 const BPF_LINK_CREATE: libc::c_long = 28;
+const BPF_MAP_UPDATE_ELEM: libc::c_long = 2;
+const BPF_MAP_TYPE_HASH: u32 = 1;
+const BPF_MAP_TYPE_ARRAY: u32 = 2;
 const BPF_MAP_TYPE_LRU_HASH: u32 = 9;
 
 const PROG_CGROUP_SKB: u32 = 8;
@@ -43,9 +46,14 @@ const F_UID_GID: i32 = 15;
 const F_COMM: i32 = 16;
 const F_SOCKET_COOKIE: i32 = 46;
 const F_KTIME_BOOT: i32 = 125;
+const F_KTIME: i32 = 5;
 const BPF_NOEXIST: i32 = 1;
 
 pub const BYTES_ENTRIES: u32 = 65536;
+/// Ячеек ограничения скорости (программ с ограничением).
+pub const LIMIT_SLOTS: u32 = 256;
+/// Ячейка: по направлению (приём — 0, передача — 24) скорость байт/с, запас байт, время последнего пакета (нс).
+pub const BUCKET_VALUE: u32 = 48;
 pub const CONNS_ENTRIES: u32 = 65536;
 
 /// Сборщик с метками переходов.
@@ -100,6 +108,11 @@ impl Asm {
     fn jnei(&mut self, dst: u8, imm: i32, l: &'static str) -> &mut Self {
         self.fix.push((self.code.len(), l));
         self.i(0x55, dst, 0, 0, imm)
+    }
+    /// `if dst < src goto l` (без знака).
+    fn jltr(&mut self, dst: u8, src: u8, l: &'static str) -> &mut Self {
+        self.fix.push((self.code.len(), l));
+        self.i(0xad, dst, src, 0, 0)
     }
     fn ja(&mut self, l: &'static str) -> &mut Self {
         self.fix.push((self.code.len(), l));
@@ -168,6 +181,14 @@ impl Map {
         (bpf(BPF_MAP_LOOKUP_ELEM, &mut attr) == 0).then_some(v)
     }
 
+    pub fn update(&self, key: &[u8], value: &[u8]) -> bool {
+        let mut attr = [0u8; 32];
+        put32(&mut attr, 0, self.fd.as_raw_fd() as u32);
+        put64(&mut attr, 8, key.as_ptr() as u64);
+        put64(&mut attr, 16, value.as_ptr() as u64);
+        bpf(BPF_MAP_UPDATE_ELEM, &mut attr) == 0
+    }
+
     pub fn delete(&self, key: &[u8]) {
         let mut attr = [0u8; 32];
         put32(&mut attr, 0, self.fd.as_raw_fd() as u32);
@@ -209,6 +230,10 @@ pub struct Accounting {
     pub bytes: Map,
     pub conns: Map,
     pub closed: Map,
+    /// Сокеты программ с ограничением скорости: cookie → ячейка.
+    pub lim: Map,
+    /// Ячейки ограничения ([`BUCKET_VALUE`]).
+    pub buckets: Map,
     /// Имя процесса записывается (у старых ядер `get_current_comm` в cgroup-программах нет).
     pub has_comm: bool,
     _keep: Vec<OwnedFd>,
@@ -221,8 +246,13 @@ pub const CONNS_KEY: u32 = 32;
 /// Значение `conns`: tgid, uid, время (ktime_get_boot_ns), имя процесса (16).
 pub const CONNS_VALUE: u32 = 32;
 
-/// `cgroup_skb`: прибавить длину пакета к полю `field` (0 — принято, 8 — передано).
-fn skb_prog(bytes: &OwnedFd, field: i16) -> Vec<u8> {
+/// `cgroup_skb`: прибавить длину пакета к полю `field` (0 — принято, 8 —
+/// передано), затем ограничение скорости: сокет в `lim` — ведро его ячейки
+/// (запас пополняется со скоростью, не больше полсекунды + 16 КБ); запаса нет —
+/// пакет отброшен (на выходе — с уведомлением о перегрузке: TCP сбавит темп).
+fn skb_prog(bytes: &OwnedFd, lim: &OwnedFd, buckets: &OwnedFd, field: i16) -> Vec<u8> {
+    let dir: i32 = if field == 0 { 0 } else { 24 };
+    let drop_ret = if field == 0 { 0 } else { 2 };
     let mut a = Asm::default();
     a.mov(6, 1)
         .ldw(7, 6, 40) // r7 = skb->ifindex
@@ -238,7 +268,7 @@ fn skb_prog(bytes: &OwnedFd, field: i16) -> Vec<u8> {
         .ldw(1, 6, 0) // r1 = skb->len
         .i(0xdb, 0, 1, field, 0) // lock *(u64 *)(r0 + field) += r1
         .stw(0, 16, 7)
-        .ja("out")
+        .ja("lim")
         .label("new")
         .ldw(1, 6, 0)
         .stdwi(10, -32, 0)
@@ -253,6 +283,51 @@ fn skb_prog(bytes: &OwnedFd, field: i16) -> Vec<u8> {
         .addi(3, -32)
         .movi(4, BPF_NOEXIST)
         .call(F_MAP_UPDATE)
+        // Ограничение скорости.
+        .label("lim")
+        .map(1, lim)
+        .mov(2, 10)
+        .addi(2, -8)
+        .call(F_MAP_LOOKUP)
+        .jeqi(0, 0, "out")
+        .ldw(1, 0, 0)
+        .stw(10, -12, 1)
+        .map(1, buckets)
+        .mov(2, 10)
+        .addi(2, -12)
+        .call(F_MAP_LOOKUP)
+        .jeqi(0, 0, "out")
+        .mov(8, 0)
+        .addi(8, dir)
+        .i(0x79, 9, 8, 0, 0) // r9 = скорость
+        .jeqi(9, 0, "out")
+        .call(F_KTIME)
+        .i(0x79, 2, 8, 16, 0) // r2 = last
+        .mov(3, 0)
+        .i(0x1f, 3, 2, 0, 0) // r3 = now - last
+        .stdw(8, 16, 0) // last = now
+        .i(0x25, 3, 0, 1, 1_000_000_000) // if r3 > 1 с
+        .ja("cap_ok")
+        .movi(3, 1_000_000_000)
+        .label("cap_ok")
+        .i(0x2f, 3, 9, 0, 0) // r3 *= скорость
+        .i(0x37, 3, 0, 0, 1_000_000_000) // r3 /= 1e9
+        .i(0x79, 4, 8, 8, 0) // r4 = запас
+        .i(0x0f, 4, 3, 0, 0) // r4 += r3
+        .mov(5, 9)
+        .i(0x77, 5, 0, 0, 1) // r5 = скорость / 2
+        .addi(5, 16384)
+        .i(0xbd, 4, 5, 1, 0) // if r4 <= r5 skip
+        .mov(4, 5)
+        .ldw(1, 6, 0) // r1 = len
+        .jltr(4, 1, "drop") // запаса меньше длины пакета
+        .i(0x1f, 4, 1, 0, 0) // r4 -= len
+        .stdw(8, 8, 4)
+        .ja("out")
+        .label("drop")
+        .stdw(8, 8, 4)
+        .movi(0, drop_ret)
+        .i(0x95, 0, 0, 0, 0)
         .label("out")
         .allow();
     a.finish()
@@ -322,6 +397,8 @@ impl Accounting {
         let bytes = map_create(BPF_MAP_TYPE_LRU_HASH, 8, BYTES_VALUE, BYTES_ENTRIES, b"synnet_bytes")?;
         let conns = map_create(BPF_MAP_TYPE_LRU_HASH, CONNS_KEY, CONNS_VALUE, CONNS_ENTRIES, b"synnet_conns")?;
         let closed = map_create(BPF_MAP_TYPE_LRU_HASH, 8, 8, 65536, b"synnet_closed")?;
+        let lim = map_create(BPF_MAP_TYPE_HASH, 8, 4, 65536, b"synnet_lim")?;
+        let buckets = map_create(BPF_MAP_TYPE_ARRAY, 4, BUCKET_VALUE, LIMIT_SLOTS, b"synnet_bucket")?;
         let root = std::fs::File::open("/sys/fs/cgroup")?;
         let mut keep = Vec::new();
         let mut attach = |code: Vec<u8>, name: &[u8], ptype: u32, at: u32| -> std::io::Result<()> {
@@ -330,8 +407,8 @@ impl Accounting {
             keep.push(prog);
             Ok(())
         };
-        attach(skb_prog(&bytes, 0), b"synnet_rx\0", PROG_CGROUP_SKB, AT_INGRESS)?;
-        attach(skb_prog(&bytes, 8), b"synnet_tx\0", PROG_CGROUP_SKB, AT_EGRESS)?;
+        attach(skb_prog(&bytes, &lim, &buckets, 0), b"synnet_rx\0", PROG_CGROUP_SKB, AT_INGRESS)?;
+        attach(skb_prog(&bytes, &lim, &buckets, 8), b"synnet_tx\0", PROG_CGROUP_SKB, AT_EGRESS)?;
         attach(release_prog(&closed), b"synnet_rel\0", PROG_CGROUP_SOCK, AT_SOCK_RELEASE)?;
         // Имя процесса: проверить, даёт ли ядро get_current_comm cgroup-программам.
         let has_comm = load_typed(&addr_prog(&conns, false, true), b"synnet_probe\0", PROG_CGROUP_SOCK_ADDR, AT_CONNECT4).is_ok();
@@ -342,6 +419,8 @@ impl Accounting {
             bytes: Map { fd: bytes, key: 8, value: BYTES_VALUE as usize },
             conns: Map { fd: conns, key: CONNS_KEY as usize, value: CONNS_VALUE as usize },
             closed: Map { fd: closed, key: 8, value: 8 },
+            lim: Map { fd: lim, key: 8, value: 4 },
+            buckets: Map { fd: buckets, key: 4, value: BUCKET_VALUE as usize },
             has_comm,
             _keep: keep,
         })

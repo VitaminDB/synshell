@@ -56,6 +56,14 @@ pub fn load(mark: u32) -> std::io::Result<OwnedFd> {
     load_code(&code, b"synnet_mark\0")
 }
 
+/// Программа «без сети»: создание сокета IPv4/IPv6 запрещено (EPERM).
+pub fn load_deny() -> std::io::Result<OwnedFd> {
+    let mut code = Vec::with_capacity(16);
+    code.extend_from_slice(&insn(0xb7, 0, 0, 0, 0)); // r0 = 0
+    code.extend_from_slice(&insn(0x95, 0, 0, 0, 0)); // exit
+    load_code(&code, b"synnet_deny\0")
+}
+
 /// Загрузить программу `BPF_CGROUP_INET_SOCK_CREATE`.
 fn load_code(code: &[u8], name: &[u8]) -> std::io::Result<OwnedFd> {
     load_typed(code, name, BPF_PROG_TYPE_CGROUP_SOCK, BPF_CGROUP_INET_SOCK_CREATE)
@@ -135,7 +143,9 @@ pub fn attach(cgroup_dir: &std::path::Path, prog: &OwnedFd) -> std::io::Result<(
 // r0 = map_lookup_elem(map, r10 - 4)
 // if r0 == 0 goto out
 // *(u32 *)(r6 + 16) = *(u32 *)r0
+// if r1 == MARK_BLOCK goto deny   // «без сети»
 // out: r0 = 1; exit
+// deny: r0 = 0; exit
 // ```
 //
 // Программа прикреплена через BPF link: служба завершилась (даже аварийно) —
@@ -180,10 +190,15 @@ impl TgidMarks {
         code.extend_from_slice(&insn(0x18, 1, 1, 0, map.as_raw_fd())); // r1 = map (ld_imm64, BPF_PSEUDO_MAP_FD)
         code.extend_from_slice(&insn(0, 0, 0, 0, 0));
         code.extend_from_slice(&insn(0x85, 0, 0, 0, FUNC_MAP_LOOKUP_ELEM));
-        code.extend_from_slice(&insn(0x15, 0, 0, 2, 0)); // if r0 == 0 goto +2
+        code.extend_from_slice(&insn(0x15, 0, 0, 5, 0)); // if r0 == 0 goto allow
         code.extend_from_slice(&insn(0x61, 1, 0, 0, 0)); // r1 = *(u32*)(r0+0)
+        code.extend_from_slice(&insn(0x15, 1, 0, 5, crate::route::MARK_BLOCK as i32)); // «без сети» — goto deny
         code.extend_from_slice(&insn(0x63, 6, 1, OFF_MARK, 0)); // ctx->mark = r1
         code.extend_from_slice(&insn(0xb7, 0, 0, 0, 1)); // r0 = 1
+        code.extend_from_slice(&insn(0x95, 0, 0, 0, 0)); // exit
+        code.extend_from_slice(&insn(0xb7, 0, 0, 0, 1)); // allow: r0 = 1
+        code.extend_from_slice(&insn(0x95, 0, 0, 0, 0)); // exit
+        code.extend_from_slice(&insn(0xb7, 0, 0, 0, 0)); // deny: r0 = 0
         code.extend_from_slice(&insn(0x95, 0, 0, 0, 0)); // exit
         let prog = load_code(&code, b"synnet_tgid\0")?;
 

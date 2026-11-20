@@ -136,6 +136,8 @@ struct Sock {
     incoming: bool,
     /// Когда последний раз менялись байты.
     changed: Instant,
+    /// Ячейка ограничения скорости, если сокет в `lim`.
+    limited: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -288,6 +290,15 @@ struct State {
     /// эти байты идут прежнему владельцу, а не новым «сокетом без хозяина».
     recent: HashMap<u64, (Owner, String, Instant)>,
     last_sweep: Instant,
+    /// Ограничения скорости: программа → ячейка; что записано в ячейки.
+    slots: HashMap<String, u32>,
+    limits_applied: Option<std::collections::BTreeMap<String, syn_netd::Limit>>,
+    /// Программы, уже выходившие в сеть (`known.json`): имя → когда впервые.
+    known: HashMap<String, u64>,
+    known_dirty: bool,
+    /// Первый запуск учёта: до этого времени программы запоминаются молча.
+    learning_until: u64,
+    new_apps: std::collections::VecDeque<syn_netd::NewApp>,
 }
 
 pub struct Traffic {
@@ -309,6 +320,7 @@ impl Traffic {
             .and_then(|s| serde_json::from_str::<DayUsage>(&s).ok())
             .map(Day::from_usage)
             .unwrap_or(Day { date: today, ..Default::default() });
+        let known: Option<HashMap<String, u64>> = std::fs::read_to_string(dir.join("known.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
         let names = Arc::new(Mutex::new(crate::dns::Names::default()));
         // Подписка дешёвая; включено ли «Имена узлов» — смотрится при записи.
         crate::dns::start(names.clone());
@@ -328,6 +340,12 @@ impl Traffic {
                 owners: HashMap::new(),
                 recent: HashMap::new(),
                 last_sweep: Instant::now(),
+                slots: HashMap::new(),
+                limits_applied: None,
+                learning_until: if known.is_none() { now_ms() + 10 * 60_000 } else { 0 },
+                known: known.unwrap_or_default(),
+                known_dirty: false,
+                new_apps: std::collections::VecDeque::new(),
             }),
             cfg,
             dir,
@@ -389,6 +407,7 @@ impl Traffic {
         };
         let boot = boot_ns();
         let to_ms = |ts: u64| now.saturating_sub(boot.saturating_sub(ts) / 1_000_000);
+        self.apply_limits(st, &acc);
 
         // 1. Закрытые с прошлого раза.
         let closed: Vec<u64> = acc.closed.keys(1 << 17).into_iter().map(|k| { acc.closed.delete(&k); u64::from_ne_bytes(k[..8].try_into().unwrap()) }).collect();
@@ -411,7 +430,7 @@ impl Traffic {
             let comm = String::from_utf8_lossy(&v[16..32]).trim_end_matches('\0').to_string();
             if !st.socks.contains_key(&cookie) {
                 let o = Self::owner(st, tgid, uid, &comm);
-                st.socks.insert(cookie, Sock { owner: Some(o), tries: 0, proto, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: to_ms(ts), rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now() });
+                st.socks.insert(cookie, Sock { owner: Some(o), tries: 0, proto, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: to_ms(ts), rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
             }
             let s = st.socks.get_mut(&cookie).unwrap();
             if s.owner.is_none() {
@@ -466,7 +485,7 @@ impl Traffic {
                 acc.bytes.delete(&k);
                 continue;
             }
-            let s = st.socks.entry(cookie).or_insert_with(|| Sock { owner: None, tries: 0, proto: 0, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: now, rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now() });
+            let s = st.socks.entry(cookie).or_insert_with(|| Sock { owner: None, tries: 0, proto: 0, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: now, rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
             let (drx, dtx) = (rx.saturating_sub(s.rx), tx.saturating_sub(s.tx));
             s.rx = rx;
             s.tx = tx;
@@ -502,6 +521,43 @@ impl Traffic {
             self.resolve_orphans(st, &mut rates, dt, hour);
         }
 
+        // Новые сокеты программ с ограничением — в `lim`; программы, впервые вышедшие в сеть.
+        let learning = now < st.learning_until;
+        let mut fresh: Vec<syn_netd::NewApp> = Vec::new();
+        for (cookie, s) in st.socks.iter_mut() {
+            let Some(o) = &s.owner else { continue };
+            if s.limited.is_none() {
+                if let Some(&slot) = st.slots.get(&o.app) {
+                    if acc.lim.update(&cookie.to_ne_bytes(), &slot.to_ne_bytes()) {
+                        s.limited = Some(slot);
+                    }
+                }
+            }
+            if o.app != APP_SYSTEM && !st.known.contains_key(&o.app) && (s.remote.is_some() || s.rx + s.tx > 0) {
+                st.known.insert(o.app.clone(), now);
+                st.known_dirty = true;
+                if !learning {
+                    tracing::info!("новая программа в сети: {} (uid {}) → {:?}", o.app, o.uid, s.host.clone().or(s.remote.map(|r| r.0.to_string())));
+                    fresh.push(syn_netd::NewApp { app: o.app.clone(), uid: o.uid, comm: o.comm.clone(), at: now, remote: s.remote.map(|r| r.0.to_string()).unwrap_or_default(), port: s.remote.map(|r| r.1).unwrap_or(0), host: s.host.clone() });
+                }
+            }
+        }
+        for a in fresh {
+            st.new_apps.push_back(a);
+            while st.new_apps.len() > 30 {
+                st.new_apps.pop_front();
+            }
+        }
+        if st.known_dirty {
+            st.known_dirty = false;
+            if let Ok(j) = serde_json::to_string(&st.known) {
+                let tmp = self.dir.join("known.json.tmp");
+                if std::fs::write(&tmp, j).is_ok() {
+                    let _ = std::fs::rename(&tmp, self.dir.join("known.json"));
+                }
+            }
+        }
+
         // 5. Доля «системы»: канал насчитал больше, чем досталось программам.
         for ifc in uplinks {
             let base = PathBuf::from("/sys/class/net").join(ifc).join("statistics");
@@ -531,6 +587,9 @@ impl Traffic {
                 acc.conns.delete(k);
             }
             let key = cookie.to_ne_bytes();
+            if s.limited.is_some() {
+                acc.lim.delete(&key);
+            }
             if let Some(v) = acc.bytes.lookup(&key) {
                 // Последние байты после чтения в шаге 3.
                 let rx = u64::from_ne_bytes(v[0..8].try_into().unwrap());
@@ -567,6 +626,9 @@ impl Traffic {
                         acc.conns.delete(k);
                     }
                     acc.bytes.delete(&cookie.to_ne_bytes());
+                    if s.limited.is_some() {
+                        acc.lim.delete(&cookie.to_ne_bytes());
+                    }
                     if let Some(c) = Self::record(&s, Some(now)) {
                         st.log.write(&c, limit);
                     }
@@ -578,6 +640,47 @@ impl Traffic {
         if st.day.dirty && st.last_save.elapsed().as_secs() >= 60 {
             self.save_day(st);
         }
+    }
+
+    /// Записать ограничения скорости в ячейки BPF (когда настройки поменялись).
+    fn apply_limits(&self, st: &mut State, acc: &tbpf::Accounting) {
+        let limits = self.cfg.read().unwrap().limits.clone();
+        if st.limits_applied.as_ref() == Some(&limits) {
+            return;
+        }
+        // Ячейки: прежние сохраняются, новым — свободные.
+        st.slots.retain(|app, _| limits.get(app).is_some_and(|l| !l.is_none()));
+        for (app, l) in &limits {
+            if l.is_none() || st.slots.contains_key(app) {
+                continue;
+            }
+            let used: HashSet<u32> = st.slots.values().copied().collect();
+            if let Some(free) = (0..tbpf::LIMIT_SLOTS).find(|i| !used.contains(i)) {
+                st.slots.insert(app.clone(), free);
+            }
+        }
+        for slot in 0..tbpf::LIMIT_SLOTS {
+            let l = st.slots.iter().find(|(_, s)| **s == slot).and_then(|(a, _)| limits.get(a)).copied().unwrap_or_default();
+            let mut v = [0u8; tbpf::BUCKET_VALUE as usize];
+            let (down, up) = (l.down_kbps as u64 * 1024, l.up_kbps as u64 * 1024);
+            v[0..8].copy_from_slice(&down.to_ne_bytes());
+            v[8..16].copy_from_slice(&(down / 2).to_ne_bytes());
+            v[24..32].copy_from_slice(&up.to_ne_bytes());
+            v[32..40].copy_from_slice(&(up / 2).to_ne_bytes());
+            acc.buckets.update(&slot.to_ne_bytes(), &v);
+        }
+        // Сокеты программ, с которых ограничение сняли (или ячейка сменилась), — из `lim`.
+        for (cookie, s) in st.socks.iter_mut() {
+            let want = s.owner.as_ref().and_then(|o| st.slots.get(&o.app)).copied();
+            if s.limited.is_some() && s.limited != want {
+                acc.lim.delete(&cookie.to_ne_bytes());
+                s.limited = None;
+            }
+        }
+        if !limits.is_empty() {
+            tracing::info!("ограничения скорости: {}", limits.iter().map(|(a, l)| format!("{a} ↓{} ↑{} КБ/с", l.down_kbps, l.up_kbps)).collect::<Vec<_>>().join(", "));
+        }
+        st.limits_applied = Some(limits);
     }
 
     fn resolve_orphans(&self, st: &mut State, rates: &mut HashMap<(String, u32), (f64, f64)>, dt: f64, hour: usize) {
@@ -753,6 +856,8 @@ impl Traffic {
             log_since: segs.first().map(|s| s.0),
             dns: self.names.lock().unwrap().live,
             all_users: all,
+            new_apps: st.new_apps.iter().filter(|a| visible(a.uid)).cloned().collect(),
+            notify_new: cfg.notify_new,
         }
     }
 
