@@ -89,6 +89,10 @@ const KEY_POWER_XKB: u32 = 116 + 8;
 
 impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
+        // Полное управление агентом: ввод пользователя не доходит до окон (кроме Ctrl+Alt+Esc).
+        if self.agent_filter(&event) {
+            return;
+        }
         // Кнопка питания — своя логика (короткое нажатие / удержание), до общей
         // «активности»: та включила бы погашенный экран раньше, чем мы решим.
         if let InputEvent::Keyboard { event } = &event {

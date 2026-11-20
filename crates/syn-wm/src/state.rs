@@ -244,6 +244,14 @@ pub struct Core {
     pub remote_output: Option<Output>,
     /// Идёт событие удалённого ввода (координаты — уже изображения).
     pub remote_input_active: bool,
+    /// Агент (ИИ через synlink) управляет вводом (см. agent.rs).
+    pub agent: Option<crate::agent::AgentState>,
+    /// Пользователь забрал управление — до этого момента агент не может взять его снова.
+    pub agent_cooldown: Option<Instant>,
+    /// Последний физический ввод пользователя (не удалённый).
+    pub last_physical: Instant,
+    /// Клавиши, зажатые пользователем, пока ввод заблокирован агентом.
+    pub agent_keys: std::collections::HashSet<u32>,
     /// Палец, который сейчас изображает мышь (окно с `touch_as_mouse`).
     pub touch_mouse_slot: Option<smithay::backend::input::TouchSlot>,
     /// Палец-мышь уже нажал левую кнопку (нажатие отложено, см. `touch_mouse_down`); номер касания — для таймера.
@@ -498,6 +506,10 @@ impl Core {
             lid_closed: false,
             remote_output: None,
             remote_input_active: false,
+            agent: None,
+            agent_cooldown: None,
+            last_physical: Instant::now(),
+            agent_keys: Default::default(),
             rotation: HashMap::new(),
             saved_rotation: synshell_common::rotation_state::load(),
             rotate_anim: None,

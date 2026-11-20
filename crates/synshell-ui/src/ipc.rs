@@ -71,6 +71,7 @@ fn handle(ctx: ShellCtx, ev: Event) {
         Event::WorkspacesChanged { workspaces } => ctx.workspaces.set(workspaces),
         Event::MobileChanged { mobile } => ctx.mobile.set(Some(mobile)),
         Event::ScreenPower { on } => ctx.screen_on.set(on),
+        Event::Agent { agent } => ctx.agent.set(agent),
         Event::OutputsChanged { outputs } => ctx.comp_outputs.set(outputs),
         Event::KeyboardLayoutChanged { keyboard } => ctx.keyboard.set(keyboard),
         Event::ShellCommand { command } => {

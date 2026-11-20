@@ -220,6 +220,10 @@ impl State {
                 device: self.core.device_form_factor.as_str().into(),
                 previous: self.core.prev_form_factor.as_str().into(),
             },
+            Request::Agent { op } => match self.agent_op(op) {
+                Ok(agent) => Response::Agent { agent },
+                Err(message) => Response::Error { message },
+            },
             Request::Idle => Response::Idle {
                 idle: synshell_common::ipc::IdleInfo {
                     seconds: self.core.last_activity.elapsed().as_secs(),

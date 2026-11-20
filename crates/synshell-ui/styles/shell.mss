@@ -1992,3 +1992,27 @@ TextField {
 .charge-anim-pct { font-size: 64px; font-weight: bold; color: #ffffff; }
 .charge-anim-label { font-size: 17px; color: rgba(255, 255, 255, 0.72); }
 .call-pill-placeholder { opacity: 0.6; padding: 3px 8px; }
+
+/* Индикатор «ИИ управляет» (agent_indicator.rs) */
+.agent-surface { padding: 6px 24px 24px 24px; }
+.agent-pill {
+    padding: 10px 14px 10px 10px;
+    max-width: 560px;
+    border-radius: 22px;
+    background-color: var(--menu-bg);
+    border-width: 2px;
+    border-color: #A855F7;
+    box-shadow: 0 8px 28px rgba(168, 85, 247, 0.35);
+}
+.agent-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+    background-color: rgba(168, 85, 247, 0.18);
+    justify-content: center;
+    align-items: center;
+}
+.agent-icon { icon-size: 22px; icon-color: #A855F7; }
+.agent-title { font-size: 14px; font-weight: bold; }
+.agent-sub { font-size: 12px; color: var(--muted); }
+.agent-stop { padding: 6px 14px; border-radius: 14px; background-color: #A855F7; color: #ffffff; }

@@ -4,6 +4,7 @@
 //! оболочкой и настройками.
 
 pub mod action;
+pub mod agent;
 pub mod app_theme;
 pub mod config;
 pub mod contacts;

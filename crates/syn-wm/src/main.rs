@@ -3,6 +3,7 @@
 //! `synwm` — запустить сеанс (в TTY — на DRM, внутри другого сеанса —
 //! во вложенном окне); `synwm msg …` — управление по IPC.
 
+mod agent;
 mod anim;
 mod appmenu;
 mod backend;

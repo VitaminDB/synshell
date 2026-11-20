@@ -68,6 +68,9 @@ pub enum Request {
     /// экрана с последним кадром клиента, вписанным в `max` (физические px),
     /// кадр — сырой RGBA в `$XDG_RUNTIME_DIR`; ответ — [`Response::Thumbnails`].
     Thumbnails { ids: Vec<u64>, max: [u32; 2] },
+    /// Агент (ИИ через synlink) управляет вводом: start — взять или продлить (гаснет само
+    /// через 15 с без продления), stop — отдать, status — узнать.
+    Agent { op: AgentOp },
     /// Простой пользователя — [`Response::Idle`] (автономный режим ассистента).
     Idle,
     /// Режим оболочки (форм-фактор) — [`Response::FormFactor`].
@@ -192,9 +195,44 @@ pub enum WindowOp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "op", rename_all = "kebab-case")]
+pub enum AgentOp {
+    Start {
+        #[serde(default)]
+        reason: String,
+    },
+    Stop,
+    Status,
+    /// Пользователь забирает управление (кнопка на индикаторе): агент 30 с не может взять его снова.
+    TakeBack,
+}
+
+/// Управление агентом: идёт ли, полное ли (ввод пользователя заблокирован, кроме
+/// сочетания `takeback`), сколько секунд пользователь ничего не нажимал.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AgentInfo {
+    pub active: bool,
+    pub full: bool,
+    #[serde(default)]
+    pub reason: String,
+    /// Миллисекунды с последнего физического ввода пользователя.
+    pub user_idle_ms: u64,
+    /// Пользователь забрал управление: столько секунд агент не может его взять.
+    #[serde(default)]
+    pub cooldown_s: u64,
+    /// Сочетание, которым пользователь забирает управление.
+    #[serde(default)]
+    pub takeback: String,
+    /// Режим полного управления включён в параметрах.
+    #[serde(default)]
+    pub full_allowed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "response", rename_all = "kebab-case")]
 pub enum Response {
     Ok,
+    Agent { agent: AgentInfo },
     Error { message: String },
     Version { version: String },
     Windows { windows: Vec<WindowInfo> },
@@ -249,6 +287,8 @@ pub struct MobileInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "event", rename_all = "kebab-case")]
 pub enum Event {
+    /// Изменилось управление агентом (индикатор на панели).
+    Agent { agent: AgentInfo },
     /// Полное состояние — первым после подписки.
     Snapshot {
         windows: Vec<WindowInfo>,

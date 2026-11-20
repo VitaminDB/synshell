@@ -580,9 +580,36 @@ pub fn assistant() -> W {
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
         {
             let mut v = vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note];
+            v.insert(1, agent_control());
             v.extend(notes_and_autonomy(&a));
             v.extend([group(&t!("Навыки"), skill_rows), group(&t!("Рецепты"), recipe_rows), voice, voice_note]);
             v
         },
+    )
+}
+
+/// Управление компьютером агентом (ИИ через synlink): индикатор всегда, полное
+/// управление — по выбору. Настройка в отдельном `agent.toml` (читает synwm).
+fn agent_control() -> W {
+    let s = synshell_common::agent::load();
+    let full = Toggle::with_state(s.full_control).on_change(|v| {
+        let mut s = synshell_common::agent::load();
+        s.full_control = v;
+        if let Err(e) = synshell_common::agent::save(&s) {
+            eprintln!("agent.toml: {e}");
+        }
+    });
+    group(
+        &t!("Управление компьютером"),
+        vec![
+            crate::ui::row_inline(
+                t!("Отдавать ИИ полное управление"),
+                t!(
+                    "Пока ИИ управляет компьютером (вверху плашка «ИИ управляет»), ваши мышь, клавиатура и касания блокируются — случайно не помешаете. Забрать управление — {k}. Без этого ИИ не нажимает, пока вы работаете, а плашка даёт кнопку «Забрать».",
+                    k = synshell_common::agent::TAKEBACK
+                ),
+                full,
+            ),
+        ],
     )
 }

@@ -168,6 +168,8 @@ pub struct ShellCtx {
     pub brightness: RwSignal<Option<f32>>,
     /// Экраны горят (композитор: событие `screen-power`); погашены — датчики отпущены.
     pub screen_on: RwSignal<bool>,
+    /// Агент (ИИ через synlink) управляет вводом — индикатор (agent_indicator.rs).
+    pub agent: RwSignal<synshell_common::ipc::AgentInfo>,
     pub battery: RwSignal<Option<Battery>>,
     /// Подключено внешнее питание (кабель, беспроводная зарядка); `None` —
     /// батареи или источников питания нет.
@@ -228,6 +230,7 @@ impl ShellCtx {
             volume: use_signal(None),
             brightness: use_signal(None),
             screen_on: use_signal(true),
+            agent: use_signal(Default::default()),
             battery: use_signal(None),
             external_power: use_signal(None),
             network: use_signal(Network::default()),

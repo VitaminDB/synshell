@@ -324,6 +324,43 @@ impl Server {
     }
 
 
+
+    /// Перед вводом в живом сеансе: взять/продлить управление агентом у
+    /// композитора (индикатор «ИИ управляет», при полном управлении — блокировка
+    /// ввода пользователя). Без полного управления — не мешать: пользователь
+    /// печатает или двигает мышью — подождать до 5 с, потом отказаться.
+    fn agent_lease(&self, device: &str, what: &str) -> Result<()> {
+        if crate::sandbox::device_name(device).is_some() {
+            return Ok(());
+        }
+        use synshell_common::ipc::{AgentOp, Request as W, Response as WR};
+        let ask = |op: AgentOp| -> Result<Option<synshell_common::ipc::AgentInfo>> {
+            match gestures::req(&Request::Wm { device: device.into(), wm: W::Agent { op } }) {
+                Ok(Response::Wm { wm: WR::Agent { agent } }) => Ok(Some(agent)),
+                Ok(Response::Wm { wm: WR::Error { message } }) if message.contains("unknown variant") || message.starts_with("неверный запрос") => Ok(None),
+                Ok(Response::Wm { wm: WR::Error { message } }) => bail!("{message}"),
+                Ok(_) => Ok(None),
+                // Старый композитор (до управления агентом) — без индикатора.
+                Err(e) if format!("{e:#}").contains("unknown variant") => Ok(None),
+                Err(e) => Err(e),
+            }
+        };
+        let Some(st) = ask(AgentOp::Status)? else { return Ok(()) };
+        if !st.active && !st.full_allowed {
+            let t0 = std::time::Instant::now();
+            let mut idle = st.user_idle_ms;
+            while idle < 1500 {
+                if t0.elapsed() > Duration::from_secs(5) {
+                    bail!("{}", t!("пользователь сейчас работает с компьютером — не вмешиваюсь (попросите подождать или включите в Параметрах полное управление ИИ)"));
+                }
+                std::thread::sleep(Duration::from_millis(250));
+                idle = ask(AgentOp::Status)?.map(|s| s.user_idle_ms).unwrap_or(u64::MAX);
+            }
+        }
+        ask(AgentOp::Start { reason: what.to_string() })?;
+        Ok(())
+    }
+
     /// Текст на снимке окна (с его меню) — узлы в логических пикселях окна.
     fn ocr_tree(&self, device: &str, list: &[synshell_common::ipc::WindowInfo], w: &synshell_common::ipc::WindowInfo) -> Result<crate::uitree::Tree> {
         let outs = crate::winshot::outputs(device)?;
@@ -405,6 +442,15 @@ impl Server {
 
     fn call(&mut self, name: &str, a: &Value) -> Result<Value> {
         let device = a.get("device").and_then(Value::as_str).unwrap_or("local").to_string();
+        if matches!(name, "tap" | "long_press" | "swipe" | "pinch" | "scroll" | "type_text" | "key" | "press") {
+            let what = match name {
+                "press" => format!("нажимает «{}»", a.get("text").and_then(Value::as_str).unwrap_or("")),
+                "type_text" => "набирает текст".to_string(),
+                "key" => format!("нажимает {}", a.get("combo").and_then(Value::as_str).unwrap_or("")),
+                _ => String::new(),
+            };
+            self.agent_lease(&device, &what)?;
+        }
         match name {
             "devices" => {
                 let Response::Status { status } = gestures::req(&Request::Status)? else { bail!("{}", t!("нет состояния")) };

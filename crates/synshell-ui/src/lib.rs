@@ -52,6 +52,7 @@ pub mod modem;
 pub mod netmenu;
 pub mod notifications;
 pub mod osd;
+pub mod agent_indicator;
 pub mod panel;
 pub mod pins;
 pub mod popup;
@@ -183,6 +184,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         install(ctx);
         popup::install(ctx);
         osd::install(ctx);
+        agent_indicator::install(ctx);
         notifications::install(ctx);
         auth::start(ctx);
         switcher::install(ctx);
