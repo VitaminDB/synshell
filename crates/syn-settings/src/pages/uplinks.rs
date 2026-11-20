@@ -255,7 +255,8 @@ fn policy_dropdown(exe: String, cur: Option<AppPolicy>, uplinks: &[syn_netd::Upl
         .width(260.0)
         .item(DropdownItem::new("system", t!("Как в системе")))
         .item(DropdownItem::new("primary", t!("Только основной канал")))
-        .item(DropdownItem::new("both", t!("Все каналы сразу")));
+        .item(DropdownItem::new("both", t!("Все каналы сразу")))
+        .item(DropdownItem::new("block", t!("Без сети")));
     for u in uplinks {
         dd = dd.item(DropdownItem::new(format!("iface:{}", u.iface), t!("Только {k} · {i}", k = kind_name(&u.kind), i = u.iface)));
     }
@@ -278,6 +279,33 @@ fn policy_dropdown(exe: String, cur: Option<AppPolicy>, uplinks: &[syn_netd::Upl
                 });
             }),
     )
+}
+
+/// Ограничение приёма программы (отдача — в Мониторе ресурсов, здесь показана, если задана).
+fn limit_dropdown(exe: String, cur: syn_netd::Limit) -> W {
+    let label = |v: u32| if v == 0 { t!("Скорость: без ограничения") } else if v % 1024 == 0 { t!("Приём до {n} МБ/с", n = v / 1024) } else { t!("Приём до {n} КБ/с", n = v) };
+    let mut presets = vec![0u32, 128, 512, 1024, 5120, 10240];
+    if !presets.contains(&cur.down_kbps) {
+        presets.push(cur.down_kbps);
+        presets.sort();
+    }
+    let mut dd = Dropdown::new().width(220.0);
+    for v in presets {
+        dd = dd.item(DropdownItem::new(v.to_string(), label(v)));
+    }
+    boxed(dd.selected(cur.down_kbps.to_string()).on_change(move |v: &str| {
+        let Ok(n) = v.parse::<u32>() else { return };
+        let exe = exe.clone();
+        change(move |c| {
+            let mut l = c.limits.get(&exe).copied().unwrap_or_default();
+            l.down_kbps = n;
+            if l.is_none() {
+                c.limits.remove(&exe);
+            } else {
+                c.limits.insert(exe, l);
+            }
+        });
+    }))
 }
 
 fn add_row(e: &DesktopEntry) -> W {
@@ -368,6 +396,11 @@ fn traffic_card(s: Sigs, t: &syn_netd::TrafficConfig) -> W {
             ),
             row(t!("Журнал соединений"), t!("Предел на диске: заполнился — самые старые записи удаляются."), boxed(log)),
             row(t!("Архив расхода"), t!("Сколько хранить расход программ по дням."), boxed(days)),
+            row_inline(
+                t!("Новые программы в сети"),
+                t!("Уведомлять, когда программа впервые соединяется с интернетом: разрешить, запретить сеть или посмотреть соединения"),
+                Toggle::with_state(t.notify_new).on_change(|on| change(move |c| c.traffic.notify_new = on)),
+            ),
             row_inline(
                 t!("Имена узлов"),
                 t!("Записывать в журнал имя сайта из ответа DNS (systemd-resolved), а не только адрес"),
@@ -547,21 +580,30 @@ pub fn uplinks() -> W {
 
         // Программы со своим выбором.
         let running: HashMap<String, u32> = st.running.iter().map(|r| (r.app.clone(), r.processes)).collect();
-        let rows: Vec<W> = c
-            .apps
+        // Программы с выбором канала и/или ограничением скорости.
+        let mut keys: Vec<String> = c.apps.keys().chain(c.limits.keys()).cloned().collect();
+        keys.sort();
+        keys.dedup();
+        let rows: Vec<W> = keys
             .iter()
-            .map(|(exe, p)| {
+            .map(|exe| {
+                let p = c.apps.get(exe);
+                let lim = c.limits.get(exe).copied().unwrap_or_default();
                 let e = app_for_exe(exe);
                 let mut hint = match running.get(exe) {
                     Some(n) => t!("Запущена · процессов {n}", n = n),
                     None => t!("Процесс {p}", p = exe),
                 };
-                if let AppPolicy::Iface(i) = p {
+                if let Some(AppPolicy::Iface(i)) = p {
                     if !st.uplinks.iter().any(|u| u.iface == *i) {
                         hint = t!("{h} · канал {i} не подключён — через основной", h = hint, i = i);
                     }
                 }
-                app_row(e.as_ref(), exe, hint, policy_dropdown(exe.clone(), Some(p.clone()), &st.uplinks))
+                if p == Some(&AppPolicy::Block) {
+                    hint = t!("{h} · сеть запрещена", h = hint);
+                }
+                let controls = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(limit_dropdown(exe.clone(), lim)).child(policy_dropdown(exe.clone(), p.cloned(), &st.uplinks));
+                app_row(e.as_ref(), exe, hint, boxed(controls))
             })
             .collect();
         out.push(titled(

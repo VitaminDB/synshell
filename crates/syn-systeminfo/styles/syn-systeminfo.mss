@@ -199,3 +199,5 @@ TextField {
 .conn-open { color: #2ec27e; font-size: 12px; }
 .net-hour { background-color: #22c3e6aa; border-radius: 2px; }
 .net-hour.cur { background-color: #ffca28; }
+.net-actions { margin: 0px 6px 6px 52px; padding: 12px; border-radius: 14px; background-color: var(--surface-alt); }
+.net-lim-label { font-size: 12px; color: var(--muted); width: 64px; }

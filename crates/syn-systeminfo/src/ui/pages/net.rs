@@ -179,16 +179,29 @@ fn row_sub(r: &AppRow, uplinks: &[syn_netd::Uplink], all_users: bool) -> String 
 }
 
 /// Строка программы. Двойной щелчок (на телефоне — касание) — окно соединений.
-fn app_row(cx: &Cx, r: &AppRow, max: f64, live: bool, range: Range, uplinks: &[syn_netd::Uplink], all_users: bool) -> W {
+fn app_row(cx: &Cx, r: &AppRow, max: f64, live: bool, range: Range, uplinks: &[syn_netd::Uplink], all_users: bool, cfg: Option<&syn_netd::Config>) -> W {
     let st = cx.st;
     let info = netapps::info(&r.app);
     let selected = st.net_sel.get_untracked().as_deref() == Some(r.app.as_str());
+    let mut sub = row_sub(r, uplinks, all_users);
+    if let Some(c) = cfg {
+        let mut marks: Vec<String> = Vec::new();
+        if c.apps.get(&r.app) == Some(&syn_netd::AppPolicy::Block) {
+            marks.push(t!("без сети"));
+        }
+        if let Some(l) = c.limits.get(&r.app).filter(|l| !l.is_none()) {
+            marks.push(limit_text(l));
+        }
+        if !marks.is_empty() {
+            sub = format!("{} · {sub}", marks.join(" · "));
+        }
+    }
     let (down, up, value) = if live { (r.rx_bps, r.tx_bps, r.rx_bps + r.tx_bps) } else { (r.rx as f64, r.tx as f64, r.total() as f64) };
     let fmt = |v: f64| if live { parts::rate(v) } else { parts::bytes(v as u64) };
     let name = Column::new()
         .gap(1.0)
         .child(Text::new(info.name.clone()).max_lines(1).class("row-title"))
-        .child(Text::new(row_sub(r, uplinks, all_users)).max_lines(1).class("muted small"))
+        .child(Text::new(sub).max_lines(1).class("muted small"))
         .class("grow");
     let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(avatar(&r.app, info.icon.as_deref(), 32.0)).child(name);
     if cx.narrow {
@@ -205,22 +218,123 @@ fn app_row(cx: &Cx, r: &AppRow, max: f64, live: bool, range: Range, uplinks: &[s
     let title = info.name.clone();
     let (app2, title2) = (app.clone(), title.clone());
     let (app3, title3) = (app.clone(), title.clone());
-    let touch = synshell_common::csd::is_phone();
     let range2 = range.clone();
     let range3 = range.clone();
+    let _ = (&title, &range);
     boxed(
         GestureDetector::new()
-            .on_click(move || {
-                if touch {
-                    conns::open(Some(app.clone()), title.clone(), range.clone());
-                } else {
-                    st.net_sel.set(Some(app.clone()));
-                }
-            })
+            // Касание или щелчок — выбрать (под строкой — действия), ещё раз — снять выбор.
+            .on_click(move || st.net_sel.set(if selected { None } else { Some(app.clone()) }))
             .on_double_click(move || conns::open(Some(app2.clone()), title2.clone(), range2.clone()))
             .on_long_press(move |_| conns::open(Some(app3.clone()), title3.clone(), range3.clone()))
             .child(DecoratedBox::new().child(row).class(if selected { "row-item selected" } else { "row-item" })),
     )
+}
+
+fn kbps(v: u32) -> String {
+    if v >= 1024 && v % 1024 == 0 {
+        t!("{n} МБ/с", n = v / 1024)
+    } else {
+        t!("{n} КБ/с", n = v)
+    }
+}
+
+/// «↓ ≤ 1 МБ/с · ↑ ≤ 256 КБ/с».
+fn limit_text(l: &syn_netd::Limit) -> String {
+    let mut v = Vec::new();
+    if l.down_kbps > 0 {
+        v.push(format!("↓ ≤ {}", kbps(l.down_kbps)));
+    }
+    if l.up_kbps > 0 {
+        v.push(format!("↑ ≤ {}", kbps(l.up_kbps)));
+    }
+    v.join(" · ")
+}
+
+/// Поменять настройки synnetd в фоне; ошибка — в журнал и всплывающую строку.
+fn netd_change(st: St, f: impl FnOnce() -> std::io::Result<syn_netd::Status> + Send + 'static) {
+    std::thread::spawn(move || {
+        let r = f();
+        crate::sampler::refresh_netd();
+        if let Err(e) = r {
+            let msg = t!("Настройки сети: {e}", e = e);
+            run_on_main_thread(move || st.toast.set(msg));
+        }
+    });
+}
+
+/// Действия с выбранной программой: соединения, запрет сети, ограничение скорости.
+fn actions(cx: &Cx, r: &AppRow, range: Range, can_edit: bool, cfg: Option<&syn_netd::Config>) -> W {
+    let st = cx.st;
+    let app = r.app.clone();
+    let title = netapps::info(&r.app).name;
+    let mut col = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let (a1, t1) = (app.clone(), title.clone());
+    let mut top = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(button(t!("Соединения"), icons::LIST_ALT, move || conns::open(Some(a1.clone()), t1.clone(), range.clone())));
+    let toast = st.toast.get();
+    if app.is_empty() {
+        col = col.child(top).child(Text::new(t!("Трафик без программы-владельца: ответы ядра, пересылка, туннели VPN. Запретить или ограничить его нельзя.")).max_lines(3).class("muted small"));
+        return boxed(DecoratedBox::new().child(col).class("net-actions"));
+    }
+    let Some(cfg) = cfg.filter(|_| can_edit) else {
+        col = col.child(top).child(Text::new(t!("Запрет сети и ограничение скорости меняют администраторы (root и группа wheel).")).max_lines(2).class("muted small"));
+        return boxed(DecoratedBox::new().child(col).class("net-actions"));
+    };
+    let blocked = cfg.apps.get(&app) == Some(&syn_netd::AppPolicy::Block);
+    let a2 = app.clone();
+    top = top.child(if blocked {
+        button(t!("Разрешить сеть"), icons::PUBLIC, move || {
+            let a = a2.clone();
+            netd_change(st, move || syn_netd::set_app_policy(&a, None));
+        })
+    } else {
+        boxed(Button::new(t!("Запретить сеть")).icon(icons::BLOCK).class("btn danger-soft").on_click(move || {
+            let a = a2.clone();
+            netd_change(st, move || syn_netd::set_app_policy(&a, Some(syn_netd::AppPolicy::Block)));
+        }))
+    });
+    if let Some(p) = cfg.apps.get(&app).filter(|p| **p != syn_netd::AppPolicy::Block) {
+        top = top.child(Text::new(match p {
+            syn_netd::AppPolicy::Primary => t!("канал: только основной"),
+            syn_netd::AppPolicy::Both => t!("канал: все сразу"),
+            syn_netd::AppPolicy::Iface(i) => t!("канал: только {i}", i = i),
+            syn_netd::AppPolicy::Block => String::new(),
+        }).max_lines(1).class("muted small"));
+    }
+    col = col.child(top);
+    if blocked {
+        col = col.child(Text::new(t!("Программе запрещена сеть: новые соединения не создаются, открытые оборваны.")).max_lines(2).class("muted small"));
+    } else {
+        let cur = cfg.limits.get(&app).copied().unwrap_or_default();
+        let presets = [0u32, 128, 512, 1024, 5120, 10240];
+        for down in [true, false] {
+            let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(if down { t!("Приём") } else { t!("Отдача") }).class("net-lim-label"));
+            let now = if down { cur.down_kbps } else { cur.up_kbps };
+            for v in presets {
+                let a = app.clone();
+                let label = if v == 0 { t!("без ограничения") } else { kbps(v) };
+                row = row.child(
+                    GestureDetector::new()
+                        .on_click(move || {
+                            let a = a.clone();
+                            let mut l = cur;
+                            if down {
+                                l.down_kbps = v;
+                            } else {
+                                l.up_kbps = v;
+                            }
+                            netd_change(st, move || syn_netd::set_app_limit(&a, l));
+                        })
+                        .child(DecoratedBox::new().child(Text::new(label).class("pill-label")).class(if now == v { "pill active" } else { "pill" })),
+                );
+            }
+            col = col.child(ScrollView::new().horizontal().child(row));
+        }
+    }
+    if !toast.is_empty() {
+        col = col.child(Text::new(toast).max_lines(2).class("muted small conns-err"));
+    }
+    boxed(DecoratedBox::new().child(col).class("net-actions"))
 }
 
 /// «Сейчас | Сегодня | 7 дней | 30 дней».
@@ -284,7 +398,7 @@ fn apps_card(cx: &Cx, d: &NetD, t: &syn_netd::Traffic) -> W {
         col = col.child(
             Row::new()
                 .gap(10.0)
-                .child(Text::new(if synshell_common::csd::is_phone() { t!("Касание — соединения программы") } else { t!("Двойной щелчок — соединения программы") }).max_lines(1).class("th grow"))
+                .child(Text::new(if synshell_common::csd::is_phone() { t!("Касание — действия, долгое нажатие — соединения") } else { t!("Щелчок — действия, двойной щелчок — соединения") }).max_lines(1).class("th grow"))
                 .child(Text::new(if live { t!("↓ в секунду") } else { t!("↓ принято") }).class("th net-col"))
                 .child(Text::new(if live { t!("↑ в секунду") } else { t!("↑ передано") }).class("th net-col"))
                 .child(Text::new(t!("Соед.")).class("th net-col-s"))
@@ -296,8 +410,13 @@ fn apps_card(cx: &Cx, d: &NetD, t: &syn_netd::Traffic) -> W {
     }
     let all = st.net_all.get();
     let n = list.len();
+    let cfg = d.status.as_ref().and_then(|s| s.as_ref().ok()).map(|s| s.config.clone());
+    let sel = st.net_sel.get();
     for r in list.iter().take(if all { usize::MAX } else { TOP }) {
-        col = col.child(app_row(cx, r, max, live, range.clone(), &uplinks, t.all_users));
+        col = col.child(app_row(cx, r, max, live, range.clone(), &uplinks, t.all_users, cfg.as_ref()));
+        if sel.as_deref() == Some(r.app.as_str()) {
+            col = col.child(actions(cx, r, range.clone(), t.all_users, cfg.as_ref()));
+        }
     }
     let mut foot = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if n > TOP {
@@ -451,8 +570,9 @@ fn archive_card(cx: &Cx, d: &NetD, t: &syn_netd::Traffic) -> W {
         col = col.child(parts::empty(t!("В этот день учёт не вёлся или трафика не было.")));
     }
     let range = if sel == today { Range::Today } else { Range::Day(sel.clone()) };
+    let cfg = d.status.as_ref().and_then(|s| s.as_ref().ok()).map(|s| s.config.clone());
     for r in list.iter().take(if sel == today { 5 } else { 8 }) {
-        col = col.child(app_row(cx, r, rmax, false, range.clone(), &uplinks, t.all_users));
+        col = col.child(app_row(cx, r, rmax, false, range.clone(), &uplinks, t.all_users, cfg.as_ref()));
     }
     // Журнал.
     let since = t.log_since.map(|ms| t!("с {d}", d = netapps::when_full(ms))).unwrap_or_else(|| t!("пока пуст"));

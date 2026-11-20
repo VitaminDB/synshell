@@ -210,19 +210,20 @@ pub fn open(app: Option<String>, title: String, range: Range) {
             alive2.store(false, Ordering::Relaxed);
             OPEN.with(|o| o.borrow_mut().remove(&app_key));
         });
-    let all_apps = app.is_none();
     let icon_path = info.and_then(|i| i.icon);
-    let h = open_window(cfg, move |_| body(win, window_title.clone(), range_sig, text, data, sel, send.clone(), icon_path.clone(), all_apps));
+    let app_for_body = app.clone();
+    let h = open_window(cfg, move |_| body(win, window_title.clone(), range_sig, text, data, sel, send.clone(), icon_path.clone(), app_for_body.clone()));
     OPEN.with(|o| o.borrow_mut().insert(app, h));
 }
 
 #[allow(clippy::too_many_arguments)]
-fn body(win: RwSignal<WindowState>, title: String, range: RwSignal<Range>, text: RwSignal<String>, data: RwSignal<Data>, sel: RwSignal<Option<u64>>, send: impl Fn() + Clone + Send + Sync + 'static, icon: Option<std::path::PathBuf>, all_apps: bool) -> W {
+fn body(win: RwSignal<WindowState>, title: String, range: RwSignal<Range>, text: RwSignal<String>, data: RwSignal<Data>, sel: RwSignal<Option<u64>>, send: impl Fn() + Clone + Send + Sync + 'static, icon: Option<std::path::PathBuf>, app: Option<String>) -> W {
+    let all_apps = app.is_none();
     let body = Column::new()
         .gap(0.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(synshell_common::csd::titlebar(win, move || title.clone(), Some(icons::LIST_ALT)))
-        .child(toolbar(range, text, data, send, icon))
+        .child(toolbar(range, text, data, send, icon, app))
         .child(list(data, sel, all_apps).class("grow"))
         .child(detail(data, sel));
     synshell_common::csd::frame(DecoratedBox::new().child(body).class("root conns-root"))
@@ -241,10 +242,11 @@ pub fn snapshot(app: Option<String>, range: Range, select: bool) -> W {
     let first = data.list.first().map(key);
     let sel = use_signal(if select { first } else { None });
     let icon = app.as_deref().and_then(|a| netapps::info(a).icon);
-    body(use_signal(WindowState::default()), t!("Соединения — {t}", t = title), use_signal(range), use_signal(String::new()), use_signal(data), sel, || {}, icon, app.is_none())
+    body(use_signal(WindowState::default()), t!("Соединения — {t}", t = title), use_signal(range), use_signal(String::new()), use_signal(data), sel, || {}, icon, app)
 }
 
-fn toolbar(range: RwSignal<Range>, text: RwSignal<String>, data: RwSignal<Data>, send: impl Fn() + Clone + Send + Sync + 'static, icon: Option<std::path::PathBuf>) -> W {
+fn toolbar(range: RwSignal<Range>, text: RwSignal<String>, data: RwSignal<Data>, send: impl Fn() + Clone + Send + Sync + 'static, icon: Option<std::path::PathBuf>, app: Option<String>) -> W {
+    let saved: RwSignal<Option<std::result::Result<std::path::PathBuf, String>>> = use_signal(None);
     let s1 = send.clone();
     let search = TextField::new()
         .placeholder(t!("Поиск: адрес, узел, порт, процесс, канал"))
@@ -290,7 +292,23 @@ fn toolbar(range: RwSignal<Range>, text: RwSignal<String>, data: RwSignal<Data>,
         if d.list.len() as u32 >= LIMIT {
             s.push_str(&t!(" · показаны последние {n}", n = LIMIT));
         }
-        vec![boxed(Text::new(s).max_lines(1).class("muted small"))]
+        let app = app.clone();
+        let list = d.list.clone();
+        let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(s).max_lines(1).class("muted small grow"));
+        match saved.get() {
+            Some(Ok(p)) => {
+                let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+                row = row.child(Text::new(t!("Сохранено: {p}", p = p.display())).max_lines(1).class("muted small")).child(Button::new(t!("Открыть папку")).icon(icons::FOLDER).class("btn").on_click(move || {
+                    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+                }));
+            }
+            Some(Err(e)) => row = row.child(Text::new(t!("Не сохранить: {e}", e = e)).max_lines(1).class("muted small conns-err")),
+            None => {}
+        }
+        if !list.is_empty() {
+            row = row.child(Button::new(t!("Экспорт CSV")).icon(icons::DOWNLOAD).class("btn").on_click(move || saved.set(Some(export_csv(&list, app.as_deref()).map_err(|e| e.to_string())))));
+        }
+        vec![boxed(row)]
     });
     let mut top = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if let Some(p) = icon {
@@ -395,6 +413,71 @@ fn row(c: &Conn, k: u64, sel: RwSignal<Option<u64>>, selected: bool, narrow: boo
         )
     };
     boxed(GestureDetector::new().on_click(move || sel.set(if selected { None } else { Some(k) })).child(DecoratedBox::new().child(content).class(if selected { "row-item selected" } else { "row-item" })))
+}
+
+/// Папка загрузок (`XDG_DOWNLOAD_DIR` из user-dirs.dirs), иначе домашняя.
+fn downloads_dir() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/tmp".into());
+    let cfg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".config"));
+    if let Ok(text) = std::fs::read_to_string(cfg.join("user-dirs.dirs")) {
+        for l in text.lines() {
+            if let Some(v) = l.trim().strip_prefix("XDG_DOWNLOAD_DIR=") {
+                let p = v.trim_matches('"').replace("$HOME", &home.to_string_lossy());
+                let p = std::path::PathBuf::from(p);
+                if p.is_dir() {
+                    return p;
+                }
+            }
+        }
+    }
+    home
+}
+
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Записи — в CSV (UTF-8, разделитель «,», время по местному часовому поясу) в папку загрузок.
+pub fn export_csv(list: &[Conn], app: Option<&str>) -> std::io::Result<std::path::PathBuf> {
+    let stamp = netapps::when_full(netapps::now_ms()).replace([' ', ':'], "-").replace('.', "-");
+    let name = format!("connections-{}-{stamp}.csv", app.map(|a| a.replace(['/', ' '], "_")).unwrap_or_else(|| "all".into()));
+    let path = downloads_dir().join(name);
+    let mut out = String::from("start,end,duration_s,app,process,pid,user,protocol,direction,remote,port,host,interface,rx_bytes,tx_bytes,other_addresses\n");
+    for c in list {
+        let dur = c.end.unwrap_or_else(netapps::now_ms).saturating_sub(c.start) as f64 / 1000.0;
+        let fields = [
+            netapps::when_full(c.start),
+            c.end.map(netapps::when_full).unwrap_or_default(),
+            format!("{dur:.1}"),
+            c.app.clone(),
+            c.comm.clone(),
+            c.pid.to_string(),
+            if c.pid > 0 { netapps::user(c.uid) } else { String::new() },
+            c.proto.clone(),
+            if c.incoming { "in".into() } else { "out".into() },
+            c.remote.clone(),
+            c.port.to_string(),
+            c.host.clone().unwrap_or_default(),
+            c.iface.clone(),
+            c.rx.to_string(),
+            c.tx.to_string(),
+            {
+                let mut a = c.also.join(" ");
+                if c.more > 0 {
+                    a.push_str(&format!(" +{}", c.more));
+                }
+                a.trim().to_string()
+            },
+        ];
+        out.push_str(&fields.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
+        out.push('\n');
+    }
+    std::fs::write(&path, out)?;
+    Ok(path)
 }
 
 /// Подробности выбранной записи.

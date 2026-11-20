@@ -320,7 +320,23 @@ impl Traffic {
             .and_then(|s| serde_json::from_str::<DayUsage>(&s).ok())
             .map(Day::from_usage)
             .unwrap_or(Day { date: today, ..Default::default() });
-        let known: Option<HashMap<String, u64>> = std::fs::read_to_string(dir.join("known.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let mut known: Option<HashMap<String, u64>> = std::fs::read_to_string(dir.join("known.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
+        // Списка ещё нет (обновление службы) — программы из архива расхода уже знакомы.
+        if known.is_none() {
+            let mut seeded: HashMap<String, u64> = HashMap::new();
+            for e in std::fs::read_dir(dir.join("usage")).into_iter().flatten().flatten() {
+                if let Some(u) = std::fs::read_to_string(e.path()).ok().and_then(|s| serde_json::from_str::<DayUsage>(&s).ok()) {
+                    for r in u.rows.into_iter().filter(|r| !r.app.is_empty()) {
+                        seeded.entry(r.app).or_insert(0);
+                    }
+                }
+            }
+            if !seeded.is_empty() {
+                tracing::info!("знакомые программы из архива: {}", seeded.len());
+                let _ = std::fs::write(dir.join("known.json"), serde_json::to_string(&seeded).unwrap_or_default());
+                known = Some(seeded);
+            }
+        }
         let names = Arc::new(Mutex::new(crate::dns::Names::default()));
         // Подписка дешёвая; включено ли «Имена узлов» — смотрится при записи.
         crate::dns::start(names.clone());

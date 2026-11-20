@@ -189,7 +189,7 @@ fn app_row(cx: &Cx, a: &App) -> W {
     let info = Column::new()
         .gap(1.0)
         .child(Text::new(a.name.clone()).max_lines(1).class("row-title"))
-        .child(Text::new(format!("{} · {} · {}", parts::kb(a.rss_kb), t!("ЦП {c}", c = parts::pct(a.cpu)), if a.pids.len() > 1 { t!("процессов {n}", n = a.pids.len()) } else { a.pid.map(|p| format!("PID {p}")).unwrap_or_default() })).max_lines(1).class("muted small"))
+        .child(Text::new(format!("{} · {} · {}{}", parts::kb(a.rss_kb), t!("ЦП {c}", c = parts::pct(a.cpu)), if a.pids.len() > 1 { t!("процессов {n}", n = a.pids.len()) } else { a.pid.map(|p| format!("PID {p}")).unwrap_or_default() }, net_line(cx, a))).max_lines(1).class("muted small"))
         .class("grow");
     let name = a.name.clone();
     let confirming = st.confirm.get() == Some(Confirm::Window(id));
@@ -287,6 +287,27 @@ fn proc_row(cx: &Cx, p: &syn_system::procs::Process, selected: bool) -> W {
         col = col.child(actions);
     }
     boxed(DecoratedBox::new().child(col).class(if selected { "row-item selected" } else { "row-item" }))
+}
+
+/// Сеть окна (synnetd): скорость сейчас и за сегодня — по программам его процессов.
+fn net_line(cx: &Cx, a: &App) -> String {
+    let s = cx.st.snap.get_untracked();
+    let Some(Ok(t)) = &s.netd.traffic else { return String::new() };
+    let (mut rb, mut tb, mut rd, mut td) = (0f64, 0f64, 0u64, 0u64);
+    for x in t.apps.iter().filter(|x| a.net_keys.contains(&x.app)) {
+        rb += x.rx_bps;
+        tb += x.tx_bps;
+        rd += x.rx_today;
+        td += x.tx_today;
+    }
+    if rd + td == 0 && rb + tb < 1.0 {
+        return String::new();
+    }
+    let mut out = format!(" · {}", t!("сеть ↓ {r} ↑ {t} за сегодня", r = parts::bytes(rd), t = parts::bytes(td)));
+    if rb + tb >= 1.0 {
+        out.push_str(&format!(" · ↓ {} ↑ {}", parts::rate(rb), parts::rate(tb)));
+    }
+    out
 }
 
 fn avatar_color(key: &str) -> Color {

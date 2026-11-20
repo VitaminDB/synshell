@@ -97,6 +97,8 @@ pub struct App {
     pub pids: Vec<i32>,
     pub rss_kb: u64,
     pub cpu: f32,
+    /// Программы synnetd процессов окна (имена исполняемых файлов).
+    pub net_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -319,6 +321,9 @@ impl Sampler {
         s.if_hist.retain(|k, _| s.net.iter().any(|i| i.info.name == *k));
         if page == Page::Network {
             netd(&mut s.netd, n);
+        } else if page == Page::Processes && every(2) {
+            // Трафик программ на карточках окон.
+            s.netd.traffic = Some(syn_netd::traffic().map_err(|e| e.to_string()));
         }
         s.disks = self.disks.sample();
         if every(5) || s.mounts.is_empty() {
@@ -402,7 +407,10 @@ fn apps(procs: &[syn_system::procs::Process]) -> Option<Vec<App>> {
             }
             let (rss_kb, cpu) = pids.iter().filter_map(|p| by_pid.get(p)).fold((0, 0.0), |a, p| (a.0 + p.rss_kb, a.1 + p.cpu_percent));
             let name = synshell_common::xdg::app_for_window(&w.app_id).map(|e| e.name).filter(|n| !n.is_empty()).unwrap_or_else(|| w.app_id.clone());
-            App { window: w.id, app_id: w.app_id, name, title: w.title, pid: w.pid, pids, rss_kb, cpu }
+            let mut net_keys: Vec<String> = pids.iter().filter_map(|p| std::fs::read_link(format!("/proc/{p}/exe")).ok()).filter_map(|e| e.file_name().map(|n| n.to_string_lossy().trim_end_matches(" (deleted)").to_string())).collect();
+            net_keys.sort();
+            net_keys.dedup();
+            App { window: w.id, app_id: w.app_id, name, title: w.title, pid: w.pid, pids, rss_kb, cpu, net_keys }
         })
         .collect();
     out.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb));
@@ -412,7 +420,7 @@ fn apps(procs: &[syn_system::procs::Process]) -> Option<Vec<App>> {
 /// synnetd: трафик — каждую секунду, состояние — раз в 5 с, архив — раз в минуту.
 fn netd(d: &mut NetD, n: u64) {
     d.installed = syn_netd::installed();
-    let first = d.status.is_none();
+    let first = d.status.is_none() || STATUS_STALE.swap(false, Ordering::Relaxed);
     d.traffic = Some(syn_netd::traffic().map_err(|e| e.to_string()));
     if first || n % 5 == 0 {
         d.status = Some(syn_netd::status().map_err(|e| e.to_string()));
@@ -425,6 +433,13 @@ fn netd(d: &mut NetD, n: u64) {
             d.usage = u;
         }
     }
+}
+
+static STATUS_STALE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Перечитать состояние synnetd на следующем такте (после смены выбора программы).
+pub fn refresh_netd() {
+    STATUS_STALE.store(true, Ordering::Relaxed);
 }
 
 fn syn_netd_now() -> u64 {

@@ -162,6 +162,10 @@ pub mod icons {
     pub const SETTINGS: &str = "\u{E8B8}";
     pub const LIST_ALT: &str = "\u{E0EE}";
     pub const COPY: &str = "\u{E14D}";
+    pub const PUBLIC: &str = "\u{E80B}";
+    pub const BLOCK: &str = "\u{E14B}";
+    pub const DOWNLOAD: &str = "\u{E2C4}";
+    pub const FOLDER: &str = "\u{E2C7}";
 }
 
 /// Период таблицы программ на странице «Сеть».
