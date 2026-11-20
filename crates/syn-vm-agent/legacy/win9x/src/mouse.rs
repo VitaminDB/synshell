@@ -99,8 +99,25 @@ pub unsafe extern "system" fn thread(_: *mut u8) -> u32 {
     let mut on = false;
     let mut buttons = 0u32;
     let mut last = (u32::MAX, u32::MAX);
+    // Смена режима экрана (выход из полноэкранной игры): Windows 95 перерисовывает только область прежнего режима
+    // (после wine-ddraw 640×480 — остальное чёрное). Полная перерисовка через 0,5 и 1,5 с после смены.
+    let mut size = unsafe { (GetSystemMetrics(0), GetSystemMetrics(1)) };
+    let mut redraw: [u32; 2] = [0; 2];
     loop {
         let (sw, sh) = unsafe { (GetSystemMetrics(0), GetSystemMetrics(1)) };
+        let now = unsafe { GetTickCount() };
+        if (sw, sh) != size {
+            size = (sw, sh);
+            redraw = [now.wrapping_add(500) | 1, now.wrapping_add(1500) | 1];
+        }
+        for t in redraw.iter_mut() {
+            if *t != 0 && (now.wrapping_sub(*t) as i32) >= 0 {
+                *t = 0;
+                // RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME
+                unsafe { RedrawWindow(0, core::ptr::null(), 0, 0x1 | 0x4 | 0x80 | 0x100 | 0x400) };
+                crate::log("экран: режим сменился — перерисовка");
+            }
+        }
         let want = !clipped(sw, sh);
         if want && !on {
             on = enable();
