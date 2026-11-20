@@ -8770,6 +8770,7 @@ dependencies = [
  "khronos-egl",
  "libc",
  "log",
+ "miniz_oxide 0.8.9",
  "mss-lang",
  "objc2 0.6.4",
  "oboe",

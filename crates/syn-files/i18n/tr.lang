@@ -455,6 +455,8 @@
 "Формат не поддерживается" = "Biçim desteklenmiyor"
 
 # src/viewer/ui.rs
+"Печать" = "Yazdır"
+"Печать (Ctrl+P)" = "Yazdır (Ctrl+P)"
 "Просмотр" = "Görüntüleyici"
 "{v} из {n}" = "{v} / {n}"
 "Показать в папке" = "Klasörde Göster"

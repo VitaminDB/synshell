@@ -455,6 +455,8 @@
 "Формат не поддерживается" = "Format non pris en charge"
 
 # src/viewer/ui.rs
+"Печать" = "Imprimer"
+"Печать (Ctrl+P)" = "Imprimer (Ctrl+P)"
 "Просмотр" = "Visionneuse"
 "{v} из {n}" = "{v} sur {n}"
 "Показать в папке" = "Afficher dans le dossier"

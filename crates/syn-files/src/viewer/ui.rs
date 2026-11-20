@@ -52,6 +52,7 @@ mod glyph {
     pub const COPY: &str = "\u{e14d}";
     pub const INFO: &str = "\u{e88e}";
     pub const OPEN_WITH: &str = "\u{e89e}";
+    pub const PRINT: &str = "\u{e8ad}";
     pub const IMAGE: &str = "\u{e3f4}";
     pub const BROKEN: &str = "\u{e3ad}";
     pub const HOURGLASS: &str = "\u{e88b}";
@@ -75,14 +76,16 @@ pub fn root() -> W {
     let hook = EventHook::new()
         .on_key_down(|k, m| if on_key(k, m) { KeyReply::Handled } else { KeyReply::Ignore })
         .on_char(on_char)
-        .child(GestureDetector::new().on_back(back).child(Stack::new().fit(StackFit::Expand).child(main).child(menu_layer())));
+        .child(GestureDetector::new().on_back(back).child(Stack::new().fit(StackFit::Expand).child(main).child(menu_layer()).child(print_layer())));
     boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(hook))
 }
 
 /// «Назад» телефона: закрыть меню или сведения, иначе — просмотрщик.
 fn back() -> bool {
     let v = v();
-    if v.menu_open.get_untracked() {
+    if v.print_open.get_untracked() {
+        v.print_open.set(false);
+    } else if v.menu_open.get_untracked() {
         v.menu_open.set(false);
     } else if v.show_info.get_untracked() {
         v.show_info.set(false);
@@ -124,6 +127,7 @@ fn phone_titlebar() -> W {
             let mut items = vec![
                 MenuItem::new("folder", t!("Показать в папке")).icon(glyph::FOLDER),
                 MenuItem::new("copy", t!("Копировать")).icon(glyph::COPY),
+                MenuItem::new("print", t!("Печать")).icon(glyph::PRINT),
                 MenuItem::new("delete", t!("Удалить в корзину")).icon(glyph::DELETE),
             ];
             let apps: Vec<MenuItem> = mime::apps_for(&it.mime)
@@ -213,6 +217,7 @@ fn titlebar() -> W {
                 .child(title_button(glyph::FOLDER, &t!("Показать в папке"), "", show_in_folder))
                 .child(open_with_button())
                 .child(title_button(glyph::COPY, &t!("Копировать (Ctrl+C)"), "", copy_current))
+                .child(title_button(glyph::PRINT, &t!("Печать (Ctrl+P)"), "", move || v.print()))
                 .child(title_button(glyph::DELETE, &t!("Удалить (Delete)"), "", delete_current)),
         )]
     });
@@ -261,6 +266,23 @@ fn open_with_button() -> W {
     )
 }
 
+/// Окно печати поверх всего.
+fn print_layer() -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let v = v();
+        let Some(doc) = v.print_doc.get() else { return vec![] };
+        vec![boxed(
+            syngui::print::PrintDialog::new(v.print_open, doc.1)
+                .on_done(|r| {
+                    if let Ok(o) = r {
+                        super::v().flash(syngui::print::outcome_text(&o));
+                    }
+                })
+                .build(),
+        )]
+    }))
+}
+
 fn menu_layer() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let v = v();
@@ -276,6 +298,7 @@ fn menu_layer() -> W {
                     match id {
                         "folder" => show_in_folder(),
                         "copy" => copy_current(),
+                        "print" => v.print(),
                         "delete" => delete_current(),
                         _ => {}
                     }
@@ -359,7 +382,7 @@ fn stage() -> W {
 /// Итоговый поворот: EXIF, поверх него — пользовательский. `ImageViewport`
 /// сначала поворачивает, потом отражает; отражение из EXIF меняет знак
 /// пользовательского поворота (R·F = F·R⁻¹).
-fn combine(p: &Prepared, u: Orientation) -> (i32, bool, bool) {
+pub(super) fn combine(p: &Prepared, u: Orientation) -> (i32, bool, bool) {
     let turns = if p.exif_flip { p.exif_turns - u.turns } else { p.exif_turns + u.turns };
     (turns, u.flip_h ^ p.exif_flip, u.flip_v)
 }
@@ -622,7 +645,7 @@ fn delete_current() {
 fn on_key(key: Key, m: Modifiers) -> bool {
     use syngui::widgets::ImageViewCommand as C;
     let v = v();
-    if v.menu_open.get_untracked() {
+    if v.menu_open.get_untracked() || v.print_open.get_untracked() {
         return false;
     }
     let full = v.window.get_untracked().fullscreen;
@@ -637,6 +660,7 @@ fn on_key(key: Key, m: Modifiers) -> bool {
         Key::Escape if full => syngui::signal::toggle_fullscreen(),
         Key::Escape => std::process::exit(0),
         Key::C if m.ctrl => copy_current(),
+        Key::P if m.ctrl => v.print(),
         Key::W | Key::Q if m.ctrl => std::process::exit(0),
         Key::Left if zoomed => v.send(C::PanBy(-PAN, 0.0)),
         Key::Right if zoomed => v.send(C::PanBy(PAN, 0.0)),
@@ -664,6 +688,9 @@ fn on_key(key: Key, m: Modifiers) -> bool {
 /// «+» и «−» своих `Key` не имеют — приходят вводом символа.
 fn on_char(c: char) -> bool {
     use syngui::widgets::ImageViewCommand as C;
+    if v().print_open.get_untracked() {
+        return false;
+    }
     match c {
         '+' | '=' => v().send(C::ZoomIn),
         '-' | '_' => v().send(C::ZoomOut),

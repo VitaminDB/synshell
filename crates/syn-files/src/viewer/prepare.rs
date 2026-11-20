@@ -90,6 +90,33 @@ pub fn get(it: &Item) -> Option<Prepared> {
     None
 }
 
+/// То же, что [`get`], но ждёт готовности (печать — из фонового потока).
+pub fn get_blocking(it: &Item) -> Prepared {
+    let key = (it.path.clone(), it.mtime);
+    if let Some(p) = cache().lock().unwrap().ready.get(&key) {
+        return p.clone();
+    }
+    let p = prepare(it);
+    cache().lock().unwrap().ready.insert(key, p.clone());
+    p
+}
+
+/// Картинка для печати: полный размер, повёрнутая по EXIF и по `user`.
+pub fn print_image(it: &Item, user: super::Orientation) -> Result<syngui::print::PrintImage, String> {
+    use syngui::print::PrintImage;
+    let p = get_blocking(it);
+    let Some(display) = p.display.clone() else { return Err(p.error.unwrap_or_else(|| t!("Не удалось открыть").into())) };
+    if it.mime == "image/svg+xml" {
+        let img = PrintImage::load(&display)?;
+        return Ok(img.transformed(user.turns, user.flip_h, user.flip_v));
+    }
+    let img = image::ImageReader::open(&display).and_then(|r| r.with_guessed_format()).map_err(|e| e.to_string())?.decode().map_err(|e| e.to_string())?;
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let (turns, flip_h, flip_v) = super::ui::combine(&p, user);
+    Ok(PrintImage::from_rgba(w, h, rgba.into_raw()).transformed(turns, flip_h, flip_v))
+}
+
 /// Размытый фон: готовый файл, `None` — делается или не выйдет.
 pub fn blur(it: &Item, prepared: &Prepared) -> Option<PathBuf> {
     let key = (it.path.clone(), it.mtime);

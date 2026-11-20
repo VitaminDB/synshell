@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 syn-fsd.workspace = true
 synshell-common = { workspace = true, features = ["i18n", "thumbs", "drives", "style"] }
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg", "wayland-dnd", "ffmpeg", "markdown-syntax", "terminal"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg", "wayland-dnd", "ffmpeg", "markdown-syntax", "terminal", "print"] }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

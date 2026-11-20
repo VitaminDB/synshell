@@ -88,6 +88,19 @@ pub struct Viewer {
     pub menu_open: RwSignal<bool>,
     pub menu_pos: RwSignal<Point>,
     pub theme: RwSignal<String>,
+    /// Окно печати и что в нём печатается.
+    pub print_open: RwSignal<bool>,
+    pub print_doc: RwSignal<Option<PrintDoc>>,
+}
+
+/// Документ окна печати; сравнивается по номеру (сигналу нужно `PartialEq`).
+#[derive(Clone)]
+pub struct PrintDoc(pub u64, pub Arc<dyn syngui::print::PrintDocument>);
+
+impl PartialEq for PrintDoc {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0
+    }
 }
 
 thread_local! {
@@ -140,6 +153,27 @@ impl Viewer {
             // Новая картинка — вписанной.
             self.send(ImageViewCommand::Fit);
         }
+    }
+
+    /// Окно печати: все картинки папки, текущая — выбранной по умолчанию.
+    pub fn print(&self) {
+        let items = self.items.get_untracked();
+        if items.is_empty() {
+            return;
+        }
+        let index = self.index.get_untracked();
+        let orient = self.orient.get_untracked();
+        let title = items[index.min(items.len() - 1)].name.clone();
+        let list = items.clone();
+        let doc = syngui::print::ImageDocument::new(title, items.len(), index, move |i| {
+            let it = list.get(i).ok_or("нет картинки")?;
+            let user = orient.get(&it.path).copied().unwrap_or_default();
+            prepare::print_image(it, user)
+        })
+        .default_range(syngui::print::PageRange::Current);
+        let seq = self.print_doc.get_untracked().map(|d| d.0 + 1).unwrap_or(1);
+        self.print_doc.set(Some(PrintDoc(seq, Arc::new(doc))));
+        self.print_open.set(true);
     }
 
     /// Сообщение вверху сцены на 3 с.
@@ -212,6 +246,8 @@ fn init(file: &Path, cfg: &synshell_common::Config) -> Viewer {
         menu_open: use_signal(false),
         menu_pos: use_signal(Point::zero()),
         theme: use_signal(theme_mss(cfg)),
+        print_open: use_signal(false),
+        print_doc: use_signal(None),
     };
     VIEWER.with(|c| *c.borrow_mut() = Some(v));
     connect_background();
