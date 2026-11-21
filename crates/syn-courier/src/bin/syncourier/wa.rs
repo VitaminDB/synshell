@@ -135,8 +135,14 @@ impl WhatsApp {
                             return;
                         }
                     }
+                    // Только новые: история и очередь за время простоя службы — мимо.
+                    let ts = ctx.info.timestamp.timestamp_millis().max(0) as u64;
+                    if !fresh(ts) {
+                        return;
+                    }
                     let Some(text) = ctx.message.text_content() else {
-                        hub.say("Пока понимаю только текст.").await;
+                        // Вложения; служебные (ключи, синхронизация, реакции) — молча.
+                        incoming_media(&hub, &ctx).await;
                         return;
                     };
                     let text = text.trim().to_string();
@@ -157,6 +163,101 @@ impl WhatsApp {
         let client = self.client.lock().unwrap().clone().context("WhatsApp не подключён")?;
         let me = client.pn().or_else(|| client.lid()).context("свой номер неизвестен")?.to_non_ad();
         let r = client.send_message(&me, wa::Message::text(text)).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut s = self.sent.lock().unwrap();
+        s.push_back(r.message_id);
+        while s.len() > SENT_MAX {
+            s.pop_front();
+        }
+        Ok(())
+    }
+
+    /// Отправить файл в «Сообщения себе»: картинка, видео, аудио (голосовое — `voice`), иначе документ.
+    pub async fn send_file_self(&self, path: &std::path::Path, caption: &str, voice: bool) -> anyhow::Result<()> {
+        use whatsapp_rust::download::MediaType;
+        let client = self.client.lock().unwrap().clone().context("WhatsApp не подключён")?;
+        let me = client.pn().or_else(|| client.lid()).context("свой номер неизвестен")?.to_non_ad();
+        let data = std::fs::read(path).with_context(|| path.display().to_string())?;
+        anyhow::ensure!(data.len() <= 100 * 1024 * 1024, "файл больше 100 МБ");
+        let mime = crate::media::mime_for(path).to_string();
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "файл".into());
+        let caption = (!caption.trim().is_empty()).then(|| caption.trim().to_string());
+        let kind = if voice || mime.starts_with("audio/") {
+            MediaType::Audio
+        } else if mime.starts_with("image/") && mime != "image/gif" {
+            MediaType::Image
+        } else if mime.starts_with("video/") {
+            MediaType::Video
+        } else {
+            MediaType::Document
+        };
+        let seconds = if matches!(kind, MediaType::Audio | MediaType::Video) { Some(crate::media::duration_secs(path).await) } else { None };
+        let up = client.upload(data, kind, Default::default()).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut msg = wa::Message::default();
+        match kind {
+            MediaType::Image => {
+                msg.image_message = MessageField::some(wa::message::ImageMessage {
+                    url: Some(up.url),
+                    direct_path: Some(up.direct_path),
+                    media_key: Some(up.media_key.to_vec()),
+                    file_enc_sha256: Some(up.file_enc_sha256.to_vec()),
+                    file_sha256: Some(up.file_sha256.to_vec()),
+                    file_length: Some(up.file_length),
+                    media_key_timestamp: Some(up.media_key_timestamp),
+                    mimetype: Some(mime),
+                    caption,
+                    ..Default::default()
+                })
+            }
+            MediaType::Video => {
+                msg.video_message = MessageField::some(wa::message::VideoMessage {
+                    url: Some(up.url),
+                    direct_path: Some(up.direct_path),
+                    media_key: Some(up.media_key.to_vec()),
+                    file_enc_sha256: Some(up.file_enc_sha256.to_vec()),
+                    file_sha256: Some(up.file_sha256.to_vec()),
+                    file_length: Some(up.file_length),
+                    media_key_timestamp: Some(up.media_key_timestamp),
+                    mimetype: Some(mime),
+                    streaming_sidecar: up.streaming_sidecar,
+                    seconds,
+                    caption,
+                    ..Default::default()
+                })
+            }
+            MediaType::Audio => {
+                msg.audio_message = MessageField::some(wa::message::AudioMessage {
+                    url: Some(up.url),
+                    direct_path: Some(up.direct_path),
+                    media_key: Some(up.media_key.to_vec()),
+                    file_enc_sha256: Some(up.file_enc_sha256.to_vec()),
+                    file_sha256: Some(up.file_sha256.to_vec()),
+                    file_length: Some(up.file_length),
+                    media_key_timestamp: Some(up.media_key_timestamp),
+                    mimetype: Some(if voice { "audio/ogg; codecs=opus".into() } else { mime }),
+                    streaming_sidecar: up.streaming_sidecar,
+                    seconds,
+                    ptt: Some(voice),
+                    ..Default::default()
+                })
+            }
+            _ => {
+                msg.document_message = MessageField::some(wa::message::DocumentMessage {
+                    url: Some(up.url),
+                    direct_path: Some(up.direct_path),
+                    media_key: Some(up.media_key.to_vec()),
+                    file_enc_sha256: Some(up.file_enc_sha256.to_vec()),
+                    file_sha256: Some(up.file_sha256.to_vec()),
+                    file_length: Some(up.file_length),
+                    media_key_timestamp: Some(up.media_key_timestamp),
+                    mimetype: Some(mime),
+                    title: Some(name.clone()),
+                    file_name: Some(name),
+                    caption,
+                    ..Default::default()
+                })
+            }
+        }
+        let r = client.send_message(&me, msg).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut s = self.sent.lock().unwrap();
         s.push_back(r.message_id);
         while s.len() > SENT_MAX {
@@ -193,6 +294,85 @@ impl WhatsApp {
     }
 }
 
+/// Вложение из чата: сохранить; голосовое — распознать; Claude — путь и подпись.
+async fn incoming_media(hub: &Arc<Hub>, ctx: &MessageContext) {
+    let base = ctx.message.get_base_message();
+    let client = &ctx.client;
+    // (байты, имя файла, подпись, что это, голосовое)
+    let got: Option<(anyhow::Result<Vec<u8>>, String, String, &str, bool)> = if let Some(m) = base.image_message.as_option() {
+        Some((client.download(m).await.map_err(|e| anyhow::anyhow!("{e}")), format!("фото.{}", crate::media::ext_for(m.mimetype.as_deref().unwrap_or(""))), m.caption.clone().unwrap_or_default(), "фото", false))
+    } else if let Some(m) = base.video_message.as_option() {
+        Some((client.download(m).await.map_err(|e| anyhow::anyhow!("{e}")), format!("видео.{}", crate::media::ext_for(m.mimetype.as_deref().unwrap_or(""))), m.caption.clone().unwrap_or_default(), "видео", false))
+    } else if let Some(m) = base.document_message.as_option() {
+        let name = m.file_name.clone().unwrap_or_else(|| format!("документ.{}", crate::media::ext_for(m.mimetype.as_deref().unwrap_or(""))));
+        Some((client.download(m).await.map_err(|e| anyhow::anyhow!("{e}")), name, m.caption.clone().unwrap_or_default(), "документ", false))
+    } else if let Some(m) = base.audio_message.as_option() {
+        let voice = m.ptt.unwrap_or(false);
+        Some((client.download(m).await.map_err(|e| anyhow::anyhow!("{e}")), format!("{}.{}", if voice { "голосовое" } else { "аудио" }, crate::media::ext_for(m.mimetype.as_deref().unwrap_or(""))), String::new(), if voice { "голосовое" } else { "аудио" }, voice))
+    } else if let Some(m) = base.sticker_message.as_option() {
+        Some((client.download(m).await.map_err(|e| anyhow::anyhow!("{e}")), "стикер.webp".into(), String::new(), "стикер", false))
+    } else {
+        None
+    };
+    let Some((bytes, name, caption, what, voice)) = got else { return };
+    let bytes = match bytes {
+        Ok(b) => b,
+        Err(e) => {
+            hub.say(&format!("⚠️ Не скачал {what}: {e:#}")).await;
+            return;
+        }
+    };
+    let path = match crate::media::save(&bytes, &name) {
+        Ok(p) => p,
+        Err(e) => {
+            hub.say(&format!("⚠️ Не сохранил {what}: {e}")).await;
+            return;
+        }
+    };
+    tracing::info!("WhatsApp: {what} → {}", path.display());
+    if voice {
+        match crate::media::transcribe(&path).await {
+            Ok(t) if !t.is_empty() => {
+                hub.say(&format!("🎤 {t}")).await;
+                hub.incoming(ID, t);
+                return;
+            }
+            Ok(_) => hub.say("🎤 Речь не распознана — передаю файл Claude.").await,
+            Err(e) => hub.say(&format!("🎤 Не распознал ({e:#}) — передаю файл Claude.")).await,
+        }
+    }
+    let mut msg = format!("[Пользователь прислал {what}: {}]", path.display());
+    if !caption.trim().is_empty() {
+        msg.push('\n');
+        msg.push_str(caption.trim());
+    }
+    hub.incoming(ID, msg);
+}
+
+/// Предел возраста сообщения: старше — не разбирать (часть истории).
+const MAX_AGE_MS: u64 = 10 * 60 * 1000;
+
+fn last_file() -> PathBuf {
+    syn_courier::data_dir().join("whatsapp.last")
+}
+
+/// Новое ли сообщение: не старше [`MAX_AGE_MS`] и позже последнего разобранного (оно запоминается).
+fn fresh(ts: u64) -> bool {
+    static LAST: Mutex<Option<u64>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    let prev = *last.get_or_insert_with(|| std::fs::read_to_string(last_file()).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0));
+    if !is_fresh(ts, prev, crate::hub::now_ms()) {
+        return false;
+    }
+    *last = Some(ts);
+    let _ = std::fs::write(last_file(), ts.to_string());
+    true
+}
+
+pub fn is_fresh(ts: u64, last: u64, now: u64) -> bool {
+    ts > last && ts + MAX_AGE_MS >= now
+}
+
 fn protect(db: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
     for ext in ["", "-wal", "-shm"] {
@@ -200,5 +380,16 @@ fn protect(db: &std::path::Path) {
         if p.exists() {
             let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn freshness() {
+        let now = 1_000_000_000u64;
+        assert!(super::is_fresh(now - 1000, 0, now));
+        assert!(!super::is_fresh(now - 3_600_000, 0, now), "история — мимо");
+        assert!(!super::is_fresh(now - 1000, now - 500, now), "уже разобранное — мимо");
     }
 }

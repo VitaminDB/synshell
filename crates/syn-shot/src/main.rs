@@ -27,12 +27,15 @@ fn main() {
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
 
     let mut capture: Option<String> = None;
+    let mut full: Option<String> = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--capture" => capture = it.next(),
+            // Без оверлея: весь экран (все выводы) сразу в PNG — для скриптов и Курьера.
+            "--full" => full = it.next(),
             "-h" | "--help" => {
-                println!("{}", t!("synshot [--capture ФАЙЛ]\n\nВыделить область или окно и сохранить снимок экрана."));
+                println!("{}", t!("synshot [--capture ФАЙЛ] [--full PNG]\n\nВыделить область или окно и сохранить снимок экрана.\n--full PNG — весь экран сразу в файл, без выделения."));
                 return;
             }
             "-V" | "--version" => {
@@ -41,6 +44,24 @@ fn main() {
             }
             _ => {}
         }
+    }
+
+    if let Some(out) = full {
+        let r = Shot::capture_now().and_then(Shot::load).and_then(|shot| {
+            let b = shot.bounds;
+            let (w, h, px) = shot.crop(&b, false).ok_or_else(|| anyhow::anyhow!("пустой снимок"))?;
+            let png = crate::output::encode_png(w, h, &px)?;
+            std::fs::write(&out, png)?;
+            Ok((w, h))
+        });
+        match r {
+            Ok((w, h)) => println!("{out}: {w}x{h}"),
+            Err(e) => {
+                eprintln!("synshot: {e:#}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
 
     // Один оверлей за раз: повторный Print, пока он открыт, ничего не делает.

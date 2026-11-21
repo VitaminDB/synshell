@@ -22,7 +22,6 @@ mod gl {
     pub const SMART_TOY: &str = "\u{F06C}";
     pub const SETTINGS: &str = "\u{E8B8}";
     pub const SEND: &str = "\u{E163}";
-    pub const PHONE: &str = "\u{E32C}";
 }
 
 thread_local! {
@@ -146,7 +145,7 @@ fn whatsapp_card(c: &ChannelStatus) -> Box<dyn Widget> {
     let mut head = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(icon(gl::PHONE).class("link-avatar-icon")).class(if on { "link-avatar link-avatar-on" } else { "link-avatar" }))
+        .child(DecoratedBox::new().child(icon(gl::CHAT).class("courier-avatar-icon")).class(if on { "courier-avatar courier-wa courier-on" } else { "courier-avatar courier-wa" }))
         .child(
             Column::new()
                 .gap(2.0)
@@ -183,7 +182,10 @@ fn whatsapp_card(c: &ChannelStatus) -> Box<dyn Widget> {
     if c.state == ChannelState::Online {
         col = col.child(Text::new(t!("Пишите в чат «Сообщения себе» — ответит Claude; /help — команды.")).max_lines(3).class("link-note"));
     }
-    Box::new(DecoratedBox::new().child(col).class(if on { "link-card link-card-on" } else { "link-card" }))
+    if matches!(c.state, ChannelState::Unlinked | ChannelState::Off) {
+        col = col.child(Text::new(t!("Уведомления и разговор с Claude из чата «Сообщения себе» — привязка по QR-коду, как WhatsApp Web.")).max_lines(3).class("link-note"));
+    }
+    Box::new(DecoratedBox::new().child(col).class(if on { "link-card courier-wa-card" } else { "link-card" }))
 }
 
 fn fxhash(s: &str) -> u64 {
@@ -207,7 +209,7 @@ fn claude_row(st: &Status) -> Box<dyn Widget> {
                 Row::new()
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(DecoratedBox::new().child(icon(gl::SMART_TOY).class("link-avatar-icon")).class(if c.busy { "link-avatar link-avatar-on" } else { "link-avatar" }))
+                    .child(DecoratedBox::new().child(icon(gl::SMART_TOY).class("courier-avatar-icon")).class(if c.running { "courier-avatar courier-claude courier-on" } else { "courier-avatar courier-claude" }))
                     .child(
                         Column::new()
                             .gap(2.0)
@@ -244,20 +246,30 @@ fn ask_field() -> Box<dyn Widget> {
         send(Request::Ask { text: t });
     };
     Box::new(
-        Row::new()
-            .gap(6.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(rx(move || {
-                let _ = field_rev.get();
-                Box::new(
-                    TextField::new()
-                        .placeholder(t!("Написать Claude…"))
-                        .on_change(move |t: &str| text.set(t.to_string()))
-                        .on_submit(move |_| submit())
-                        .class("grow courier-ask"),
-                ) as Box<dyn Widget>
-            }))
-            .child(icon_button(gl::SEND, submit)),
+        DecoratedBox::new()
+            .child(
+                Row::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("grow").child(rx(move || {
+                        let _ = field_rev.get();
+                        Box::new(
+                            TextField::new()
+                                .placeholder(t!("Написать Claude…"))
+                                .on_change(move |t: &str| text.set(t.to_string()))
+                                .on_submit(move |_| submit())
+                                .class("courier-ask courier-ask-field"),
+                        ) as Box<dyn Widget>
+                    })))
+                    .child(
+                        InputArea::new(DecoratedBox::new().child(icon(gl::SEND).class("courier-send-icon")).class("courier-send")).pointer().on_click(move |b, _, _| {
+                            if b == MouseButton::Left {
+                                submit();
+                            }
+                        }),
+                    ),
+            )
+            .class("courier-composer"),
     )
 }
 
@@ -268,11 +280,18 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
     let sig = status_sig();
     Column::new()
         .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new(t!("Курьер")).class("popup-title grow"))
+                .child(
+                    Column::new()
+                        .gap(1.0)
+                        .class("grow")
+                        .child(Text::new(t!("Курьер")).class("popup-title"))
+                        .child(Text::new("WhatsApp · Claude Code").class("link-note")),
+                )
                 .child(icon_button(gl::SETTINGS, || {
                     ShellCtx::get().close_popup();
                     crate::actions::spawn("synsettings courier");

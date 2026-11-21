@@ -85,6 +85,10 @@ impl Hub {
         }
     }
 
+    pub fn remember_pub(&self, dir: &str, text: &str) {
+        self.remember(dir, text);
+    }
+
     /// Сообщение пользователя из канала → разводка.
     pub fn incoming(&self, channel: &str, text: String) {
         self.remember("in", &text);
@@ -263,6 +267,32 @@ async fn serve(hub: Arc<Hub>, conn: tokio::net::UnixStream) -> anyhow::Result<()
             tokio::spawn(async move { crate::hook::handle(hub2, event).await });
             Response { ok: true, ..Default::default() }
         }
+        Ok(Request::SendFile { path, caption, voice }) => {
+            let p = std::path::PathBuf::from(&path);
+            if !p.is_file() {
+                Response { ok: false, error: Some(format!("нет файла {path}")), ..Default::default() }
+            } else if hub.channel_state("whatsapp") != ChannelState::Online {
+                Response { ok: false, error: Some("WhatsApp не подключён".into()), ..Default::default() }
+            } else {
+                hub.remember_pub("out", &format!("📎 {}", p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+                match hub.wa.send_file_self(&p, &caption, voice).await {
+                    Ok(()) => Response { ok: true, ..Default::default() },
+                    Err(e) => Response { ok: false, error: Some(format!("{e:#}")), ..Default::default() },
+                }
+            }
+        }
+        Ok(Request::Say { text }) => match crate::media::synthesize(&text).await {
+            Ok((ogg, _)) => {
+                hub.remember_pub("out", &format!("🔊 {text}"));
+                let r = hub.wa.send_file_self(&ogg, "", true).await;
+                let _ = std::fs::remove_file(&ogg);
+                match r {
+                    Ok(()) => Response { ok: true, ..Default::default() },
+                    Err(e) => Response { ok: false, error: Some(format!("{e:#}")), ..Default::default() },
+                }
+            }
+            Err(e) => Response { ok: false, error: Some(format!("{e:#}")), ..Default::default() },
+        },
         Ok(Request::Ask { text }) => {
             hub.incoming("local", text);
             Response { ok: true, ..Default::default() }

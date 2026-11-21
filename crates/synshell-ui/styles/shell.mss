@@ -2025,4 +2025,35 @@ TextField {
 .courier-msg-text { font-size: 12px; color: var(--fg); }
 .courier-applet-on { icon-color: var(--accent); }
 .courier-busy-dot { width: 6px; height: 6px; border-radius: 999px; background-color: var(--accent); }
-.courier-ask { font-size: 13px; }
+
+/* Курьер: значки каналов в фирменных цветах, поле «написать Claude» таблеткой. */
+.courier-avatar { padding: 9px; border-radius: 999px; background-color: var(--hover); transition: background-color 240ms ease-out; }
+.courier-avatar-icon { icon-size: 22px; icon-color: var(--muted); }
+.courier-wa { background-color: #25D36622; }
+.courier-wa .courier-avatar-icon { icon-color: #25D366; }
+.courier-wa.courier-on { background-color: #25D366; box-shadow: 0 4px 16px #25D36644; }
+.courier-claude { background-color: #D9775722; }
+.courier-claude .courier-avatar-icon { icon-color: #D97757; }
+.courier-claude.courier-on { background-color: #D97757; box-shadow: 0 4px 16px #D9775744; }
+.courier-on .courier-avatar-icon { icon-color: #ffffff; }
+.courier-composer {
+    padding: 4px 4px 4px 14px;
+    border-radius: 999px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+}
+.courier-ask {
+    background-color: #00000000;
+    border-width: 0px;
+    padding: 6px 0px;
+    font-size: 13px;
+    color: var(--fg);
+    caret-color: var(--accent);
+}
+.courier-send { padding: 7px; border-radius: 999px; background-color: var(--accent); transition: scale 120ms ease-out; }
+.courier-send:hover { opacity: 0.9; }
+.courier-send:active { scale: 0.92; }
+.courier-send-icon { icon-size: 17px; icon-color: var(--accent-fg); }
+.courier-wa-card { background-color: #25D36614; border-color: #25D36640; }
+.courier-ask-field { width: 100%; }

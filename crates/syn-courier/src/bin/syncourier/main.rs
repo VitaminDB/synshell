@@ -6,6 +6,9 @@
 //! syncourier link            привязать WhatsApp: QR-код в терминале
 //! syncourier unlink          отвязать WhatsApp
 //! syncourier hook           хук Claude Code (Stop, Notification): JSON события на входе
+//! syncourier send ФАЙЛ [ПОДПИСЬ] [--voice]
+//!                            отправить файл в мессенджер (картинка, видео, аудио, документ)
+//! syncourier say ТЕКСТ       сказать голосом (синтез речи synaptix → голосовое)
 //! syncourier ask ТЕКСТ      сообщение как от пользователя (проверка без телефона)
 //! syncourier notify ТЕКСТ [--title З] [--source claude]
 //!                            уведомление (хуки Claude Code, claude-call-user, скрипты)
@@ -16,6 +19,7 @@
 
 mod claude;
 mod hook;
+mod media;
 mod hub;
 mod notify;
 mod router;
@@ -35,6 +39,8 @@ fn main() {
         Some("reload") => simple(Request::Reload),
         Some("notify") => cli_notify(&args[1..]),
         Some("hook") => cli_hook(),
+        Some("send") => cli_send(&args[1..]),
+        Some("say") => simple(Request::Say { text: args[1..].join(" ") }),
         Some("ask") => simple(Request::Ask { text: args[1..].join(" ") }),
         Some("-h" | "--help" | "help") => {
             println!("syncourier [status | link | unlink | reload | notify ТЕКСТ [--title З] [--source claude]]");
@@ -89,6 +95,18 @@ fn cli_notify(args: &[String]) -> i32 {
         let _ = std::io::stdin().read_to_string(&mut body);
     }
     simple(Request::Notify { title, body: body.trim().to_string(), source })
+}
+
+fn cli_send(args: &[String]) -> i32 {
+    let voice = args.iter().any(|a| a == "--voice");
+    let rest: Vec<&String> = args.iter().filter(|a| *a != "--voice").collect();
+    let Some(file) = rest.first() else {
+        eprintln!("syncourier send ФАЙЛ [ПОДПИСЬ] [--voice]");
+        return 2;
+    };
+    let path = std::fs::canonicalize(file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.to_string());
+    let caption = rest[1..].iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
+    simple(Request::SendFile { path, caption, voice })
 }
 
 /// Хук Claude Code: событие (JSON на входе) → службе, без ожидания. Никогда не мешает Claude: код 0.
