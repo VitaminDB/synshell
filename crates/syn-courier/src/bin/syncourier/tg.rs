@@ -243,12 +243,13 @@ impl Telegram {
                     hub.set_last_channel(ID);
                     let _ = self.send_text_to(chat, "✅ Курьер подключён. Пишите — ответит Claude Code; /help — команды.").await;
                 } else {
-                    let _ = self.send_text_to(chat, "Это личный бот Курьера. Привязка — по QR-коду в Параметрах → Курьер.").await;
+                    // Чужим — молча: не выдавать, что бот кому-то служит.
+                    tracing::info!("Telegram: сообщение не от владельца (до привязки) — пропущено");
                 }
                 return;
             }
             Some(owner) if owner != chat => {
-                let _ = self.send_text_to(chat, "Это личный бот, он отвечает только своему владельцу.").await;
+                tracing::info!("Telegram: сообщение не от владельца — пропущено");
                 return;
             }
             Some(_) => {}
