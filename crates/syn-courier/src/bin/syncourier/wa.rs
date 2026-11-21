@@ -334,7 +334,7 @@ async fn incoming_media(hub: &Arc<Hub>, ctx: &MessageContext) {
         match crate::media::transcribe(&path).await {
             Ok(t) if !t.is_empty() => {
                 hub.say(&format!("🎤 {t}")).await;
-                hub.incoming(ID, t);
+                hub.incoming(ID, format!("[голосовое] {t}"));
                 return;
             }
             Ok(_) => hub.say("🎤 Речь не распознана — передаю файл Claude.").await,

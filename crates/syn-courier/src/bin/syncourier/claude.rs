@@ -22,8 +22,13 @@ const ROLE: &str = "Ты — телефонный сеанс «Курьера» 
 что-то сеансу — передай дословно и потом перескажи пользователю ответ. Сообщения, пришедшие от других \
 сеансов (cross-session-message), кратко перескажи пользователю: кто и что сообщил. \
 Вложения пользователя приходят строкой «[Пользователь прислал фото/документ/…: ПУТЬ]» — файл уже на диске, открой его \
-(картинки читай инструментом Read). Голосовые уже распознаны в текст. Чтобы отправить пользователю файл (снимок экрана, \
-картинку, документ, архив) — выполни `syncourier send ПУТЬ [подпись]`; ответить голосом — `syncourier say ТЕКСТ`. \
+(картинки читай инструментом Read). Голосовые уже распознаны (службой synaptix) и приходят с пометкой «[голосовое]». \
+Чтобы отправить пользователю файл (снимок экрана, картинку, документ, архив) — выполни `syncourier send ПУТЬ [подпись]`. \
+Пользователь просил иногда отвечать ему голосом: `syncourier say ТЕКСТ` (синтез речи synaptix). Отвечай голосом прежде всего \
+на голосовые и когда ответ короткий и разговорный (пара фраз); код, ссылки, пути, списки и длинное — текстом. Текст для \
+голоса пиши для слуха: без разметки, без ссылок и путей, числа словами там, где так понятнее. Если ответил голосом — \
+не дублируй его текстом и не сообщай «ответил голосом»: итоговый текст хода оставь пустым, \
+кроме того, что голосом не передать (путь, ссылка, код). \
 Снимок всего экрана: `synshot --full /tmp/screen.png`, затем `syncourier send /tmp/screen.png`.";
 
 #[derive(Default)]
@@ -81,6 +86,8 @@ pub fn user_line(text: &str) -> String {
 #[derive(Debug, PartialEq)]
 pub enum Out {
     Init(String),
+    /// Claude в этом ходе ответил голосом (`syncourier say`).
+    SaidByVoice,
     Result { text: String, error: bool },
     Other,
 }
@@ -92,12 +99,31 @@ pub fn parse_line(line: &str) -> Out {
         "system" if v.get("subtype").and_then(|s| s.as_str()) == Some("init") => {
             v.get("session_id").and_then(|s| s.as_str()).map(|s| Out::Init(s.to_string())).unwrap_or(Out::Other)
         }
+        "assistant" => {
+            let said = v.pointer("/message/content").and_then(|c| c.as_array()).is_some_and(|parts| {
+                parts.iter().any(|p| {
+                    p.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                        && p.pointer("/input/command").and_then(|c| c.as_str()).is_some_and(|c| c.contains("syncourier say"))
+                })
+            });
+            if said {
+                Out::SaidByVoice
+            } else {
+                Out::Other
+            }
+        }
         "result" => Out::Result {
             text: v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string(),
             error: v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false),
         },
         _ => Out::Other,
     }
+}
+
+/// Итог хода после голосового ответа — лишний, если в нём нет того, что голосом не передать.
+pub fn redundant_after_voice(text: &str) -> bool {
+    let t = text.trim();
+    t.chars().count() <= 200 && !t.contains("```") && !t.contains("http") && !t.contains('/') && !t.contains('~')
 }
 
 impl Session {
@@ -183,6 +209,7 @@ impl Session {
             let stdin_slot = self.stdin.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(out).lines();
+                let mut voiced = false;
                 while let Ok(Some(line)) = lines.next_line().await {
                     match parse_line(&line) {
                         Out::Init(id) => {
@@ -192,10 +219,15 @@ impl Session {
                                 save_session_id(Some(&id));
                             }
                         }
+                        Out::SaidByVoice => voiced = true,
                         Out::Result { text, error } => {
                             st.lock().unwrap().busy = false;
+                            let text = if std::mem::take(&mut voiced) && !error && redundant_after_voice(&text) { String::new() } else { text };
                             let text = if error { format!("⚠️ {text}") } else { text };
-                            let _ = tx.send(text);
+                            // Пустой итог — Claude уже ответил голосом или файлом.
+                            if !text.trim().is_empty() {
+                                let _ = tx.send(text);
+                            }
                         }
                         Out::Other => {}
                     }
@@ -295,6 +327,12 @@ mod tests {
         assert_eq!(parse_line(r#"{"type":"system","subtype":"init","session_id":"abc"}"#), Out::Init("abc".into()));
         assert_eq!(parse_line(r#"{"type":"result","result":"Готов.","is_error":false}"#), Out::Result { text: "Готов.".into(), error: false });
         assert_eq!(parse_line(r#"{"type":"assistant"}"#), Out::Other);
+        assert_eq!(
+            parse_line(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"syncourier say 'Привет'"}}]}}"#),
+            Out::SaidByVoice
+        );
+        assert!(redundant_after_voice("Ответил голосом. Сейчас 13:23."));
+        assert!(!redundant_after_voice("Файл: ~/Загрузки/отчёт.pdf"));
         assert_eq!(parse_line("мусор"), Out::Other);
         let l = user_line("привет \"мир\"");
         assert!(l.ends_with('\n'));
