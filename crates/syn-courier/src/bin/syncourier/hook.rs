@@ -17,9 +17,15 @@ pub async fn handle(hub: Arc<Hub>, ev: serde_json::Value) {
         "Stop" => {
             let last = if ev.get("last_assistant_message").and_then(|v| v.as_str()).is_some() { get("last_assistant_message") } else { last_assistant_text(&get("transcript_path")) };
             let t = if last.trim().is_empty() { "Готово.".to_string() } else { last };
-            format!("✅ {}", trim_chars(&t, 700))
+            format!("✅ {}", t.trim())
         }
-        "Notification" => format!("❓ {}", get("message")),
+        "Notification" => {
+            let m = get("message");
+            if m.trim().is_empty() || m.contains("waiting for your input") {
+                return;
+            }
+            format!("❓ {m}")
+        }
         _ => return,
     };
     let program = hub.config().claude.program;
@@ -53,14 +59,6 @@ pub fn last_assistant_text(path: &str) -> String {
     String::new()
 }
 
-fn trim_chars(s: &str, n: usize) -> String {
-    let s = s.trim();
-    if s.chars().count() <= n {
-        return s.to_string();
-    }
-    format!("{}…", s.chars().take(n).collect::<String>().trim_end())
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -69,6 +67,5 @@ mod tests {
         std::fs::write(&p, "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"раньше\"}]}}\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\"}]}}\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"итог\"}]}}\n{\"type\":\"user\"}\n").unwrap();
         assert_eq!(super::last_assistant_text(p.to_str().unwrap()), "итог");
         let _ = std::fs::remove_file(p);
-        assert_eq!(super::trim_chars("абвгд", 3), "абв…");
     }
 }
