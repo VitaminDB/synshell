@@ -1,0 +1,10 @@
+[Unit]
+Description=Курьер synshell: уведомления и разговор с Claude Code через мессенджеры (WhatsApp)
+
+[Service]
+ExecStart=/usr/bin/syncourier
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

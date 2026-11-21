@@ -19,7 +19,7 @@ required-features = ["daemon"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-rusqlite = { version = "0.37", optional = true }
+rusqlite = { version = "0.39", optional = true }
 libc = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }

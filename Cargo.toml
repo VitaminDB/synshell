@@ -16,6 +16,7 @@ members = [
     "crates/syn-files",
     "crates/syn-fsd",
     "crates/syn-netd",
+    "crates/syn-courier",
     "crates/syn-shot",
     "crates/syn-system",
     "crates/syn-pkg",
