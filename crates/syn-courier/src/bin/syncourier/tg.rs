@@ -305,9 +305,8 @@ impl Telegram {
     }
 
     async fn send_text_to(&self, chat: i64, text: &str) -> anyhow::Result<()> {
-        // Выделение *звёздочками* — Markdown Telegram; не разобрался — простым текстом.
-        let md: anyhow::Result<serde_json::Value> = self.call("sendMessage", serde_json::json!({ "chat_id": chat, "text": text, "parse_mode": "Markdown" })).await;
-        if md.is_err() {
+        let html: anyhow::Result<serde_json::Value> = self.call("sendMessage", serde_json::json!({ "chat_id": chat, "text": to_html(text), "parse_mode": "HTML" })).await;
+        if html.is_err() {
             let _: serde_json::Value = self.call("sendMessage", serde_json::json!({ "chat_id": chat, "text": text })).await?;
         }
         Ok(())
@@ -407,5 +406,81 @@ mod tests {
         assert_eq!(super::strip_bot_mention("/help@my_bot"), "/help");
         assert_eq!(super::strip_bot_mention("обычный текст"), "обычный текст");
         assert_eq!(super::pair_code().len(), 12);
+    }
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn inline_html(line: &str) -> String {
+    let mut out = String::new();
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '`' {
+            if let Some(j) = (i + 1..chars.len()).find(|&j| chars[j] == '`') {
+                if j > i + 1 {
+                    let inner: String = chars[i + 1..j].iter().collect();
+                    out.push_str(&format!("<code>{}</code>", escape_html(&inner)));
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        if c == '*' && i + 1 < chars.len() && !chars[i + 1].is_whitespace() && (i == 0 || !chars[i - 1].is_alphanumeric()) {
+            let close = (i + 1..chars.len()).find(|&j| chars[j] == '*' && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric()));
+            if let Some(j) = close {
+                if j > i + 1 {
+                    let inner: String = chars[i + 1..j].iter().collect();
+                    out.push_str(&format!("<b>{}</b>", inline_html(&inner)));
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        out.push_str(&escape_html(&c.to_string()));
+        i += 1;
+    }
+    out
+}
+
+pub fn to_html(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut code: Option<Vec<String>> = None;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            match code.take() {
+                Some(block) => out.push(format!("<pre>{}</pre>", escape_html(&block.join("\n")))),
+                None => code = Some(Vec::new()),
+            }
+            continue;
+        }
+        match code.as_mut() {
+            Some(block) => block.push(line.to_string()),
+            None => out.push(inline_html(line)),
+        }
+    }
+    if let Some(block) = code {
+        out.push(format!("<pre>{}</pre>", escape_html(&block.join("\n"))));
+    }
+    out.join("\n")
+}
+
+#[cfg(test)]
+mod html_tests {
+    use super::to_html;
+
+    #[test]
+    fn table_and_bold() {
+        let t = "*отчёт 1*\n```\nls  58/315 → 72/308\n<x> & y\n```\n* скелет — новое, `a<b`";
+        assert_eq!(to_html(t), "<b>отчёт 1</b>\n<pre>ls  58/315 → 72/308\n&lt;x&gt; &amp; y</pre>\n* скелет — новое, <code>a&lt;b</code>");
+    }
+
+    #[test]
+    fn unclosed() {
+        assert_eq!(to_html("2*3 = 6, a*b"), "2*3 = 6, a*b");
+        assert_eq!(to_html("```\nкод"), "<pre>код</pre>");
     }
 }
