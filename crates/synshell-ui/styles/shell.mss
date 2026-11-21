@@ -2016,3 +2016,13 @@ TextField {
 .agent-title { font-size: 14px; font-weight: bold; }
 .agent-sub { font-size: 12px; color: var(--muted); }
 .agent-stop { padding: 6px 14px; border-radius: 14px; background-color: #A855F7; color: #ffffff; }
+
+/* Курьер: QR-код привязки на белом поле, пузыри последних сообщений. */
+.courier-qr { padding: 6px; border-radius: 14px; background-color: #ffffff; }
+.courier-qr-image { width: 236px; height: 236px; }
+.courier-msg { padding: 6px 10px; border-radius: 14px; max-width: 290px; background-color: var(--surface-alt); }
+.courier-msg-in { background-color: var(--accent-soft); }
+.courier-msg-text { font-size: 12px; color: var(--fg); }
+.courier-applet-on { icon-color: var(--accent); }
+.courier-busy-dot { width: 6px; height: 6px; border-radius: 999px; background-color: var(--accent); }
+.courier-ask { font-size: 13px; }

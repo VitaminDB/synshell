@@ -22,6 +22,7 @@ pub mod clipboard;
 pub mod charge_anim;
 pub mod calls;
 pub mod clock;
+pub mod courier;
 pub mod incall;
 pub mod input_mode;
 pub mod commands;

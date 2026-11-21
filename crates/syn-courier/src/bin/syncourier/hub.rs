@@ -258,6 +258,11 @@ async fn serve(hub: Arc<Hub>, conn: tokio::net::UnixStream) -> anyhow::Result<()
             tokio::spawn(async move { hub2.notify(&title, &body, &source, "").await });
             Response { ok: true, ..Default::default() }
         }
+        Ok(Request::Hook { event }) => {
+            let hub2 = hub.clone();
+            tokio::spawn(async move { crate::hook::handle(hub2, event).await });
+            Response { ok: true, ..Default::default() }
+        }
         Ok(Request::Ask { text }) => {
             hub.incoming("local", text);
             Response { ok: true, ..Default::default() }

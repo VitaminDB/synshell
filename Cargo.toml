@@ -84,6 +84,7 @@ synshell-ui = { path = "crates/synshell-ui" }
 syn-keyboard = { path = "crates/syn-keyboard" }
 syn-fsd = { path = "crates/syn-fsd", default-features = false }
 syn-netd = { path = "crates/syn-netd", default-features = false }
+syn-courier = { path = "crates/syn-courier", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
 synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix-flow = { path = "crates/synaptix-flow" }

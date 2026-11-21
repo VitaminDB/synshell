@@ -7,6 +7,7 @@ mod appearance;
 mod assistant;
 mod audio;
 mod camera;
+mod courier;
 mod datetime;
 mod default_apps;
 mod devices;
@@ -206,6 +207,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Устройства"),
         keywords: n_!("usb юсб подключение отключение уведомления vid pid lsusb флешка телефон хаб"),
         build: usb::usb,
+    },
+    PageDef {
+        id: "courier",
+        title: n_!("Курьер"),
+        icon: "\u{e0b7}",
+        group: n_!("Устройства"),
+        keywords: n_!("whatsapp ватсап телеграм почта мессенджер уведомления claude code телефон сообщения себе qr связанные устройства бот удалённо"),
+        build: courier::courier,
     },
     PageDef {
         id: "printers",

@@ -15,6 +15,7 @@
 //! `SYNSHELL_CONFIG_DIR`.
 
 mod claude;
+mod hook;
 mod hub;
 mod notify;
 mod router;
@@ -90,65 +91,15 @@ fn cli_notify(args: &[String]) -> i32 {
     simple(Request::Notify { title, body: body.trim().to_string(), source })
 }
 
-/// Хук Claude Code: событие (JSON на входе) → уведомление. Никогда не мешает Claude: код 0.
+/// Хук Claude Code: событие (JSON на входе) → службе, без ожидания. Никогда не мешает Claude: код 0.
 fn cli_hook() -> i32 {
     use std::io::Read;
     let mut input = String::new();
     let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
-    let Ok(ev) = serde_json::from_str::<serde_json::Value>(&input) else { return 0 };
-    let get = |k: &str| ev.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let Ok(st) = syn_courier::status() else { return 0 };
-    let session = get("session_id");
-    // Телефонный сеанс сам отвечает в мессенджер.
-    if st.claude.session_id.as_deref() == Some(session.as_str()) {
-        return 0;
+    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&input) {
+        let _ = syn_courier::request(&Request::Hook { event });
     }
-    let name = session_name(&session).unwrap_or_else(|| {
-        std::path::Path::new(&get("cwd")).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Claude".into())
-    });
-    let body = match get("hook_event_name").as_str() {
-        "Stop" | "SubagentStop" => {
-            let last = if ev.get("last_assistant_message").is_some() { get("last_assistant_message") } else { last_assistant_text(&get("transcript_path")) };
-            let t = if last.trim().is_empty() { "Готово.".to_string() } else { last };
-            format!("✅ {}", trim_chars(&t, 700))
-        }
-        "Notification" => format!("❓ {}", get("message")),
-        _ => return 0,
-    };
-    let _ = syn_courier::request(&Request::Notify { title: name, body, source: "claude".into() });
     0
-}
-
-/// Имя сеанса по его номеру (`claude agents --json`).
-fn session_name(id: &str) -> Option<String> {
-    let out = std::process::Command::new("claude").args(["agents", "--json"]).output().ok()?;
-    let v: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).ok()?;
-    v.iter().find(|a| a.get("sessionId").and_then(|s| s.as_str()) == Some(id)).and_then(|a| a.get("name")?.as_str().map(str::to_string))
-}
-
-/// Последний текст Claude из транскрипта (JSONL).
-pub fn last_assistant_text(path: &str) -> String {
-    let Ok(text) = std::fs::read_to_string(path) else { return String::new() };
-    for line in text.lines().rev() {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
-            continue;
-        }
-        let Some(parts) = v.pointer("/message/content").and_then(|c| c.as_array()) else { continue };
-        let t: Vec<&str> = parts.iter().filter(|p| p.get("type").and_then(|x| x.as_str()) == Some("text")).filter_map(|p| p.get("text")?.as_str()).collect();
-        if !t.is_empty() {
-            return t.join("\n");
-        }
-    }
-    String::new()
-}
-
-fn trim_chars(s: &str, n: usize) -> String {
-    let s = s.trim();
-    if s.chars().count() <= n {
-        return s.to_string();
-    }
-    format!("{}…", s.chars().take(n).collect::<String>().trim_end())
 }
 
 /// Привязка из терминала: QR-код символами, ждём сканирования.

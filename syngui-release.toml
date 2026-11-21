@@ -30,7 +30,7 @@ optdepends_en = [
 description = "synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
 description_en = "synshell: synwm compositor, shell, login screen, on-screen keyboard, screenshots and screen sharing, settings, file manager, terminal, software center"
 depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "pixman", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "hicolor-icon-theme", "dbus", "pam", "alsa-lib", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire", "libpipewire", "polkit"]
-bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd", "synnetd"]
+bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd", "synnetd", "syncourier"]
 apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
 provides = ["syndesktop"]
 conflicts = ["syndesktop"]
@@ -113,6 +113,7 @@ files = [
   { from = "crates/syn-login/data/synlogin.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-fsd/data/synfsd.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-netd/data/synnetd.service", to = "usr/lib/systemd/system/" },
+  { from = "crates/syn-courier/data/syncourier.service", to = "usr/lib/systemd/user/" },
   { from = "data/geoclue-synshell.conf", to = "etc/geoclue/conf.d/90-synshell.conf" },
   { from = "docs/FSD.md", to = "usr/share/doc/synshell/" },
   { from = "crates/synshell-common/default-config.toml", to = "usr/share/doc/synshell/config.toml.example" },

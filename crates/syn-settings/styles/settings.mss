@@ -802,3 +802,7 @@ ProgressBar.lib-bar { height: 6px; border-radius: 3px; background-color: var(--p
 .phone-head .csd-drag-space { padding: 0px; }
 .phone-bar .csd-drag, .phone-bar .csd-drag-space { height: 44px; }
 .phone-bar .csd-drag-space { padding: 0px 6px; }
+
+/* Курьер: QR-код привязки на белом поле. */
+.courier-qr { padding: 6px; border-radius: 14px; background: #ffffff; }
+.courier-qr-image { width: 236px; height: 236px; }

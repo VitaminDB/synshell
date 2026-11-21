@@ -14,6 +14,9 @@ syn-system.workspace = true
 synaptixd.workspace = true
 syn-modem.workspace = true
 syn-netd.workspace = true
+syn-courier.workspace = true
+# QR-код привязки мессенджера в окне Курьера.
+qrcode = { version = "0.14", default-features = false }
 syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n", "markdown-syntax", "ffmpeg", "sfx"] }
 syn-assist.workspace = true
 syn-notes-proto.workspace = true

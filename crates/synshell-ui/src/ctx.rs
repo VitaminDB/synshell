@@ -53,6 +53,8 @@ pub enum PopupKind {
     HomeAppMenu(String),
     /// Устройства (synlink): соединённые, спаренные, рядом.
     Link,
+    /// Курьер: мессенджеры (привязка WhatsApp), сеанс Claude, последние сообщения.
+    Courier,
     /// История буфера обмена (апплет `clipboard`, Super+V).
     Clipboard,
     /// Запрос спаривания с устройством (id).

@@ -11,6 +11,8 @@ name = "synsettings"
 path = "src/main.rs"
 
 [dependencies]
+syn-courier.workspace = true
+qrcode = { version = "0.14", default-features = false }
 synshell-common = { workspace = true, features = ["thumbs", "i18n", "style"] }
 syn-system.workspace = true
 syn-modem.workspace = true
