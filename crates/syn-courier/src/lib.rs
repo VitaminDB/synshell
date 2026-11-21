@@ -169,11 +169,45 @@ pub struct NotifyConfig {
     pub away_minutes: u32,
     /// Программы (app_name уведомления), которые не пересылать.
     pub exclude: Vec<String>,
+    /// От каких сеансов слать события Claude (итог хода, вопросы): маски через запятую, `*` — любые
+    /// символы, `!` — исключить, последнее совпадение побеждает. `hexspire-b0, synshell-*` — только эти;
+    /// `!hexspire-*, hexspire-b0` — все, но из hexspire только b0. Пусто — от всех.
+    /// Явные `syncourier notify` сеансов фильтр не касается.
+    pub claude_sessions: Vec<String>,
+}
+
+/// Имя сеанса подходит под список масок (`*` — любые символы); пустой список — любое.
+pub fn session_allowed(name: &str, patterns: &[String]) -> bool {
+    fn glob(p: &str, s: &str) -> bool {
+        match p.split_once('*') {
+            None => p.eq_ignore_ascii_case(s),
+            Some((head, tail)) => {
+                let s_low = s.to_lowercase();
+                let head = head.to_lowercase();
+                if !s_low.starts_with(&head) {
+                    return false;
+                }
+                let rest = &s[head.len()..];
+                (0..=rest.len()).filter(|i| rest.is_char_boundary(*i)).any(|i| glob(tail, &rest[i..]))
+            }
+        }
+    }
+    let list: Vec<&str> = patterns.iter().flat_map(|p| p.split(',')).map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    // Список начинается с исключения (или пуст) — по умолчанию можно, иначе — только перечисленные.
+    let mut allowed = list.first().is_none_or(|p| p.starts_with('!'));
+    for p in list {
+        match p.strip_prefix('!') {
+            Some(neg) if glob(neg.trim(), name) => allowed = false,
+            None if glob(p, name) => allowed = true,
+            _ => {}
+        }
+    }
+    allowed
 }
 
 impl Default for NotifyConfig {
     fn default() -> Self {
-        Self { mode: NotifyMode::Claude, claude: ClaudeEvents::Away, away_minutes: 5, exclude: Vec::new() }
+        Self { mode: NotifyMode::Claude, claude: ClaudeEvents::Away, away_minutes: 5, exclude: Vec::new(), claude_sessions: Vec::new() }
     }
 }
 
@@ -316,6 +350,9 @@ pub enum Request {
         caption: String,
         #[serde(default)]
         voice: bool,
+        /// Файлом (документом), без пережатия картинки.
+        #[serde(default)]
+        file: bool,
     },
     /// Сказать голосом: синтез речи synaptix → голосовое сообщение.
     Say { text: String },
@@ -377,6 +414,21 @@ mod tests {
         assert_eq!(serde_json::from_str::<Request>(&j).unwrap(), r);
         let j = r#"{"cmd":"notify","body":"x"}"#;
         assert_eq!(serde_json::from_str::<Request>(j).unwrap(), Request::Notify { title: String::new(), body: "x".into(), source: String::new() });
+    }
+
+    #[test]
+    fn session_masks() {
+        let p = vec!["hexspire-b0".to_string(), "synshell-*".to_string()];
+        assert!(session_allowed("hexspire-b0", &p));
+        assert!(!session_allowed("hexspire-ed", &p));
+        assert!(session_allowed("synshell-06", &p));
+        assert!(session_allowed("любой", &[]));
+        assert!(session_allowed("a-x-b", &["a-*-b".to_string()]));
+        let q = vec!["!hexspire-*".to_string(), "hexspire-b0".to_string()];
+        assert!(session_allowed("hexspire-b0", &q));
+        assert!(!session_allowed("hexspire-ed", &q));
+        assert!(session_allowed("synshell-06", &q), "остальные сеансы — как раньше");
+        assert!(!session_allowed("hexspire-8f", &["!hexspire-*, hexspire-b0".to_string()]), "через запятую в одной строке");
     }
 
     #[test]

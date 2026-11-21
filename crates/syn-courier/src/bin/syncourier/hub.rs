@@ -157,15 +157,17 @@ impl Hub {
     }
 
     /// Файл пользователю — в каналы по настройке.
-    pub async fn send_file(self: &Arc<Self>, path: &std::path::Path, caption: &str, voice: bool) -> anyhow::Result<()> {
+    pub async fn send_file(self: &Arc<Self>, path: &std::path::Path, caption: &str, voice: bool, as_file: bool) -> anyhow::Result<()> {
+        // Картинка с прозрачностью или слишком большая — документом: фото пережимается в JPEG.
+        let as_file = as_file || (!voice && crate::media::needs_document(path));
         let targets = self.targets();
         anyhow::ensure!(!targets.is_empty(), "ни один канал не подключён");
         let mut last_err = None;
         let mut sent = 0;
         for ch in &targets {
             let r = match ch.as_str() {
-                "telegram" => self.tg.send_file(path, caption, voice).await,
-                _ => self.wa.send_file_self(path, caption, voice).await,
+                "telegram" => self.tg.send_file(path, caption, voice, as_file).await,
+                _ => self.wa.send_file_self(path, caption, voice, as_file).await,
             };
             match r {
                 Ok(()) => sent += 1,
@@ -356,7 +358,7 @@ async fn serve(hub: Arc<Hub>, conn: tokio::net::UnixStream) -> anyhow::Result<()
             tokio::spawn(async move { crate::hook::handle(hub2, event).await });
             Response { ok: true, ..Default::default() }
         }
-        Ok(Request::SendFile { path, caption, voice }) => {
+        Ok(Request::SendFile { path, caption, voice, file }) => {
             let p = std::path::PathBuf::from(&path);
             if !p.is_file() {
                 Response { ok: false, error: Some(format!("нет файла {path}")), ..Default::default() }
@@ -364,7 +366,7 @@ async fn serve(hub: Arc<Hub>, conn: tokio::net::UnixStream) -> anyhow::Result<()
                 Response { ok: false, error: Some("ни один канал не подключён".into()), ..Default::default() }
             } else {
                 hub.remember_pub("out", &format!("📎 {}", p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
-                match hub.send_file(&p, &caption, voice).await {
+                match hub.send_file(&p, &caption, voice, file).await {
                     Ok(()) => Response { ok: true, ..Default::default() },
                     Err(e) => Response { ok: false, error: Some(format!("{e:#}")), ..Default::default() },
                 }
@@ -373,7 +375,7 @@ async fn serve(hub: Arc<Hub>, conn: tokio::net::UnixStream) -> anyhow::Result<()
         Ok(Request::Say { text }) => match crate::media::synthesize(&text).await {
             Ok((ogg, _)) => {
                 hub.remember_pub("out", &format!("🔊 {text}"));
-                let r = hub.send_file(&ogg, "", true).await;
+                let r = hub.send_file(&ogg, "", true, false).await;
                 let _ = std::fs::remove_file(&ogg);
                 match r {
                     Ok(()) => Response { ok: true, ..Default::default() },

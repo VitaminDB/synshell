@@ -172,7 +172,7 @@ impl WhatsApp {
     }
 
     /// Отправить файл в «Сообщения себе»: картинка, видео, аудио (голосовое — `voice`), иначе документ.
-    pub async fn send_file_self(&self, path: &std::path::Path, caption: &str, voice: bool) -> anyhow::Result<()> {
+    pub async fn send_file_self(&self, path: &std::path::Path, caption: &str, voice: bool, as_file: bool) -> anyhow::Result<()> {
         use whatsapp_rust::download::MediaType;
         let client = self.client.lock().unwrap().clone().context("WhatsApp не подключён")?;
         let me = client.pn().or_else(|| client.lid()).context("свой номер неизвестен")?.to_non_ad();
@@ -181,7 +181,9 @@ impl WhatsApp {
         let mime = crate::media::mime_for(path).to_string();
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "файл".into());
         let caption = (!caption.trim().is_empty()).then(|| caption.trim().to_string());
-        let kind = if voice || mime.starts_with("audio/") {
+        let kind = if as_file && !voice {
+            MediaType::Document
+        } else if voice || mime.starts_with("audio/") {
             MediaType::Audio
         } else if mime.starts_with("image/") && mime != "image/gif" {
             MediaType::Image

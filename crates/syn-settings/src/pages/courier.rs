@@ -251,6 +251,20 @@ pub fn courier() -> W {
                     t!("Экран заблокирован или столько минут без клавиатуры и мыши"),
                     SpinBox::new().range(1.0, 120.0).step(1.0).width(120.0).value(n.away_minutes as f64).on_change(move |v| change(s, |c| c.notify.away_minutes = v.round().max(1.0) as u32)),
                 ),
+                {
+                    let sessions = use_signal(n.claude_sessions.join(", "));
+                    row(
+                        t!("События Claude — от сеансов"),
+                        t!("Маски через запятую, * — любые символы, ! — исключить: «!hexspire-*, hexspire-b0» — все, но из hexspire только b0. Пусто — от всех"),
+                        Row::new()
+                            .gap(6.0)
+                            .child(TextField::new().text(n.claude_sessions.join(", ")).placeholder("!hexspire-*, hexspire-b0").on_change(move |t| sessions.set(t.to_string())).class("grow"))
+                            .child(button(&t!("Сохранить"), move || {
+                                let list: Vec<String> = sessions.get_untracked().split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+                                change(s, |c| c.notify.claude_sessions = list);
+                            })),
+                    )
+                },
                 row(
                     t!("Не пересылать от программ"),
                     t!("Имена программ через запятую"),

@@ -8,8 +8,9 @@
 //! syncourier telegram-token ТОКЕН
 //!                            бот Telegram: токен от @BotFather, затем привязка по QR-ссылке
 //! syncourier hook           хук Claude Code (Stop, Notification): JSON события на входе
-//! syncourier send ФАЙЛ [ПОДПИСЬ] [--voice]
-//!                            отправить файл в мессенджер (картинка, видео, аудио, документ)
+//! syncourier send ФАЙЛ [ПОДПИСЬ] [--voice | --file]
+//!                            отправить файл в мессенджер (картинка, видео, аудио, документ;
+//!                            --file — документом, без пережатия; PNG с прозрачностью — сам документом)
 //! syncourier say ТЕКСТ       сказать голосом (синтез речи synaptix → голосовое)
 //! syncourier ask ТЕКСТ      сообщение как от пользователя (проверка без телефона)
 //! syncourier notify ТЕКСТ [--title З] [--source claude]
@@ -109,14 +110,15 @@ fn cli_notify(args: &[String]) -> i32 {
 
 fn cli_send(args: &[String]) -> i32 {
     let voice = args.iter().any(|a| a == "--voice");
-    let rest: Vec<&String> = args.iter().filter(|a| *a != "--voice").collect();
+    let as_file = args.iter().any(|a| a == "--file");
+    let rest: Vec<&String> = args.iter().filter(|a| *a != "--voice" && *a != "--file").collect();
     let Some(file) = rest.first() else {
-        eprintln!("syncourier send ФАЙЛ [ПОДПИСЬ] [--voice]");
+        eprintln!("syncourier send ФАЙЛ [ПОДПИСЬ] [--voice | --file]");
         return 2;
     };
     let path = std::fs::canonicalize(file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.to_string());
     let caption = rest[1..].iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
-    simple(Request::SendFile { path, caption, voice })
+    simple(Request::SendFile { path, caption, voice, file: as_file })
 }
 
 /// Хук Claude Code: событие (JSON на входе) → службе, без ожидания. Никогда не мешает Claude: код 0.

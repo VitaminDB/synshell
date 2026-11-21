@@ -70,6 +70,41 @@ pub fn mime_for(path: &Path) -> &'static str {
     }
 }
 
+/// Картинку отправлять документом: с прозрачностью (фото пережимается в JPEG) или больше 10 МБ.
+pub fn needs_document(path: &Path) -> bool {
+    let mime = mime_for(path);
+    if !mime.starts_with("image/") || mime == "image/gif" {
+        return false;
+    }
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if len > 10 * 1024 * 1024 {
+        return true;
+    }
+    let head = {
+        use std::io::Read;
+        let mut b = vec![0u8; 64 * 1024];
+        let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut b)).unwrap_or(0);
+        b.truncate(n);
+        b
+    };
+    has_alpha(&head)
+}
+
+/// Есть ли прозрачность: PNG (тип цвета 4/6 или блок tRNS), WebP (флаг альфы VP8X или VP8L).
+pub fn has_alpha(b: &[u8]) -> bool {
+    if b.starts_with(b"\x89PNG\r\n\x1a\n") && b.len() > 25 {
+        return matches!(b[25], 4 | 6) || b.windows(4).any(|w| w == b"tRNS");
+    }
+    if b.len() > 20 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        return match &b[12..16] {
+            b"VP8X" => b[20] & 0x10 != 0,
+            b"VP8L" => true,
+            _ => false,
+        };
+    }
+    false
+}
+
 /// Сохранить принятые байты: `ГГГГ-ММ-ДД_ЧЧММСС_имя`, без перезаписи.
 pub fn save(bytes: &[u8], name: &str) -> std::io::Result<PathBuf> {
     let dir = inbox_dir();
@@ -174,6 +209,17 @@ pub async fn duration_secs(p: &Path) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alpha_detection() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x10\0\0\0\x10\x08".to_vec();
+        png.push(6); // RGBA
+        png.extend_from_slice(&[0, 0, 0]);
+        assert!(has_alpha(&png));
+        png[25] = 2; // RGB
+        assert!(!has_alpha(&png));
+        assert!(!has_alpha(b"\xff\xd8\xff\xe0 jpeg"));
+    }
 
     #[test]
     fn names_and_types() {

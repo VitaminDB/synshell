@@ -319,7 +319,7 @@ impl Telegram {
     }
 
     /// Файл владельцу: фото, видео, аудио, голосовое или документ.
-    pub async fn send_file(&self, path: &std::path::Path, caption: &str, voice: bool) -> anyhow::Result<()> {
+    pub async fn send_file(&self, path: &std::path::Path, caption: &str, voice: bool, as_file: bool) -> anyhow::Result<()> {
         let chat = self.owner().context("бот Telegram не привязан")?;
         let data = tokio::fs::read(path).await.with_context(|| path.display().to_string())?;
         anyhow::ensure!(data.len() <= 50 * 1024 * 1024, "файл больше 50 МБ — предел Telegram для ботов");
@@ -327,6 +327,8 @@ impl Telegram {
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "файл".into());
         let (method, field) = if voice {
             ("sendVoice", "voice")
+        } else if as_file {
+            ("sendDocument", "document")
         } else if mime.starts_with("image/") && mime != "image/gif" {
             ("sendPhoto", "photo")
         } else if mime.starts_with("video/") {
@@ -336,8 +338,21 @@ impl Telegram {
         } else {
             ("sendDocument", "document")
         };
-        let part = reqwest::multipart::Part::bytes(data).file_name(name).mime_str(mime.split(';').next().unwrap_or("application/octet-stream"))?;
-        let mut form = reqwest::multipart::Form::new().text("chat_id", chat.to_string()).part(field, part);
+        let r = self.upload(chat, method, field, data.clone(), &name, mime, caption).await;
+        match r {
+            // Фото/видео не прошло (IMAGE_PROCESS_FAILED, размеры) — тем же файлом документом.
+            Err(e) if method != "sendDocument" && method != "sendVoice" => {
+                tracing::info!("Telegram: {method} не прошёл ({e:#}) — отправляю документом");
+                self.upload(chat, "sendDocument", "document", data, &name, mime, caption).await
+            }
+            r => r,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upload(&self, chat: i64, method: &str, field: &str, data: Vec<u8>, name: &str, mime: &str, caption: &str) -> anyhow::Result<()> {
+        let part = reqwest::multipart::Part::bytes(data).file_name(name.to_string()).mime_str(mime.split(';').next().unwrap_or("application/octet-stream"))?;
+        let mut form = reqwest::multipart::Form::new().text("chat_id", chat.to_string()).part(field.to_string(), part);
         if !caption.trim().is_empty() {
             form = form.text("caption", caption.trim().to_string());
         }

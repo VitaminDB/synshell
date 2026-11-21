@@ -2376,3 +2376,5 @@
 "Когда подключены оба мессенджера: ответы и уведомления. В WhatsApp сообщения в «Сообщения себе» приходят без уведомлений телефона, бот Telegram — с уведомлениями" = "Gdy połączone są oba komunikatory: odpowiedzi i powiadomienia. W WhatsApp wiadomości do siebie przychodzą bez powiadomień, bot Telegram powiadamia"
 "Откуда писал" = "Skąd pisałem"
 "В оба" = "Oba"
+"События Claude — от сеансов" = "Zdarzenia Claude — z sesji"
+"Маски через запятую, * — любые символы, ! — исключить: «!hexspire-*, hexspire-b0» — все, но из hexspire только b0. Пусто — от всех" = "Maski po przecinku, * — dowolne znaki, ! — wyklucz: „!hexspire-*, hexspire-b0” — wszystkie, ale z hexspire tylko b0. Puste — ze wszystkich"

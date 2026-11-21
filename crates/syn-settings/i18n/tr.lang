@@ -2375,3 +2375,5 @@
 "Когда подключены оба мессенджера: ответы и уведомления. В WhatsApp сообщения в «Сообщения себе» приходят без уведомлений телефона, бот Telegram — с уведомлениями" = "İki mesajlaşma uygulaması da bağlıysa: yanıtlar ve bildirimler. WhatsApp’ta kendine mesajlar bildirimsiz gelir, Telegram botu bildirim gönderir"
 "Откуда писал" = "Yazdığım yere"
 "В оба" = "İkisine de"
+"События Claude — от сеансов" = "Claude olayları — oturumlardan"
+"Маски через запятую, * — любые символы, ! — исключить: «!hexspire-*, hexspire-b0» — все, но из hexspire только b0. Пусто — от всех" = "Virgülle ayrılmış maskeler, * — herhangi karakterler, ! — hariç tut: “!hexspire-*, hexspire-b0” — hepsi, ama hexspire’dan yalnızca b0. Boş — hepsinden"
