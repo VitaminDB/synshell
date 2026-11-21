@@ -27,6 +27,8 @@ use crate::tbpf;
 
 /// Сколько адресов UDP-сокета без `connect` записывать отдельно.
 const ALSO_MAX: usize = 16;
+/// Предел ключей `conns`, которые держит один сокет; сверх — запись сразу убирается из таблицы.
+const KEYS_MAX: usize = ALSO_MAX + 2;
 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
@@ -112,6 +114,20 @@ pub fn app_of(pid: i32, comm: &str) -> String {
     exe
 }
 
+/// Запомнить ключ `conns` сокета (повтор — ничего); сверх [`KEYS_MAX`] запись
+/// убирается из таблицы сразу. `false` — ключ не оставлен.
+fn keep_key(keys: &mut HashSet<Vec<u8>>, k: Vec<u8>, delete: impl FnOnce(&[u8])) -> bool {
+    if keys.contains(&k) {
+        return true;
+    }
+    if keys.len() < KEYS_MAX {
+        keys.insert(k);
+        return true;
+    }
+    delete(&k);
+    false
+}
+
 /// Сокет, который сейчас ведёт учёт.
 struct Sock {
     owner: Option<Owner>,
@@ -122,8 +138,10 @@ struct Sock {
     also: Vec<String>,
     more: u32,
     seen: HashSet<(IpAddr, u16)>,
-    /// Ключи `conns` этого сокета — убрать при закрытии.
-    keys: Vec<Vec<u8>>,
+    /// Ключи `conns` этого сокета — убрать при закрытии. Без повторов и не больше
+    /// [`KEYS_MAX`]: таблица перечитывается каждый такт, и раньше один и тот же ключ
+    /// (сокет к 127.0.0.53 и т. п.) дописывался каждую секунду — служба за сутки съедала 18 ГБ.
+    keys: HashSet<Vec<u8>>,
     host: Option<String>,
     start: u64,
     /// Последние показания `bytes`.
@@ -446,7 +464,7 @@ impl Traffic {
             let comm = String::from_utf8_lossy(&v[16..32]).trim_end_matches('\0').to_string();
             if !st.socks.contains_key(&cookie) {
                 let o = Self::owner(st, tgid, uid, &comm);
-                st.socks.insert(cookie, Sock { owner: Some(o), tries: 0, proto, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: to_ms(ts), rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
+                st.socks.insert(cookie, Sock { owner: Some(o), tries: 0, proto, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: HashSet::new(), host: None, start: to_ms(ts), rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
             }
             let s = st.socks.get_mut(&cookie).unwrap();
             if s.owner.is_none() {
@@ -454,7 +472,7 @@ impl Traffic {
             }
             // Петля и «пробы» glibc (UDP connect на порт 0 — выбор адреса источника при getaddrinfo).
             if is_local(&ip) || port == 0 {
-                s.keys.push(k);
+                keep_key(&mut s.keys, k, |k| acc.conns.delete(k));
                 continue;
             }
             if s.seen.insert((ip, port)) {
@@ -469,13 +487,8 @@ impl Traffic {
                 }
             }
             // Много адресов (DHT): ключи сверх предела сразу убрать, чтобы таблица не росла.
-            if s.keys.len() < ALSO_MAX + 2 {
-                s.keys.push(k);
-            } else {
-                acc.conns.delete(&k);
-                if s.seen.len() > 8192 {
-                    s.seen.clear();
-                }
+            if !keep_key(&mut s.keys, k, |k| acc.conns.delete(k)) && s.seen.len() > 8192 {
+                s.seen.clear();
             }
         }
         drop(names);
@@ -501,7 +514,7 @@ impl Traffic {
                 acc.bytes.delete(&k);
                 continue;
             }
-            let s = st.socks.entry(cookie).or_insert_with(|| Sock { owner: None, tries: 0, proto: 0, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: Vec::new(), host: None, start: now, rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
+            let s = st.socks.entry(cookie).or_insert_with(|| Sock { owner: None, tries: 0, proto: 0, remote: None, also: Vec::new(), more: 0, seen: HashSet::new(), keys: HashSet::new(), host: None, start: now, rx: 0, tx: 0, pend_rx: 0, pend_tx: 0, iface: String::new(), incoming: false, changed: Instant::now(), limited: None });
             let (drx, dtx) = (rx.saturating_sub(s.rx), tx.saturating_sub(s.tx));
             s.rx = rx;
             s.tx = tx;
@@ -985,6 +998,24 @@ mod tests {
         assert!(total <= limit + 300, "{total}");
         assert!(total > limit / 2, "{total}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Таблица перечитывается каждый такт: тот же ключ не копится, чужие сверх предела — из таблицы.
+    #[test]
+    fn socket_keys_bounded() {
+        let mut keys = HashSet::new();
+        let mut deleted = 0;
+        for _ in 0..100_000 {
+            assert!(keep_key(&mut keys, vec![7u8; 32], |_| deleted += 1));
+        }
+        assert_eq!(keys.len(), 1);
+        for i in 0..1000u32 {
+            let mut k = vec![0u8; 32];
+            k[..4].copy_from_slice(&i.to_ne_bytes());
+            keep_key(&mut keys, k, |_| deleted += 1);
+        }
+        assert_eq!(keys.len(), KEYS_MAX);
+        assert_eq!(deleted, 1000 - (KEYS_MAX - 1));
     }
 
     #[test]
