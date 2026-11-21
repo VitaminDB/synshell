@@ -322,31 +322,7 @@ async fn incoming_media(hub: &Arc<Hub>, ctx: &MessageContext) {
             return;
         }
     };
-    let path = match crate::media::save(&bytes, &name) {
-        Ok(p) => p,
-        Err(e) => {
-            hub.say(&format!("⚠️ Не сохранил {what}: {e}")).await;
-            return;
-        }
-    };
-    tracing::info!("WhatsApp: {what} → {}", path.display());
-    if voice {
-        match crate::media::transcribe(&path).await {
-            Ok(t) if !t.is_empty() => {
-                hub.say(&format!("🎤 {t}")).await;
-                hub.incoming(ID, format!("[голосовое] {t}"));
-                return;
-            }
-            Ok(_) => hub.say("🎤 Речь не распознана — передаю файл Claude.").await,
-            Err(e) => hub.say(&format!("🎤 Не распознал ({e:#}) — передаю файл Claude.")).await,
-        }
-    }
-    let mut msg = format!("[Пользователь прислал {what}: {}]", path.display());
-    if !caption.trim().is_empty() {
-        msg.push('\n');
-        msg.push_str(caption.trim());
-    }
-    hub.incoming(ID, msg);
+    crate::media::deliver(hub, ID, &bytes, &name, &caption, what, voice).await;
 }
 
 /// Предел возраста сообщения: старше — не разбирать (часть истории).

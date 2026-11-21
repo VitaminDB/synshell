@@ -4,7 +4,9 @@
 //! syncourier                 служба (systemd --user: syncourier.service)
 //! syncourier status          состояние каналов и сеанса Claude
 //! syncourier link            привязать WhatsApp: QR-код в терминале
-//! syncourier unlink          отвязать WhatsApp
+//! syncourier unlink [telegram] отвязать WhatsApp (или Telegram)
+//! syncourier telegram-token ТОКЕН
+//!                            бот Telegram: токен от @BotFather, затем привязка по QR-ссылке
 //! syncourier hook           хук Claude Code (Stop, Notification): JSON события на входе
 //! syncourier send ФАЙЛ [ПОДПИСЬ] [--voice]
 //!                            отправить файл в мессенджер (картинка, видео, аудио, документ)
@@ -23,6 +25,7 @@ mod media;
 mod hub;
 mod notify;
 mod router;
+mod tg;
 mod wa;
 
 use std::sync::Arc;
@@ -35,7 +38,14 @@ fn main() {
         None | Some("daemon") => run_daemon(),
         Some("status") => cli_status(),
         Some("link") => cli_link(),
-        Some("unlink") => simple(Request::Unlink { channel: "whatsapp".into() }),
+        Some("unlink") => simple(Request::Unlink { channel: args.get(1).cloned().unwrap_or_else(|| "whatsapp".into()) }),
+        Some("telegram-token") => match args.get(1) {
+            Some(t) => simple(Request::SetToken { channel: "telegram".into(), token: t.clone() }),
+            None => {
+                eprintln!("syncourier telegram-token ТОКЕН (от @BotFather)");
+                2
+            }
+        },
         Some("reload") => simple(Request::Reload),
         Some("notify") => cli_notify(&args[1..]),
         Some("hook") => cli_hook(),
@@ -137,6 +147,7 @@ fn cli_link() -> i32 {
             }
             ChannelState::Linking => {
                 if let Some(q) = &c.qr {
+                    // (WhatsApp)
                     if *q != shown {
                         shown = q.clone();
                         println!("\nWhatsApp → Связанные устройства → Привязка устройства, отсканируйте:\n");

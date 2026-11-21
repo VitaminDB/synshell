@@ -2,7 +2,7 @@
 
 # Courier (syncourier)
 
-**Reach your computer through messengers: notifications and conversations with Claude Code from WhatsApp — text, voice, files.**
+**Reach your computer through messengers: notifications and conversations with Claude Code from WhatsApp and Telegram — text, voice, files.**
 
 [Русский](README.ru.md)
 
@@ -10,8 +10,9 @@
 
 Courier is a synshell service. It links to WhatsApp as a linked device (like WhatsApp Web) and listens only to your
 **“Message yourself”** chat. Whatever you write there goes to Claude Code — Courier's own session `courier`; its
-replies, system notifications and events from your other Claude sessions come back to the same chat. Telegram and
-e-mail are the next channels.
+replies, system notifications and events from your other Claude sessions come back to the same chat. **Telegram** works
+through your own bot: create it with @BotFather (`/newbot`), paste the token in Settings → Courier, scan the QR code and
+press Start — the bot then answers only you. With both linked, replies go to the messenger you wrote from last. E-mail is next.
 
 ## Linking
 

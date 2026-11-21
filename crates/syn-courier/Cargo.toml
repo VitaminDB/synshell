@@ -9,7 +9,7 @@ license.workspace = true
 [features]
 default = ["daemon"]
 # Сама служба; оболочке и Параметрам нужен только протокол.
-daemon = ["dep:tokio", "dep:whatsapp-rust", "dep:anyhow", "dep:tracing", "dep:tracing-subscriber", "dep:zbus", "dep:qrcode", "dep:synshell-common"]
+daemon = ["dep:tokio", "dep:whatsapp-rust", "dep:anyhow", "dep:tracing", "dep:tracing-subscriber", "dep:zbus", "dep:qrcode", "dep:synshell-common", "dep:reqwest"]
 
 [[bin]]
 name = "syncourier"
@@ -27,6 +27,8 @@ tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 # Уведомления системы: монитор шины сеанса (как у synshell-common — без своего исполнителя).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# Telegram Bot API.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"], optional = true }
 # QR-код привязки в терминале (`syncourier link`).
 qrcode = { version = "0.14", default-features = false, optional = true }
 # Простой пользователя (synwm IPC) — режим «когда меня нет».

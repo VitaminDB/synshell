@@ -123,6 +123,10 @@ pub fn courier() -> W {
             }
             Some(Ok(st)) => {
                 for c in &st.channels {
+                    if c.id == "telegram" {
+                        rows.extend(telegram_rows(s, c));
+                        continue;
+                    }
                     let (hint_text, control): (String, W) = match c.state {
                         ChannelState::Online => (
                             t!("Подключён · {a}", a = c.account.clone().unwrap_or_default()),
@@ -144,8 +148,22 @@ pub fn courier() -> W {
                         }
                     }
                 }
-                rows.push(row_inline("Telegram", t!("Скоро"), Text::new("")));
                 rows.push(row_inline(t!("Почта"), t!("Скоро"), Text::new("")));
+                let d = s.cfg.get().delivery;
+                let sel = match d {
+                    syn_courier::Delivery::Last => 0,
+                    syn_courier::Delivery::Whatsapp => 1,
+                    syn_courier::Delivery::Telegram => 2,
+                    syn_courier::Delivery::All => 3,
+                };
+                rows.push(row(
+                    t!("Куда отправлять"),
+                    t!("Когда подключены оба мессенджера: ответы и уведомления. В WhatsApp сообщения в «Сообщения себе» приходят без уведомлений телефона, бот Telegram — с уведомлениями"),
+                    SegmentedButton::new(vec![t!("Откуда писал"), "WhatsApp".to_string(), "Telegram".to_string(), t!("В оба")]).selected(sel).on_change(move |i| {
+                        use syn_courier::Delivery;
+                        change(s, |c| c.delivery = [Delivery::Last, Delivery::Whatsapp, Delivery::Telegram, Delivery::All][i.min(3)])
+                    }),
+                ));
             }
         }
         vec![group(&t!("Каналы"), rows)]
@@ -250,9 +268,64 @@ pub fn courier() -> W {
 
     page(
         t!("Курьер"),
-        t!("Связь с компьютером через мессенджеры: уведомления и разговор с Claude Code. Пишите в чат «Сообщения себе»; /help — команды."),
+        t!("Связь с компьютером через мессенджеры (WhatsApp, Telegram): уведомления и разговор с Claude Code. /help — команды."),
         vec![boxed(channels), boxed(claude), boxed(notify)],
     )
+}
+
+/// Telegram: токен бота, QR-код привязки, отключение.
+fn telegram_rows(s: Sigs, c: &syn_courier::ChannelStatus) -> Vec<W> {
+    let mut rows: Vec<W> = Vec::new();
+    let token = use_signal(String::new());
+    let save_token = move || {
+        let t = token.get_untracked();
+        if t.trim().is_empty() {
+            return;
+        }
+        state::toast(t!("Проверяю токен…"));
+        std::thread::spawn(move || {
+            let r = syn_courier::request(&Request::SetToken { channel: "telegram".into(), token: t });
+            run_on_main_thread(move || {
+                match r {
+                    Ok(_) => state::toast(t!("Бот принят — отсканируйте QR-код")),
+                    Err(e) => state::toast(e),
+                }
+                reload(s);
+            });
+        });
+    };
+    match c.state {
+        ChannelState::Online => rows.push(row_inline(
+            "Telegram",
+            t!("Подключён · {a}", a = c.account.clone().unwrap_or_default()),
+            button(&t!("Отключить"), move || req(s, Request::Unlink { channel: "telegram".into() })),
+        )),
+        ChannelState::Linking => {
+            rows.push(row_inline(
+                "Telegram",
+                t!("Бот {a}: отсканируйте QR-код камерой телефона и нажмите «Старт»", a = c.account.clone().unwrap_or_default()),
+                button(&t!("Сменить бота"), move || req(s, Request::Unlink { channel: "telegram".into() })),
+            ));
+            if let Some(q) = c.qr.as_deref().and_then(qr) {
+                rows.push(boxed(Row::new().main_axis_alignment(MainAxisAlignment::Center).class("setting-row").child(q)));
+            }
+            if let Some(link) = &c.qr {
+                rows.push(hint(t!("Или откройте ссылку на телефоне: {l}", l = link)));
+            }
+        }
+        _ => {
+            let hint_text = c.error.clone().unwrap_or_else(|| t!("Личный бот: в Telegram откройте @BotFather → /newbot, придумайте имя — он пришлёт токен; вставьте его сюда"));
+            rows.push(row(
+                "Telegram",
+                hint_text,
+                Row::new()
+                    .gap(6.0)
+                    .child(TextField::new().placeholder("123456789:AA…").obscure(true).on_change(move |t| token.set(t.trim().to_string())).on_submit(move |_| save_token()).class("grow"))
+                    .child(primary_button(&t!("Подключить"), save_token)),
+            ));
+        }
+    }
+    rows
 }
 
 fn hint(text: impl AsRef<str>) -> W {

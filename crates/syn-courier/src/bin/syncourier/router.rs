@@ -14,6 +14,7 @@ const HELP: &str = "*Курьер* — связь с компьютером.\n\
 /stop — прервать текущий ответ\n\
 /status — состояние\n\
 /notify claude|away|all — какие уведомления присылать\n\
+/route last|whatsapp|telegram|all — куда отвечать, если подключены оба мессенджера\n\
 /help — эта подсказка";
 
 /// Живой сеанс Claude из `claude agents --json`.
@@ -153,6 +154,34 @@ pub async fn handle(hub: &Arc<Hub>, m: Incoming) {
             let was = hub.claude.status().busy;
             hub.claude.stop().await;
             hub.say(if was { "Остановлено. Разговор сохранён." } else { "Claude сейчас ничего не делает." }).await;
+        }
+        "route" => {
+            use syn_courier::Delivery;
+            let d = match rest.as_str() {
+                "last" => Some(Delivery::Last),
+                "whatsapp" | "wa" => Some(Delivery::Whatsapp),
+                "telegram" | "tg" => Some(Delivery::Telegram),
+                "all" | "both" => Some(Delivery::All),
+                _ => None,
+            };
+            match d {
+                Some(d) => {
+                    let mut c = hub.config();
+                    c.delivery = d;
+                    let r = c.save();
+                    *hub.cfg.write().unwrap() = c;
+                    hub.say(match (r, d) {
+                        (Err(e), _) => format!("Не сохранилось: {e}"),
+                        (_, Delivery::Last) => "Отвечаю туда, откуда вы написали.".into(),
+                        (_, Delivery::Whatsapp) => "Основной — WhatsApp.".into(),
+                        (_, Delivery::Telegram) => "Основной — Telegram.".into(),
+                        (_, Delivery::All) => "Отправляю в оба мессенджера.".into(),
+                    }
+                    .as_str())
+                    .await;
+                }
+                None => hub.say("Формат: /route last | whatsapp | telegram | all").await,
+            }
         }
         "notify" => {
             let mode = match rest.as_str() {

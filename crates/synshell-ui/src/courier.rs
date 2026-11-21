@@ -139,53 +139,76 @@ fn state_text(c: &ChannelStatus) -> String {
     }
 }
 
-/// Карточка WhatsApp: состояние и действие; при привязке — QR-код.
-fn whatsapp_card(c: &ChannelStatus) -> Box<dyn Widget> {
+/// Карточка канала: состояние и действие; при привязке — QR-код. `active` — сюда уходят ответы.
+fn channel_card(c: &ChannelStatus, active: bool) -> Box<dyn Widget> {
     let on = c.state == ChannelState::Online;
+    let tg = c.id == "telegram";
+    let id = c.id.clone();
+    let (glyph, brand) = if tg { (gl::SEND, "courier-tg") } else { (gl::CHAT, "courier-wa") };
+    let mut title = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(c.title.clone()).class("link-name"));
+    if active && on {
+        title = title.child(DecoratedBox::new().child(Text::new(t!("ответы сюда")).class("courier-chip-text")).class("courier-chip"));
+    }
     let mut head = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(icon(gl::CHAT).class("courier-avatar-icon")).class(if on { "courier-avatar courier-wa courier-on" } else { "courier-avatar courier-wa" }))
+        .child(DecoratedBox::new().child(icon(glyph).class("courier-avatar-icon")).class(if on { format!("courier-avatar {brand} courier-on") } else { format!("courier-avatar {brand}") }))
         .child(
             Column::new()
                 .gap(2.0)
                 .class("grow")
-                .child(Text::new(c.title.clone()).class("link-name"))
+                .child(title)
                 .child(Text::new(state_text(c)).max_lines(2).class(if on { "link-state link-state-on" } else { "link-state" })),
         );
+    let (i1, i2, i3) = (id.clone(), id.clone(), id.clone());
     head = match c.state {
-        ChannelState::Online => head.child(button(&t!("Отключить"), false, || send(Request::Unlink { channel: "whatsapp".into() }))),
+        ChannelState::Online => head.child(button(&t!("Отключить"), false, move || send(Request::Unlink { channel: i1.clone() }))),
         ChannelState::Linking | ChannelState::Connecting => head,
-        _ => head.child(button(&t!("Подключить"), true, || send(Request::Link { channel: "whatsapp".into() }))),
+        // Telegram без токена: токен вводится в Параметрах.
+        ChannelState::Unlinked | ChannelState::Error if tg => head.child(button(&t!("Настроить"), true, || {
+            ShellCtx::get().close_popup();
+            crate::actions::spawn("synsettings courier");
+        })),
+        _ => head.child(button(&t!("Подключить"), true, move || send(Request::Link { channel: i2.clone() }))),
     };
     let mut col = Column::new().gap(10.0).child(head);
     if c.state == ChannelState::Linking {
         match c.qr.as_deref().and_then(|q| qr_rgba(q, 5).map(|r| (q.to_string(), r))) {
             Some((q, (w, h, px))) => {
                 let key = format!("courier-qr-{:x}", fxhash(&q));
+                let how = if tg {
+                    t!("Отсканируйте камерой телефона — откроется ваш бот в Telegram; нажмите «Старт».")
+                } else {
+                    t!("На телефоне: WhatsApp → Настройки → Связанные устройства → Привязка устройства, и наведите камеру на код.")
+                };
                 col = col
                     .child(
                         Row::new()
                             .main_axis_alignment(MainAxisAlignment::Center)
                             .child(DecoratedBox::new().child(Image::from_rgba(key, w, h, px).fit(ImageFit::Contain).class("courier-qr-image")).class("courier-qr")),
                     )
-                    .child(
-                        Text::new(t!("На телефоне: WhatsApp → Настройки → Связанные устройства → Привязка устройства, и наведите камеру на код."))
-                            .max_lines(4)
-                            .class("link-note link-center"),
-                    )
-                    .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(button(&t!("Отмена"), false, || send(Request::Unlink { channel: "whatsapp".into() }))));
+                    .child(Text::new(how).max_lines(4).class("link-note link-center"))
+                    .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(button(&t!("Отмена"), false, move || send(Request::Unlink { channel: i3.clone() }))));
             }
             None => col = col.child(Text::new(t!("Получаю QR-код…")).class("link-note")),
         }
     }
-    if c.state == ChannelState::Online {
-        col = col.child(Text::new(t!("Пишите в чат «Сообщения себе» — ответит Claude; /help — команды.")).max_lines(3).class("link-note"));
+    let note = match (tg, c.state) {
+        (false, ChannelState::Online) => Some(t!("Пишите в чат «Сообщения себе» — ответит Claude; /help — команды.")),
+        (true, ChannelState::Online) => Some(t!("Пишите боту — ответит Claude; /help — команды.")),
+        (false, ChannelState::Unlinked | ChannelState::Off) => Some(t!("Уведомления и разговор с Claude из чата «Сообщения себе» — привязка по QR-коду, как WhatsApp Web.")),
+        (true, ChannelState::Unlinked | ChannelState::Off) => Some(t!("Личный бот: создайте его у @BotFather и вставьте токен в Параметрах, затем отсканируйте QR-код.")),
+        _ => None,
+    };
+    if let Some(n) = note {
+        col = col.child(Text::new(n).max_lines(3).class("link-note"));
     }
-    if matches!(c.state, ChannelState::Unlinked | ChannelState::Off) {
-        col = col.child(Text::new(t!("Уведомления и разговор с Claude из чата «Сообщения себе» — привязка по QR-коду, как WhatsApp Web.")).max_lines(3).class("link-note"));
-    }
-    Box::new(DecoratedBox::new().child(col).class(if on { "link-card courier-wa-card" } else { "link-card" }))
+    let card = match (on, tg) {
+        (true, true) => "link-card courier-tg-card",
+        (true, false) => "link-card courier-wa-card",
+        _ => "link-card",
+    };
+    Box::new(DecoratedBox::new().child(col).class(card))
 }
 
 fn fxhash(s: &str) -> u64 {
@@ -290,7 +313,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                         .gap(1.0)
                         .class("grow")
                         .child(Text::new(t!("Курьер")).class("popup-title"))
-                        .child(Text::new("WhatsApp · Claude Code").class("link-note")),
+                        .child(Text::new("WhatsApp · Telegram · Claude Code").class("link-note")),
                 )
                 .child(icon_button(gl::SETTINGS, || {
                     ShellCtx::get().close_popup();
@@ -318,8 +341,9 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 fast_for(5_000);
             }
             let mut col = Column::new().gap(10.0);
+            let both = st.channels.iter().filter(|c| c.state == ChannelState::Online).count() > 1;
             for c in &st.channels {
-                col = col.child(whatsapp_card(c));
+                col = col.child(channel_card(c, both && st.active == c.id));
             }
             col = col.child(claude_row(&st));
             if !st.recent.is_empty() {
@@ -397,11 +421,25 @@ mod tests {
                         },
                         ..Default::default()
                     };
+                    let mut st = st;
+                    st.channels.push(ChannelStatus {
+                        id: "telegram".into(),
+                        title: "Telegram".into(),
+                        state: match state {
+                            ChannelState::Online => ChannelState::Online,
+                            ChannelState::Unlinked => ChannelState::Linking,
+                            _ => ChannelState::Unlinked,
+                        },
+                        account: Some("@vitaly_courier_bot".into()),
+                        qr: (state == ChannelState::Unlinked).then(|| "https://t.me/vitaly_courier_bot?start=0123456789ab".into()),
+                        error: None,
+                    });
+                    st.active = "telegram".into();
                     status_sig().set(Some(Ok(st)));
                     Box::new(DecoratedBox::new().class("popup-card").child(view(ctx)))
                 },
                 &mss,
-                (420, 760),
+                (420, 980),
                 1.0,
                 &out,
             )

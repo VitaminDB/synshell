@@ -90,6 +90,33 @@ impl Default for WhatsappConfig {
     }
 }
 
+/// Куда отправлять ответы и уведомления, когда подключено несколько мессенджеров.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Delivery {
+    /// Туда, откуда пользователь писал последним.
+    #[default]
+    Last,
+    /// Основной — WhatsApp (не подключён — второй канал).
+    Whatsapp,
+    /// Основной — Telegram.
+    Telegram,
+    /// Во все подключённые сразу.
+    All,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelegramConfig {
+    pub enabled: bool,
+}
+
+impl Default for TelegramConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ClaudeConfig {
@@ -153,7 +180,10 @@ impl Default for NotifyConfig {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Куда отправлять при нескольких мессенджерах.
+    pub delivery: Delivery,
     pub whatsapp: WhatsappConfig,
+    pub telegram: TelegramConfig,
     pub claude: ClaudeConfig,
     pub notify: NotifyConfig,
 }
@@ -235,6 +265,9 @@ pub struct ClaudeStatus {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Status {
     pub channels: Vec<ChannelStatus>,
+    /// Канал, куда уходят ответы и уведомления (откуда пользователь писал последним).
+    #[serde(default)]
+    pub active: String,
     pub claude: ClaudeStatus,
     pub notify: NotifyMode,
     /// Последние сообщения (для апплета): кто, текст, когда (мс).
@@ -289,6 +322,8 @@ pub enum Request {
     /// Сообщение «как от пользователя» с этого компьютера (апплет, проверка):
     /// разбирается так же, ответ уходит в каналы и в `Status::recent`.
     Ask { text: String },
+    /// Токен бота Telegram (от @BotFather): проверить, сохранить, начать привязку.
+    SetToken { channel: String, token: String },
     /// Перечитать настройки.
     Reload,
 }

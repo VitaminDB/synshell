@@ -91,6 +91,36 @@ fn local_stamp() -> String {
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| crate::hub::now_ms().to_string())
 }
 
+/// Принятое вложение: сохранить; голосовое — распознать; Claude — путь и подпись.
+pub async fn deliver(hub: &std::sync::Arc<crate::hub::Hub>, channel: &str, bytes: &[u8], name: &str, caption: &str, what: &str, voice: bool) {
+    let path = match save(bytes, name) {
+        Ok(p) => p,
+        Err(e) => {
+            hub.say(&format!("⚠️ Не сохранил {what}: {e}")).await;
+            return;
+        }
+    };
+    tracing::info!("{channel}: {what} → {}", path.display());
+    hub.set_last_channel(channel);
+    if voice {
+        match transcribe(&path).await {
+            Ok(t) if !t.is_empty() => {
+                hub.say(&format!("🎤 {t}")).await;
+                hub.incoming(channel, format!("[голосовое] {t}"));
+                return;
+            }
+            Ok(_) => hub.say("🎤 Речь не распознана — передаю файл Claude.").await,
+            Err(e) => hub.say(&format!("🎤 Не распознал ({e:#}) — передаю файл Claude.")).await,
+        }
+    }
+    let mut msg = format!("[Пользователь прислал {what}: {}]", path.display());
+    if !caption.trim().is_empty() {
+        msg.push('\n');
+        msg.push_str(caption.trim());
+    }
+    hub.incoming(channel, msg);
+}
+
 /// Распознать речь (голосовое, Opus) через synaptix: ffmpeg → WAV 16 кГц → `synaptixctl asr`.
 pub async fn transcribe(audio: &Path) -> anyhow::Result<String> {
     let wav = audio.with_extension("asr.wav");

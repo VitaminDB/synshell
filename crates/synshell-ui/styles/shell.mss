@@ -2057,3 +2057,10 @@ TextField {
 .courier-send-icon { icon-size: 17px; icon-color: var(--accent-fg); }
 .courier-wa-card { background-color: #25D36614; border-color: #25D36640; }
 .courier-ask-field { width: 100%; }
+.courier-tg { background-color: #2AABEE22; }
+.courier-tg .courier-avatar-icon { icon-color: #2AABEE; }
+.courier-tg.courier-on { background-color: #2AABEE; box-shadow: 0 4px 16px #2AABEE44; }
+.courier-tg-card { background-color: #2AABEE14; border-color: #2AABEE40; }
+.courier-chip { padding: 1px 7px; border-radius: 999px; background-color: var(--hover); }
+.courier-chip-text { font-size: 10px; font-weight: 600; color: var(--muted); }
+.courier-tg.courier-on .courier-avatar-icon, .courier-wa.courier-on .courier-avatar-icon { icon-color: #ffffff; }
