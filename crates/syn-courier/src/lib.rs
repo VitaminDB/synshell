@@ -340,7 +340,13 @@ pub struct Response {
 /// Запрос к службе (синхронно, с таймаутом).
 pub fn request(req: &Request) -> Result<Response, String> {
     let s = UnixStream::connect(socket_path()).map_err(|e| format!("служба syncourier не запущена: {e}"))?;
-    s.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    // Отправка файла ждёт, пока служба загрузит его в мессенджер (бот Telegram — до 50 МБ), это дольше 10 с;
+    // иначе клиент падал с EAGAIN («Resource temporarily unavailable»), а файл всё равно уходил.
+    let timeout = match req {
+        Request::SendFile { .. } => Duration::from_secs(600),
+        _ => Duration::from_secs(10),
+    };
+    s.set_read_timeout(Some(timeout)).ok();
     s.set_write_timeout(Some(Duration::from_secs(5))).ok();
     let mut line = serde_json::to_string(req).map_err(|e| e.to_string())?;
     line.push('\n');
