@@ -6,6 +6,7 @@
 pub mod action;
 pub mod agent;
 pub mod app_theme;
+pub mod autologin;
 pub mod config;
 pub mod contacts;
 #[cfg(feature = "style")]

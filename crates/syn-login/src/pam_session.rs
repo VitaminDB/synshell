@@ -148,10 +148,12 @@ pub fn worker(args: &[String]) -> ! {
         std::process::exit(1);
     }
     let tty = CString::new(format!("tty{vt}")).unwrap();
+    let session_type = std::env::var("SYNLOGIN_SESSION_TYPE").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "wayland".into());
+    let session_desktop = std::env::var("SYNLOGIN_SESSION_DESKTOP").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "synshell".into());
     let env = [
-        "XDG_SESSION_TYPE=wayland".to_string(),
+        format!("XDG_SESSION_TYPE={session_type}"),
         format!("XDG_SESSION_CLASS={class}"),
-        "XDG_SESSION_DESKTOP=synshell".into(),
+        format!("XDG_SESSION_DESKTOP={session_desktop}"),
         "XDG_SEAT=seat0".into(),
         format!("XDG_VTNR={vt}"),
     ];

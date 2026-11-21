@@ -422,6 +422,7 @@ pub mod icons {
     pub const APPS: &str = "\u{e5c3}";
     pub const NOTIFICATIONS: &str = "\u{e7f4}";
     pub const LOCK: &str = "\u{e897}";
+    pub const ACCOUNT: &str = "\u{e853}";
     pub const AUTOSTART: &str = "\u{e037}";
     pub const SETTINGS: &str = "\u{e8b8}";
     pub const INFO: &str = "\u{e88e}";

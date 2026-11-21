@@ -111,6 +111,8 @@ files = [
   { from = "crates/synshell-ui/data/syndesktop-lock.pam", to = "etc/pam.d/syndesktop-lock" },
   { from = "crates/syn-login/data/synlogin.pam", to = "etc/pam.d/synlogin" },
   { from = "crates/syn-login/data/synlogin.service", to = "usr/lib/systemd/system/" },
+  { from = "crates/syn-login/data/autologin-helper", to = "usr/lib/synlogin/", mode = "755" },
+  { from = "crates/syn-login/data/org.synshell.synlogin.policy", to = "usr/share/polkit-1/actions/" },
   { from = "crates/syn-fsd/data/synfsd.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-netd/data/synnetd.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-courier/data/syncourier.service", to = "usr/lib/systemd/user/" },

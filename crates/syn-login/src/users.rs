@@ -53,7 +53,7 @@ pub fn find(name: &str) -> Option<User> {
 pub fn login_users() -> Vec<User> {
     let mut v: Vec<User> = all()
         .into_iter()
-        .filter(|u| (1000..60000).contains(&u.uid) && !u.shell.ends_with("nologin") && !u.shell.ends_with("false"))
+        .filter(|u| synshell_common::autologin::is_login_user(u.uid, &u.shell))
         .collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     v

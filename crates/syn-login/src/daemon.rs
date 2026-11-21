@@ -19,6 +19,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use synshell_common::autologin::{self, Session, SessionKind};
+
 use crate::pam_session;
 use crate::users;
 
@@ -26,6 +28,7 @@ use crate::users;
 pub const REQUEST: &str = "/run/synlogin/request";
 /// Каталоги XDG_RUNTIME_DIR сеансов: `/run/synlogin/session/UID`.
 const SESSIONS: &str = "/run/synlogin/session";
+const AUTOLOGIN_DONE: &str = "/run/synlogin/autologin-done";
 
 fn synwm_args() -> Vec<String> {
     // Аргументы композитора — из командной строки демона после `--`
@@ -129,7 +132,7 @@ fn take_devices(paths: &[String], uid: u32, gid: u32) -> Vec<(String, u32, u32)>
 /// Узлы, которые нужны и системным службам: владелец остаётся root.
 const KEEP_ROOT_OWNER: [&str; 1] = ["/dev/rfkill"];
 
-fn run_greeter() {
+fn prepare() {
     let _ = std::fs::create_dir_all("/run/synlogin");
     // Последняя ориентация экрана — общая для экрана входа и сеансов (пишут композиторы).
     if let Err(e) = synshell_common::rotation_state::ensure_system_file() {
@@ -140,6 +143,10 @@ fn run_greeter() {
         log::warn!("файл темы экрана входа: {e}");
     }
     restore_eink();
+}
+
+fn run_greeter() {
+    prepare();
     let _ = std::fs::remove_file(REQUEST);
     let rt = "/run/synlogin/greeter";
     let _ = std::fs::create_dir_all(rt);
@@ -231,7 +238,32 @@ fn stop_user_manager(user: &users::User, m: &UserManager) {
     }
 }
 
-fn run_session(user: &users::User) {
+fn free_display() -> u32 {
+    (0..64).find(|n| !Path::new(&format!("/tmp/.X{n}-lock")).exists() && !Path::new(&format!("/tmp/.X11-unix/X{n}")).exists()).unwrap_or(0)
+}
+
+fn session_program(session: &Session) -> (String, Vec<String>) {
+    match session.kind {
+        SessionKind::Synshell => (synwm_bin(), synwm_args()),
+        SessionKind::Wayland => ("/bin/sh".into(), vec!["-lc".into(), format!("exec {}", session.exec)]),
+        SessionKind::X11 => (
+            "xinit".into(),
+            vec![
+                "/bin/sh".into(),
+                "-lc".into(),
+                format!("exec {}", session.exec),
+                "--".into(),
+                format!(":{}", free_display()),
+                format!("vt{}", pam_session::vt()),
+                "-keeptty".into(),
+                "-nolisten".into(),
+                "tcp".into(),
+            ],
+        ),
+    }
+}
+
+fn run_session(user: &users::User, session: &Session) {
     let _ = std::fs::create_dir_all(SESSIONS);
     let link = format!("{SESSIONS}/{}", user.uid);
     let logind = pam_session::available();
@@ -270,7 +302,8 @@ fn run_session(user: &users::User) {
     };
     let devices = device_nodes();
     let owners = if user.uid != 0 { take_devices(&devices, user.uid, user.gid) } else { Vec::new() };
-    log::info!("сеанс {} (uid {})", user.name, user.uid);
+    log::info!("сеанс {} (uid {}): {}", user.name, user.uid, session.id);
+    let (program, program_args) = session_program(session);
     let (uid, gid) = (user.uid, user.gid);
     let name = std::ffi::CString::new(user.name.as_str()).unwrap();
     // Перезагрузка/выключение из сеанса: композитор пишет сюда и выходит.
@@ -278,22 +311,31 @@ fn run_session(user: &users::User) {
     let _ = std::fs::remove_file(&request);
     let mut cmd = match &manager {
         Some(_) if logind => {
-            let mut c = pam_session::worker_command("user", &user.name, &synwm_bin());
+            let mut c = pam_session::worker_command("user", &user.name, &program);
             c.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={rt}/bus"));
             c
         }
         Some(_) => {
-            let mut c = Command::new(synwm_bin());
+            let mut c = Command::new(&program);
             c.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={rt}/bus"));
             c
         }
         None => {
             let mut c = Command::new("dbus-run-session");
-            c.arg(synwm_bin());
+            c.arg(&program);
             c
         }
     };
-    cmd.args(synwm_args())
+    if session.kind != SessionKind::Synshell {
+        let desktop = session.desktop_names.split(':').next().filter(|d| !d.is_empty()).unwrap_or(&session.id).to_lowercase();
+        cmd.env("SYNLOGIN_SESSION_TYPE", if session.kind == SessionKind::X11 { "x11" } else { "wayland" })
+            .env("SYNLOGIN_SESSION_DESKTOP", &desktop)
+            .env("XDG_SESSION_DESKTOP", &desktop);
+        if !session.desktop_names.is_empty() {
+            cmd.env("XDG_CURRENT_DESKTOP", &session.desktop_names);
+        }
+    }
+    cmd.args(&program_args)
         .env_remove("SYNSHELL_SHELL")
         .env("HOME", &user.home)
         .env("USER", &user.name)
@@ -368,11 +410,26 @@ pub fn android_boot_available() -> bool {
     synshell_common::dualboot::android_boot_available()
 }
 
+fn autologin_choice() -> Option<(users::User, Session)> {
+    if Path::new(AUTOLOGIN_DONE).exists() || std::env::var_os("SYNLOGIN_NO_AUTOLOGIN").is_some() {
+        return None;
+    }
+    let saved = autologin::load();
+    let (name, session) = autologin::decide(saved.as_ref(), &autologin::login_users(), &autologin::sessions())?;
+    Some((users::find(&name)?, session))
+}
+
 pub fn run() -> ! {
     // SAFETY: geteuid без побочных эффектов.
     if unsafe { libc::geteuid() } != 0 {
         eprintln!("synlogin daemon: нужны права root");
         std::process::exit(1);
+    }
+    if let Some((user, session)) = autologin_choice() {
+        prepare();
+        let _ = std::fs::write(AUTOLOGIN_DONE, format!("{} {}\n", user.name, session.id));
+        log::info!("автоматический вход: {} ({})", user.name, session.id);
+        run_session(&user, &session);
     }
     loop {
         run_greeter();
@@ -385,9 +442,28 @@ pub fn run() -> ! {
             }
             "!poweroff" | "!reboot" | "!reboot-android" => power_request(req),
             name => match users::find(name) {
-                Some(u) => run_session(&u),
+                Some(u) => run_session(&u, &autologin::builtin()),
                 None => log::warn!("нет пользователя {name}"),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_programs() {
+        let w = Session { id: "wayland/sway".into(), name: "Sway".into(), kind: SessionKind::Wayland, exec: "sway --unsupported-gpu".into(), desktop_names: "sway".into() };
+        assert_eq!(session_program(&w), ("/bin/sh".to_string(), vec!["-lc".to_string(), "exec sway --unsupported-gpu".to_string()]));
+        let x = Session { id: "x11/i3".into(), name: "i3".into(), kind: SessionKind::X11, exec: "i3".into(), desktop_names: "i3".into() };
+        let (p, a) = session_program(&x);
+        assert_eq!(p, "xinit");
+        assert_eq!(&a[..4], ["/bin/sh", "-lc", "exec i3", "--"]);
+        assert!(a.contains(&format!("vt{}", pam_session::vt())));
+        let (p, a) = session_program(&autologin::builtin());
+        assert_eq!(p, synwm_bin());
+        assert!(a.contains(&"--tty".to_string()));
     }
 }

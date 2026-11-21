@@ -16,6 +16,7 @@ mod hardware;
 mod input;
 mod language;
 mod location;
+mod login;
 mod mobile;
 mod models;
 mod modem;
@@ -367,6 +368,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Система"),
         keywords: n_!("экран блокировки сон простой dpms гашение"),
         build: system::lock,
+    },
+    PageDef {
+        id: "login",
+        title: n_!("Вход в систему"),
+        icon: icons::ACCOUNT,
+        group: n_!("Система"),
+        keywords: n_!("автоматический вход автологин без пароля экран входа пользователь сеанс рабочий стол"),
+        build: login::login,
     },
     PageDef {
         id: "autostart",
