@@ -315,6 +315,17 @@ fn run(args: &[String]) -> Result<(), String> {
             if std::env::var("THINK").is_ok_and(|v| v == "1") {
                 params = params.with("thinking", true);
             }
+            // GEN_TEMP / GEN_SEED / GEN_TOPK — сэмплирование хода (проверка
+            // воспроизводимости: одинаковый seed — одинаковый ответ).
+            if let Some(t) = std::env::var("GEN_TEMP").ok().and_then(|v| v.parse::<f64>().ok()) {
+                params = params.with("temperature", t);
+            }
+            if let Some(s) = std::env::var("GEN_SEED").ok().and_then(|v| v.parse::<i64>().ok()) {
+                params = params.with("seed", s);
+            }
+            if let Some(k) = std::env::var("GEN_TOPK").ok().and_then(|v| v.parse::<i64>().ok()) {
+                params = params.with("top_k", k);
+            }
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
             // HISTORY — JSON-файл с прошлыми сообщениями диалога (массив
