@@ -196,6 +196,10 @@ fn qr_text(data: &str) -> String {
 }
 
 fn run_daemon() -> i32 {
+    if std::os::unix::net::UnixStream::connect(syn_courier::socket_path()).is_ok() {
+        eprintln!("служба syncourier уже работает ({}); второй экземпляр не запускаю — он перехватил бы бота Telegram. Команды: syncourier --help", syn_courier::socket_path().display());
+        return 1;
+    }
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,whatsapp_rust=warn,wacore=warn".into())).init();
     let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(r) => r,
