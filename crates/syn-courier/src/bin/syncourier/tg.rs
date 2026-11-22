@@ -413,6 +413,23 @@ fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+fn find_from(chars: &[char], from: usize, pat: &[char]) -> Option<usize> {
+    (from..chars.len().saturating_sub(pat.len() - 1)).find(|&j| chars[j..j + pat.len()] == *pat)
+}
+
+fn wrap_pair(chars: &[char], i: usize, pat: &[char], tag: &str, out: &mut String) -> Option<usize> {
+    if chars.len() < i + pat.len() * 2 + 1 || chars[i..i + pat.len()] != *pat || chars[i + pat.len()].is_whitespace() {
+        return None;
+    }
+    let j = find_from(chars, i + pat.len() + 1, pat)?;
+    if chars[j - 1].is_whitespace() {
+        return None;
+    }
+    let inner: String = chars[i + pat.len()..j].iter().collect();
+    out.push_str(&format!("<{tag}>{}</{tag}>", inline_html(&inner)));
+    Some(j + pat.len())
+}
+
 fn inline_html(line: &str) -> String {
     let mut out = String::new();
     let chars: Vec<char> = line.chars().collect();
@@ -429,14 +446,51 @@ fn inline_html(line: &str) -> String {
                 }
             }
         }
-        if c == '*' && i + 1 < chars.len() && !chars[i + 1].is_whitespace() && (i == 0 || !chars[i - 1].is_alphanumeric()) {
-            let close = (i + 1..chars.len()).find(|&j| chars[j] == '*' && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric()));
-            if let Some(j) = close {
-                if j > i + 1 {
-                    let inner: String = chars[i + 1..j].iter().collect();
-                    out.push_str(&format!("<b>{}</b>", inline_html(&inner)));
-                    i = j + 1;
-                    continue;
+        if c == '[' {
+            if let Some(close) = (i + 1..chars.len()).find(|&j| chars[j] == ']') {
+                if chars.get(close + 1) == Some(&'(') {
+                    if let Some(end) = (close + 2..chars.len()).find(|&j| chars[j] == ')') {
+                        let text: String = chars[i + 1..close].iter().collect();
+                        let url: String = chars[close + 2..end].iter().collect();
+                        if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("tg://") {
+                            out.push_str(&format!("<a href=\"{}\">{}</a>", escape_html(&url).replace('"', "&quot;"), inline_html(&text)));
+                            i = end + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        let boundary = i == 0 || !chars[i - 1].is_alphanumeric();
+        if boundary {
+            if let Some(n) = wrap_pair(&chars, i, &['*', '*'], "b", &mut out) {
+                i = n;
+                continue;
+            }
+            if let Some(n) = wrap_pair(&chars, i, &['~', '~'], "s", &mut out) {
+                i = n;
+                continue;
+            }
+            if c == '*' {
+                let close = (i + 1..chars.len()).find(|&j| chars[j] == '*' && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric()));
+                if let Some(j) = close {
+                    if j > i + 1 && !chars[i + 1].is_whitespace() {
+                        let inner: String = chars[i + 1..j].iter().collect();
+                        out.push_str(&format!("<b>{}</b>", inline_html(&inner)));
+                        i = j + 1;
+                        continue;
+                    }
+                }
+            }
+            if c == '_' {
+                let close = (i + 1..chars.len()).find(|&j| chars[j] == '_' && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric()));
+                if let Some(j) = close {
+                    if j > i + 1 && !chars[i + 1].is_whitespace() {
+                        let inner: String = chars[i + 1..j].iter().collect();
+                        out.push_str(&format!("<i>{}</i>", inline_html(&inner)));
+                        i = j + 1;
+                        continue;
+                    }
                 }
             }
         }
@@ -446,24 +500,93 @@ fn inline_html(line: &str) -> String {
     out
 }
 
+fn plain_cell(s: &str) -> String {
+    let mut t = s.trim().to_string();
+    for m in ["**", "`", "~~"] {
+        t = t.replace(m, "");
+    }
+    t
+}
+
+fn table_pre(rows: &[String]) -> String {
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .filter(|r| !r.trim().trim_matches('|').chars().all(|c| matches!(c, '-' | ':' | '|' | ' ')))
+        .map(|r| r.trim().trim_start_matches('|').trim_end_matches('|').split('|').map(plain_cell).collect())
+        .collect();
+    let ncol = cells.iter().map(|r| r.len()).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..ncol).map(|c| cells.iter().map(|r| r.get(c).map(|x| x.chars().count()).unwrap_or(0)).max().unwrap_or(0)).collect();
+    let lines: Vec<String> = cells
+        .iter()
+        .map(|r| {
+            (0..ncol)
+                .map(|c| {
+                    let v = r.get(c).cloned().unwrap_or_default();
+                    let pad = widths[c] - v.chars().count();
+                    format!("{v}{}", " ".repeat(pad))
+                })
+                .collect::<Vec<_>>()
+                .join("  ")
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    format!("<pre>{}</pre>", escape_html(&lines.join("\n")))
+}
+
+fn is_table_row(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('|') && t.len() > 1 && t[1..].contains('|')
+}
+
 pub fn to_html(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::new();
-    let mut code: Option<Vec<String>> = None;
-    for line in text.lines() {
-        if line.trim_start().starts_with("```") {
-            match code.take() {
-                Some(block) => out.push(format!("<pre>{}</pre>", escape_html(&block.join("\n")))),
-                None => code = Some(Vec::new()),
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let t = line.trim_start();
+        if t.starts_with("```") {
+            let mut block = Vec::new();
+            i += 1;
+            while i < lines.len() && !lines[i].trim_start().starts_with("```") {
+                block.push(lines[i]);
+                i += 1;
             }
+            out.push(format!("<pre>{}</pre>", escape_html(&block.join("\n"))));
+            i += 1;
             continue;
         }
-        match code.as_mut() {
-            Some(block) => block.push(line.to_string()),
-            None => out.push(inline_html(line)),
+        if is_table_row(line) {
+            let mut rows = Vec::new();
+            while i < lines.len() && is_table_row(lines[i]) {
+                rows.push(lines[i].to_string());
+                i += 1;
+            }
+            out.push(table_pre(&rows));
+            continue;
         }
-    }
-    if let Some(block) = code {
-        out.push(format!("<pre>{}</pre>", escape_html(&block.join("\n"))));
+        if t.starts_with('>') {
+            let mut q = Vec::new();
+            while i < lines.len() && lines[i].trim_start().starts_with('>') {
+                q.push(inline_html(lines[i].trim_start()[1..].trim_start()));
+                i += 1;
+            }
+            out.push(format!("<blockquote>{}</blockquote>", q.join("\n")));
+            continue;
+        }
+        let hashes = t.chars().take_while(|&c| c == '#').count();
+        if (1..=6).contains(&hashes) && t[hashes..].starts_with(' ') {
+            out.push(format!("<b>{}</b>", inline_html(t[hashes..].trim())));
+        } else if t == "---" || t == "***" {
+            out.push("──────────".into());
+        } else if (t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ")) && t.len() > 2 {
+            let indent = line.len() - t.len();
+            out.push(format!("{}• {}", " ".repeat(indent), inline_html(&t[2..])));
+        } else {
+            out.push(inline_html(line));
+        }
+        i += 1;
     }
     out.join("\n")
 }
@@ -475,12 +598,21 @@ mod html_tests {
     #[test]
     fn table_and_bold() {
         let t = "*отчёт 1*\n```\nls  58/315 → 72/308\n<x> & y\n```\n* скелет — новое, `a<b`";
-        assert_eq!(to_html(t), "<b>отчёт 1</b>\n<pre>ls  58/315 → 72/308\n&lt;x&gt; &amp; y</pre>\n* скелет — новое, <code>a&lt;b</code>");
+        assert_eq!(to_html(t), "<b>отчёт 1</b>\n<pre>ls  58/315 → 72/308\n&lt;x&gt; &amp; y</pre>\n• скелет — новое, <code>a&lt;b</code>");
     }
 
     #[test]
     fn unclosed() {
         assert_eq!(to_html("2*3 = 6, a*b"), "2*3 = 6, a*b");
         assert_eq!(to_html("```\nкод"), "<pre>код</pre>");
+    }
+
+    #[test]
+    fn markdown() {
+        let t = "## Отчёт\n| метрика | было | стало |\n|---|---|---|\n| ls | 58 | **72** |\n| sort байт | 55 | 67 |\n> цитата _курсив_\n- пункт ~~старое~~ [ссылка](https://a.b/c)\nsnake_case_name";
+        assert_eq!(
+            to_html(t),
+            "<b>Отчёт</b>\n<pre>метрика    было  стало\nls         58    72\nsort байт  55    67</pre>\n<blockquote>цитата <i>курсив</i></blockquote>\n• пункт <s>старое</s> <a href=\"https://a.b/c\">ссылка</a>\nsnake_case_name"
+        );
     }
 }
