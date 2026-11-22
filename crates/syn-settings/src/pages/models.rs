@@ -1072,6 +1072,11 @@ fn param_row(sig: RwSignal<Snapshot>, id: &str, spec: &ParamSpec, st: &ParamStat
         (Some(_), None) => hint.push_str(&t!(" · оптимальное: авто")),
         _ => {}
     }
+    // Допустимый диапазон виден заранее: служба приводит значение к нему, и
+    // без подсказки введённое сверх предела молча становилось пределом.
+    if let ParamKind::Int { min, max, .. } = &kind {
+        hint.push_str(&t!(" · от {a} до {b}", a = min, b = max));
+    }
     let i = id.to_string();
     let key = spec.key.clone();
     match &kind {
