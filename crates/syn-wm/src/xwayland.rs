@@ -523,14 +523,13 @@ impl XwmHandler for State {
             }
         } else if x.is_some() || y.is_some() {
             // Плавающее окно двигает себя само (свой заголовок без _NET_WM_MOVERESIZE: Qt QWidget::move у
-            // DaVinci Resolve) — принять новое место. Координаты X11 — в пикселях этого Xwayland.
-            let scale = instance_of(&self.core.xwayland, &window).map(|i| i.scale).filter(|s| *s > 0.0).unwrap_or(1.0);
-            let to_log = |v: i32| (v as f64 / scale).round() as i32;
+            // DaVinci Resolve) — принять новое место. smithay уже перевёл координаты (и размер) из пикселей
+            // Xwayland в логические — второй раз делить на масштаб нельзя (окно уезжало к углу: 800 → 512 при 1.25).
             if let Some(x) = x {
-                geo.loc.x = to_log(x);
+                geo.loc.x = x;
             }
             if let Some(y) = y {
-                geo.loc.y = to_log(y);
+                geo.loc.y = y;
             }
             if let Some(m) = id.and_then(|id| self.core.wm.get_mut(id)) {
                 if m.loc != geo.loc {
