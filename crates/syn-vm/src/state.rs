@@ -211,6 +211,8 @@ pub enum Confirm {
     ForceOff(String),
     Restore(String, String),
     DeleteSnapshot(String, String),
+    /// Диски машины раздроблены на btrfs (CoW): перепаковать перед запуском или запустить так.
+    Repack(String, Vec<model::Fragmented>),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -660,7 +662,47 @@ pub fn background(st: St, id: &str, label: String, f: impl FnOnce() -> anyhow::R
 
 // ─── Питание ────────────────────────────────────────────────────────────
 
+/// Машины, для которых в этом сеансе выбрали «Запустить так» — больше не спрашивать.
+static REPACK_DECLINED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Запуск с проверкой дисков: раздроблены на btrfs — сначала предложить перепаковку.
 pub fn start(st: St, id: &str) {
+    if REPACK_DECLINED.lock().unwrap().iter().any(|x| x == id) {
+        return start_now(st, id);
+    }
+    let Some(vm) = st.vm(id) else { return };
+    let id = id.to_string();
+    std::thread::spawn(move || {
+        let frag = model::fragmented_disks(&vm);
+        run_on_main_thread(move || {
+            if frag.is_empty() {
+                start_now(st, &id);
+            } else {
+                st.confirm.set(Some(Confirm::Repack(id, frag)));
+            }
+        });
+    });
+}
+
+/// «Запустить так»: без перепаковки, до конца сеанса не спрашивать.
+pub fn start_declined_repack(st: St, id: &str) {
+    REPACK_DECLINED.lock().unwrap().push(id.to_string());
+    start_now(st, id);
+}
+
+/// Перепаковать раздробленные диски и запустить.
+pub fn repack_and_start(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    let id2 = id.to_string();
+    background(st, id, t!("Перепаковка диска…"), move || {
+        let done = model::repack_vm(&vm, false)?;
+        let id = id2.clone();
+        run_on_main_thread(move || start_now(st, &id));
+        Ok(Some(t!("Диск перепакован: {n}", n = done.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect::<Vec<_>>().join(", "))))
+    });
+}
+
+pub fn start_now(st: St, id: &str) {
     let Some(mut vm) = st.vm(id) else { return };
     vm.last_run = model::now();
     let _ = vm.save();

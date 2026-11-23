@@ -406,6 +406,28 @@ fn confirm_layer(st: St) -> W {
                 false,
             ),
             Confirm::DeleteSnapshot(_, snap) => (icons::DELETE, t!("Удалить снимок «{n}»?", n = snap), t!("Снимок будет удалён навсегда."), t!("Удалить"), true),
+            Confirm::Repack(id, frag) => (
+                icons::PLAY,
+                t!("Перепаковать диск «{n}»?", n = name(id)),
+                t!(
+                    "Диск на btrfs раздроблен на {k} кусков (копирование при записи) — гость может подвисать. Перепаковка сделает полную копию без CoW (нужно ещё {g} ГБ на время копирования), снимки сохранятся. Затем машина запустится.",
+                    k = frag.iter().map(|f| f.extents).sum::<u64>(),
+                    g = (frag.iter().map(|f| f.used).sum::<u64>() >> 30).max(1)
+                ),
+                t!("Перепаковать"),
+                false,
+            ),
+        };
+        let cancel = match &c {
+            Confirm::Repack(..) => t!("Запустить так"),
+            _ => t!("Отмена"),
+        };
+        let c3 = c.clone();
+        let cancel_go = move || {
+            close();
+            if let Confirm::Repack(id, _) = &c3 {
+                state::start_declined_repack(st, id);
+            }
         };
         let c2 = c.clone();
         let go = move || {
@@ -432,6 +454,7 @@ fn confirm_layer(st: St) -> W {
                 Confirm::ForceOff(id) => state::force_off(st, &id),
                 Confirm::Restore(_, snap) => state::snapshot_op(st, "restore", snap),
                 Confirm::DeleteSnapshot(_, snap) => state::snapshot_op(st, "delete", snap),
+                Confirm::Repack(id, _) => state::repack_and_start(st, &id),
             }
         };
         let card = DecoratedBox::new()
@@ -441,7 +464,7 @@ fn confirm_layer(st: St) -> W {
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(parts::badge(icon, None, 40.0)).child(Text::new(title).max_lines(3).class("dialog-title grow")))
                     .child(Text::new(text).max_lines(6).class("dialog-text"))
-                    .child(Row::new().gap(8.0).child(spacer()).child(btn("", t!("Отмена"), "ghost", close)).child(btn("", action, if danger { "danger" } else { "primary" }, go))),
+                    .child(Row::new().gap(8.0).child(spacer()).child(btn("", cancel, "ghost", cancel_go)).child(btn("", action, if danger { "danger" } else { "primary" }, go))),
             )
             .class("dialog");
         vec![modal(boxed(card), close)]

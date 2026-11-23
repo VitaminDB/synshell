@@ -1037,7 +1037,7 @@ pub fn create(mut vm: Vm, existing_disk: Option<PathBuf>) -> Result<Vm> {
         vm.color = PALETTE[(vm.created as usize / 7 + vm.name.len()) % PALETTE.len()].to_string();
     }
     let dir = vm.dir();
-    std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
+    ensure_dir(&dir).with_context(|| dir.display().to_string())?;
     let r = (|| -> Result<()> {
         match existing_disk {
             Some(p) => vm.disks = vec![Disk { file: p.to_string_lossy().into_owned() }],
@@ -1115,7 +1115,9 @@ pub fn add_disk(vm: &mut Vm, gb: u64) -> Result<()> {
     vm.save()
 }
 
-/// Копия машины: диски — полными копиями (с поддержкой reflink на btrfs/xfs).
+/// Копия машины: диски — полными копиями без reflink. Общие с оригиналом экстенты btrfs при каждой записи гостя
+/// всё равно копировались бы (CoW) и дробили файл, а в каталоге с NOCOW новые файлы сразу без CoW. Внутренние
+/// снимки qcow2 копия сохраняет (`qemu-img convert` их бы потерял).
 pub fn clone(vm: &Vm, all: &[Vm]) -> Result<Vm> {
     let mut c = vm.clone();
     c.name = unique_name(&t!("{n} (копия)", n = vm.name), all);
@@ -1125,7 +1127,7 @@ pub fn clone(vm: &Vm, all: &[Vm]) -> Result<Vm> {
     c.color = PALETTE[(PALETTE.iter().position(|p| *p == vm.color).unwrap_or(0) + 1) % PALETTE.len()].to_string();
     let src = vm.dir();
     let dst = c.dir();
-    std::fs::create_dir_all(&dst)?;
+    ensure_dir(&dst)?;
     let r = (|| -> Result<()> {
         for e in std::fs::read_dir(&src)?.flatten() {
             let name = e.file_name();
@@ -1140,7 +1142,7 @@ pub fn clone(vm: &Vm, all: &[Vm]) -> Result<Vm> {
                 }
                 continue;
             }
-            let st = Command::new("cp").arg("--reflink=auto").arg("--sparse=always").arg(e.path()).arg(dst.join(&name)).status()?;
+            let st = Command::new("cp").arg("--reflink=never").arg("--sparse=always").arg(e.path()).arg(dst.join(&name)).status()?;
             if !st.success() {
                 bail!("cp {n}");
             }
@@ -1164,6 +1166,179 @@ pub fn delete(vm: &Vm) -> Result<()> {
     Ok(())
 }
 
+// ─── btrfs: образы без CoW ─────────────────────────────────────────────────
+//
+// На btrfs каждая запись гостя в qcow2 копируется на новое место (CoW): за минуты работы образ дробится на
+// сотни тысяч кусков, и гость подвисает. Каталоги машин помечаются NOCOW (FS_NOCOW_FL, `chattr +C`) пустыми —
+// новые файлы и подкаталоги (диски, efivars, tpm/) наследуют флаг. На других ФС ioctl просто не проходит.
+
+const FS_IOC_GETFLAGS: libc::c_ulong = 0x8008_6601;
+const FS_IOC_SETFLAGS: libc::c_ulong = 0x4008_6602;
+const FS_IOC_FIEMAP: libc::c_ulong = 0xC020_660B;
+const FS_NOCOW_FL: libc::c_long = 0x0080_0000;
+const BTRFS_SUPER_MAGIC: i64 = 0x9123_683E;
+
+fn inode_flags(f: &std::fs::File) -> Option<libc::c_long> {
+    use std::os::fd::AsRawFd;
+    let mut fl: libc::c_long = 0;
+    (unsafe { libc::ioctl(f.as_raw_fd(), FS_IOC_GETFLAGS as _, &mut fl) } == 0).then_some(fl)
+}
+
+/// Снять CoW с открытого каталога или пустого файла. `false` — ФС не умеет (не btrfs) или файл не пустой.
+fn set_nocow_fd(f: &std::fs::File) -> bool {
+    use std::os::fd::AsRawFd;
+    let Some(fl) = inode_flags(f) else { return false };
+    if fl & FS_NOCOW_FL != 0 {
+        return true;
+    }
+    let nf = fl | FS_NOCOW_FL;
+    unsafe { libc::ioctl(f.as_raw_fd(), FS_IOC_SETFLAGS as _, &nf) == 0 }
+}
+
+pub fn set_nocow(path: &Path) -> bool {
+    std::fs::File::open(path).is_ok_and(|f| set_nocow_fd(&f))
+}
+
+pub fn is_nocow(path: &Path) -> bool {
+    std::fs::File::open(path).ok().and_then(|f| inode_flags(&f)).is_some_and(|fl| fl & FS_NOCOW_FL != 0)
+}
+
+pub fn is_btrfs(path: &Path) -> bool {
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else { return false };
+    let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+    unsafe { libc::statfs(c.as_ptr(), &mut st) == 0 && st.f_type as i64 == BTRFS_SUPER_MAGIC }
+}
+
+/// Каталог для файлов машин: создать и пометить NOCOW (вместе с корнем `syn-vm/` — новые машины наследуют
+/// флаг и без этого вызова). Ошибка флага не мешает: на ext4/xfs CoW нет.
+pub fn ensure_dir(dir: &Path) -> std::io::Result<()> {
+    let r = root();
+    if !r.exists() {
+        std::fs::create_dir_all(&r)?;
+    }
+    set_nocow(&r);
+    let new = !dir.exists();
+    std::fs::create_dir_all(dir)?;
+    if new || std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none()) {
+        set_nocow(dir);
+    }
+    Ok(())
+}
+
+/// Сколько кусков (экстентов) у файла: FIEMAP со счётчиком 0 — ядро только считает.
+pub fn extent_count(path: &Path) -> Option<u64> {
+    use std::os::fd::AsRawFd;
+    #[repr(C)]
+    struct Fiemap {
+        start: u64,
+        length: u64,
+        flags: u32,
+        mapped: u32,
+        count: u32,
+        reserved: u32,
+    }
+    let f = std::fs::File::open(path).ok()?;
+    let mut m = Fiemap { start: 0, length: u64::MAX, flags: 0, mapped: 0, count: 0, reserved: 0 };
+    (unsafe { libc::ioctl(f.as_raw_fd(), FS_IOC_FIEMAP as _, &mut m) } == 0).then_some(m.mapped as u64)
+}
+
+/// Диск на btrfs с CoW и сильно раздроблен.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fragmented {
+    pub path: PathBuf,
+    pub extents: u64,
+    /// Занято на диске, байт.
+    pub used: u64,
+}
+
+/// Порог «сильно раздроблен»: больше 20 000 кусков и в среднем меньше 1 МиБ на кусок
+/// (свежая полная копия — единицы-сотни кусков на гигабайт).
+pub fn frag_threshold(extents: u64, used: u64) -> bool {
+    extents > 20_000 && used / extents.max(1) < 1 << 20
+}
+
+/// Диски машины в её папке и внешние: на btrfs, без NOCOW и с порогом [`frag_threshold`].
+pub fn fragmented_disks(vm: &Vm) -> Vec<Fragmented> {
+    use std::os::unix::fs::MetadataExt;
+    vm.disks
+        .iter()
+        .filter_map(|d| {
+            let path = vm.disk_path(d);
+            if !is_btrfs(&path) || is_nocow(&path) {
+                return None;
+            }
+            let used = std::fs::metadata(&path).ok()?.blocks() * 512;
+            let extents = extent_count(&path)?;
+            frag_threshold(extents, used).then_some(Fragmented { path, extents, used })
+        })
+        .collect()
+}
+
+/// Перепаковать диск выключенной машины: новый файл рядом с флагом NOCOW (пока он пустой), полная копия без
+/// reflink (внутренние снимки qcow2 сохраняются), fsync, замена атомарным переименованием.
+pub fn repack_disk(path: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    // Образ открыт QEMU (этой или другой машиной) — qemu-img без -U не получит блокировку.
+    let o = Command::new("qemu-img").args(["info", "--output=json"]).arg(path).output().context("qemu-img")?;
+    if !o.status.success() {
+        bail!("{}: {}", path.display(), String::from_utf8_lossy(&o.stderr).trim());
+    }
+    let meta = std::fs::metadata(path)?;
+    let dir = path.parent().context("нет каталога")?;
+    let need = meta.blocks() * 512 + (256 << 20);
+    if let Some(free) = free_space_at(dir) {
+        if free < need {
+            bail!("{}", t!("Мало места для перепаковки: нужно {n} ГБ, свободно {f} ГБ", n = need >> 30, f = free >> 30));
+        }
+    }
+    let tmp = dir.join(format!(".{}.repack", path.file_name().context("имя")?.to_string_lossy()));
+    let _ = std::fs::remove_file(&tmp);
+    let r = (|| -> Result<()> {
+        let f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        if !set_nocow_fd(&f) && is_btrfs(dir) {
+            bail!("{}", t!("не удалось снять CoW (chattr +C) с {p}", p = tmp.display()));
+        }
+        f.set_permissions(std::fs::Permissions::from_mode(meta.mode() & 0o7777))?;
+        drop(f);
+        // cp пишет в уже созданный файл (O_TRUNC, тот же inode) — флаг остаётся.
+        let st = Command::new("cp").arg("--reflink=never").arg("--sparse=always").arg(path).arg(&tmp).status()?;
+        if !st.success() {
+            bail!("cp {}", path.display());
+        }
+        std::fs::File::open(&tmp)?.sync_all()?;
+        if std::fs::metadata(&tmp)?.len() != meta.len() {
+            bail!("{}", t!("размер копии не совпал"));
+        }
+        std::fs::rename(&tmp, path)?;
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+        Ok(())
+    })();
+    if r.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    r
+}
+
+/// Перепаковать раздробленные диски машины (она должна быть выключена). Возвращает перепакованные пути.
+pub fn repack_vm(vm: &Vm, all: bool) -> Result<Vec<PathBuf>> {
+    if crate::qemu::pid(vm).is_some() {
+        bail!("{}", t!("Сначала выключите машину"));
+    }
+    // Каталог машины тоже — с ним и efivars/tpm следующих машин-копий без CoW.
+    set_nocow(&vm.dir());
+    let list: Vec<PathBuf> = if all {
+        vm.disks.iter().map(|d| vm.disk_path(d)).filter(|p| is_btrfs(p) && !is_nocow(p)).collect()
+    } else {
+        fragmented_disks(vm).into_iter().map(|f| f.path).collect()
+    };
+    for p in &list {
+        repack_disk(p)?;
+    }
+    Ok(list)
+}
+
 pub fn host_memory_mb() -> u32 {
     std::fs::read_to_string("/proc/meminfo")
         .ok()
@@ -1180,7 +1355,11 @@ pub fn host_cpus() -> u32 {
 pub fn free_space() -> Option<u64> {
     let dir = root();
     let _ = std::fs::create_dir_all(&dir);
-    let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).ok()?;
+    free_space_at(&dir)
+}
+
+pub fn free_space_at(dir: &Path) -> Option<u64> {
+    let c = std::ffi::CString::new(dir.as_os_str().as_encoded_bytes()).ok()?;
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
         return None;

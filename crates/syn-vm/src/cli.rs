@@ -53,6 +53,9 @@ syn-vm — виртуальные машины QEMU/KVM
                                           переменные UEFI и TPM копируются в папку машины;
                                           пробросы слушают 127.0.0.1, --public — все адреса)
   --delete МАШИНА --yes                  удалить машину и диски в её папке
+  --repack МАШИНА [--check] [--all]      перепаковать раздробленные диски на btrfs (машина выключена): копия
+                                          без CoW (chattr +C) и без reflink, снимки qcow2 сохраняются;
+                                          --check — только показать куски, --all — все диски без +C
   --get МАШИНА [КЛЮЧ]                    настройки (TOML) или одно значение
   --set МАШИНА КЛЮЧ=ЗНАЧЕНИЕ …           изменить настройки (значение — TOML или строка)
 
@@ -176,7 +179,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
         "--list", "--status", "--start", "--stop", "--restart", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
         "--qmp", "--mcp", "--optimize", "--present-dump", "--gpu-tools", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
-        "--agent-broker", "--agent-install", "--agent-status", "--agent-log", "--clipboard",
+        "--agent-broker", "--agent-install", "--agent-status", "--agent-log", "--clipboard", "--repack",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -245,8 +248,31 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             }
             Ok(if s["state"] == "off" { 3 } else { 0 })
         }
+        "--repack" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            if a.has("--check") {
+                for d in &vm.disks {
+                    let p = vm.disk_path(d);
+                    let ext = model::extent_count(&p).map(|n| n.to_string()).unwrap_or_else(|| "?".into());
+                    let attr = if !model::is_btrfs(&p) { "не btrfs" } else if model::is_nocow(&p) { "+C" } else { "CoW" };
+                    println!("{}\t{attr}\t{}", p.display(), t!("кусков: {n}", n = ext));
+                }
+                return Ok(0);
+            }
+            let done = model::repack_vm(&vm, a.has("--all"))?;
+            if done.is_empty() {
+                println!("{}", t!("{name}: перепаковывать нечего", name = vm.name));
+            }
+            for p in done {
+                println!("{}", t!("перепакован: {p} (кусков: {n})", p = p.display(), n = model::extent_count(&p).unwrap_or(0)));
+            }
+            Ok(0)
+        }
         "--start" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            for f in model::fragmented_disks(&vm) {
+                eprintln!("{}", t!("внимание: {p} раздроблен на btrfs ({n} кусков) — гость может подвисать; выключите машину и выполните syn-vm --repack {id}", p = f.path.display(), n = f.extents, id = vm.id));
+            }
             start(&vm)?;
             if a.has("--wait-boot") {
                 let t = a.get("--wait-boot").and_then(|s| s.parse().ok()).unwrap_or(300);
