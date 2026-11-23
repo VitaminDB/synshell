@@ -206,6 +206,8 @@ pub struct St {
     /// Только свои процессы.
     pub mine: RwSignal<bool>,
     pub toast: RwSignal<String>,
+    /// Ошибка настроек сети (synnetd) — в панели программы на странице «Сеть», не общий `toast` «Процессов».
+    pub net_err: RwSignal<String>,
     pub confirm: RwSignal<Option<Confirm>>,
     /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
     pub window: RwSignal<syngui::window::WindowState>,
@@ -229,6 +231,7 @@ impl St {
             kernel_threads: use_signal(false),
             mine: use_signal(false),
             toast: use_signal(String::new()),
+            net_err: use_signal(String::new()),
             confirm: use_signal(None),
             window: use_signal(syngui::window::WindowState::default()),
             net_period: use_signal(NetPeriod::Today),

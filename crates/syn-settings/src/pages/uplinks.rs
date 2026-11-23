@@ -28,6 +28,8 @@ struct Sigs {
     filter: RwSignal<String>,
     /// Подтверждение «Очистить журнал и архив».
     clear: RwSignal<bool>,
+    /// Программы, ходившие в сеть (учёт synnetd), — и консольные без ярлыка в меню (`hf`, `curl`…).
+    seen: RwSignal<Vec<String>>,
 }
 
 thread_local! {
@@ -40,7 +42,7 @@ fn sigs() -> Sigs {
     SIGS.with(|c| match c.get() {
         Some(s) => s,
         None => {
-            let s = Sigs { st: use_signal(None), rates: use_signal(HashMap::new()), show_all: use_signal(false), filter: use_signal(String::new()), clear: use_signal(false) };
+            let s = Sigs { st: use_signal(None), rates: use_signal(HashMap::new()), show_all: use_signal(false), filter: use_signal(String::new()), clear: use_signal(false), seen: use_signal(Vec::new()) };
             c.set(Some(s));
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
@@ -323,6 +325,33 @@ fn add_row(e: &DesktopEntry) -> W {
             });
         })),
     )
+}
+
+/// Программа без ярлыка в меню — по имени процесса.
+fn add_exe_row(exe: String, hint: String) -> W {
+    let x = exe.clone();
+    app_row(
+        None,
+        &exe,
+        hint,
+        boxed(button(t!("Все каналы"), move || {
+            let x = x.clone();
+            change(move |c| {
+                c.apps.insert(x, AppPolicy::Both);
+            });
+        })),
+    )
+}
+
+/// Имена программ, ходивших в сеть (за всё время учёта), — в фоне.
+fn load_seen(s: Sigs) {
+    std::thread::spawn(move || {
+        let Ok(t) = syn_netd::traffic() else { return };
+        let mut v: Vec<String> = t.apps.iter().map(|a| a.app.clone()).filter(|a| !a.is_empty()).collect();
+        v.sort();
+        v.dedup();
+        run_on_main_thread(move || s.seen.set(v));
+    });
 }
 
 /// Учёт трафика: расход по программам, журнал соединений, архив.
@@ -624,18 +653,33 @@ pub fn uplinks() -> W {
             return vec![];
         }
         if !s.show_all.get() {
-            return vec![boxed(Row::new().child(button(t!("Добавить другую программу"), move || s.show_all.set(true))))];
+            return vec![boxed(Row::new().child(button(t!("Добавить другую программу"), move || {
+                load_seen(s);
+                s.show_all.set(true);
+            })))];
         }
         let list = Reactive::new(move || -> Vec<W> {
             let Some(Ok(st)) = s.st.get() else { return vec![] };
             let q = s.filter.get().to_lowercase();
-            let rows: Vec<W> = menu_apps()
+            let menu = menu_apps();
+            let mut rows: Vec<W> = menu
                 .iter()
                 .filter(|e| !st.config.apps.contains_key(&exe_of(e)))
                 .filter(|e| q.is_empty() || e.name.to_lowercase().contains(&q) || exe_of(e).to_lowercase().contains(&q))
                 .take(60)
                 .map(add_row)
                 .collect();
+            // Консольные и прочие программы без ярлыка, которые уже ходили в сеть.
+            let in_menu = |x: &str| menu.iter().any(|e| exe_of(e) == x);
+            let seen = s.seen.get();
+            for x in seen.iter().filter(|x| !in_menu(x) && !st.config.apps.contains_key(*x)).filter(|x| q.is_empty() || x.to_lowercase().contains(&q)).take(40) {
+                rows.push(add_exe_row(x.clone(), t!("Процесс {p} · ходил в сеть, ярлыка в меню нет", p = x)));
+            }
+            // Любое имя процесса или путь — правило подходит и к скриптам (`python3 /usr/bin/hf` → hf).
+            let typed = s.filter.get().trim().to_string();
+            if !typed.is_empty() && !typed.contains(char::is_whitespace) && !in_menu(&typed) && !seen.contains(&typed) && !st.config.apps.contains_key(&typed) {
+                rows.push(add_exe_row(typed.clone(), t!("Добавить по имени процесса или пути: {p}", p = typed)));
+            }
             vec![if rows.is_empty() { note(t!("Ничего не найдено")) } else { card(rows) }]
         });
         vec![titled(
@@ -644,7 +688,7 @@ pub fn uplinks() -> W {
                 Column::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(TextField::new().text(s.filter.get_untracked()).placeholder(t!("Найти программу")).on_change(move |v| s.filter.set(v.to_string())))
+                    .child(TextField::new().text(s.filter.get_untracked()).placeholder(t!("Найти программу или ввести имя процесса (hf, curl…)")).on_change(move |v| s.filter.set(v.to_string())))
                     .child(list),
             ),
         )]
