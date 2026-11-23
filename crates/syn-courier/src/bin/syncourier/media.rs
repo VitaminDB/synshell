@@ -139,8 +139,9 @@ pub async fn deliver(hub: &std::sync::Arc<crate::hub::Hub>, channel: &str, bytes
     hub.set_last_channel(channel);
     if voice {
         match transcribe(&path).await {
+            // Расшифровку пользователю обратно не шлём: в WhatsApp и в своём Telegram
+            // (kz.syn.telegram, локальный Whisper) она и так видна под голосовым.
             Ok(t) if !t.is_empty() => {
-                hub.say(&format!("🎤 {t}")).await;
                 hub.incoming(channel, format!("[голосовое] {t}"));
                 return;
             }
