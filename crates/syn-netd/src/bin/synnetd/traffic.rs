@@ -311,6 +311,8 @@ struct State {
     /// Ограничения скорости: программа → ячейка; что записано в ячейки.
     slots: HashMap<String, u32>,
     limits_applied: Option<std::collections::BTreeMap<String, syn_netd::Limit>>,
+    /// Записанные в `ifbuckets` ограничения каналов: ifindex → предел (модем при переподключении получает новый ifindex).
+    if_limits_applied: Vec<(u32, syn_netd::Limit)>,
     /// Программы, уже выходившие в сеть (`known.json`): имя → когда впервые.
     known: HashMap<String, u64>,
     known_dirty: bool,
@@ -376,6 +378,7 @@ impl Traffic {
                 last_sweep: Instant::now(),
                 slots: HashMap::new(),
                 limits_applied: None,
+                if_limits_applied: Vec::new(),
                 learning_until: if known.is_none() { now_ms() + 10 * 60_000 } else { 0 },
                 known: known.unwrap_or_default(),
                 known_dirty: false,
@@ -672,7 +675,51 @@ impl Traffic {
     }
 
     /// Записать ограничения скорости в ячейки BPF (когда настройки поменялись).
+    /// Ячейка ведра: скорости приёма и отдачи (байт/с) и начальный запас — полсекунды.
+    fn bucket_value(l: &syn_netd::Limit) -> [u8; tbpf::BUCKET_VALUE as usize] {
+        let mut v = [0u8; tbpf::BUCKET_VALUE as usize];
+        let (down, up) = (l.down_kbps as u64 * 1024, l.up_kbps as u64 * 1024);
+        v[0..8].copy_from_slice(&down.to_ne_bytes());
+        v[8..16].copy_from_slice(&(down / 2).to_ne_bytes());
+        v[24..32].copy_from_slice(&up.to_ne_bytes());
+        v[32..40].copy_from_slice(&(up / 2).to_ne_bytes());
+        v
+    }
+
+    /// Ограничения каналов: имя → ifindex каждый тик (интерфейс мог появиться или переподключиться);
+    /// таблица переписывается только при изменении — иначе ведро сбрасывалось бы.
+    fn apply_if_limits(&self, st: &mut State, acc: &tbpf::Accounting) {
+        let cfg = self.cfg.read().unwrap().uplink_limits.clone();
+        let mut want: Vec<(u32, syn_netd::Limit)> = cfg
+            .iter()
+            .filter(|(_, l)| !l.is_none())
+            .filter_map(|(name, l)| {
+                let c = std::ffi::CString::new(name.as_str()).ok()?;
+                let idx = unsafe { libc::if_nametoindex(c.as_ptr()) };
+                (idx != 0).then_some((idx, *l))
+            })
+            .take(tbpf::IF_LIMIT_SLOTS as usize)
+            .collect();
+        want.sort_by_key(|w| w.0);
+        if want == st.if_limits_applied {
+            return;
+        }
+        for (idx, _) in &st.if_limits_applied {
+            if !want.iter().any(|w| w.0 == *idx) {
+                acc.ifbuckets.delete(&idx.to_ne_bytes());
+            }
+        }
+        for (idx, l) in &want {
+            if !st.if_limits_applied.contains(&(*idx, *l)) {
+                acc.ifbuckets.update(&idx.to_ne_bytes(), &Self::bucket_value(l));
+            }
+        }
+        tracing::info!("ограничения каналов: {}", cfg.iter().map(|(i, l)| format!("{i} ↓{} ↑{} КБ/с", l.down_kbps, l.up_kbps)).collect::<Vec<_>>().join(", "));
+        st.if_limits_applied = want;
+    }
+
     fn apply_limits(&self, st: &mut State, acc: &tbpf::Accounting) {
+        self.apply_if_limits(st, acc);
         let limits = self.cfg.read().unwrap().limits.clone();
         if st.limits_applied.as_ref() == Some(&limits) {
             return;
@@ -690,13 +737,7 @@ impl Traffic {
         }
         for slot in 0..tbpf::LIMIT_SLOTS {
             let l = st.slots.iter().find(|(_, s)| **s == slot).and_then(|(a, _)| limits.get(a)).copied().unwrap_or_default();
-            let mut v = [0u8; tbpf::BUCKET_VALUE as usize];
-            let (down, up) = (l.down_kbps as u64 * 1024, l.up_kbps as u64 * 1024);
-            v[0..8].copy_from_slice(&down.to_ne_bytes());
-            v[8..16].copy_from_slice(&(down / 2).to_ne_bytes());
-            v[24..32].copy_from_slice(&up.to_ne_bytes());
-            v[32..40].copy_from_slice(&(up / 2).to_ne_bytes());
-            acc.buckets.update(&slot.to_ne_bytes(), &v);
+            acc.buckets.update(&slot.to_ne_bytes(), &Self::bucket_value(&l));
         }
         // Сокеты программ, с которых ограничение сняли (или ячейка сменилась), — из `lim`.
         for (cookie, s) in st.socks.iter_mut() {

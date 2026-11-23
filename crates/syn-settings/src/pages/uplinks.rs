@@ -283,6 +283,51 @@ fn policy_dropdown(exe: String, cur: Option<AppPolicy>, uplinks: &[syn_netd::Upl
     )
 }
 
+/// Предел скорости канала: приём и отдача отдельно (общий на все программы через этот канал).
+fn uplink_limit_controls(iface: String, cur: syn_netd::Limit) -> W {
+    let dd = |down: bool| -> W {
+        let now = if down { cur.down_kbps } else { cur.up_kbps };
+        let arrow = if down { "↓" } else { "↑" };
+        let label = |v: u32| {
+            if v == 0 {
+                format!("{arrow} {}", t!("без лимита"))
+            } else if v % 1024 == 0 {
+                format!("{arrow} {}", t!("до {n} МБ/с", n = v / 1024))
+            } else {
+                format!("{arrow} {}", t!("до {n} КБ/с", n = v))
+            }
+        };
+        let mut presets = vec![0u32, 128, 256, 512, 1024, 2048, 5120, 10240];
+        if !presets.contains(&now) {
+            presets.push(now);
+            presets.sort();
+        }
+        let mut d = Dropdown::new().width(180.0);
+        for v in presets {
+            d = d.item(DropdownItem::new(v.to_string(), label(v)));
+        }
+        let iface = iface.clone();
+        boxed(d.selected(now.to_string()).on_change(move |v: &str| {
+            let Ok(n) = v.parse::<u32>() else { return };
+            let iface = iface.clone();
+            change(move |c| {
+                let mut l = c.uplink_limits.get(&iface).copied().unwrap_or_default();
+                if down {
+                    l.down_kbps = n;
+                } else {
+                    l.up_kbps = n;
+                }
+                if l.is_none() {
+                    c.uplink_limits.remove(&iface);
+                } else {
+                    c.uplink_limits.insert(iface, l);
+                }
+            });
+        }))
+    };
+    boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(dd(true)).child(dd(false)))
+}
+
 /// Ограничение приёма программы (отдача — в Мониторе ресурсов, здесь показана, если задана).
 fn limit_dropdown(exe: String, cur: syn_netd::Limit) -> W {
     let label = |v: u32| if v == 0 { t!("Скорость: без ограничения") } else if v % 1024 == 0 { t!("Приём до {n} МБ/с", n = v / 1024) } else { t!("Приём до {n} КБ/с", n = v) };
@@ -496,10 +541,26 @@ pub fn uplinks() -> W {
                                 .child(Text::new(format!("{} · {}", kind_name(&u.kind), u.iface)).class("row-label"))
                                 .child(Text::new(hint.join(" · ")).class("row-hint")),
                         )
-                        .child(rate),
+                        .child(rate)
+                        .child(uplink_limit_controls(u.iface.clone(), c.uplink_limits.get(&u.iface).copied().unwrap_or_default())),
                 )
             })
             .collect();
+        // Ограничение канала, который сейчас не подключён (модем вынут) — показать, чтобы можно было снять.
+        for (iface, l) in c.uplink_limits.iter().filter(|(i, l)| !l.is_none() && !st.uplinks.iter().any(|u| &u.iface == *i)) {
+            rows.push(boxed(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .class("setting-row")
+                    .child(Icon::new(kind_icon("usb")).class("wifi-signal"))
+                    .child(Column::new().gap(2.0).class("row-text").child(Text::new(iface.clone()).class("row-label")).child(Text::new(t!("не подключён · ограничение сработает при подключении")).class("row-hint")))
+                    .child(uplink_limit_controls(iface.clone(), *l)),
+            ));
+        }
+        if c.uplink_limits.values().any(|l| !l.is_none()) && !c.traffic.enabled {
+            rows.push(boxed(DecoratedBox::new().class("setting-row").child(Text::new(t!("Ограничение скорости каналов работает при включённом «Считать трафик программ» (ниже).")).class("row-hint"))));
+        }
         let card_note = |t: String| -> W { boxed(DecoratedBox::new().class("setting-row").child(Text::new(t).class("row-hint"))) };
         if let Some(n) = st.note.as_deref().and_then(note_text) {
             rows.push(card_note(n));

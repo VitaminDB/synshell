@@ -446,6 +446,34 @@ fn apps_card(cx: &Cx, d: &NetD, t: &syn_netd::Traffic) -> W {
     boxed(parts::card(col))
 }
 
+/// «Приём / Отдача» канала: предел для всего трафика программ через него (synnetd, ведро интерфейса).
+fn uplink_limits(st: St, iface: &str, cur: syn_netd::Limit) -> W {
+    let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for down in [true, false] {
+        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(if down { t!("Приём") } else { t!("Отдача") }).class("net-lim-label"));
+        let now = if down { cur.down_kbps } else { cur.up_kbps };
+        for v in [0u32, 256, 1024, 5120, 10240] {
+            let i = iface.to_string();
+            row = row.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        let i = i.clone();
+                        let mut l = cur;
+                        if down {
+                            l.down_kbps = v;
+                        } else {
+                            l.up_kbps = v;
+                        }
+                        netd_change(st, move || syn_netd::set_uplink_limit(&i, l));
+                    })
+                    .child(DecoratedBox::new().child(Text::new(if v == 0 { t!("без лимита") } else { kbps(v) }).class("pill-label")).class(if now == v { "pill active" } else { "pill" })),
+            );
+        }
+        col = col.child(ScrollView::new().horizontal().child(row));
+    }
+    boxed(col)
+}
+
 /// Каналы: скорость, мини-график, адреса, роль в synnetd.
 fn ifaces(cx: &Cx, s: &Snap) -> Vec<W> {
     let color = Page::Network.color();
@@ -490,7 +518,13 @@ fn ifaces(cx: &Cx, s: &Snap) -> Vec<W> {
                     .child(parts::spark(tx, 60, max, Color::from_hex(TX), 96.0, 30.0)),
             );
         }
-        items.push(boxed(parts::card(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(parts::kv_list(rows)))));
+        let mut card = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(parts::kv_list(rows));
+        // Предел скорости канала (общий для всех программ через него) — только у каналов в интернет и для тех,
+        // кто может менять настройки synnetd.
+        if let Some(st) = st.filter(|st| st.can_edit && st.uplinks.iter().any(|u| u.iface == i.info.name)) {
+            card = card.child(uplink_limits(cx.st, &i.info.name, st.config.uplink_limits.get(&i.info.name).copied().unwrap_or_default()));
+        }
+        items.push(boxed(parts::card(card)));
     }
     if items.is_empty() {
         return vec![parts::empty(t!("Нет подключений."))];

@@ -148,6 +148,8 @@ pub struct Config {
     pub traffic: TrafficConfig,
     /// Ограничение скорости программ (ключ — как в [`Config::apps`]).
     pub limits: BTreeMap<String, Limit>,
+    /// Ограничение скорости каналов: имя интерфейса → общий предел для всего трафика программ через него.
+    pub uplink_limits: BTreeMap<String, Limit>,
 }
 
 /// Ограничение скорости программы, КБ/с; 0 — без ограничения.
@@ -166,7 +168,7 @@ impl Limit {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new(), traffic: TrafficConfig::default(), limits: BTreeMap::new() }
+        Config { mode: Mode::Primary, primary: String::new(), apps: BTreeMap::new(), usb_dhcp: true, usb_devices: BTreeMap::new(), traffic: TrafficConfig::default(), limits: BTreeMap::new(), uplink_limits: BTreeMap::new() }
     }
 }
 
@@ -550,6 +552,17 @@ pub fn set_app_policy(app: &str, policy: Option<AppPolicy>) -> std::io::Result<S
         None => {
             c.apps.remove(app);
         }
+    }
+    set_config(c)
+}
+
+/// Ограничение скорости канала `iface` (пустое — снять).
+pub fn set_uplink_limit(iface: &str, limit: Limit) -> std::io::Result<Status> {
+    let mut c = status()?.config;
+    if limit.is_none() {
+        c.uplink_limits.remove(iface);
+    } else {
+        c.uplink_limits.insert(iface.to_string(), limit);
     }
     set_config(c)
 }
