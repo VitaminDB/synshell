@@ -1,0 +1,27 @@
+[package]
+name = "syn-courier-panel"
+description = "Пульт Курьера: мини-приложение Telegram (syngui → WebAssembly) — сеансы Claude, разговор, снимок экрана"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+syngui = { workspace = true, features = ["winit", "msdf", "material-icons"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+# syngui build -t web -p syn-courier-panel → target/syngui/web/syn-courier-panel/ (ставится в /usr/share/syncourier/panel).
+[package.metadata.syngui.web]
+title = "Пульт Курьера"
+background = "#17212b"
+telegram = true
+assets = "web/assets"

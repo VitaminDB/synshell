@@ -25,6 +25,7 @@ mod hook;
 mod media;
 mod hub;
 mod notify;
+mod panel;
 mod router;
 mod tg;
 mod wa;

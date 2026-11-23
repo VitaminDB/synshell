@@ -88,6 +88,26 @@ impl Telegram {
         self.st.lock().unwrap().owner
     }
 
+    /// Для пульта: токен (проверка подписи initData) и владелец (кого пускать).
+    pub fn token_pub(&self) -> String {
+        self.token()
+    }
+
+    pub fn owner_pub(&self) -> Option<i64> {
+        self.owner()
+    }
+
+    /// Кнопка меню бота «Пульт» → мини-приложение по адресу `url` (у чата владельца).
+    pub async fn set_menu_button(&self, url: &str) -> anyhow::Result<()> {
+        let owner = self.owner().context("бот не привязан")?;
+        self.call::<serde_json::Value>(
+            "setChatMenuButton",
+            serde_json::json!({ "chat_id": owner, "menu_button": { "type": "web_app", "text": "Пульт", "web_app": { "url": url } } }),
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn call<T: for<'de> Deserialize<'de>>(&self, method: &str, body: serde_json::Value) -> anyhow::Result<T> {
         let url = format!("{API}/bot{}/{method}", self.token());
         let r: ApiResp<T> = self.http.post(&url).json(&body).send().await?.json().await?;

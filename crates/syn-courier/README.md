@@ -37,6 +37,15 @@ Voice messages are transcribed by the synaptix service; Claude sometimes answers
 videos, documents and audio are saved to `~/Downloads/Курьер` and handed to Claude with your caption; Claude can send
 files back (`syncourier send`).
 
+## Telegram remote panel
+
+The bot's menu button **"Пульт"** opens a Mini App (syngui → WebAssembly, crate `syn-courier-panel`) instead of
+commands: Claude "courier" and channel state, New conversation / Stop / Screenshot buttons, live Claude sessions
+(tap one to address it, like `/to`), recent messages and an input field. The service serves the page and its API on
+`127.0.0.1:51871` and exposes it with `cloudflared tunnel --url` (quick tunnel, no Cloudflare account), setting the
+new `https://….trycloudflare.com` address as the bot's menu button on every start. Every API call carries the
+Telegram-signed `initData`, checked against the bot token, freshness and the bot owner's user id.
+
 ## Notifications
 
 Settings → Courier: system notifications (*off* · *when I'm away* · *all*), Claude Code events (*when I'm away* ·

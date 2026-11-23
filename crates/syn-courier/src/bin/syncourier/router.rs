@@ -37,7 +37,7 @@ pub fn parse_agents(json: &str) -> Vec<Agent> {
         .collect()
 }
 
-async fn agents(program: &str) -> Result<Vec<Agent>, String> {
+pub async fn agents(program: &str) -> Result<Vec<Agent>, String> {
     let out = tokio::process::Command::new(crate::claude::resolve_program(program)).args(["agents", "--json"]).output().await.map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());

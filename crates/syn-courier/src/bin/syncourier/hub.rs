@@ -277,6 +277,9 @@ impl Hub {
         // Уведомления системы (D-Bus).
         notify::start(self.clone());
 
+        // Пульт — мини-приложение Telegram (страница + API на localhost, quick tunnel Cloudflare).
+        crate::panel::start(self.clone());
+
         // WhatsApp: если привязан — подключиться.
         if self.config().whatsapp.enabled {
             self.wa.start(self.clone(), false).await;
