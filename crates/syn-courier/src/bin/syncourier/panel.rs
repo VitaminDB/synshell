@@ -41,6 +41,10 @@ fn port() -> u16 {
 }
 
 pub fn start(hub: Arc<Hub>) {
+    if !hub.config().panel.enabled {
+        tracing::info!("пульт выключен ([panel] enabled = false)");
+        return;
+    }
     if !panel_dir().join("index.html").is_file() {
         tracing::info!("пульт: нет {}/index.html — мини-приложение не поднимаю", panel_dir().display());
         return;
@@ -70,12 +74,30 @@ pub fn start(hub: Arc<Hub>) {
     tokio::spawn(tunnel(hub, port));
 }
 
-/// Quick tunnel Cloudflare: адрес меняется при каждом запуске — после запуска ставим его в меню бота.
+/// Туннель Cloudflare. Именованный (`[panel] tunnel`, `hostname`) — постоянный адрес, ставится в меню
+/// бота сразу; quick tunnel — адрес меняется при каждом запуске и ставится, когда cloudflared его напечатает.
 async fn tunnel(hub: Arc<Hub>, port: u16) {
     let mut backoff = 5u64;
     loop {
+        let cfg = hub.config().panel;
+        let local = format!("http://127.0.0.1:{port}");
+        let named = !cfg.tunnel.trim().is_empty() && !cfg.hostname.trim().is_empty();
+        let mut args: Vec<String> = vec!["tunnel".into(), "--no-autoupdate".into()];
+        if named {
+            args.extend(["run".into(), "--url".into(), local.clone(), cfg.tunnel.trim().to_string()]);
+            let url = format!("https://{}", cfg.hostname.trim().trim_start_matches("https://").trim_end_matches('/'));
+            *URL.lock().unwrap() = Some(url.clone());
+            let h = hub.clone();
+            tokio::spawn(async move {
+                if let Err(e) = h.tg.set_menu_button(&url).await {
+                    tracing::warn!("пульт: кнопка меню бота: {e:#}");
+                }
+            });
+        } else {
+            args.extend(["--url".into(), local.clone()]);
+        }
         let child = tokio::process::Command::new("cloudflared")
-            .args(["tunnel", "--no-autoupdate", "--url", &format!("http://127.0.0.1:{port}")])
+            .args(&args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
@@ -91,7 +113,7 @@ async fn tunnel(hub: Arc<Hub>, port: u16) {
         if let Some(err) = child.stderr.take() {
             let mut lines = BufReader::new(err).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(url) = find_tunnel_url(&line) {
+                if let Some(url) = find_tunnel_url(&line).filter(|_| !named) {
                     tracing::info!("пульт: {url}");
                     *URL.lock().unwrap() = Some(url.clone());
                     // Туннель поднят, но DNS имени ещё расходится — подождать, иначе Telegram откроет ошибку.

@@ -220,6 +220,26 @@ pub struct Config {
     pub telegram: TelegramConfig,
     pub claude: ClaudeConfig,
     pub notify: NotifyConfig,
+    pub panel: PanelConfig,
+}
+
+/// Пульт в Telegram (мини-приложение): как открыть его в интернет.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelConfig {
+    pub enabled: bool,
+    /// Именованный туннель Cloudflare (`cloudflared tunnel create ИМЯ`); пусто — quick tunnel
+    /// со случайным адресом `….trycloudflare.com`, меняющимся при каждом запуске.
+    pub tunnel: String,
+    /// Постоянный адрес именованного туннеля (`cloudflared tunnel route dns ИМЯ АДРЕС`), например
+    /// `courier.alexeyev.dev`; ставится кнопкой меню бота.
+    pub hostname: String,
+}
+
+impl Default for PanelConfig {
+    fn default() -> Self {
+        Self { enabled: true, tunnel: String::new(), hostname: String::new() }
+    }
 }
 
 impl Config {

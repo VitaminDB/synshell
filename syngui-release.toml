@@ -32,6 +32,8 @@ description_en = "synshell: synwm compositor, shell, login screen, on-screen key
 depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "pixman", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "hicolor-icon-theme", "dbus", "pam", "alsa-lib", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire", "libpipewire", "polkit"]
 bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd", "synnetd", "syncourier"]
 apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
+# Пульт Курьера — мини-приложение Telegram (syngui → WebAssembly), раздаёт syncourier.
+webs = [{ crate = "syn-courier-panel", to = "usr/share/syncourier/panel" }]
 provides = ["syndesktop"]
 conflicts = ["syndesktop"]
 replaces = ["syndesktop"]
@@ -58,6 +60,7 @@ optdepends = [
   "gvfs-mtp: телефоны Android в проводнике (MTP)",
   "gvfs-gphoto2: камеры в проводнике (PTP)",
   "gvfs-afc: iPhone в проводнике",
+  "cloudflared: пульт Курьера в Telegram (мини-приложение через quick tunnel)",
   "gvfs-smb: сетевые папки Windows и Samba в проводнике",
   "git: метки git в проводнике",
   "fuse3: архивы как папки в проводнике",
@@ -88,6 +91,7 @@ optdepends_en = [
   "gvfs-mtp: Android phones in the file manager (MTP)",
   "gvfs-gphoto2: cameras in the file manager (PTP)",
   "gvfs-afc: iPhone in the file manager",
+  "cloudflared: Courier remote panel in Telegram (Mini App over a quick tunnel)",
   "gvfs-smb: Windows and Samba shares in the file manager",
   "git: git status in the file manager",
   "fuse3: archives as folders; files of linked devices",

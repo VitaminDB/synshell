@@ -65,14 +65,24 @@
 сеансов Claude (тап — следующее сообщение уйдёт этому сеансу, как `/to`), последние сообщения и поле ввода.
 Ответы приходят в чат, как обычно.
 
-- Страницу и API раздаёт служба на `127.0.0.1:51871` и сама поднимает `cloudflared tunnel --url` (quick tunnel,
-  без учётной записи Cloudflare); адрес `https://….trycloudflare.com` меняется при каждом запуске, служба ставит
-  его кнопкой меню бота. Нет `cloudflared` — пульта нет, остальное работает.
+- Страницу и API раздаёт служба на `127.0.0.1:51871` и сама поднимает туннель `cloudflared`, адрес ставит кнопкой
+  меню бота. Постоянный адрес — именованный туннель (однократно: `cloudflared tunnel login`,
+  `cloudflared tunnel create syncourier`, `cloudflared tunnel route dns syncourier courier.example.com`) и в
+  `courier.toml`:
+
+  ```toml
+  [panel]
+  tunnel = "syncourier"
+  hostname = "courier.example.com"
+  ```
+
+  Без этого — quick tunnel без учётной записи: адрес `https://….trycloudflare.com` меняется при каждом запуске.
+  Нет `cloudflared` — пульта нет, остальное работает. `[panel] enabled = false` — пульт выключен.
 - Каждый запрос несёт подписанный Telegram `initData`; служба проверяет подпись токеном бота, свежесть (сутки)
   и что открыл владелец бота. Чужой человек по адресу туннеля видит только страницу без данных.
 - Файлы пульта — `/usr/share/syncourier/panel` (`SYNCOURIER_PANEL_DIR`), порт — `SYNCOURIER_PANEL_PORT`.
   Сборка: `syngui build -t web --release -p syn-courier-panel`. Браузер кэширует wasm по ETag (повторно — 304);
-  после перезапуска службы адрес туннеля новый, и wasm один раз скачивается заново.
+  у quick tunnel после перезапуска службы адрес новый, и wasm один раз скачивается заново.
 
 ## Уведомления
 
