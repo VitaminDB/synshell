@@ -1115,7 +1115,7 @@ pub fn add_disk(vm: &mut Vm, gb: u64) -> Result<()> {
     vm.save()
 }
 
-/// Копия машины: диски — полными копиями без reflink. Общие с оригиналом экстенты btrfs при каждой записи гостя
+/// Копия машины: диски — полными копиями без reflink и без дыр ([`copy_nocow`]). Общие с оригиналом экстенты btrfs при каждой записи гостя
 /// всё равно копировались бы (CoW) и дробили файл, а в каталоге с NOCOW новые файлы сразу без CoW. Внутренние
 /// снимки qcow2 копия сохраняет (`qemu-img convert` их бы потерял).
 pub fn clone(vm: &Vm, all: &[Vm]) -> Result<Vm> {
@@ -1142,10 +1142,7 @@ pub fn clone(vm: &Vm, all: &[Vm]) -> Result<Vm> {
                 }
                 continue;
             }
-            let st = Command::new("cp").arg("--reflink=never").arg("--sparse=always").arg(e.path()).arg(dst.join(&name)).status()?;
-            if !st.success() {
-                bail!("cp {n}");
-            }
+            copy_nocow(&e.path(), &dst.join(&name)).with_context(|| n.to_string())?;
         }
         c.save()
     })();
@@ -1249,6 +1246,8 @@ pub struct Fragmented {
     pub extents: u64,
     /// Занято на диске, байт.
     pub used: u64,
+    /// Полный размер файла (столько места займёт перепаковка), байт.
+    pub size: u64,
 }
 
 /// Порог «сильно раздроблен»: больше 20 000 кусков и в среднем меньше 1 МиБ на кусок
@@ -1267,15 +1266,59 @@ pub fn fragmented_disks(vm: &Vm) -> Vec<Fragmented> {
             if !is_btrfs(&path) || is_nocow(&path) {
                 return None;
             }
-            let used = std::fs::metadata(&path).ok()?.blocks() * 512;
+            let m = std::fs::metadata(&path).ok()?;
+            let used = m.blocks() * 512;
             let extents = extent_count(&path)?;
-            frag_threshold(extents, used).then_some(Fragmented { path, extents, used })
+            frag_threshold(extents, used).then_some(Fragmented { path, extents, used, size: m.len() })
         })
         .collect()
 }
 
-/// Перепаковать диск выключенной машины: новый файл рядом с флагом NOCOW (пока он пустой), полная копия без
-/// reflink (внутренние снимки qcow2 сохраняются), fsync, замена атомарным переименованием.
+/// Полная копия без CoW и без дыр: пустой файл → NOCOW → fallocate на весь размер (btrfs выделяет место
+/// крупными кусками сразу) → запись всех байтов, нули тоже, поверх выделенного → fsync. С дырами (`cp --sparse`)
+/// каждый нулевой участок становится дырой, и данные ложатся по раздробленному свободному месту.
+/// Внутренние снимки qcow2 сохраняются (копия побайтная).
+pub fn copy_nocow(src: &Path, dst: &Path) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    let mut from = std::fs::File::open(src)?;
+    let len = from.metadata()?.len();
+    let mut to = std::fs::OpenOptions::new().write(true).create_new(true).open(dst)?;
+    let r = (|| -> Result<()> {
+        if !set_nocow_fd(&to) && is_btrfs(dst.parent().unwrap_or(Path::new("/"))) {
+            bail!("{}", t!("не удалось снять CoW (chattr +C) с {p}", p = dst.display()));
+        }
+        if len > 0 && unsafe { libc::fallocate(to.as_raw_fd(), 0, 0, len as libc::off_t) } != 0 {
+            let e = std::io::Error::last_os_error();
+            // ФС без fallocate — просто пишем; нехватка места — ошибка.
+            if e.raw_os_error() != Some(libc::EOPNOTSUPP) {
+                return Err(e).context(dst.display().to_string());
+            }
+        }
+        let mut buf = vec![0u8; 16 << 20];
+        let mut done = 0u64;
+        loop {
+            let n = from.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            to.write_all(&buf[..n])?;
+            done += n as u64;
+        }
+        if done != len {
+            bail!("{}", t!("размер копии не совпал"));
+        }
+        to.sync_all()?;
+        Ok(())
+    })();
+    if r.is_err() {
+        drop(to);
+        let _ = std::fs::remove_file(dst);
+    }
+    r
+}
+
+/// Перепаковать диск выключенной машины: [`copy_nocow`] в новый файл рядом, замена атомарным переименованием.
 pub fn repack_disk(path: &Path) -> Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     // Образ открыт QEMU (этой или другой машиной) — qemu-img без -U не получит блокировку.
@@ -1285,7 +1328,8 @@ pub fn repack_disk(path: &Path) -> Result<()> {
     }
     let meta = std::fs::metadata(path)?;
     let dir = path.parent().context("нет каталога")?;
-    let need = meta.blocks() * 512 + (256 << 20);
+    // Место выделяется под полный размер файла сразу (fallocate), а не под занятое.
+    let need = meta.len() + (256 << 20);
     if let Some(free) = free_space_at(dir) {
         if free < need {
             bail!("{}", t!("Мало места для перепаковки: нужно {n} ГБ, свободно {f} ГБ", n = need >> 30, f = free >> 30));
@@ -1294,21 +1338,8 @@ pub fn repack_disk(path: &Path) -> Result<()> {
     let tmp = dir.join(format!(".{}.repack", path.file_name().context("имя")?.to_string_lossy()));
     let _ = std::fs::remove_file(&tmp);
     let r = (|| -> Result<()> {
-        let f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        if !set_nocow_fd(&f) && is_btrfs(dir) {
-            bail!("{}", t!("не удалось снять CoW (chattr +C) с {p}", p = tmp.display()));
-        }
-        f.set_permissions(std::fs::Permissions::from_mode(meta.mode() & 0o7777))?;
-        drop(f);
-        // cp пишет в уже созданный файл (O_TRUNC, тот же inode) — флаг остаётся.
-        let st = Command::new("cp").arg("--reflink=never").arg("--sparse=always").arg(path).arg(&tmp).status()?;
-        if !st.success() {
-            bail!("cp {}", path.display());
-        }
-        std::fs::File::open(&tmp)?.sync_all()?;
-        if std::fs::metadata(&tmp)?.len() != meta.len() {
-            bail!("{}", t!("размер копии не совпал"));
-        }
+        copy_nocow(path, &tmp)?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(meta.mode() & 0o7777))?;
         std::fs::rename(&tmp, path)?;
         if let Ok(d) = std::fs::File::open(dir) {
             let _ = d.sync_all();
