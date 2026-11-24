@@ -1,19 +1,19 @@
-//! Инспектор с правкой: клип (имя, скорость, громкость), титр (текст, размер,
-//! цвет, положение, появление и исчезание, подложка), эффекты (параметры
-//! ползунками, файл LUT, модель увеличения), переход (вид, длительность),
-//! проект (название, кадр, частота). Каждое поле — команда; правки одного поля
-//! подряд — один шаг отмены. Панель перестраивается только при смене
-//! выделения или состава (ключ `St::insp_key`), поэтому ползунок не
-//! пересоздаётся посреди перетаскивания.
+//! Инспектор — `PropertyGrid` syngui в стиле приложения: разделы (проект,
+//! клип, титр, переход, эффекты), числа в пределах протягиваются мышью
+//! (щелчок — ввод), выбор — списком, цвет — палитрой, действия — кнопками в
+//! строке. Каждая правка — команда; правки одного поля подряд — один шаг
+//! отмены. Сетка перестраивается только при смене выделения или состава
+//! (`St::insp_key`), поэтому протяжка не обрывается.
+
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use syngui::prelude::*;
-use syngui::widgets::*;
 
 use super::{ed, St};
 use crate::doc::{tc, Source};
 
-/// Ключ состава инспектора: меняется, только когда панель надо перестроить.
+/// Ключ состава инспектора: меняется, только когда сетку надо перестроить.
 pub fn key() -> String {
     let e = ed();
     let p = &e.project;
@@ -24,43 +24,66 @@ pub fn key() -> String {
                 Source::Title { .. } => "title".into(),
                 Source::Color { .. } => "color".into(),
             };
-            let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}", e.id, e.kind)).collect();
+            let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""))).collect();
             format!("c{}:{src}:{}:{}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"))
         }
         None => format!("p:{}x{}@{}:{}", p.settings.width, p.settings.height, p.settings.fps, p.media.len()),
     }
 }
 
-fn row(label: &str, field: impl Widget + 'static) -> Box<dyn Widget> {
-    Box::new(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("kv-row").child(Text::new(label).class("kv-key")).child(DecoratedBox::new().class("grow").child(field)))
+type Handler = Arc<dyn Fn(St, PropertyValue) + Send + Sync>;
+
+/// Строки сетки и обработчики их правок.
+#[derive(Default)]
+struct Rows {
+    props: Vec<Property>,
+    on: Vec<Option<Handler>>,
 }
 
-fn info(label: &str, v: impl Into<String>) -> Box<dyn Widget> {
-    row(label, Text::new(v.into()).max_lines(2).class("kv-value"))
+impl Rows {
+    fn header(&mut self, name: &str) {
+        self.props.push(Property::header(name));
+        self.on.push(None);
+    }
+    fn info(&mut self, name: &str, v: impl Into<String>) {
+        self.props.push(Property::text(name, v));
+        self.on.push(None);
+    }
+    fn add(&mut self, p: Property, f: impl Fn(St, PropertyValue) + Send + Sync + 'static) {
+        self.props.push(p);
+        self.on.push(Some(Arc::new(f)));
+    }
+    /// Число в пределах: значение ровно по шагу.
+    fn range(&mut self, name: &str, v: f64, min: f64, max: f64, step: f64, f: impl Fn(St, f64) + Send + Sync + 'static) {
+        self.add(Property::range(name, v, min, max, step), move |st, pv| {
+            if let PropertyValue::Range { value, .. } = pv {
+                let k = (1.0 / step).round().max(1.0);
+                f(st, (value * k).round() / k);
+            }
+        });
+    }
+    fn choice(&mut self, name: &str, items: &[(&str, &str)], cur: &str, f: impl Fn(St, String) + Send + Sync + 'static) {
+        let keys: Vec<String> = items.iter().map(|(k, _)| k.to_string()).collect();
+        let sel = keys.iter().position(|k| k == cur).unwrap_or(0);
+        self.add(Property::choice(name, items.iter().map(|(_, t)| t.to_string()).collect(), sel), move |st, pv| {
+            if let PropertyValue::Choice(_, i) = pv {
+                if let Some(k) = keys.get(i) {
+                    f(st, k.clone());
+                }
+            }
+        });
+    }
+    fn action(&mut self, name: &str, label: &str, f: impl Fn(St) + Send + Sync + 'static) {
+        self.add(Property::action(name, label), move |st, _| f(st));
+    }
 }
 
-fn section(t: &str) -> Box<dyn Widget> {
-    Box::new(Text::new(t).class("section-title"))
-}
-
-fn slider(st: St, v: f32, min: f32, max: f32, step: f32, decimals: u8, f: impl Fn(St, f64) + Send + Sync + 'static) -> impl Widget {
-    Slider::new().range(min, max).step(step).value(v.clamp(min, max)).show_value(decimals).value_width(52.0).on_change(move |x| {
-        // ровно по шагу: в проекте 0.42, а не 0.41999998
-        let k = (1.0 / step as f64).round().max(1.0);
-        f(st, (x as f64 * k).round() / k)
-    })
-}
-
-fn choice(cur: &str, items: &[(&str, &str)], f: impl Fn(&str) + Send + 'static) -> impl Widget {
-    Dropdown::new().items(items.iter().map(|(k, t)| DropdownItem::new(*k, *t)).collect()).selected(cur.to_string()).on_change(move |k: &str| f(k))
-}
-
-fn num(m: &Map<String, Value>, k: &str, d: f64) -> f32 {
-    m.get(k).and_then(Value::as_f64).unwrap_or(d) as f32
+fn num(m: &Map<String, Value>, k: &str, d: f64) -> f64 {
+    m.get(k).and_then(Value::as_f64).unwrap_or(d)
 }
 
 /// Параметр эффекта: имя, подпись, мин, макс, шаг, по умолчанию.
-type Param = (&'static str, &'static str, f32, f32, f32, f32);
+type Param = (&'static str, &'static str, f64, f64, f64, f64);
 
 fn effect_params(kind: &str) -> &'static [Param] {
     match kind {
@@ -93,8 +116,10 @@ fn effect_title(kind: &str) -> &'static str {
     }
 }
 
+const ROW_H: f32 = 28.0;
+
 pub fn view(st: St) -> impl Widget {
-    // ключ пересчитывается по каждой правке, панель — только при его смене
+    // ключ пересчитывается по каждой правке, сетка — только при его смене
     create_effect(move || {
         let _ = st.rev.get();
         let k = key();
@@ -108,158 +133,165 @@ pub fn view(st: St) -> impl Widget {
             let e = ed();
             (e.project.clone(), e.selection.first().copied())
         };
-        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("inspector");
-        match sel.and_then(|id| proj.clip(id).cloned()) {
-            None => {
-                for w in project(st, &proj) {
-                    col = col.child(w);
+        let mut r = Rows::default();
+        let clip_sel = sel.and_then(|id| proj.clip(id).cloned());
+        match &clip_sel {
+            None => project(&mut r, &proj),
+            Some(c) => clip(&mut r, &proj, c),
+        }
+        let handlers = r.on;
+        let h = r.props.len() as f32 * ROW_H + 2.0;
+        let grid = PropertyGrid::new()
+            .properties(r.props)
+            .label_width(150.0)
+            .row_height(ROW_H)
+            .height(h)
+            .on_change(move |i, v| {
+                if let Some(Some(f)) = handlers.get(i) {
+                    f(st, v);
                 }
-            }
-            Some(c) => {
-                for w in clip(st, &proj, &c) {
-                    col = col.child(w);
-                }
-            }
+            })
+            .class("insp-grid");
+        let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("inspector").child(grid);
+        if clip_sel.is_none() {
+            col = col.child(Text::new("Выделите клип на таймлайне, чтобы править его").max_lines(2).class("panel-hint"));
         }
         vec![Box::new(col)]
     }))
 }
 
-fn project(st: St, p: &crate::doc::Project) -> Vec<Box<dyn Widget>> {
-    let mut v = vec![section("ПРОЕКТ")];
-    v.push(row("Название", TextField::new().text(p.name.clone()).submit_on_focus_lost(true).on_submit(move |s: &str| {
-        st.exec("project.settings", json!({"name": s}));
-    })));
+fn project(r: &mut Rows, p: &crate::doc::Project) {
+    r.header("Проект");
+    r.add(Property::text("Название", p.name.clone()), |st, v| {
+        if let PropertyValue::Text(s) = v {
+            st.exec("project.settings", json!({"name": s}));
+        }
+    });
     let frame = format!("{}x{}", p.settings.width, p.settings.height);
-    let presets = [("1920x1080", "1920×1080 (16:9)"), ("1080x1920", "1080×1920 (9:16, Reels)"), ("3840x2160", "3840×2160 (4K)"), ("2160x3840", "2160×3840 (4K, 9:16)"), ("1080x1080", "1080×1080 (1:1)"), ("1080x1350", "1080×1350 (4:5)"), ("1280x720", "1280×720")];
-    let mut items: Vec<(String, String)> = presets.iter().map(|(k, t)| (k.to_string(), t.to_string())).collect();
+    let mut items: Vec<(String, String)> = [("1920x1080", "1920×1080 (16:9)"), ("1080x1920", "1080×1920 (9:16, Reels)"), ("3840x2160", "3840×2160 (4K)"), ("2160x3840", "2160×3840 (4K, 9:16)"), ("1080x1080", "1080×1080 (1:1)"), ("1080x1350", "1080×1350 (4:5)"), ("1280x720", "1280×720")].iter().map(|(k, t)| (k.to_string(), t.to_string())).collect();
     if !items.iter().any(|(k, _)| *k == frame) {
         items.insert(0, (frame.clone(), frame.replace('x', "×")));
     }
     let refs: Vec<(&str, &str)> = items.iter().map(|(k, t)| (k.as_str(), t.as_str())).collect();
-    v.push(row("Кадр", choice(&frame, &refs, move |k| {
+    r.choice("Кадр", &refs, &frame, |st, k| {
         if let Some((w, h)) = k.split_once('x') {
             st.exec("project.settings", json!({"width": w.parse::<u32>().unwrap_or(1920), "height": h.parse::<u32>().unwrap_or(1080)}));
         }
-    })));
-    let fps = format!("{}", p.settings.fps);
-    v.push(row("Частота", choice(&fps, &[("24", "24 fps"), ("25", "25 fps"), ("30", "30 fps"), ("50", "50 fps"), ("60", "60 fps")], move |k| {
+    });
+    r.choice("Частота", &[("24", "24 fps"), ("25", "25 fps"), ("30", "30 fps"), ("50", "50 fps"), ("60", "60 fps")], &format!("{}", p.settings.fps), |st, k| {
         st.exec("project.settings", json!({"fps": k.parse::<f64>().unwrap_or(30.0)}));
-    })));
-    v.push(info("Длительность", tc(p.duration())));
-    v.push(info("Медиа", p.media.len().to_string()));
-    v.push(info("Дорожки", p.tracks.len().to_string()));
-    v.push(Box::new(Text::new("Выделите клип на таймлайне, чтобы править его").max_lines(2).class("panel-hint")));
-    v
+    });
+    r.info("Длительность", tc(p.duration()));
+    r.info("Медиа", p.media.len().to_string());
+    r.info("Дорожки", p.tracks.len().to_string());
 }
 
-fn clip(st: St, p: &crate::doc::Project, c: &crate::doc::Clip) -> Vec<Box<dyn Widget>> {
+fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip) {
     let id = c.id;
-    let mut v = vec![section(&format!("КЛИП C{id}"))];
+    r.header(&format!("Клип c{id}"));
     let src = match &c.source {
         Source::Media { media } => p.media(*media).map(|m| format!("m{media} {}", m.name())).unwrap_or_default(),
         Source::Title { .. } => "титр".into(),
         Source::Color { color } => format!("цвет {color}"),
     };
-    v.push(info("Источник", src));
-    v.push(info("Время", format!("{} — {} ({})", tc(c.start), tc(c.end()), tc(c.duration))));
-    v.push(row("Имя", TextField::new().text(c.name.clone()).placeholder("как у файла").submit_on_focus_lost(true).on_submit(move |s: &str| {
-        st.exec("clip.set", json!({"id": id, "name": s}));
-    })));
+    r.info("Источник", src);
+    r.info("Время", format!("{} — {} ({})", tc(c.start), tc(c.end()), tc(c.duration)));
+    r.add(Property::text("Имя", c.name.clone()), move |st, v| {
+        if let PropertyValue::Text(s) = v {
+            st.exec("clip.set", json!({"id": id, "name": s}));
+        }
+    });
     if c.media().is_some() {
-        v.push(row("Скорость", slider(st, c.speed as f32, 0.1, 4.0, 0.05, 2, move |st, x| {
+        r.range("Скорость", c.speed, 0.1, 4.0, 0.05, move |st, x| {
             st.exec("clip.set", json!({"id": id, "speed": x}));
-        })));
-        v.push(row("Громкость", slider(st, c.volume as f32, 0.0, 2.0, 0.01, 2, move |st, x| {
+        });
+        r.range("Громкость", c.volume, 0.0, 2.0, 0.01, move |st, x| {
             st.exec("clip.set", json!({"id": id, "volume": x}));
-        })));
+        });
     }
     if let Source::Title { text, style } = &c.source {
-        v.push(section("ТИТР"));
-        v.push(row("Текст", MultilineTextEdit::new().text(text.clone()).rows(3).auto_height(true).on_change(move |s: &str| {
-            st.exec("clip.set", json!({"id": id, "text": s}));
-        })));
-        let set = move |k: &'static str| move |st: St, x: f64| {
-            st.exec("clip.set", json!({"id": id, "style": {k: x}}));
-        };
+        r.header("Титр");
+        // переносы строк — «\n» в поле
+        r.add(Property::text("Текст", text.replace('\n', "\\n")), move |st, v| {
+            if let PropertyValue::Text(s) = v {
+                st.exec("clip.set", json!({"id": id, "text": s.replace("\\n", "\n")}));
+            }
+        });
         let h = p.settings.width.min(p.settings.height) as f64;
-        v.push(row("Размер", slider(st, num(style, "size", h * 0.075), 12.0, 400.0, 1.0, 0, set("size"))));
-        let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff").to_string();
-        v.push(row("Цвет", ColorPicker::new().color(ColorValue::from_hex(&col).unwrap_or(ColorValue::new(255, 255, 255))).on_change(move |cv: ColorValue| {
-            st.exec("clip.set", json!({"id": id, "style": {"color": cv.to_hex()}}));
-        })));
-        let pos = style.get("position").and_then(Value::as_str).unwrap_or("bottom").to_string();
-        v.push(row("Положение", choice(&pos, &[("top", "Сверху"), ("center", "По центру"), ("bottom", "Снизу")], move |k| {
+        r.range("Размер", num(style, "size", h * 0.075), 12.0, 400.0, 1.0, move |st, x| {
+            st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
+        });
+        let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff");
+        r.add(Property::color("Цвет", Color::from_hex(col)), move |st, v| {
+            if let PropertyValue::Color(c) = v {
+                st.exec("clip.set", json!({"id": id, "style": {"color": c.to_hex()}}));
+            }
+        });
+        let pos = style.get("position").and_then(Value::as_str).unwrap_or("bottom");
+        r.choice("Положение", &[("top", "Сверху"), ("center", "По центру"), ("bottom", "Снизу")], pos, move |st, k| {
             st.exec("clip.set", json!({"id": id, "style": {"position": k}}));
-        })));
+        });
         let anims = [("fade", "Проявление"), ("slide", "Подъём"), ("pop", "Выпрыгивание"), ("none", "Без анимации")];
         for (k, label) in [("in", "Появление"), ("out", "Исчезание")] {
-            let cur = style.get(k).and_then(Value::as_str).unwrap_or("fade").to_string();
-            v.push(row(label, choice(&cur, &anims, move |x| {
+            let cur = style.get(k).and_then(Value::as_str).unwrap_or("fade");
+            r.choice(label, &anims, cur, move |st, x| {
                 st.exec("clip.set", json!({"id": id, "style": {k: x}}));
-            })));
+            });
         }
-        v.push(row("Длит. анимации, с", slider(st, num(style, "anim", 0.4), 0.0, 2.0, 0.05, 2, set("anim"))));
-        let boxed = style.get("box").and_then(Value::as_bool).unwrap_or(false);
-        v.push(row("Подложка", Toggle::with_state(boxed).on_change(move |on| {
-            st.exec("clip.set", json!({"id": id, "style": {"box": on}}));
-        })));
+        r.range("Длит. анимации, с", num(style, "anim", 0.4), 0.0, 2.0, 0.05, move |st, x| {
+            st.exec("clip.set", json!({"id": id, "style": {"anim": x}}));
+        });
+        r.add(Property::boolean("Подложка", style.get("box").and_then(Value::as_bool).unwrap_or(false)), move |st, v| {
+            if let PropertyValue::Bool(on) = v {
+                st.exec("clip.set", json!({"id": id, "style": {"box": on}}));
+            }
+        });
     }
     if let Some(t) = &c.transition {
-        v.push(section("ПЕРЕХОД В НАЧАЛЕ"));
-        let kinds: Vec<(&str, &str)> = crate::render::compose::TRANSITIONS.to_vec();
+        r.header("Переход в начале");
         let dur = t.duration;
-        v.push(row("Вид", choice(&t.kind, &kinds, move |k| {
+        let kinds: Vec<(&str, &str)> = crate::render::compose::TRANSITIONS.to_vec();
+        r.choice("Вид", &kinds, &t.kind, move |st, k| {
             st.exec("transition.set", json!({"id": id, "kind": k, "duration": dur}));
-        })));
+        });
         let kind = t.kind.clone();
-        v.push(row("Длительность, с", slider(st, t.duration as f32, 0.1, 3.0, 0.05, 2, move |st, x| {
+        r.range("Длительность, с", t.duration, 0.1, 3.0, 0.05, move |st, x| {
             st.exec("transition.set", json!({"id": id, "kind": kind, "duration": x}));
-        })));
-        v.push(Box::new(Button::new("Убрать переход").on_click(move || {
+        });
+        r.action("", "Убрать переход", move |st| {
             st.exec("transition.remove", json!({"id": id}));
-        }).class("head-btn")));
-    }
-    if !c.effects.is_empty() {
-        v.push(section("ЭФФЕКТЫ"));
+        });
     }
     for ef in &c.effects {
         let eid = ef.id;
-        v.push(Box::new(
-            Row::new()
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .class("fx-head")
-                .child(DecoratedBox::new().class("grow").child(Text::new(effect_title(&ef.kind)).class("fx-title")))
-                .child(ToolButton::new("\u{E5CD}").tooltip("Убрать эффект").on_click(move || {
-                    st.exec("effect.remove", json!({"id": eid}));
-                })),
-        ));
+        r.header(&format!("Эффект: {}", effect_title(&ef.kind)));
         for &(name, label, min, max, step, def) in effect_params(&ef.kind) {
-            let decimals = if step >= 1.0 { 0 } else if step >= 0.1 { 1 } else { 2 };
-            v.push(row(label, slider(st, num(&ef.params, name, def as f64), min, max, step, decimals, move |st, x| {
+            r.range(label, num(&ef.params, name, def), min, max, step, move |st, x| {
                 st.exec("effect.set", json!({"id": eid, "params": {name: x}}));
-            })));
+            });
         }
         match ef.kind.as_str() {
             "lut" => {
-                let path = ef.params.get("path").and_then(Value::as_str).unwrap_or("").to_string();
-                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                v.push(row("Файл", Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(Text::new(name).max_lines(1).elide(Elide::End).class("kv-value"))).child(Button::new("Выбрать…").on_click(move || pick_lut(st, eid)).class("head-btn"))));
+                let path = ef.params.get("path").and_then(Value::as_str).unwrap_or("");
+                let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Выбрать…".into());
+                r.action("Файл LUT", &name, move |st| pick_lut(st, eid));
             }
             "upscale" => {
                 let models: Vec<(String, String)> = crate::render::neural::available().into_iter().filter(|(_, a)| a != "rife").map(|(id, a)| (id.clone(), format!("{id} ({a})"))).collect();
-                let cur = ef.params.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+                let cur = ef.params.get("model").and_then(Value::as_str).unwrap_or("");
                 let mut items: Vec<(&str, &str)> = vec![("", "Любая")];
                 items.extend(models.iter().map(|(k, t)| (k.as_str(), t.as_str())));
-                v.push(row("Модель", choice(&cur, &items, move |k| {
+                r.choice("Модель", &items, cur, move |st, k| {
                     st.exec("effect.set", json!({"id": eid, "params": {"model": k}}));
-                })));
+                });
             }
-            "interpolate" => v.push(Box::new(Text::new(format!("Промежуточные кадры до {} fps при экспорте", p.settings.fps)).max_lines(2).class("panel-hint"))),
+            "interpolate" => r.info("Частота", format!("до {} fps при экспорте", p.settings.fps)),
             _ => {}
         }
+        r.action("", "Убрать эффект", move |st| {
+            st.exec("effect.remove", json!({"id": eid}));
+        });
     }
-    v
 }
 
 /// Файл LUT через окно выбора; папка — LUT библиотеки.

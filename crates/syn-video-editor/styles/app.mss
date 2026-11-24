@@ -172,3 +172,4 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .tl-transition-edge { cursor: ew-resize; }
 .tl-transition-edit { background-color: var(--primary); }
 .tl-transition-edit .tl-transition-text { color: var(--on-primary); }
+.insp-grid { width: 100%; background-color: var(--bg-panel); border-color: var(--border-soft); color: var(--text); accent-color: var(--primary); font-size: 12px; }
