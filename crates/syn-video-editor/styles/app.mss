@@ -73,3 +73,4 @@
 
 .toast { padding: 10px 14px; border-radius: 10px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); max-width: 520px; }
 .toast-text { color: var(--text); font-size: 12px; }
+.toast-layer { padding: 0 34px 46px 0; flex-grow: 1; }

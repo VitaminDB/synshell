@@ -236,6 +236,7 @@ fn inspector(st: St) -> impl Widget {
 
 fn ai(st: St) -> impl Widget {
     let input_gen = use_signal(0u64);
+    let draft = use_signal(String::new());
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("ai-panel")
@@ -260,16 +261,19 @@ fn ai(st: St) -> impl Widget {
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();
             let busy = st.ai_busy.get();
-            vec![Box::new(
+            vec![Box::new(Row::new().child(DecoratedBox::new().class("grow").child(
                 TextField::new()
+                    .text(draft.get_untracked())
+                    .on_change(move |s: &str| draft.set(s.to_string()))
                     .placeholder(if busy { "Агент работает…" } else { "Задача для агента… (Enter)" })
                     .prefix_icon(icons::AI)
                     .disabled(busy)
                     .on_submit(move |q: &str| {
                         st.ask_ai(q.to_string());
+                        draft.set(String::new());
                         input_gen.update(|g| *g += 1);
                     })
                     .class("ai-field"),
-            )]
+            )))]
         })))
 }

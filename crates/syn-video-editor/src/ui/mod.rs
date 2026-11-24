@@ -8,7 +8,6 @@ mod timeline;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use serde_json::{json, Value};
-use syngui::containers::Positioned;
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::overlay::MenuItem;
@@ -504,6 +503,6 @@ fn toast(st: St) -> impl Widget {
                 }
             });
         });
-        vec![Box::new(Positioned::new(DecoratedBox::new().class("toast").child(Text::new(t).max_lines(3).class("toast-text"))).at(24.0, 24.0))]
+        vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::End).class("toast-layer").child(DecoratedBox::new().class("toast").child(Text::new(t).max_lines(3).class("toast-text"))))]
     })
 }

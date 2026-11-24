@@ -92,12 +92,9 @@ pub fn view(st: St) -> impl Widget {
                 let selected = e.selection.contains(&c.id);
                 let fx = if c.effects.is_empty() { String::new() } else { format!("  ✦{}", c.effects.len()) };
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
-                let id = c.id;
                 let clip = DecoratedBox::new().class(class).class(if selected { "clip-selected" } else { "" }).child(Text::new(format!("{name}{fx}")).max_lines(1).elide(Elide::End).class("clip-text"));
                 field = field.child(
-                    Positioned::new(GestureDetector::new().on_click(move || {
-                        st.exec("selection.set", json!({"ids": [id]}));
-                    }).child(clip))
+                    Positioned::new(clip)
                     .at(c.start as f32 * zoom + 1.0, y + 3.0)
                     .dimensions(w, h - 6.0),
                 );
@@ -111,15 +108,7 @@ pub fn view(st: St) -> impl Widget {
         drop(e);
 
         let surface = GestureDetector::new()
-            .on_click_at(move |pt: Point| {
-                // щелчок мимо клипов: позиция и снятие выделения
-                let t = (pt.x / st.zoom.get_untracked()).max(0.0) as f64;
-                st.exec("playhead.set", json!({"at": t}));
-                if pt.y > RULER {
-                    st.exec("selection.set", json!({"ids": []}));
-                }
-                st.toast.set(None);
-            })
+            .on_click_with_bounds(move |pt: Point, b: Rect| click(st, pt.x - b.origin.x, pt.y - b.origin.y))
             .child(DecoratedBox::new().child(field).style("width", width).style("height", height));
 
         vec![Box::new(
@@ -130,4 +119,43 @@ pub fn view(st: St) -> impl Widget {
                 .child(DecoratedBox::new().class("grow").child(ScrollView::new().horizontal().vertical().child(surface))),
         )]
     })
+}
+
+/// Щелчок по полю (координаты поля): клип под точкой — выделить; иначе
+/// позиция воспроизведения (по линейке и дорожкам) и снятие выделения.
+fn click(st: St, x: f32, y: f32) {
+    let zoom = st.zoom.get_untracked();
+    let t = (x / zoom).max(0.0) as f64;
+    st.toast.set(None);
+    if y <= RULER {
+        st.exec("playhead.set", json!({"at": t}));
+        return;
+    }
+    let hit = {
+        let e = ed();
+        let p = &e.project;
+        let mut order: Vec<usize> = (0..p.tracks.len()).filter(|i| p.tracks[*i].kind == TrackKind::Video).rev().collect();
+        order.extend((0..p.tracks.len()).filter(|i| p.tracks[*i].kind == TrackKind::Audio));
+        let mut top = RULER;
+        let mut hit = None;
+        for i in order {
+            let h = row_h(p.tracks[i].kind);
+            if y >= top && y < top + h {
+                hit = p.tracks[i].clips.iter().find(|c| c.start <= t && t < c.end()).map(|c| c.id);
+                break;
+            }
+            top += h;
+        }
+        hit
+    };
+    match hit {
+        Some(id) => {
+            st.exec("selection.set", json!({"ids": [id]}));
+        }
+        None => {
+            st.exec("playhead.set", json!({"at": t}));
+            st.exec("selection.set", json!({"ids": []}));
+        }
+    }
+    st.toast.set(None);
 }
