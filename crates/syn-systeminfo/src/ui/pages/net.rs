@@ -25,7 +25,7 @@ fn iface_icon(kind: &str) -> &'static str {
     match kind {
         "wifi" => icons::WIFI,
         "mobile" => icons::CELL,
-        "usb" => icons::USB,
+        "usb" | "link" => icons::USB,
         "vpn" => icons::VPN,
         "ethernet" => icons::ETHERNET,
         _ => icons::HUB,
@@ -40,6 +40,7 @@ fn iface_kind(kind: &str) -> String {
         "vpn" => t!("VPN"),
         "ethernet" => t!("Ethernet"),
         "bridge" => t!("Мост"),
+        "link" => t!("Связь с устройством"),
         _ => t!("Виртуальный"),
     }
 }

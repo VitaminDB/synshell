@@ -36,6 +36,15 @@ fn usb_identity(iface: &str) -> (String, String) {
     (key, name)
 }
 
+/// Сеть USB-гаджета своего устройства synmobile (связь synlink): производитель
+/// устройства USB — `syn_mobile`. Драйвер тот же `cdc_ncm`, но это не модем.
+pub fn is_device_link(iface: &str) -> bool {
+    std::fs::canonicalize(format!("/sys/class/net/{iface}/device"))
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("manufacturer")))
+        .is_some_and(|m| read_trim(m) == "syn_mobile")
+}
+
 /// USB-модемы: интерфейсы с драйвером из [`USB_MODEM_DRIVERS`], кроме
 /// функции гаджета (это мы — телефон, раздающий сеть по USB).
 pub fn usb_modems() -> Vec<syn_netd::UsbModem> {
@@ -57,6 +66,9 @@ pub fn usb_modems() -> Vec<syn_netd::UsbModem> {
                     continue;
                 }
                 if std::fs::canonicalize(p.join("device")).is_ok_and(|d| d.to_string_lossy().contains("gadget")) {
+                    continue;
+                }
+                if is_device_link(&name) {
                     continue;
                 }
             }

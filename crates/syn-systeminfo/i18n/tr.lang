@@ -185,6 +185,7 @@
 "VPN" = "VPN"
 "Ethernet" = "Ethernet"
 "Мост" = "Köprü"
+"Связь с устройством" = "Cihaz bağlantısı"
 "Виртуальный" = "Sanal"
 "шкала {m}" = "ölçek {m}"
 "Принято с загрузки" = "Açılıştan beri alınan"

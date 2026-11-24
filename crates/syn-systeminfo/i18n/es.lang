@@ -185,6 +185,7 @@
 "VPN" = "VPN"
 "Ethernet" = "Ethernet"
 "Мост" = "Puente"
+"Связь с устройством" = "Enlace con dispositivo"
 "Виртуальный" = "Virtual"
 "шкала {m}" = "escala {m}"
 "Принято с загрузки" = "Recibido desde el arranque"

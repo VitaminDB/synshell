@@ -64,7 +64,8 @@ pub fn traffic(sys: &Sys) -> (u64, u64) {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Interface {
     pub name: String,
-    /// `wifi`, `ethernet`, `mobile`, `usb`, `vpn`, `bridge`, `virtual`.
+    /// `wifi`, `ethernet`, `mobile`, `usb`, `link` (связь со своим устройством
+    /// synmobile по USB — не выход в интернет), `vpn`, `bridge`, `virtual`.
     pub kind: String,
     pub up: bool,
     pub rx_bytes: u64,
@@ -72,6 +73,18 @@ pub struct Interface {
     pub mac: Option<String>,
     /// Скорость линии, Мбит/с (Ethernet).
     pub speed_mbps: Option<u32>,
+}
+
+/// Сеть USB-гаджета своего устройства synmobile (связь synlink с телефоном или
+/// планшетом): у устройства USB производитель `syn_mobile`. Это не модем и не
+/// выход в интернет, хотя драйвер тот же (`cdc_ncm`).
+pub fn is_device_link(sys: &Sys, iface: &str) -> bool {
+    // device → интерфейс USB (3-10:1.0), его родитель — само устройство (3-10).
+    std::fs::canonicalize(sys.path(format!("/sys/class/net/{iface}/device")))
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("manufacturer")))
+        .and_then(|m| std::fs::read_to_string(m).ok())
+        .is_some_and(|m| m.trim() == "syn_mobile")
 }
 
 /// Интерфейсы, кроме `lo`.
@@ -91,6 +104,8 @@ pub fn interfaces(sys: &Sys) -> Vec<Interface> {
                 "vpn"
             } else if has("bridge") {
                 "bridge"
+            } else if is_device_link(sys, &name) {
+                "link"
             } else if name.starts_with("usb") || name.starts_with("rndis") || ["rndis_host", "cdc_ether", "cdc_ncm", "cdc_eem", "ipheth"].contains(&driver.as_str()) {
                 "usb"
             } else if !has("device") {

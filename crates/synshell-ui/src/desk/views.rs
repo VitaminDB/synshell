@@ -988,13 +988,38 @@ fn if_label(i: &data::IfStat, all: &[data::IfStat]) -> String {
     }
 }
 
-/// Строка каналов под графиком: «● Wi-Fi ↓ 1,2 МБ/с  ● USB-модем ↓ 300 КБ/с».
-fn if_legend(ifaces: &[data::IfStat]) -> impl Widget {
-    let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
-    for (n, i) in ifaces.iter().enumerate() {
-        row = row.child(Text::new(format!("● {} ↓ {}", if_label(i, ifaces), human_rate(i.rx))).max_lines(1).class("desk-k").style("color", StyleValue::Color(mss_color(if_color(n)))));
+/// Короткое имя для подписи под графиком: двух одного типа различает номер
+/// («USB-модем 2»), а не длинное имя интерфейса.
+fn if_label_short(i: &data::IfStat, all: &[data::IfStat]) -> String {
+    let same: Vec<&data::IfStat> = all.iter().filter(|x| x.kind == i.kind).collect();
+    if same.len() > 1 && !matches!(i.kind.as_str(), "wifi" | "ethernet" | "usb" | "mobile") {
+        return i.name.clone();
     }
-    row.style("height", StyleValue::px(16.0))
+    let base = if_label(i, std::slice::from_ref(i));
+    match same.iter().position(|x| x.name == i.name) {
+        Some(n) if same.len() > 1 => format!("{base} {}", n + 1),
+        _ => base,
+    }
+}
+
+/// Строка каналов под графиком: «● Wi-Fi ↓ 1,2 МБ/с  ● USB-модем ↓ 300 КБ/с».
+/// Ширина виджета делится между каналами поровну: подпись, которая не
+/// влезает, сжимается с «…», а не вылезает за край карточки.
+fn if_legend(ifaces: &[data::IfStat], width: f32) -> impl Widget {
+    const GAP: f32 = 10.0;
+    let n = ifaces.len().max(1) as f32;
+    let cell = ((width - GAP * (n - 1.0)) / n).max(24.0);
+    let mut row = Row::new().gap(GAP).cross_axis_alignment(CrossAxisAlignment::Center);
+    for (n, i) in ifaces.iter().enumerate() {
+        row = row.child(
+            Text::new(format!("● {} ↓ {}", if_label_short(i, ifaces), human_rate(i.rx)))
+                .max_lines(1)
+                .class("desk-k")
+                .style("color", StyleValue::Color(mss_color(if_color(n))))
+                .style("width", StyleValue::px(cell)),
+        );
+    }
+    row.style("height", StyleValue::px(16.0)).style("width", StyleValue::px(width))
 }
 
 fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
@@ -1038,7 +1063,7 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                 );
                 let mut col = Column::new().gap(0.0).child(chart);
                 if multi {
-                    col = col.child(if_legend(&s.ifaces));
+                    col = col.child(if_legend(&s.ifaces, cx.w));
                 }
                 if foot {
                     col = col.child(Text::new(net_total_line(s.net_total)).max_lines(1).class("desk-k"));
