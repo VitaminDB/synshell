@@ -512,6 +512,13 @@ impl Client {
         Ok(Self { reader: BufReader::new(stream), writer })
     }
 
+    /// Предельное время ответа: композитор, переставший рисовать (вложенный без
+    /// поверхности), иначе держит вызывающего вечно.
+    pub fn set_timeout(&self, t: std::time::Duration) -> std::io::Result<()> {
+        self.writer.set_read_timeout(Some(t))?;
+        self.writer.set_write_timeout(Some(t))
+    }
+
     pub fn request(&mut self, req: &Request) -> std::io::Result<Response> {
         let mut line = serde_json::to_string(req).map_err(std::io::Error::other)?;
         line.push('\n');

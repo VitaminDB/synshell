@@ -11,11 +11,15 @@ use synshell_tr::t;
 
 /// Композитор: живой (`None`) или песочницы (её сокет).
 fn connect(sock: Option<&std::path::Path>) -> Result<Client> {
-    Ok(match sock {
+    let c = match sock {
         Some(p) => Client::connect_to(p),
         None => Client::connect(),
     }
-    .with_context(|| t!("нет связи с композитором"))?)
+    .with_context(|| t!("нет связи с композитором"))?;
+    // композитор, переставший рисовать (вложенный без поверхности), не должен
+    // вешать MCP: он обрабатывает вызовы по одному, за зависшим встают все
+    c.set_timeout(std::time::Duration::from_secs(30)).ok();
+    Ok(c)
 }
 
 pub fn wm(sock: Option<&std::path::Path>, req: Request) -> Result<Response> {
