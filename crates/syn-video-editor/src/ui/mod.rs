@@ -40,6 +40,7 @@ pub mod icons {
     pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
     pub const ZOOM_IN: &str = "\u{E8FF}";
     pub const ZOOM_OUT: &str = "\u{E900}";
+    pub const FAVORITE: &str = "\u{E87D}";
 }
 
 static EDITOR: OnceLock<Shared> = OnceLock::new();
@@ -488,6 +489,7 @@ fn titlebar(st: St) -> impl Widget {
                         .child(DecoratedBox::new().class("logo-mark").child(Icon::new(icons::MOVIE).class("logo-icon")))
                         .child(Text::new("Видеоредактор").class("logo-text")),
                 )
+                .child(build_chip())
                 .child(menu.build())
                 .child(DecoratedBox::new().class("grow"))
                 .child(
@@ -503,6 +505,8 @@ fn titlebar(st: St) -> impl Widget {
                     ),
                 )
                 .child(DecoratedBox::new().class("grow"))
+                .child(link_chip(icons::FAVORITE, "donate", "Donate", "Поддержать разработку", || { let _ = syngui::open_url(DONATE_URL); }))
+                .child(link_chip("", "github", "GitHub", "Исходники synshell на GitHub", || { let _ = syngui::open_url(GITHUB_URL); }))
                 .child(DecoratedBox::new().class("window-controls").child(controls)),
         ),
     )
@@ -602,4 +606,42 @@ fn toast(st: St) -> impl Widget {
         });
         vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::End).class("toast-layer").child(DecoratedBox::new().class("toast").child(Text::new(t).max_lines(3).class("toast-text"))))]
     })
+}
+
+// ── чипы заголовка ──────────────────────────────────────────────────────
+
+/// Куда ведут чипы — те же ссылки, что в Synthos и README.
+pub const DONATE_URL: &str = "https://paypal.me/vitamindbnfkz";
+pub const GITHUB_URL: &str = "https://github.com/VitaminDB/synshell";
+const GITHUB_MARK_SVG: &[u8] = include_bytes!("../../data/icons/github-mark.svg");
+
+/// Номер сборки (число коммитов = pkgrel пакета): видно, на какой версии получен результат.
+fn build_chip() -> impl Widget {
+    let tip = format!("Видеоредактор {} · сборка {} · {}", env!("CARGO_PKG_VERSION"), env!("SVE_BUILD"), env!("SVE_COMMIT"));
+    Tooltip::new(
+        DecoratedBox::new().class("build-chip").child(
+            Row::new()
+                .gap(5.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().class("build-chip-dot"))
+                .child(Text::new(concat!("#", env!("SVE_BUILD"))).class("build-chip-text")),
+        ),
+        tip,
+    )
+}
+
+/// Чип-ссылка как в Synthos: значок и подпись, подложка при наведении. Пустой
+/// `glyph` — логотип GitHub.
+fn link_chip(glyph: &'static str, variant: &'static str, label: &'static str, tooltip: &'static str, on_click: impl FnMut() + Send + 'static) -> impl Widget {
+    let hovered = use_signal(false);
+    let chip = move || {
+        let state = if hovered.get() { " titlebar-chip--hover" } else { "" };
+        let icon: Box<dyn Widget> = if glyph.is_empty() {
+            Box::new(Image::from_bytes("sve-github-mark", GITHUB_MARK_SVG.to_vec()).fit(ImageFit::Contain).placeholder(false).class("titlebar-chip-logo"))
+        } else {
+            Box::new(Icon::new(glyph).class("titlebar-chip-icon"))
+        };
+        DecoratedBox::new().class(format!("titlebar-chip titlebar-chip-{variant}{state}")).child(Center::new().child(Row::new().gap(5.0).cross_axis_alignment(CrossAxisAlignment::Center).children(vec![icon, Box::new(Text::new(label).max_lines(1).class("titlebar-chip-text"))])))
+    };
+    Tooltip::new(GestureDetector::new().on_hover_change(move |inside| hovered.set(inside)).on_click(on_click).child(Padding::symmetric(0.0, 6.0).child(DecoratedBox::new().child(chip))), tooltip)
 }

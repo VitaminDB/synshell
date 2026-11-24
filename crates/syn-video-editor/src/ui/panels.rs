@@ -35,9 +35,7 @@ fn media(st: St) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .class("panel-head")
         .child(Button::new("Импорт…").on_click(move || st.dialog(Pick::ImportFiles)).class("head-btn"))
-        .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"))
-        .child(DecoratedBox::new().class("grow"))
-        .child(Text::new("или перетащите файлы").class("panel-hint"));
+        .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"));
     let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
         let items: Vec<(u64, MediaKind, String, String)> = ed()

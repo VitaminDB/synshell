@@ -78,3 +78,17 @@
 .head-btn { height: 26px; font-size: 12px; }
 .media-empty { padding: 28px 12px; }
 .media-empty-icon { icon-size: 36px; icon-color: var(--text-subtle); }
+
+/* ── чипы заголовка: сборка (как hexspire), Donate и GitHub (как Synthos) ── */
+.build-chip { height: 20px; padding: 0px 8px 0px 7px; border-radius: 10px; border-width: 1px; border-color: var(--border-soft); background-color: var(--primary-soft); }
+.build-chip-dot { width: 6px; height: 6px; border-radius: 3px; background-color: var(--primary); }
+.build-chip-text { font-family: monospace; font-size: 11px; font-weight: 600; color: var(--text); }
+.titlebar-chip { height: 20px; padding: 0 8px 0 7px; border-radius: var(--radius-pill); background-color: transparent; cursor: pointer; transition: background-color 120ms ease-out; }
+.titlebar-chip:hover { background-color: var(--surface-hover); }
+.titlebar-chip.titlebar-chip-donate:hover { background-color: rgba(229, 72, 122, 0.12); }
+.titlebar-chip-text { font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); }
+.titlebar-chip-icon { color: #E5487A; icon-size: 11px; }
+.titlebar-chip-logo { width: 11px; height: 11px; color-tint: var(--text-muted); }
+.titlebar-chip--hover .titlebar-chip-text { color: var(--text); }
+.titlebar-chip--hover .titlebar-chip-logo { color-tint: var(--text); }
+.titlebar-chip-donate.titlebar-chip--hover .titlebar-chip-text { color: #E5487A; }
