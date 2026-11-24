@@ -164,3 +164,5 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .transport-play { icon-size: 22px; }
 .clip-frame { border-right-width: 1px; border-color: #00000055; }
 .clip-label { padding: 1px 6px; margin: 3px 4px; border-radius: 4px; background-color: #00000080; }
+.fx-head { padding: 8px 8px 2px 8px; border-top-width: 1px; border-color: var(--border-soft); margin-top: 4px; }
+.fx-title { font-size: 12px; font-weight: 600; color: var(--text); }

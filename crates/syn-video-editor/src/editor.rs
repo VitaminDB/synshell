@@ -28,7 +28,13 @@ pub struct Editor {
     group_saved: bool,
     /// Счётчик правок — интерфейс перестраивается по нему.
     pub revision: u64,
+    /// Последний шаг вне группы и когда: правки одного поля подряд (ползунок
+    /// инспектора) склеиваются в один шаг отмены.
+    last: Option<(String, std::time::Instant)>,
 }
+
+/// Подписи шагов, которые склеиваются, если идут подряд быстрее секунды.
+const COALESCE: &[&str] = &["Свойства клипа", "Параметры эффекта", "Параметры проекта", "Переход"];
 
 impl Editor {
     pub fn new() -> Self {
@@ -44,7 +50,12 @@ impl Editor {
                 self.group_saved = true;
             }
         } else {
-            self.push(label.to_string());
+            let now = std::time::Instant::now();
+            let glue = COALESCE.contains(&label) && self.redo.is_empty() && self.last.as_ref().is_some_and(|(l, t)| l == label && now.duration_since(*t).as_secs_f32() < 1.0) && self.undo.last().is_some_and(|s| s.label == label);
+            if !glue {
+                self.push(label.to_string());
+            }
+            self.last = Some((label.to_string(), now));
         }
         self.dirty = true;
         self.revision += 1;

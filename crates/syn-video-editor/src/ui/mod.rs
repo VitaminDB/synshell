@@ -3,6 +3,7 @@
 //! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
 
 pub mod graph;
+mod inspector;
 mod panels;
 mod thumbs;
 mod wave;
@@ -111,6 +112,8 @@ pub struct St {
     /// Позиция воспроизведения (зеркало `Editor::playhead`): курсор, просмотр,
     /// время — по нему, без перестройки таймлайна (протяжка, воспроизведение).
     pub ph: RwSignal<f64>,
+    /// Ключ состава инспектора (см. `inspector::key`).
+    pub insp_key: RwSignal<String>,
 }
 
 impl St {
@@ -139,6 +142,7 @@ impl St {
             drop_hint: use_signal(None),
             trim: use_signal(None),
             ph: use_signal(0.0),
+            insp_key: use_signal(String::new()),
         }
     }
 

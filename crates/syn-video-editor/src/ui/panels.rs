@@ -18,7 +18,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "effects" => Box::new(effects(st)),
         "viewer" => Box::new(viewer(st)),
         "timeline" => Box::new(timeline::view(st)),
-        "inspector" => Box::new(inspector(st)),
+        "inspector" => Box::new(super::inspector::view(st)),
         "ai" => Box::new(ai(st)),
         "graph" => super::graph::panel(),
         _ => Box::new(DecoratedBox::new()),
@@ -257,62 +257,6 @@ fn viewer_frame(st: St) -> impl Widget {
         let frame = crate::render::compose::frame_widget(&p, t, &frames, k);
         vec![Box::new(Center::new().child(Column::new().children(vec![frame])))]
     })))
-}
-
-// ── инспектор ───────────────────────────────────────────────────────────
-
-fn kv(k: &str, v: impl Into<String>) -> impl Widget {
-    Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("kv-row").child(Text::new(k).class("kv-key")).child(DecoratedBox::new().class("grow").child(Text::new(v.into()).max_lines(3).class("kv-value")))
-}
-
-fn inspector(st: St) -> impl Widget {
-    ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let _ = st.rev.get();
-        let e = ed();
-        let p = &e.project;
-        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("inspector");
-        let Some(id) = e.selection.first().copied() else {
-            col = col.child(Text::new("ПРОЕКТ").class("section-title"));
-            col = col.child(kv("Название", p.name.clone()));
-            col = col.child(kv("Кадр", format!("{}×{}", p.settings.width, p.settings.height)));
-            col = col.child(kv("Частота", format!("{} fps", p.settings.fps)));
-            col = col.child(kv("Длительность", tc(p.duration())));
-            col = col.child(kv("Медиа", p.media.len().to_string()));
-            col = col.child(kv("Дорожки", p.tracks.len().to_string()));
-            return vec![Box::new(col)];
-        };
-        let Some(c) = p.clip(id) else { return vec![] };
-        col = col.child(Text::new(format!("КЛИП c{id}")).class("section-title"));
-        let what = match &c.source {
-            Source::Media { media } => p.media(*media).map(|m| format!("m{media} {}", m.name())).unwrap_or_default(),
-            Source::Title { text, .. } => format!("титр «{text}»"),
-            Source::Color { color } => format!("цвет {color}"),
-        };
-        col = col.child(kv("Источник", what));
-        col = col.child(kv("Начало", tc(c.start)));
-        col = col.child(kv("Конец", tc(c.end())));
-        col = col.child(kv("Длительность", tc(c.duration)));
-        col = col.child(kv("Из источника с", tc(c.offset)));
-        col = col.child(kv("Скорость", format!("{}×", c.speed)));
-        col = col.child(kv("Громкость", format!("{:.0} %", c.volume * 100.0)));
-        if !c.effects.is_empty() {
-            col = col.child(Text::new("ЭФФЕКТЫ").class("section-title"));
-            for ef in &c.effects {
-                let eid = ef.id;
-                let params = if ef.params.is_empty() { String::new() } else { Value::Object(ef.params.clone()).to_string() };
-                col = col.child(
-                    Row::new()
-                        .gap(6.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(DecoratedBox::new().class("grow").child(kv(&ef.kind, params)))
-                        .child(ToolButton::new("\u{E5CD}").tooltip("Убрать эффект").on_click(move || {
-                            st.exec("effect.remove", json!({"id": eid}));
-                        })),
-                );
-            }
-        }
-        vec![Box::new(col)]
-    }))
 }
 
 // ── ИИ ──────────────────────────────────────────────────────────────────
