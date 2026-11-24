@@ -141,6 +141,8 @@ fn clip_name(p: &Project, c: &crate::doc::Clip) -> String {
 pub fn view(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
+        // готовы ленты кадров или волны — перерисовать клипы
+        let _ = st.thumbs.get();
         let zoom = st.zoom.get();
         let e = ed();
         let p = &e.project;
@@ -215,7 +217,7 @@ pub fn view(st: St) -> impl Widget {
                     marks.insert_str(0, "◇ ");
                 }
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
-                let body = DecoratedBox::new().class(class).class(if selected { "clip-selected" } else { "" }).child(Text::new(format!("{name}{marks}")).max_lines(1).elide(Elide::End).class("clip-text"));
+                let body = DecoratedBox::new().clip(true).child(clip_content(p, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" });
                 // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
                 let cid = c.id;
                 let body = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || {
@@ -503,4 +505,54 @@ fn playhead(st: St, height: f32) -> impl Widget {
             Box::new(Positioned::new(grab).at(px - 6.0, 0.0).dimensions(14.0, height)),
         ]
     })
+}
+
+/// Содержимое блока клипа: раскадровка (видео, картинка) или волна (звук),
+/// подпись поверх.
+fn clip_content(p: &Project, c: &crate::doc::Clip, label: String, w: f32, h: f32, zoom: f32) -> Box<dyn Widget> {
+    let mut stack = Stack::new().fit(StackFit::Expand);
+    if let Some(m) = c.media().and_then(|id| p.media(id)) {
+        match m.kind {
+            crate::doc::MediaKind::Video | crate::doc::MediaKind::Image => {
+                if let Some(strip) = super::thumbs::strip(&m.path).filter(|s| !s.is_empty()) {
+                    // кадр по высоте блока, по времени источника в его левом крае
+                    let f0 = &strip[0];
+                    let tw = (h * f0.width as f32 / f0.height.max(1) as f32).max(12.0);
+                    let n = ((w / tw).ceil() as usize).clamp(1, 400);
+                    let mut row = Row::new().gap(0.0);
+                    for i in 0..n {
+                        let src = c.offset + (i as f64 * tw as f64 / zoom as f64) * c.speed;
+                        let k = if m.duration > 0.0 { ((src / m.duration) * strip.len() as f64) as usize } else { 0 }.min(strip.len() - 1);
+                        let f = &strip[k];
+                        row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}", m.id), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));
+                    }
+                    stack = stack.child(row);
+                }
+            }
+            crate::doc::MediaKind::Audio => {
+                if let Some(pk) = super::wave::peaks(&m.path).filter(|v| !v.is_empty()) {
+                    let (offset, speed) = (c.offset, c.speed);
+                    let canvas = Canvas::new(move |cx, _| {
+                        cx.set_color(Color::from_srgb(255, 255, 255, 0.55));
+                        cx.set_stroke_width(1.0);
+                        let mid = h / 2.0;
+                        let mut x = 0.0f32;
+                        while x < w {
+                            // пик на отрезке источника под этими двумя пикселями
+                            let a = ((offset + (x / zoom) as f64 * speed) * super::wave::RATE) as usize;
+                            let b = ((offset + ((x + 2.0) / zoom) as f64 * speed) * super::wave::RATE) as usize;
+                            let v = pk.get(a..b.max(a + 1).min(pk.len())).map(|s| s.iter().copied().fold(0.0, f32::max)).unwrap_or(0.0);
+                            let half = (v * (h / 2.0 - 2.0)).max(0.5);
+                            cx.draw_line(x, mid - half, x, mid + half);
+                            x += 2.0;
+                        }
+                    })
+                    .size(w, h);
+                    stack = stack.child(canvas);
+                }
+            }
+        }
+    }
+    stack = stack.child(Column::new().cross_axis_alignment(CrossAxisAlignment::Start).child(DecoratedBox::new().class("clip-label").child(Text::new(label).max_lines(1).elide(Elide::End).class("clip-text"))));
+    Box::new(stack)
 }

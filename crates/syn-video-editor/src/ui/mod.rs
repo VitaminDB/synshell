@@ -5,6 +5,7 @@
 pub mod graph;
 mod panels;
 mod thumbs;
+mod wave;
 pub mod timeline;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};

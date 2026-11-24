@@ -184,3 +184,10 @@ pub fn ensure_fx_strips() {
         }
     });
 }
+
+/// Сообщить окну: готовы новые превью (ленты, волны).
+pub fn notify() {
+    if let Some(rev) = REV.get().copied() {
+        syngui::async_runtime::run_on_main_thread(move || rev.update(|r| *r += 1));
+    }
+}

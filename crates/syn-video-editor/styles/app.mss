@@ -46,7 +46,7 @@
 .tl-playhead { background-color: var(--error); }
 .tl-playhead-cap { background-color: var(--error); border-radius: 3px; }
 
-.clip { border-radius: 6px; padding: 4px 8px; border-width: 1px; border-color: #FFFFFF22; cursor: pointer; }
+.clip { border-radius: 6px; padding: 0px; border-width: 1px; border-color: #FFFFFF22; cursor: pointer; }
 .clip-video { background-color: var(--clip-video); }
 .clip-audio { background-color: var(--clip-audio); }
 .clip-title { background-color: var(--clip-title); }
@@ -162,3 +162,5 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .transport { padding: 4px 10px; border-top-width: 1px; border-color: var(--border-soft); background-color: var(--bg-panel); }
 .transport-time { font-family: monospace; font-size: 12px; color: var(--text-muted); }
 .transport-play { icon-size: 22px; }
+.clip-frame { border-right-width: 1px; border-color: #00000055; }
+.clip-label { padding: 1px 6px; margin: 3px 4px; border-radius: 4px; background-color: #00000080; }
