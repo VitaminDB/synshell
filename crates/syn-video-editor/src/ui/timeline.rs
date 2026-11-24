@@ -231,6 +231,7 @@ pub fn view(st: St) -> impl Widget {
                 for left in [true, false] {
                     let hx = if left { x } else { x + w - EDGE };
                     let handle = GestureDetector::new()
+                        .cursor(syngui::input::CursorIcon::ColResize)
                         .on_pan_update(move |u: syngui::widgets::PanUpdate| st.trim.set(Some((cid, left, u.total.x))))
                         .on_pan_end(move |_| finish_trim(st))
                         .child(DecoratedBox::new().class("clip-edge"));
