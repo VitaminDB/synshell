@@ -6,6 +6,7 @@ pub mod agent;
 pub mod cmd;
 pub mod doc;
 pub mod editor;
+pub mod fusion;
 pub mod render;
 pub mod store;
 pub mod ui;

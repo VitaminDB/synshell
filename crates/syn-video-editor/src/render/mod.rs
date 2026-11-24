@@ -5,6 +5,7 @@
 pub mod compose;
 pub mod export;
 pub mod lut;
+pub mod neural;
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -64,12 +65,16 @@ pub fn child_main(args: &[String]) -> Result<String, String> {
                 opts.range = Some((a, b));
             }
             let started = std::time::Instant::now();
-            export::export(&p, &out, &opts, |i, n| {
+            let notes = export::export(&p, &out, &opts, |i, n| {
                 if i == n || i % 5 == 0 {
                     println!("progress {i} {n}");
                 }
             })?;
-            Ok(format!("{} ({:.1} с)", out.display(), started.elapsed().as_secs_f64()))
+            let mut s = format!("{} ({:.1} с)", out.display(), started.elapsed().as_secs_f64());
+            for n in notes {
+                s.push_str(&format!("; {n}"));
+            }
+            Ok(s)
         }
         Some("frame") => {
             let t: f64 = args.get(2).and_then(|v| v.parse().ok()).ok_or("нет времени")?;

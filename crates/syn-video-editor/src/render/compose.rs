@@ -185,12 +185,18 @@ pub struct FrameSource {
     readers: HashMap<u64, syngui::video::FrameReader>,
     stills: HashMap<u64, syngui::video::RgbaFrame>,
     max: (u32, u32),
+    /// Нейрофильтры клипов (`interpolate`, `upscale`) — при экспорте.
+    pub neural: bool,
+    interp: HashMap<u64, Option<super::neural::Interp>>,
+    upscale: HashMap<u64, Option<super::neural::Upscale>>,
+    /// Что не удалось (нет CUDA, моделей) — для отчёта экспорта.
+    pub notes: Vec<String>,
 }
 
 impl FrameSource {
     /// Кадры вписываются в `max_w × max_h` (размер проекта или панели).
     pub fn new(max_w: u32, max_h: u32) -> Self {
-        Self { readers: HashMap::new(), stills: HashMap::new(), max: (max_w, max_h) }
+        Self { readers: HashMap::new(), stills: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new() }
     }
 
     pub fn frames(&mut self, p: &Project, t: f64) -> Frames {
@@ -214,7 +220,46 @@ impl FrameSource {
                     std::collections::hash_map::Entry::Occupied(o) => Some(o.into_mut()),
                     std::collections::hash_map::Entry::Vacant(v) => syngui::video::FrameReader::open(&path, self.max.0, self.max.1).ok().map(|r| v.insert(r)),
                 };
-                r.and_then(|r| r.frame_at(src).ok())
+                let mut f = r.as_ref().map(|_| ()).and(None::<syngui::video::RgbaFrame>);
+                if let Some(r) = r {
+                    if let Ok(cur) = r.frame_at(src) {
+                        let mut out = cur.clone();
+                        if self.neural && effect(c, "interpolate").is_some() && src > cur.pts + 1e-4 {
+                            if let Some(next) = r.peek_next() {
+                                let notes = &mut self.notes;
+                                let slot = self.interp.entry(c.id).or_insert_with(|| super::neural::Interp::open().map_err(|e| notes.push(format!("c{}: плавность RIFE пропущена — {e}", c.id))).ok());
+                                if let Some(ip) = slot.as_mut() {
+                                    match ip.between(&cur, &next, src) {
+                                        Ok(v) => out = v,
+                                        Err(e) => {
+                                            self.notes.push(format!("c{}: RIFE — {e}", c.id));
+                                            *slot = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        f = Some(out);
+                    }
+                }
+                if let (true, Some(e), Some(fr)) = (self.neural, effect(c, "upscale"), f.as_ref()) {
+                    let hint = e.params.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+                    let notes = &mut self.notes;
+                    let slot = self.upscale.entry(c.id).or_insert_with(|| super::neural::Upscale::open(&hint).map_err(|err| notes.push(format!("c{}: увеличение пропущено — {err}", c.id))).ok());
+                    // увеличивать, только пока кадр меньше кадра проекта
+                    if fr.width < self.max.0 && fr.height < self.max.1 {
+                        if let Some(up) = slot.as_mut() {
+                            match up.apply(fr) {
+                                Ok(v) => f = Some(v),
+                                Err(err) => {
+                                    self.notes.push(format!("c{}: увеличение — {err}", c.id));
+                                    *slot = None;
+                                }
+                            }
+                        }
+                    }
+                }
+                f
             };
             let Some(mut f) = frame else { continue };
             if let Some(e) = effect(c, "lut") {

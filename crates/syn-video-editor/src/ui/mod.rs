@@ -62,6 +62,7 @@ pub enum Pick {
     ImportFolder,
     Open,
     SaveAs,
+    Export,
 }
 
 /// Строка панели ИИ.
@@ -91,6 +92,8 @@ pub struct St {
     pub playing: RwSignal<bool>,
     /// Готовы новые ленты превью медиатеки.
     pub thumbs: RwSignal<u64>,
+    /// Идёт экспорт: доля готовности.
+    pub exporting: RwSignal<Option<f32>>,
 }
 
 impl St {
@@ -114,6 +117,7 @@ impl St {
             view: use_signal("edit".to_string()),
             playing: use_signal(false),
             thumbs: use_signal(0),
+            exporting: use_signal(None),
         }
     }
 
@@ -153,6 +157,7 @@ impl St {
             "project.open" => return self.dialog(Pick::Open),
             "project.save_as" => return self.dialog(Pick::SaveAs),
             "project.save" if ed().path.is_none() => return self.dialog(Pick::SaveAs),
+            "project.export" => return self.dialog(Pick::Export),
             _ => {}
         }
         let Some(c) = cmd::find(id) else { return };
@@ -250,6 +255,7 @@ impl St {
                 Pick::ImportFolder => d.set_title("Импорт папки с медиа").pick_folder().into_iter().collect(),
                 Pick::Open => d.set_title("Открыть проект").add_filter("Проект видеоредактора", &["syn"]).pick_file().into_iter().collect(),
                 Pick::SaveAs => d.set_title("Сохранить проект").set_file_name(name).add_filter("Проект видеоредактора", &["syn"]).save_file().into_iter().collect(),
+                Pick::Export => d.set_title("Экспорт видео").set_file_name(name.replace(".syn", ".mp4")).add_filter("Видео", &["mp4", "mov", "mkv", "webm"]).save_file().into_iter().collect(),
             };
             tracing::info!("диалог {kind:?}: выбрано {}", picked.len());
             OPEN.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -266,6 +272,29 @@ impl St {
                     Pick::SaveAs => {
                         self.exec("project.save", json!({"path": paths[0]}));
                     }
+                    Pick::Export => self.export(paths[0].clone()),
+                }
+            });
+        });
+    }
+
+    /// Экспорт в фоне: ход — в строке состояния, итог — уведомлением.
+    pub fn export(self, path: String) {
+        if self.exporting.get_untracked().is_some() {
+            return;
+        }
+        self.exporting.set(Some(0.0));
+        let project = ed().project.clone();
+        std::thread::spawn(move || {
+            let r = crate::render::run_child(&project, &["export".into(), path.clone(), "18".into()], |i, n| {
+                let f = i as f32 / n.max(1) as f32;
+                syngui::async_runtime::run_on_main_thread(move || self.exporting.set(Some(f)));
+            });
+            syngui::async_runtime::run_on_main_thread(move || {
+                self.exporting.set(None);
+                match r {
+                    Ok(s) => self.toast.set(Some(format!("Экспорт готов: {s}"))),
+                    Err(e) => self.toast.set(Some(format!("Ошибка экспорта: {e}"))),
                 }
             });
         });
@@ -687,7 +716,7 @@ fn statusbar(st: St) -> impl Widget {
             let e = ed();
             let s = &e.project.settings;
             let file = e.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "не сохранён".into());
-            (format!("{}{} — {}", e.project.name, if e.dirty { " ●" } else { "" }, file), format!("{}{} / {}  ·  {}×{}  ·  {} fps", if st.ai_busy.get() { "ИИ работает…  ·  " } else { "" }, crate::doc::tc(e.playhead), crate::doc::tc(e.project.duration()), s.width, s.height, s.fps))
+            (format!("{}{} — {}", e.project.name, if e.dirty { " ●" } else { "" }, file), format!("{}{} / {}  ·  {}×{}  ·  {} fps", &format!("{}{}", st.exporting.get().map(|f| format!("Экспорт {:.0} %  ·  ", f * 100.0)).unwrap_or_default(), if st.ai_busy.get() { "ИИ работает…  ·  " } else { "" }), crate::doc::tc(e.playhead), crate::doc::tc(e.project.duration()), s.width, s.height, s.fps))
         };
         vec![Box::new(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(left).max_lines(1).elide(Elide::End).class("status-text")).child(DecoratedBox::new().class("grow")).child(Text::new(right).class("status-text")))]
     }))

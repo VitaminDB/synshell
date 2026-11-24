@@ -18,7 +18,7 @@ path = "src/main.rs"
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "ffmpeg", "wayland-dnd", "svg"] }
 syn-assist.workspace = true
-synaptixd.workspace = true
+synaptixd = { workspace = true, features = ["vfx-models"] }
 synaptix-bundle.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,6 +28,10 @@ tracing-subscriber.workspace = true
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 rayon = "1.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
+
+# нейрофильтры экспорта (synaptix-vfx: ядра CUDA) — только на компьютере
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+synaptix-vfx.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

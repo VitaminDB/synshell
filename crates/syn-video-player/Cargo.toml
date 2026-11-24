@@ -24,7 +24,7 @@ default = ["desktop"]
 desktop = ["dep:synaptixd", "dep:syn-dlss", "dep:synaptix-vfx", "dep:synaptix-bundle", "dep:tracing-subscriber", "syngui/wayland-dnd"]
 
 [dependencies]
-synaptixd = { workspace = true, optional = true }
+synaptixd = { workspace = true, optional = true, features = ["vfx-models"] }
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
 anyhow.workspace = true

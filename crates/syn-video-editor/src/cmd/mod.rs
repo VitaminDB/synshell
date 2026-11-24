@@ -3,8 +3,10 @@
 //! схема аргументов (из неё строится описание инструмента для модели) и
 //! обработчик, работающий без окна.
 
+mod audio;
 mod edit;
 pub mod media;
+mod template;
 mod project;
 mod timeline;
 pub use timeline::EFFECTS;
@@ -29,6 +31,8 @@ pub enum Ty {
     Choice(&'static [&'static str]),
     /// Объект с произвольными полями (параметры эффекта, стиль титра).
     Object,
+    /// Список (например, куски времени [[начало, конец], …]).
+    Array,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -95,6 +99,7 @@ impl Command {
                 Ty::Paths => json!({"type": "array", "items": {"type": "string"}}),
                 Ty::Choice(v) => json!({"type": "string", "enum": v}),
                 Ty::Object => json!({"type": "object"}),
+                Ty::Array => json!({"type": "array"}),
             };
             p["description"] = Value::String(a.help.to_string());
             props.insert(a.name.to_string(), p);
@@ -116,6 +121,8 @@ pub fn all() -> Vec<&'static Command> {
     let mut v: Vec<&'static Command> = Vec::new();
     v.extend(project::COMMANDS);
     v.extend(media::COMMANDS);
+    v.extend(audio::COMMANDS);
+    v.extend(template::COMMANDS);
     v.extend(timeline::COMMANDS);
     v.extend(edit::COMMANDS);
     v

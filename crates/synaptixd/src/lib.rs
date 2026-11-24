@@ -2,6 +2,8 @@ pub mod bridge;
 pub mod flow;
 pub mod params;
 pub mod wire;
+#[cfg(feature = "vfx-models")]
+pub mod vfx_models;
 
 /// Сервер службы (движок synaptix): системная служба `synaptixd` и встроенный
 /// режим программ без неё ([`server::embedded`]).

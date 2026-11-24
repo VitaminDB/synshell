@@ -24,6 +24,27 @@ use syngui::video::{FrameFilter, VideoFrame, VideoPlayer};
 
 use crate::chain::{self, Stage};
 
+/// Свой пул потоков: половина ядер и с пониженным приоритетом — интерфейс и
+/// декодер не должны ждать плавность (иначе пропущенные кадры экрана и опоздавшие кадры ролика).
+fn pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let n = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) / 2).max(2);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .thread_name(|i| format!("svp-smooth-{i}"))
+            .start_handler(|_| {
+                // SAFETY: setpriority для текущего потока (Linux: tid 0 — вызывающий поток).
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                unsafe {
+                    libc::setpriority(libc::PRIO_PROCESS, 0, 4);
+                }
+            })
+            .build()
+            .expect("пул потоков плавности")
+    })
+}
+
 /// Режимы частоты: ключ настроек, подпись; 0 — вдвое.
 pub const MODES: [(&str, u32); 3] = [("x2", 0), ("60", 60), ("120", 120)];
 
@@ -161,12 +182,34 @@ fn estimate(a: &Pyramid, b: &Pyramid, w: usize, h: usize, prev: Option<&Field>) 
             let (bx, by) = ((i % gw) as i32, (i / gw) as i32);
             let (ox, oy) = (bx * bs, by * bs);
             let hint = prev.filter(|p| p.gw == gw && p.gh == gh).map(|p| (p.v[i].0 >> (l + 1), p.v[i].1 >> (l + 1))).unwrap_or((0, 0));
-            let mut best = ((0, 0), u32::MAX);
-            for dy in -RANGE..=RANGE {
-                for dx in -RANGE..=RANGE {
-                    let c = cost(sad(&a.0[l], &b.0[l], ox, oy, bs, (dx, dy)), (dx, dy), hint, bs);
-                    if c < best.1 {
-                        best = ((dx, dy), c);
+            let price = |v: (i32, i32)| cost(sad(&a.0[l], &b.0[l], ox, oy, bs, v), v, hint, bs);
+            // грубо — через точку, плюс подсказки; три лучших уточняются ±1
+            let mut top = [((0, 0), u32::MAX); 3];
+            let mut keep = |v: (i32, i32), c: u32| {
+                if c < top[2].1 && !top.iter().any(|t| t.0 == v) {
+                    top[2] = (v, c);
+                    top.sort_by_key(|t| t.1);
+                }
+            };
+            for dy in (-RANGE..=RANGE).step_by(2) {
+                for dx in (-RANGE..=RANGE).step_by(2) {
+                    keep((dx, dy), price((dx, dy)));
+                }
+            }
+            keep(hint, price(hint));
+            keep((0, 0), price((0, 0)));
+            let mut best = top[0];
+            for (c, k) in top {
+                if k == u32::MAX {
+                    continue;
+                }
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let v = (c.0 + dx, c.1 + dy);
+                        let p = price(v);
+                        if p < best.1 {
+                            best = (v, p);
+                        }
                     }
                 }
             }
@@ -273,6 +316,22 @@ fn field_at(f: &Field, x: f32, y: f32) -> (f32, f32, f32) {
     (lerp(top.0, bot.0, ty), lerp(top.1, bot.1, ty), lerp(top.2, bot.2, ty))
 }
 
+/// `x + (y − x)·w/256` для четырёх 8-битных каналов разом (два канала на умножение).
+#[inline]
+fn lerp4(x: u32, y: u32, w: u32) -> u32 {
+    let iw = 256 - w;
+    let rb = (((x & 0x00FF_00FF) * iw + (y & 0x00FF_00FF) * w) >> 8) & 0x00FF_00FF;
+    let ga = ((((x >> 8) & 0x00FF_00FF) * iw + ((y >> 8) & 0x00FF_00FF) * w)) & 0xFF00_FF00;
+    rb | ga
+}
+
+/// Сумма модулей разности R, G, B.
+#[inline]
+fn absdiff3(x: u32, y: u32) -> u32 {
+    let d = |s: u32| ((x >> s) & 0xFF).abs_diff((y >> s) & 0xFF);
+    d(0) + d(8) + d(16)
+}
+
 /// Промежуточный кадр в момент `t` между `a` и `b` (RGBA `w×h`).
 ///
 /// Вектор плитки 8×8 — лучший из векторов её блока и соседних по совпадению двух кадров вдоль него:
@@ -318,7 +377,8 @@ fn synth(a: &[u8], b: &[u8], w: usize, h: usize, f: &Field, t: f32) -> Vec<u8> {
                     // при равенстве — короче вектор
                     let s = s * 16 + (v.0.abs() + v.1.abs()) as u32;
                     if s < best.3 {
-                        best = ((ax, ay), (cx, cy), f.r[gi] as i32 + 1, s);
+                        // надёжность 0..256; почти полная — полная (быстрый путь без смешивания)
+                        best = ((ax, ay), (cx, cy), (f.r[gi] as i32 * 256 / 230).min(256), s);
                     }
                 }
             }
@@ -337,37 +397,94 @@ fn synth(a: &[u8], b: &[u8], w: usize, h: usize, f: &Field, t: f32) -> Vec<u8> {
             (tx0, tx1, ((fx - tx0 as f32).clamp(0.0, 1.0) * 256.0) as i32)
         })
         .collect();
+    let px = |s: &[u8], i: usize| u32::from_le_bytes([s[i], s[i + 1], s[i + 2], s[i + 3]]);
     out.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
         let yi = y as i32;
         let fy = (y as f32 + 0.5) / TILE as f32 - 0.5;
         let ty0 = (fy.floor() as i32).clamp(0, th as i32 - 1);
         let ty1 = (ty0 + 1).min(th as i32 - 1);
         let wy = ((fy - ty0 as f32).clamp(0.0, 1.0) * 256.0) as i32;
-        for x in 0..w {
-            let xi = x as i32;
-            let (tx0, tx1, wx) = cols[x];
+        // Один отсчёт: компенсация по вектору плитки и, где ей нельзя верить, простое смешивание.
+        let sample = |xi: i32, tile: ((i32, i32), (i32, i32), i32)| -> u32 {
+            let ((ax, ay), (cx, cy), r) = tile;
+            let (pa, pb) = (idx(xi + ax, yi + ay), idx(xi + cx, yi + cy));
+            let (va, vb) = (px(a, pa), px(b, pb));
+            let mc = lerp4(va, vb, wt);
+            // совпали ли точки двух кадров: нет — меньше доверия вектору, ближе к смешиванию
+            let diff = absdiff3(va, vb) as i32;
+            let k = (r * (256 - ((diff - 40) * 3).clamp(0, 256)) >> 8) as u32;
+            if k >= 256 {
+                return mc;
+            }
             let pl = idx(xi, yi);
-            let mut acc = [0i32; 3];
-            for (tx, ty, wgt) in [(tx0, ty0, (256 - wx) * (256 - wy)), (tx1, ty0, wx * (256 - wy)), (tx0, ty1, (256 - wx) * wy), (tx1, ty1, wx * wy)] {
-                if wgt == 0 {
-                    continue;
+            let lin = lerp4(px(a, pl), px(b, pl), wt);
+            lerp4(lin, mc, k)
+        };
+        // Отрезки по 8 px с общими четырьмя плитками: x ∈ [8k+4, 8k+12) — плитки k и k+1.
+        let mut x = 0usize;
+        while x < w {
+            let (tx0, tx1, _) = cols[x];
+            let seg_end = if x < TILE / 2 { TILE / 2 } else { ((x - TILE / 2) / TILE + 1) * TILE + TILE / 2 }.min(w);
+            let t00 = tiles[ty0 as usize * tw + tx0 as usize];
+            let t10 = tiles[ty0 as usize * tw + tx1 as usize];
+            let t01 = tiles[ty1 as usize * tw + tx0 as usize];
+            let t11 = tiles[ty1 as usize * tw + tx1 as usize];
+            if t00 == t10 && t00 == t01 && t00 == t11 {
+                let ((ax, ay), (cx, cy), r) = t00;
+                let (ya, yb) = (yi + ay, yi + cy);
+                let inside = ya >= 0 && ya < hi && yb >= 0 && yb < hi && x as i32 + ax.min(cx) >= 0 && seg_end as i32 + ax.max(cx) <= wi;
+                if inside && r >= 256 {
+                    // надёжный вектор внутри кадра: прямые смещения, без проверок
+                    let ra = &a[ya as usize * w * 4..][..w * 4];
+                    let rb = &b[yb as usize * w * 4..][..w * 4];
+                    let la = &a[y * w * 4..][..w * 4];
+                    let lb = &b[y * w * 4..][..w * 4];
+                    for xx in x..seg_end {
+                        let ia = ((xx as i32 + ax) * 4) as usize;
+                        let ib = ((xx as i32 + cx) * 4) as usize;
+                        let (va, vb) = (px(ra, ia), px(rb, ib));
+                        let mc = lerp4(va, vb, wt);
+                        let diff = absdiff3(va, vb) as i32;
+                        let v = if diff <= 40 {
+                            mc
+                        } else {
+                            let k = (256 - ((diff - 40) * 3).min(256)) as u32;
+                            lerp4(lerp4(px(la, xx * 4), px(lb, xx * 4), wt), mc, k)
+                        };
+                        row[xx * 4..xx * 4 + 4].copy_from_slice(&(v | 0xFF00_0000).to_le_bytes());
+                    }
+                } else {
+                    for xx in x..seg_end {
+                        let v = sample(xx as i32, t00);
+                        row[xx * 4..xx * 4 + 4].copy_from_slice(&(v | 0xFF00_0000).to_le_bytes());
+                    }
                 }
-                let ((ax, ay), (cx, cy), r) = tiles[ty as usize * tw + tx as usize];
-                let (pa, pb) = (idx(xi + ax, yi + ay), idx(xi + cx, yi + cy));
-                // совпали ли точки двух кадров: нет — меньше доверия вектору, ближе к смешиванию
-                let diff = (a[pa] as i32 - b[pb] as i32).abs() + (a[pa + 1] as i32 - b[pb + 1] as i32).abs() + (a[pa + 2] as i32 - b[pb + 2] as i32).abs();
-                let k = r * (256 - ((diff - 40) * 3).clamp(0, 256)) >> 8;
-                for c in 0..3 {
-                    let mc = (a[pa + c] as i32 * (256 - wt as i32) + b[pb + c] as i32 * wt as i32) >> 8;
-                    let lin = (a[pl + c] as i32 * (256 - wt as i32) + b[pl + c] as i32 * wt as i32) >> 8;
-                    acc[c] += ((mc * k + lin * (256 - k)) >> 8) * (wgt >> 8);
+            } else {
+                // Перекрытие — только у стыка плиток (≈4 px): внутри плитки — её вектор, один отсчёт.
+                let narrow = |w: i32| ((w - 128) * 2 + 128).clamp(0, 256) as u32;
+                let wyn = narrow(wy);
+                for xx in x..seg_end {
+                    let xi = xx as i32;
+                    let wx = narrow(cols[xx].2);
+                    let v = match (wx, wyn) {
+                        (0, 0) => sample(xi, t00),
+                        (256, 0) => sample(xi, t10),
+                        (0, 256) => sample(xi, t01),
+                        (256, 256) => sample(xi, t11),
+                        (_, 0) => lerp4(sample(xi, t00), sample(xi, t10), wx),
+                        (_, 256) => lerp4(sample(xi, t01), sample(xi, t11), wx),
+                        (0, _) => lerp4(sample(xi, t00), sample(xi, t01), wyn),
+                        (256, _) => lerp4(sample(xi, t10), sample(xi, t11), wyn),
+                        _ => {
+                            let top = lerp4(sample(xi, t00), sample(xi, t10), wx);
+                            let bot = lerp4(sample(xi, t01), sample(xi, t11), wx);
+                            lerp4(top, bot, wyn)
+                        }
+                    };
+                    row[xx * 4..xx * 4 + 4].copy_from_slice(&(v | 0xFF00_0000).to_le_bytes());
                 }
             }
-            let o = &mut row[x * 4..][..4];
-            for c in 0..3 {
-                o[c] = (acc[c] >> 8).clamp(0, 255) as u8;
-            }
-            o[3] = 255;
+            x = seg_end;
         }
     });
     out
@@ -380,6 +497,10 @@ struct Prev {
 }
 
 struct Inner {
+    /// Частота экрана, о которой уже попросили (Android).
+    window_fps: f32,
+    /// Частота сейчас: начинается с выбранной, не успевает — ниже (120 → 60 → ×2), до перемотки.
+    target: u32,
     seek_gen: u64,
     prev: Option<Prev>,
     /// Последний выданный момент сетки (pts) — сетка не идёт назад.
@@ -400,7 +521,7 @@ impl SmoothFilter {
     pub fn new(target: u32) -> Arc<Self> {
         Arc::new(Self {
             target,
-            inner: Mutex::new(Inner { seek_gen: u64::MAX, prev: None, last_out: f64::NEG_INFINITY, slow_gen: None, recent: Default::default(), made: 0 }),
+            inner: Mutex::new(Inner { window_fps: 0.0, target, seek_gen: u64::MAX, prev: None, last_out: f64::NEG_INFINITY, slow_gen: None, recent: Default::default(), made: 0 }),
             status: Mutex::new(Status::Active { ms: 0.0, budget_ms: 0.0, fps: 0.0 }),
         })
     }
@@ -410,12 +531,20 @@ impl SmoothFilter {
     }
 
     /// Моменты промежуточных кадров между `p0` и `p1` (без концов) и попадает ли `p1` на сетку.
+    #[cfg(test)]
     fn times(&self, p0: f64, p1: f64, last_out: f64) -> (Vec<f64>, bool) {
+        times(self.target, p0, p1, last_out)
+    }
+}
+
+/// Моменты промежуточных кадров между `p0` и `p1` при частоте `target` (0 — вдвое).
+fn times(target: u32, p0: f64, p1: f64, last_out: f64) -> (Vec<f64>, bool) {
+    {
         let dt = p1 - p0;
-        if self.target == 0 {
+        if target == 0 {
             return (vec![p0 + dt / 2.0], true);
         }
-        let step = 1.0 / self.target as f64;
+        let step = 1.0 / target as f64;
         if dt <= step * 1.05 {
             // ролик и так не реже нужной частоты
             return (Vec::new(), true);
@@ -456,6 +585,7 @@ impl FrameFilter for SmoothFilter {
         let mut g = self.inner.lock().unwrap();
         if g.seek_gen != frame.seek_generation {
             g.seek_gen = frame.seek_generation;
+            g.target = self.target;
             g.prev = None;
             g.last_out = f64::NEG_INFINITY;
             g.recent.clear();
@@ -465,7 +595,7 @@ impl FrameFilter for SmoothFilter {
             emit(frame);
             return;
         }
-        let pyr = pyramid(&frame.rgba, w, h);
+        let pyr = pool().install(|| pyramid(&frame.rgba, w, h));
         let mut field_out = None;
         let mut original = true;
         let prev = g.prev.take();
@@ -474,12 +604,12 @@ impl FrameFilter for SmoothFilter {
         if let Some(p) = prev.as_ref().filter(|p| p.frame.width == frame.width && p.frame.height == frame.height) {
             let dt = frame.pts_sec - p.frame.pts_sec;
             if dt > 0.0 && dt < 0.25 && !scene_cut(&p.pyr, &pyr) {
-                let field = estimate(&p.pyr, &pyr, w, h, p.field.as_ref());
-                let (times, on_grid) = self.times(p.frame.pts_sec, frame.pts_sec, last_out);
+                let field = pool().install(|| estimate(&p.pyr, &pyr, w, h, p.field.as_ref()));
+                let (times, on_grid) = times(g.target, p.frame.pts_sec, frame.pts_sec, last_out);
                 original = on_grid;
                 for t_pts in times {
                     let t = ((t_pts - p.frame.pts_sec) / dt) as f32;
-                    let px = synth(&p.frame.rgba, &frame.rgba, w, h, &field, t);
+                    let px = pool().install(|| synth(&p.frame.rgba, &frame.rgba, w, h, &field, t));
                     let mut o = frame.clone();
                     o.rgba = px.into();
                     o.pts_sec = t_pts;
@@ -503,14 +633,32 @@ impl FrameFilter for SmoothFilter {
             g.recent.pop_front();
         }
         let avg = g.recent.iter().sum::<f32>() / g.recent.len() as f32;
-        let fps = if self.target == 0 && budget_ms > 0.0 { 2000.0 / budget_ms } else { self.target as f32 };
-        let status = if budget_ms > 0.0 && g.recent.len() >= 12 && avg > budget_ms * BUDGET {
+        let fps = if g.target == 0 && budget_ms > 0.0 { 2000.0 / budget_ms } else { g.target as f32 };
+        let slow = budget_ms > 0.0 && g.recent.len() >= 12 && avg > budget_ms * BUDGET;
+        let status = if slow && g.target > 0 {
+            // не успевает — частота ниже: 120 → 60 → ×2
+            let lower = MODES.iter().rev().map(|m| m.1).find(|t| *t != 0 && *t < g.target).unwrap_or(0);
+            tracing::warn!("плавность: {avg:.1} мс на кадр при бюджете {budget_ms:.1} — частота {} → {}", g.target, if lower == 0 { "×2".to_string() } else { lower.to_string() });
+            g.target = lower;
+            g.recent.clear();
+            Status::Active { ms: avg, budget_ms, fps }
+        } else if slow {
             g.slow_gen = Some(frame.seek_generation);
             tracing::warn!("плавность: {avg:.1} мс на кадр при бюджете {budget_ms:.1} — кадры как есть до перемотки");
             Status::Slow { ms: avg, budget_ms }
         } else {
             Status::Active { ms: avg, budget_ms, fps }
         };
+        // Экран — ровно на выходную частоту (×2 для 24 к/с — 48 Гц: шаг кадров ровный).
+        if fps > 0.0 && (fps - g.window_fps).abs() > 0.5 {
+            g.window_fps = fps;
+            #[cfg(target_os = "android")]
+            syngui::video::android::set_window_frame_rate(fps);
+        }
+        if g.made > 0 && g.made % 600 == 0 {
+            let max = g.recent.iter().cloned().fold(0.0f32, f32::max);
+            tracing::info!("плавность: {fps:.0} к/с, {avg:.1} мс на кадр ролика (макс. {max:.1}) из {budget_ms:.1}");
+        }
         *self.status.lock().unwrap() = status;
         drop(g);
         if original {
@@ -548,10 +696,18 @@ pub fn attach(st: crate::ui::St, p: &VideoPlayer) {
     match f {
         Some(f) => {
             tracing::info!("плавность: включена ({})", s.smooth_mode);
+            // экран с переменной частотой — не ниже выходной частоты (иначе 24 Гц под ролик)
+            #[cfg(target_os = "android")]
+            syngui::video::android::set_window_frame_rate(match f.target {
+                0 => 60.0,
+                t => t as f32,
+            });
             chain::set(p, Stage::Interpolate, Some(f));
         }
         None => {
             // ступень была наша — снять; RIFE (на компьютере) поставит свою, если включён
+            #[cfg(target_os = "android")]
+            syngui::video::android::set_window_frame_rate(0.0);
             if was {
                 chain::set(p, Stage::Interpolate, None);
                 crate::interp::attach(st, p);
@@ -638,6 +794,17 @@ mod tests {
         let (pa, pb) = (pyramid(&a, w, h), pyramid(&b, w, h));
         let t1 = Instant::now();
         let f = estimate(&pa, &pb, w, h, None);
+        let mut best = f64::MAX;
+        let mut est = f64::MAX;
+        for _ in 0..5 {
+            let t = Instant::now();
+            let _ = estimate(&pa, &pb, w, h, None);
+            est = est.min(t.elapsed().as_secs_f64());
+            let t = Instant::now();
+            let _ = synth(&a, &b, w, h, &f, 0.37);
+            best = best.min(t.elapsed().as_secs_f64());
+        }
+        println!("лучшее из 5: движение {:.1} мс, кадр {:.1} мс", est * 1e3, best * 1e3);
         let t2 = Instant::now();
         let mid = synth(&a, &b, w, h, &f, 0.5);
         let t3 = Instant::now();

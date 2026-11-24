@@ -80,6 +80,26 @@ pub struct Media {
     pub fps: f64,
     #[serde(default)]
     pub has_audio: bool,
+    /// Расшифровка речи (media.transcribe).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<Transcript>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Transcript {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub words: Vec<TranscriptWord>,
+}
+
+/// Слово расшифровки: время источника, с.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TranscriptWord {
+    pub text: String,
+    pub start: f64,
+    pub end: f64,
 }
 
 impl Media {
@@ -260,6 +280,9 @@ impl Project {
                 }
                 if m.kind == MediaKind::Video && m.has_audio {
                     info.push("со звуком".into());
+                }
+                if let Some(t) = &m.transcript {
+                    info.push(format!("расшифровка: {} слов", t.words.len()));
                 }
                 let _ = writeln!(o, "  m{} {} ({})", m.id, m.name(), info.join(", "));
             }

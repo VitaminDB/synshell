@@ -6,7 +6,7 @@ use crate::doc::{Media, MediaKind};
 fn ed_with_media(dur: f64) -> Editor {
     let mut ed = Editor::new();
     let id = ed.project.alloc();
-    ed.project.media.push(Media { id, path: "/x/a.mp4".into(), kind: MediaKind::Video, duration: dur, width: 1920, height: 1080, fps: 30.0, has_audio: true });
+    ed.project.media.push(Media { id, path: "/x/a.mp4".into(), kind: MediaKind::Video, duration: dur, width: 1920, height: 1080, fps: 30.0, has_audio: true, transcript: None });
     ed
 }
 
@@ -103,4 +103,15 @@ fn speed_changes_length() {
     let id = ed.project.tracks[0].clips[0].id;
     run(&mut ed, "clip.set", &json!({"id": id, "speed": 2})).unwrap();
     assert_eq!(clips(&ed, 0), vec![(0.0, 5.0, 0.0)]);
+}
+
+#[test]
+fn cut_source_ripples() {
+    let mut ed = ed_with_media(10.0);
+    run(&mut ed, "clip.add", &json!({"media": 3})).unwrap();
+    run(&mut ed, "clip.add", &json!({"media": 3, "duration": 2})).unwrap();
+    let id = ed.project.tracks[0].clips[0].id;
+    // вырезать 2–3 и 6–8 с источника: остаётся 0–2, 3–6, 8–10 (7 с), второй клип сдвигается на 3 с
+    run(&mut ed, "clip.cut_ranges", &json!({"id": id, "ranges": [[6, 8], [2, 3]]})).unwrap();
+    assert_eq!(clips(&ed, 0), vec![(0.0, 2.0, 0.0), (2.0, 3.0, 3.0), (5.0, 2.0, 8.0), (7.0, 2.0, 0.0)]);
 }

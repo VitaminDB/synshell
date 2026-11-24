@@ -30,6 +30,8 @@ daemon = [
     "dep:synaptix-gen",
     "dep:synaptix-bundle",
 ]
+# Поиск моделей видеофильтров (`vfx`) в библиотеках службы — для программ (плеер, видеоредактор).
+vfx-models = ["dep:synaptix-bundle"]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
 

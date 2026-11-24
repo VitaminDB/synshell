@@ -70,7 +70,7 @@ fn eff(c: &Clip, kind: &str) -> Option<f64> {
 }
 
 /// Экспортировать проект в `out` (mp4/mov/mkv/webm по расширению). `progress(кадр, всего)`.
-pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usize, usize)) -> Result<(), String> {
+pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usize, usize)) -> Result<Vec<String>, String> {
     let (w, h) = (p.settings.width & !1, p.settings.height & !1);
     let fps = p.settings.fps;
     let (t0, t1) = opts.range.unwrap_or((0.0, p.duration()));
@@ -131,6 +131,7 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
 
     let mut off = syngui::offscreen::Offscreen::new((w, h), "").map_err(|e| format!("композитор: {e}"))?;
     let mut src = FrameSource::new(w, h);
+    src.neural = true;
     let mut result = Ok(());
     for i in 0..total {
         let t = t0 + i as f64 / fps;
@@ -155,5 +156,6 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
     if !out_.status.success() {
         return Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out_.stderr).trim()));
     }
-    Ok(())
+    src.notes.dedup();
+    Ok(src.notes)
 }
