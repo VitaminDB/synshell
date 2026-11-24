@@ -115,3 +115,40 @@ fn cut_source_ripples() {
     run(&mut ed, "clip.cut_ranges", &json!({"id": id, "ranges": [[6, 8], [2, 3]]})).unwrap();
     assert_eq!(clips(&ed, 0), vec![(0.0, 2.0, 0.0), (2.0, 3.0, 3.0), (5.0, 2.0, 8.0), (7.0, 2.0, 0.0)]);
 }
+
+#[test]
+fn selection_shift_copy_paste() {
+    let mut ed = ed_with_media(10.0);
+    run(&mut ed, "clip.add", &json!({"media": 3, "duration": 2})).unwrap();
+    run(&mut ed, "clip.add", &json!({"media": 3, "duration": 2})).unwrap();
+    let (a, b) = (ed.project.tracks[0].clips[0].id, ed.project.tracks[0].clips[1].id);
+    // разрез и удаление без ids — по выделению
+    run(&mut ed, "selection.set", &json!({"ids": [b]})).unwrap();
+    run(&mut ed, "transition.set", &json!({"id": b, "kind": "dissolve", "duration": 0.5})).unwrap();
+    run(&mut ed, "clip.split", &json!({"at": 3})).unwrap();
+    let parts = &ed.project.tracks[0].clips;
+    assert_eq!(parts.len(), 3);
+    assert!(parts[1].transition.is_some() && parts[2].transition.is_none(), "переход остаётся у левой части");
+    // сдвиг двух клипов вправо и обратно; влево за ноль — ошибка
+    run(&mut ed, "selection.set", &json!({"ids": [a, b]})).unwrap();
+    run(&mut ed, "clip.shift", &json!({"by": -0.5})).unwrap_err();
+    run(&mut ed, "clip.shift", &json!({"ids": [b], "by": -0.5})).unwrap_err();
+    let last = ed.project.tracks[0].clips[2].id;
+    run(&mut ed, "clip.shift", &json!({"ids": [last], "by": 1})).unwrap();
+    run(&mut ed, "clip.shift", &json!({"ids": [last], "by": -0.5})).unwrap();
+    assert_eq!(ed.project.clip(last).unwrap().start, 3.5);
+    // копия двух клипов в 10 с: та же дорожка, взаимное расположение сохранено
+    run(&mut ed, "clip.copy", &json!({})).unwrap();
+    run(&mut ed, "clip.paste", &json!({"at": 10})).unwrap();
+    assert_eq!(ed.selection.len(), 2);
+    let starts: Vec<f64> = ed.selection.iter().map(|id| ed.project.clip(*id).unwrap().start).collect();
+    assert_eq!(starts, vec![10.0, 12.0]);
+    let n = ed.project.tracks.len();
+    assert!(ed.selection.iter().all(|id| ed.project.find_clip(*id).map(|f| f.0) == Some(0)));
+    // вставка поверх занятого — на новую дорожку
+    run(&mut ed, "clip.paste", &json!({"at": 0})).unwrap();
+    assert_eq!(ed.project.tracks.len(), n + 1);
+    // удалить выделенное
+    run(&mut ed, "clip.remove", &json!({})).unwrap();
+    assert!(ed.project.tracks[n].clips.is_empty());
+}

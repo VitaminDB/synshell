@@ -173,3 +173,7 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .tl-transition-edit { background-color: var(--primary); }
 .tl-transition-edit .tl-transition-text { color: var(--on-primary); }
 .insp-grid { width: 100%; background-color: var(--bg-panel); border-color: var(--border-soft); color: var(--text); accent-color: var(--primary); font-size: 12px; }
+.tl-bar { padding: 3px 8px; border-bottom-width: 1px; border-color: var(--border-soft); background-color: var(--bg-panel); }
+.tl-bar-hint { font-size: 11px; color: var(--text-muted); }
+.tl-band { background-color: #3B82F622; border-width: 1px; border-color: var(--primary); border-radius: 2px; }
+.tl-snap { background-color: #FFD54F; }

@@ -25,9 +25,9 @@ pub fn key() -> String {
                 Source::Color { .. } => "color".into(),
             };
             let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""))).collect();
-            format!("c{}:{src}:{}:{}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"))
+            format!("c{}:{src}:{}:{}:{:.4}:{:.4}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"), c.start, c.duration)
         }
-        None => format!("p:{}x{}@{}:{}", p.settings.width, p.settings.height, p.settings.fps, p.media.len()),
+        None => format!("p:{}x{}@{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.media.len(), p.tracks.len(), p.duration()),
     }
 }
 

@@ -7,7 +7,7 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, MediaKind, Project, Source, Track, TrackKind};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
+pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &CLIP_SHIFT, &CLIP_COPY, &CLIP_PASTE, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
 
 const MODES: &[&str] = &["overwrite", "insert"];
 const EPS: f64 = 1e-6;
@@ -175,6 +175,8 @@ fn split_clip(p: &mut Project, id: Id, at: f64) -> Option<Id> {
     right.start = at;
     right.duration = c.end() - at;
     right.offset = c.offset + (at - c.start) * c.speed;
+    // переход «в начале» остаётся у левой части: на разрезе склейки нет
+    right.transition = None;
     right.effects = c.effects.iter().map(|e| Effect { id: 0, ..e.clone() }).collect();
     for e in &mut right.effects {
         e.id = p.alloc();
@@ -379,7 +381,7 @@ static CLIP_SPLIT: Command = Command {
     title: "Разрезать",
     shortcut: "S",
     keywords: "split cut разрезать разделить лезвие",
-    help: "Разрезать клипы в момент at (по умолчанию — позиция воспроизведения). ids — какие клипы; без ids — все клипы под этим моментом.",
+    help: "Разрезать клипы в момент at (по умолчанию — позиция воспроизведения). ids — какие клипы; без ids — выделенные клипы под этим моментом, а если таких нет — все клипы под ним.",
     args: &[arg("at", Ty::Time, "момент разреза"), arg("ids", Ty::Ids, "клипы (c…)")],
     danger: false,
     run: clip_split,
@@ -389,7 +391,15 @@ fn clip_split(ed: &mut Editor, a: &Args) -> Res {
     let at = ed.project.snap(a.time("at")?.unwrap_or(ed.playhead));
     let ids: Vec<Id> = match a.ids("ids")? {
         Some(v) => v,
-        None => ed.project.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| c.start < at - EPS && c.end() > at + EPS).map(|c| c.id).collect(),
+        None => {
+            let under: Vec<Id> = ed.project.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| c.start < at - EPS && c.end() > at + EPS).map(|c| c.id).collect();
+            let sel: Vec<Id> = under.iter().copied().filter(|id| ed.selection.contains(id)).collect();
+            if sel.is_empty() {
+                under
+            } else {
+                sel
+            }
+        }
     };
     if ids.is_empty() {
         return Err(format!("в {} нечего резать", tc(at)));
@@ -411,14 +421,17 @@ static CLIP_REMOVE: Command = Command {
     title: "Удалить клип",
     shortcut: "Delete",
     keywords: "remove delete удалить вырезать",
-    help: "Удалить клипы. ripple: true — сдвинуть следующие клипы дорожки влево, закрыв дыру.",
-    args: &[req("ids", Ty::Ids, "клипы (c…)"), arg("ripple", Ty::Bool, "закрыть дыру")],
+    help: "Удалить клипы (без ids — выделенные). ripple: true — сдвинуть следующие клипы дорожки влево, закрыв дыру.",
+    args: &[arg("ids", Ty::Ids, "клипы (c…), по умолчанию выделенные"), arg("ripple", Ty::Bool, "закрыть дыру")],
     danger: false,
     run: clip_remove,
 };
 
 fn clip_remove(ed: &mut Editor, a: &Args) -> Res {
-    let ids = a.ids("ids")?.unwrap_or_default();
+    let ids = a.ids("ids")?.unwrap_or_else(|| ed.selection.clone());
+    if ids.is_empty() {
+        return Err("нечего удалять: выделите клипы".into());
+    }
     let ripple = a.bool("ripple")?.unwrap_or(false);
     for id in &ids {
         ed.project.find_clip(*id).ok_or_else(|| format!("нет клипа c{id}"))?;
@@ -663,4 +676,137 @@ fn transition_remove(ed: &mut Editor, a: &Args) -> Res {
     ed.begin("Убрать переход");
     ed.project.clip_mut(id).unwrap().transition = None;
     Ok(Out::text(format!("c{id}: переход убран")))
+}
+
+// ── сдвиг, копирование, вставка ─────────────────────────────────────────
+
+static CLIP_SHIFT: Command = Command {
+    id: "clip.shift",
+    category: "Таймлайн",
+    title: "Сдвинуть клипы",
+    shortcut: "",
+    keywords: "shift nudge сдвинуть подвинуть кадр несколько",
+    help: "Сдвинуть клипы по времени на by секунд (минус — влево), каждый на своей дорожке; без ids — выделенные. Не налезает на другие клипы и не уходит левее нуля.",
+    args: &[req("by", Ty::Num, "сдвиг, с"), arg("ids", Ty::Ids, "клипы (c…), по умолчанию выделенные")],
+    danger: false,
+    run: clip_shift,
+};
+
+fn clip_shift(ed: &mut Editor, a: &Args) -> Res {
+    let ids = a.ids("ids")?.unwrap_or_else(|| ed.selection.clone());
+    if ids.is_empty() {
+        return Err("нечего сдвигать: выделите клипы".into());
+    }
+    let raw = a.num("by")?.unwrap_or(0.0);
+    let by = raw.signum() * ed.project.snap(raw.abs());
+    let p = &ed.project;
+    for id in &ids {
+        let (ti, _) = p.find_clip(*id).ok_or_else(|| format!("нет клипа c{id}"))?;
+        let c = p.clip(*id).unwrap();
+        let s = c.start + by;
+        if s < -EPS {
+            return Err(format!("c{id} уйдёт левее нуля"));
+        }
+        if let Some(o) = p.tracks[ti].clips.iter().find(|o| !ids.contains(&o.id) && o.start < s + c.duration - EPS && o.end() > s + EPS) {
+            return Err(format!("c{id} налезет на c{}", o.id));
+        }
+    }
+    ed.begin("Сдвинуть клипы");
+    for id in &ids {
+        let (ti, _) = ed.project.find_clip(*id).unwrap();
+        let c = ed.project.clip_mut(*id).unwrap();
+        c.start = (c.start + by).max(0.0);
+        ed.project.tracks[ti].clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+    }
+    Ok(Out::text(format!("Сдвинуто клипов: {} на {by:+.3} с", ids.len())))
+}
+
+static CLIP_COPY: Command = Command {
+    id: "clip.copy",
+    category: "Таймлайн",
+    title: "Копировать клипы",
+    shortcut: "Ctrl+C",
+    keywords: "copy копировать скопировать",
+    help: "Запомнить клипы для вставки (без ids — выделенные).",
+    args: &[arg("ids", Ty::Ids, "клипы (c…), по умолчанию выделенные")],
+    danger: false,
+    run: clip_copy,
+};
+
+fn clip_copy(ed: &mut Editor, a: &Args) -> Res {
+    let ids = a.ids("ids")?.unwrap_or_else(|| ed.selection.clone());
+    if ids.is_empty() {
+        return Err("нечего копировать: выделите клипы".into());
+    }
+    let mut buf = Vec::new();
+    for id in &ids {
+        let (ti, _) = ed.project.find_clip(*id).ok_or_else(|| format!("нет клипа c{id}"))?;
+        buf.push((ed.project.tracks[ti].id, ed.project.clip(*id).unwrap().clone()));
+    }
+    ed.clipboard = buf;
+    Ok(Out::text(format!("Скопировано клипов: {}", ids.len())))
+}
+
+static CLIP_PASTE: Command = Command {
+    id: "clip.paste",
+    category: "Таймлайн",
+    title: "Вставить клипы",
+    shortcut: "Ctrl+V",
+    keywords: "paste вставить",
+    help: "Вставить скопированные клипы с момента at (по умолчанию — позиция воспроизведения), сохраняя их взаимное расположение. На прежние дорожки, если там свободно; иначе — на свободную дорожку того же вида выше или новую. Вставленные клипы выделяются.",
+    args: &[arg("at", Ty::Time, "куда вставить")],
+    danger: false,
+    run: clip_paste,
+};
+
+fn clip_paste(ed: &mut Editor, a: &Args) -> Res {
+    if ed.clipboard.is_empty() {
+        return Err("буфер пуст: сначала скопируйте клипы".into());
+    }
+    let at = ed.project.snap(a.time("at")?.unwrap_or(ed.playhead));
+    let base = ed.clipboard.iter().map(|(_, c)| c.start).fold(f64::MAX, f64::min);
+    let buf = ed.clipboard.clone();
+    ed.begin("Вставить клипы");
+    let mut new_ids = Vec::new();
+    // по дорожкам: клипы одной дорожки едут вместе
+    let mut tracks: Vec<Id> = buf.iter().map(|(t, _)| *t).collect();
+    tracks.dedup();
+    for tid in tracks {
+        let group: Vec<Clip> = buf.iter().filter(|(t, _)| *t == tid).map(|(_, c)| c.clone()).collect();
+        let kind = match ed.project.track(tid) {
+            Some(t) => t.kind,
+            None => match group[0].media().and_then(|m| ed.project.media(m)) {
+                Some(m) if m.kind == MediaKind::Audio => TrackKind::Audio,
+                _ => TrackKind::Video,
+            },
+        };
+        let fits = |p: &Project, ti: usize| group.iter().all(|c| {
+            let s = at + c.start - base;
+            p.tracks[ti].clips.iter().all(|o| o.end() <= s + EPS || o.start >= s + c.duration - EPS)
+        });
+        let same: Vec<usize> = (0..ed.project.tracks.len()).filter(|i| ed.project.tracks[*i].kind == kind).collect();
+        let from = same.iter().position(|i| ed.project.tracks[*i].id == tid).unwrap_or(0);
+        let ti = match same.iter().skip(from).copied().find(|ti| fits(&ed.project, *ti)) {
+            Some(ti) => ti,
+            None => {
+                let n = ed.project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
+                let id = ed.project.alloc();
+                let name = if kind == TrackKind::Video { format!("V{n}") } else { format!("A{n}") };
+                ed.project.tracks.push(Track { id, kind, name, muted: false, hidden: false, clips: Vec::new() });
+                ed.project.tracks.len() - 1
+            }
+        };
+        for mut c in group {
+            c.start = at + c.start - base;
+            c.id = ed.project.alloc();
+            for e in &mut c.effects {
+                e.id = ed.project.alloc();
+            }
+            new_ids.push(c.id);
+            place(&mut ed.project, ti, c, false);
+        }
+    }
+    ed.selection = new_ids.clone();
+    let list: Vec<String> = new_ids.iter().map(|i| format!("c{i}")).collect();
+    Ok(Out::text(format!("Вставлено в {}: {}", tc(at), list.join(", "))))
 }

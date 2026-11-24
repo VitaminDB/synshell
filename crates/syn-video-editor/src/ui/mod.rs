@@ -44,6 +44,7 @@ pub mod icons {
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
     pub const ZOOM_IN: &str = "\u{E8FF}";
+    pub const SNAP: &str = "\u{E157}";
     pub const ZOOM_OUT: &str = "\u{E900}";
     pub const FAVORITE: &str = "\u{E87D}";
 }
@@ -62,7 +63,7 @@ pub fn ed() -> MutexGuard<'static, Editor> {
 static PLAY_FROM: std::sync::Mutex<f64> = std::sync::Mutex::new(0.0);
 
 /// Команды, об успехе которых стоит сказать уведомлением (остальные видны сами).
-const LOUD: &[&str] = &["project.save", "project.open", "project.new", "project.export", "frame.export", "media.import", "media.transcribe", "clip.cut_silence", "clip.cut_ranges", "template.apply", "edit.undo", "edit.redo"];
+const LOUD: &[&str] = &["project.save", "project.open", "project.new", "project.export", "frame.export", "media.import", "media.transcribe", "clip.cut_silence", "clip.cut_ranges", "template.apply", "edit.undo", "edit.redo", "clip.copy", "clip.paste"];
 
 /// Какой диалог выбора файлов открыть.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -116,6 +117,10 @@ pub struct St {
     pub insp_key: RwSignal<String>,
     /// Тянут край плашки перехода: клип, сдвиг мыши (пикс., + — шире).
     pub tr_edit: RwSignal<Option<(u64, f32)>>,
+    /// Рамка выделения на таймлайне (x0, y0, x1, y1 — пикс. поля).
+    pub band: RwSignal<Option<[f32; 4]>>,
+    /// Привязка к краям клипов, позиции и началу (N).
+    pub snap: RwSignal<bool>,
 }
 
 impl St {
@@ -146,6 +151,8 @@ impl St {
             ph: use_signal(0.0),
             insp_key: use_signal(String::new()),
             tr_edit: use_signal(None),
+            band: use_signal(None),
+            snap: use_signal(true),
         }
     }
 
@@ -604,8 +611,73 @@ pub fn root(st: St) -> impl Widget {
                         st.seek_live(d);
                         return KeyReply::Handled;
                     }
+                    // разрез в позиции: выделенные клипы под ней, иначе все
+                    Key::S => {
+                        st.exec("clip.split", json!({}));
+                        return KeyReply::Handled;
+                    }
+                    Key::Delete | Key::Backspace => {
+                        if !ed().selection.is_empty() {
+                            st.exec("clip.remove", json!({}));
+                        }
+                        return KeyReply::Handled;
+                    }
+                    // к предыдущей / следующей склейке
+                    Key::Up | Key::Down => {
+                        let (ph, t) = {
+                            let e = ed();
+                            (e.playhead, timeline::edit_point(&e.project, e.playhead, key == Key::Down))
+                        };
+                        if let Some(t) = t.filter(|t| (t - ph).abs() > 1e-6) {
+                            st.seek_live(t);
+                        }
+                        return KeyReply::Handled;
+                    }
+                    Key::N => {
+                        let on = !st.snap.get_untracked();
+                        st.snap.set(on);
+                        st.toast.set(Some(if on { "Привязка включена (N)".into() } else { "Привязка выключена (N)".into() }));
+                        return KeyReply::Handled;
+                    }
+                    Key::Escape => {
+                        if !ed().selection.is_empty() {
+                            st.exec("selection.set", json!({"ids": []}));
+                            return KeyReply::Handled;
+                        }
+                    }
                     _ => {}
                 }
+            }
+            if mods.shift && !mods.ctrl && !mods.alt {
+                match key {
+                    // удалить со сдвигом: дыра закрывается
+                    Key::Delete | Key::Backspace => {
+                        if !ed().selection.is_empty() {
+                            st.exec("clip.remove", json!({"ripple": true}));
+                        }
+                        return KeyReply::Handled;
+                    }
+                    Key::Left | Key::Right => {
+                        let ph = ed().playhead;
+                        st.seek_live((ph + if key == Key::Left { -1.0 } else { 1.0 }).max(0.0));
+                        return KeyReply::Handled;
+                    }
+                    _ => {}
+                }
+            }
+            // Alt+стрелки — сдвиг выделенных клипов на кадр, с Shift — на секунду
+            if mods.alt && !mods.ctrl && matches!(key, Key::Left | Key::Right) {
+                let fps = ed().project.settings.fps.max(1.0);
+                let step = if mods.shift { 1.0 } else { 1.0 / fps };
+                if !ed().selection.is_empty() {
+                    st.exec("clip.shift", json!({"by": if key == Key::Left { -step } else { step }}));
+                }
+                return KeyReply::Handled;
+            }
+            if mods.ctrl && !mods.alt && !mods.shift && key == Key::A {
+                let ids: Vec<u64> = ed().project.tracks.iter().flat_map(|t| t.clips.iter().map(|c| c.id)).collect();
+                st.exec("selection.set", json!({"ids": ids}));
+                return KeyReply::Handled;
             }
             if !mods.ctrl && !mods.alt {
                 return KeyReply::Ignore;

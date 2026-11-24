@@ -21,6 +21,8 @@ pub struct Editor {
     pub dirty: bool,
     pub selection: Vec<Id>,
     pub playhead: f64,
+    /// Скопированные клипы: (дорожка, клип) — для `clip.paste`.
+    pub clipboard: Vec<(Id, crate::doc::Clip)>,
     undo: Vec<Step>,
     redo: Vec<Step>,
     /// Открытая группа отмены (ход агента): изменения внутри — один шаг.
