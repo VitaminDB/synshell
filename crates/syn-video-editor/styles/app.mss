@@ -166,3 +166,9 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .clip-label { padding: 1px 6px; margin: 3px 4px; border-radius: 4px; background-color: #00000080; }
 .fx-head { padding: 8px 8px 2px 8px; border-top-width: 1px; border-color: var(--border-soft); margin-top: 4px; }
 .fx-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.tl-transition { border-radius: 11px; background-color: #FFFFFFD0; border-width: 1px; border-color: var(--primary); cursor: pointer; }
+.tl-transition:hover { background-color: #FFFFFF; }
+.tl-transition-text { font-size: 10px; font-weight: 600; color: #1A1B22; }
+.tl-transition-edge { cursor: ew-resize; }
+.tl-transition-edit { background-color: var(--primary); }
+.tl-transition-edit .tl-transition-text { color: var(--on-primary); }

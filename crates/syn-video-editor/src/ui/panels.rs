@@ -3,14 +3,14 @@
 
 use std::sync::Mutex;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use syngui::prelude::*;
 use syngui::widgets::*;
 use syngui::containers::Positioned;
 
 use super::{ed, icons, timeline, AiLine, Pick, St};
 use syngui::widgets::overlay::MenuItem;
-use crate::doc::{tc, MediaKind, Source};
+use crate::doc::{tc, MediaKind};
 
 pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
     match panel {

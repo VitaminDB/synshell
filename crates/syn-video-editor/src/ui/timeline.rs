@@ -213,9 +213,6 @@ pub fn view(st: St) -> impl Widget {
                 if !c.effects.is_empty() {
                     marks.push_str(&format!("  ✦{}", c.effects.len()));
                 }
-                if c.transition.is_some() {
-                    marks.insert_str(0, "◇ ");
-                }
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
                 let body = DecoratedBox::new().clip(true).child(clip_content(p, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" });
                 // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
@@ -240,6 +237,34 @@ pub fn view(st: St) -> impl Widget {
                         .on_pan_end(move |_| finish_trim(st))
                         .child(DecoratedBox::new().class("clip-edge"));
                     field = field.child(Positioned::new(handle).at(hx, y + 3.0).dimensions(EDGE.min(w / 2.0), h - 6.0));
+                }
+            }
+        }
+        // переходы: плашка на склейке, края тянутся (длительность), щелчок — в инспектор
+        for (row, y, h) in &layout {
+            let RowKind::Track(i) = row else { continue };
+            for c in &p.tracks[*i].clips {
+                let Some(t) = &c.transition else { continue };
+                let cid = c.id;
+                let x0 = ((c.start - t.duration / 2.0) as f32 * zoom).max(0.0);
+                let tw = (t.duration as f32 * zoom).max(10.0);
+                let label = crate::render::compose::TRANSITIONS.iter().find(|(k, _)| *k == t.kind).map(|(_, l)| *l).unwrap_or("Переход");
+                let marker = GestureDetector::new()
+                    .on_click(move || {
+                        st.exec("selection.set", json!({"ids": [cid]}));
+                        st.dock.activate("inspector");
+                    })
+                    .child(DecoratedBox::new().class("tl-transition").child(Center::new().child(Text::new(format!("◇ {label}")).max_lines(1).elide(Elide::End).class("tl-transition-text"))));
+                let (my, mh) = (y + h * 0.5 - 11.0, 22.0);
+                field = field.child(Positioned::new(marker).at(x0, my).dimensions(tw, mh));
+                for left in [true, false] {
+                    let hx = if left { x0 } else { x0 + tw - 6.0 };
+                    let handle = GestureDetector::new()
+                        .cursor(syngui::input::CursorIcon::ColResize)
+                        .on_pan_update(move |u: syngui::widgets::PanUpdate| st.tr_edit.set(Some((cid, if left { -u.total.x } else { u.total.x }))))
+                        .on_pan_end(move |_| finish_tr(st))
+                        .child(DecoratedBox::new().class("tl-transition-edge"));
+                    field = field.child(Positioned::new(handle).at(hx, my).dimensions(6.0, mh));
                 }
             }
         }
@@ -316,6 +341,18 @@ fn overlay(st: St) -> impl Widget {
         if let Some(hn) = st.drop_hint.get() {
             let class = if hn.new_track { "clip clip-drop clip-drop-new" } else { "clip clip-drop" };
             out.push(Box::new(Positioned::new(DecoratedBox::new().class(class).child(Text::new(hn.label).max_lines(1).elide(Elide::End).class("clip-text"))).at(hn.x, hn.y).dimensions(hn.w, hn.h)));
+        }
+        if let Some((cid, dx)) = st.tr_edit.get() {
+            let zoom = st.zoom.get_untracked();
+            let e = ed();
+            let p = &e.project;
+            let lay = rows(p);
+            if let (Some(c), Some((ti, _))) = (p.clip(cid), p.find_clip(cid)) {
+                if let (Some(t), Some((_, y, h))) = (&c.transition, lay.iter().copied().find(|(r, _, _)| *r == RowKind::Track(ti))) {
+                    let d = tr_duration(p, c, t.duration, (dx / zoom) as f64);
+                    out.push(Box::new(Positioned::new(DecoratedBox::new().class("tl-transition tl-transition-edit").child(Center::new().child(Text::new(format!("{d:.2} с")).class("tl-transition-text")))).at(((c.start - d / 2.0) as f32 * zoom).max(0.0), y + h * 0.5 - 11.0).dimensions((d as f32 * zoom).max(10.0), 22.0)));
+                }
+            }
         }
         if let Some((cid, left, dx)) = st.trim.get() {
             let zoom = st.zoom.get_untracked();
@@ -555,4 +592,28 @@ fn clip_content(p: &Project, c: &crate::doc::Clip, label: String, w: f32, h: f32
     }
     stack = stack.child(Column::new().cross_axis_alignment(CrossAxisAlignment::Start).child(DecoratedBox::new().class("clip-label").child(Text::new(label).max_lines(1).elide(Elide::End).class("clip-text"))));
     Box::new(stack)
+}
+
+/// Длительность перехода после сдвига края на `dt` с (край тянет обе стороны:
+/// переход по центру склейки); не длиннее половины соседних клипов ×2.
+fn tr_duration(p: &Project, c: &crate::doc::Clip, d0: f64, dt: f64) -> f64 {
+    let (ti, ci) = p.find_clip(c.id).unwrap();
+    let prev = ci.checked_sub(1).map(|j| p.tracks[ti].clips[j].duration).unwrap_or(0.0);
+    let max = prev.min(c.duration).max(0.05);
+    let fps = p.settings.fps.max(1.0);
+    (((d0 + 2.0 * dt).clamp(1.0 / fps, max)) * fps).round() / fps
+}
+
+fn finish_tr(st: St) {
+    let Some((cid, dx)) = st.tr_edit.get_untracked() else { return };
+    st.tr_edit.set(None);
+    let zoom = st.zoom.get_untracked();
+    let args = {
+        let e = ed();
+        let Some(c) = e.project.clip(cid) else { return };
+        let Some(t) = &c.transition else { return };
+        json!({"id": cid, "kind": t.kind, "duration": tr_duration(&e.project, c, t.duration, (dx / zoom) as f64)})
+    };
+    st.exec("transition.set", args);
+    st.exec("selection.set", json!({"ids": [cid]}));
 }

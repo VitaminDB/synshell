@@ -114,6 +114,8 @@ pub struct St {
     pub ph: RwSignal<f64>,
     /// Ключ состава инспектора (см. `inspector::key`).
     pub insp_key: RwSignal<String>,
+    /// Тянут край плашки перехода: клип, сдвиг мыши (пикс., + — шире).
+    pub tr_edit: RwSignal<Option<(u64, f32)>>,
 }
 
 impl St {
@@ -143,6 +145,7 @@ impl St {
             trim: use_signal(None),
             ph: use_signal(0.0),
             insp_key: use_signal(String::new()),
+            tr_edit: use_signal(None),
         }
     }
 
