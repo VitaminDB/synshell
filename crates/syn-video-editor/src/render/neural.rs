@@ -25,6 +25,8 @@ pub struct Interp {
     rife: synaptix_vfx::rife::Rife,
     pair: Option<(f64, f64)>,
     cut: bool,
+    /// Размер кадров в окне RIFE.
+    size: (u32, u32),
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -34,7 +36,7 @@ impl Interp {
         let w = synaptix_vfx::weights::Weights::open(&path).map_err(|e| e.to_string())?;
         let g = synaptix_vfx::gpu::Gpu::new(0).map_err(|e| e.to_string())?;
         let rife = synaptix_vfx::rife::Rife::load(g, &w).map_err(|e| e.to_string())?;
-        Ok(Self { rife, pair: None, cut: false })
+        Ok(Self { rife, pair: None, cut: false, size: (0, 0) })
     }
 
     /// Кадр в момент `s` (время источника) между `a` и `b`.
@@ -45,9 +47,15 @@ impl Interp {
         if self.pair != Some((a.pts, b.pts)) {
             let (w, h) = (a.width as usize, a.height as usize);
             self.rife.set_flow_scale(if h > 1440 { 0.5 } else { 1.0 });
-            self.rife.reset();
-            self.rife.push(&a.rgba, w, h).map_err(|e| e.to_string())?;
+            // соседняя пара (прошлый второй кадр — новый первый): RIFE держит
+            // окно из двух кадров — догружается один, признаки первого уже есть
+            let slide = self.pair.is_some_and(|(_, pb)| (pb - a.pts).abs() < 1e-6) && self.size == (a.width, a.height);
+            if !slide {
+                self.rife.reset();
+                self.rife.push(&a.rgba, w, h).map_err(|e| e.to_string())?;
+            }
             self.rife.push(&b.rgba, w, h).map_err(|e| e.to_string())?;
+            self.size = (a.width, a.height);
             // смена сцены — без промежуточных (иначе каша из двух планов)
             self.cut = self.rife.scene_diff().map_err(|e| e.to_string())? > 28.0;
             self.pair = Some((a.pts, b.pts));

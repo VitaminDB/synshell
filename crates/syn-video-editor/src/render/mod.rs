@@ -54,11 +54,16 @@ pub fn run_child(p: &Project, args: &[String], mut progress: impl FnMut(usize, u
 
 /// Дочерний процесс: `--render-child ПРОЕКТ export ВЫХОД [crf] [t0 t1]` или `frame t ВЫХОД.png [ширина]`.
 pub fn child_main(args: &[String]) -> Result<String, String> {
+    // именованные (encoder=…) — отдельно от позиционных
+    let encoder = args.iter().find_map(|a| a.strip_prefix("encoder=")).map(str::to_string);
+    let args: Vec<String> = args.iter().filter(|a| !a.starts_with("encoder=")).cloned().collect();
+    let args = &args[..];
     let p = crate::store::load(Path::new(args.first().ok_or("нет проекта")?))?;
     match args.get(1).map(String::as_str) {
         Some("export") => {
             let out = PathBuf::from(args.get(2).ok_or("нет пути")?);
             let mut opts = export::Opts::default();
+            opts.encoder = encoder;
             if let Some(c) = args.get(3).and_then(|v| v.parse().ok()) {
                 opts.crf = c;
             }

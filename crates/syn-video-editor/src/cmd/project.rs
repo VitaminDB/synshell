@@ -152,7 +152,7 @@ static EXPORT: Command = Command {
     shortcut: "Ctrl+E",
     keywords: "export render рендер экспорт mp4 сохранить видео вывести",
     help: "Отрендерить таймлайн в видеофайл (mp4, mov, mkv, webm) с титрами, эффектами и звуком; кадры — тот же композитор, что в просмотре. start/end — только часть. Перезаписывает файл, если он есть.",
-    args: &[req("path", Ty::Str, "файл результата (.mp4)"), arg("crf", Ty::Num, "качество x264: 18 — высокое (по умолчанию), 23 — меньше файл"), arg("start", Ty::Time, "с какого момента"), arg("end", Ty::Time, "по какой момент")],
+    args: &[req("path", Ty::Str, "файл результата (.mp4)"), arg("crf", Ty::Num, "качество x264: 18 — высокое (по умолчанию), 23 — меньше файл"), arg("start", Ty::Time, "с какого момента"), arg("end", Ty::Time, "по какой момент"), arg("encoder", Ty::Choice(&["auto", "nvenc", "x264"]), "кодер: auto — NVENC на карте NVIDIA, иначе x264")],
     danger: false,
     run: export,
 };
@@ -166,6 +166,9 @@ fn export(ed: &mut Editor, a: &Args) -> Res {
     if a.has("start") || a.has("end") {
         args.push(a.time("start")?.unwrap_or(0.0).to_string());
         args.push(a.time("end")?.unwrap_or(ed.project.duration()).to_string());
+    }
+    if let Some(e) = a.str("encoder")? {
+        args.push(format!("encoder={e}"));
     }
     let r = crate::render::run_child(&ed.project, &args, |i, n| syn_assist::tools::progress(i, n, "кадры"))?;
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);

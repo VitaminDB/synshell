@@ -18,11 +18,13 @@ pub struct Opts {
     pub crf: u32,
     /// Только часть таймлайна, с.
     pub range: Option<(f64, f64)>,
+    /// Кодер: auto (NVENC, если есть, иначе x264), nvenc, x264.
+    pub encoder: Option<String>,
 }
 
 impl Default for Opts {
     fn default() -> Self {
-        Self { crf: 18, range: None }
+        Self { crf: 18, range: None, encoder: None }
     }
 }
 
@@ -92,43 +94,105 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
         cmd.args(["-map", "0:v", "-an"]);
     }
     let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_ascii_lowercase();
-    match ext.as_str() {
-        "webm" => cmd.args(["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", &format!("{}", opts.crf + 14)]),
-        _ => cmd.args(["-c:v", "libx264", "-preset", "medium", "-crf", &opts.crf.to_string(), "-pix_fmt", "yuv420p", "-movflags", "+faststart"]),
-    };
+    let codec = video_codec(&ext, opts);
+    cmd.args(&codec.args);
     cmd.arg(out).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
     let mut stdin = child.stdin.take().ok_or("ffmpeg: нет stdin")?;
 
-    let mut off = syngui::offscreen::Offscreen::new((w, h), "").map_err(|e| format!("композитор: {e}"))?;
-    let mut src = FrameSource::new(w, h);
-    src.neural = true;
-    let mut result = Ok(());
-    for i in 0..total {
-        let t = t0 + i as f64 / fps;
-        let frames = src.frames(p, t);
-        let pc = p.clone();
-        let rgba = match off.render(move || compose::frame_widget(&pc, t, &frames, 1.0)) {
-            Ok(v) => v,
-            Err(e) => {
-                result = Err(e);
-                break;
+    // Конвейер: декодирование (свой поток, с опережением) → композитор (этот
+    // поток: сигналы syngui потоковые) → запись в ffmpeg (свой поток).
+    let shared = std::sync::Arc::new(p.clone());
+    let (ftx, frx) = std::sync::mpsc::sync_channel::<(usize, f64, compose::Frames)>(4);
+    let (wtx, wrx) = std::sync::mpsc::sync_channel::<Vec<u8>>(3);
+    let (result, notes) = std::thread::scope(|s| {
+        let dec = s.spawn(move || {
+            // нейрофильтры держат контексты CUDA — источник живёт в своём потоке
+            let mut src = FrameSource::new(w, h);
+            src.neural = true;
+            for i in 0..total {
+                let t = t0 + i as f64 / fps;
+                let f = src.frames(p, t);
+                if ftx.send((i, t, f)).is_err() {
+                    break;
+                }
             }
-        };
-        if let Err(e) = stdin.write_all(&rgba) {
-            result = Err(format!("ffmpeg: {e}"));
-            break;
+            src.notes
+        });
+        let wr = s.spawn(move || -> Result<(), String> {
+            for buf in wrx {
+                stdin.write_all(&buf).map_err(|e| format!("ffmpeg: {e}"))?;
+            }
+            Ok(())
+        });
+        let mut result: Result<(), String> = Ok(());
+        match syngui::offscreen::Offscreen::new((w, h), "") {
+            Err(e) => result = Err(format!("композитор: {e}")),
+            Ok(mut off) => {
+                for (i, t, frames) in frx {
+                    let pa = shared.clone();
+                    match off.render(move || compose::frame_widget(&pa, t, &frames, 1.0)) {
+                        Ok(v) => {
+                            if wtx.send(v).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                    progress(i + 1, total);
+                }
+            }
         }
-        progress(i + 1, total);
-    }
-    drop(stdin);
+        drop(wtx);
+        let w = wr.join().unwrap_or_else(|_| Err("запись в ffmpeg упала".into()));
+        let notes = dec.join().unwrap_or_default();
+        (result.and(w), notes)
+    });
     let out_ = child.wait_with_output().map_err(|e| format!("ffmpeg: {e}"))?;
     result?;
     if !out_.status.success() {
         return Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out_.stderr).trim()));
     }
-    src.notes.dedup();
-    Ok(src.notes)
+    let mut notes = notes;
+    notes.dedup();
+    notes.push(format!("кодер {}", codec.name));
+    Ok(notes)
+}
+
+/// Кодер видео: аргументы ffmpeg и имя для отчёта.
+struct Codec {
+    name: &'static str,
+    args: Vec<String>,
+}
+
+/// NVENC работает (есть карта NVIDIA и драйвер) — проверка один раз.
+fn nvenc_ok() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.1", "-c:v", "h264_nvenc", "-f", "null", "-"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    })
+}
+
+fn video_codec(ext: &str, opts: &Opts) -> Codec {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    if ext == "webm" {
+        return Codec { name: "VP9", args: s(&["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", &format!("{}", opts.crf + 14), "-row-mt", "1"]) };
+    }
+    let crf = opts.crf.to_string();
+    let want = opts.encoder.as_deref().unwrap_or("auto");
+    if want == "nvenc" || (want == "auto" && nvenc_ok()) {
+        // качество по CQ — как CRF у x264
+        return Codec { name: "NVENC H.264", args: s(&["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", &crf, "-b:v", "0", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]) };
+    }
+    Codec { name: "x264", args: s(&["-c:v", "libx264", "-preset", "medium", "-crf", &crf, "-pix_fmt", "yuv420p", "-movflags", "+faststart"]) }
 }
 
 /// Сведение звука клипов в `[t0, t1]`: аргументы входов ffmpeg (`-ss … -t … -i файл`)
