@@ -1272,7 +1272,12 @@ impl Loaded {
         let (llm, tok) = (&b.llm, &b.tok);
         let max_tokens = params.u32("max_tokens").unwrap_or(16384).max(1) as usize;
         // Без своей системной реплики — та, с которой модель обучена (WeMM-Video).
-        let system = params.text("system_prompt").map(str::to_string).or_else(|| llm.default_system_prompt().map(str::to_string));
+        // Пустой стартовый промпт — без системной реплики (Qwen3-Omni).
+        let system = params
+            .text("system_prompt")
+            .map(str::to_string)
+            .or_else(|| llm.default_system_prompt().map(str::to_string))
+            .filter(|s| !s.trim().is_empty());
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
         // Картинки и видео: эмбеддинги (из кэша или башней зрения), блоки — перед текстом.
         let mut cache = b.media.lock().unwrap_or_else(|e| e.into_inner());
@@ -1324,7 +1329,10 @@ impl Loaded {
                     }
                 }
             }
-            s.push_str(&m.content);
+            // Модель только для звука (Qwen3-Omni Captioner): текст не идёт.
+            if !(llm.audio_only_prompt() && parts.iter().any(|p| matches!(p, MediaPart::Embed(_)))) {
+                s.push_str(&m.content);
+            }
             s
         };
         let msgs: Vec<Message> = lead
@@ -1373,7 +1381,7 @@ impl Loaded {
         let thinking = params.bool("thinking").unwrap_or(false);
         let tools_opt = (!tools.is_empty()).then_some(tools);
         let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), tools_opt).map_err(|e| anyhow::anyhow!("{e}"))?;
-        let prompt = prompt_for_model(tok, thinking, prompt);
+        let prompt = llm.finalize_prompt(prompt_for_model(tok, thinking, prompt));
         let parser = std::cell::RefCell::new(StreamParser::for_model(tok, thinking, &prompt));
         let reasoning = std::cell::RefCell::new(String::new());
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
