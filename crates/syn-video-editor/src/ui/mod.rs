@@ -199,8 +199,28 @@ impl St {
         self.playing.set(true);
         let fps = ed().project.settings.fps.max(1.0);
         std::thread::spawn(move || {
+            // звук от позиции (до 5 мин вперёд) — тем же сведением, что экспорт; часы — по звуку
+            let (project, from) = {
+                let e = ed();
+                (e.project.clone(), e.playhead)
+            };
+            let t1 = project.duration().min(from + 300.0);
+            let player = match crate::render::export::mix_pcm(&project, from, t1) {
+                Ok(Some(pcm)) => {
+                    tracing::info!("звук: {:.1} с с {:.2}", pcm.len() as f64 / 2.0 / project.settings.sample_rate as f64, from);
+                    syngui::audio::AudioPlayer::start_stereo(pcm.into(), project.settings.sample_rate).map_err(|e| tracing::warn!("звук: {e}")).ok()
+                }
+                Ok(None) => {
+                    tracing::info!("звука на таймлайне нет");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("сведение звука: {e}");
+                    None
+                }
+            };
             let start = std::time::Instant::now();
-            let from = ed().playhead;
+            let clock = move |p: &Option<syngui::audio::AudioPlayer>| p.as_ref().and_then(|p| p.playback_clock_sec()).unwrap_or_else(|| start.elapsed().as_secs_f64());
             let mut n = 0u64;
             loop {
                 n += 1;
@@ -208,6 +228,7 @@ impl St {
                 if let Some(d) = next.checked_duration_since(std::time::Instant::now()) {
                     std::thread::sleep(d);
                 }
+                let now = clock(&player);
                 let (tx, rx) = std::sync::mpsc::channel();
                 syngui::async_runtime::run_on_main_thread(move || {
                     if !self.playing.get_untracked() {
@@ -216,7 +237,7 @@ impl St {
                     }
                     let mut e = ed();
                     let end = e.project.duration();
-                    let t = (from + start.elapsed().as_secs_f64()).min(end);
+                    let t = (from + now).min(end);
                     e.playhead = (t * fps).floor() / fps;
                     e.revision += 1;
                     let rev = e.revision;
@@ -230,6 +251,9 @@ impl St {
                 if !rx.recv().unwrap_or(false) {
                     break;
                 }
+            }
+            if let Some(p) = player {
+                p.stop();
             }
         });
     }

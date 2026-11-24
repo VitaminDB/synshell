@@ -85,38 +85,9 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
     cmd.args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{h}"), "-r", &format!("{fps}"), "-i", "-"]);
-    let clips = audio_clips(p);
-    let mut filters = Vec::new();
-    let mut labels = Vec::new();
-    for (i, (c, path)) in clips.iter().enumerate() {
-        // кусок источника, видимый в диапазоне экспорта
-        let vis0 = c.start.max(t0);
-        let vis1 = c.end().min(t1);
-        if vis1 <= vis0 {
-            continue;
-        }
-        let src0 = c.offset + (vis0 - c.start) * c.speed;
-        let src_len = (vis1 - vis0) * c.speed;
-        cmd.args(["-ss", &format!("{src0:.6}"), "-t", &format!("{src_len:.6}"), "-i", path]);
-        let mut chain = atempo(c.speed);
-        chain.push(format!("volume={:.4}", c.volume));
-        if let Some(d) = eff(c, "audio_fade_in") {
-            chain.push(format!("afade=t=in:st={:.4}:d={d:.4}", (c.start - vis0).max(0.0)));
-        }
-        if let Some(d) = eff(c, "audio_fade_out") {
-            chain.push(format!("afade=t=out:st={:.4}:d={d:.4}", (c.duration - d - (vis0 - c.start)).max(0.0)));
-        }
-        let delay = ((vis0 - t0) * 1000.0).round() as i64;
-        chain.push(format!("adelay={delay}:all=1"));
-        chain.push(format!("aresample={}", p.settings.sample_rate));
-        let label = format!("a{i}");
-        filters.push(format!("[{}:a]{}[{label}]", i + 1, chain.join(",")));
-        labels.push(format!("[{label}]"));
-    }
-    if !labels.is_empty() {
-        let mix = format!("{}amix=inputs={}:normalize=0:duration=longest,atrim=0:{:.6}[aout]", labels.join(""), labels.len(), t1 - t0);
-        filters.push(mix);
-        cmd.args(["-filter_complex", &filters.join(";"), "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]);
+    if let Some((inputs, filter)) = audio_graph(p, t0, t1, 1) {
+        cmd.args(&inputs);
+        cmd.args(["-filter_complex", &filter, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]);
     } else {
         cmd.args(["-map", "0:v", "-an"]);
     }
@@ -158,4 +129,60 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
     }
     src.notes.dedup();
     Ok(src.notes)
+}
+
+/// Сведение звука клипов в `[t0, t1]`: аргументы входов ffmpeg (`-ss … -t … -i файл`)
+/// и `filter_complex` с выходом `[aout]`; `first` — номер первого входа звука.
+/// `None` — звука нет.
+pub fn audio_graph(p: &Project, t0: f64, t1: f64, first: usize) -> Option<(Vec<String>, String)> {
+    let mut inputs = Vec::new();
+    let mut filters = Vec::new();
+    let mut labels = Vec::new();
+    for (c, path) in audio_clips(p) {
+        // кусок источника, видимый в диапазоне
+        let vis0 = c.start.max(t0);
+        let vis1 = c.end().min(t1);
+        if vis1 <= vis0 {
+            continue;
+        }
+        let src0 = c.offset + (vis0 - c.start) * c.speed;
+        let src_len = (vis1 - vis0) * c.speed;
+        inputs.extend(["-ss".to_string(), format!("{src0:.6}"), "-t".into(), format!("{src_len:.6}"), "-i".into(), path]);
+        let mut chain = atempo(c.speed);
+        chain.push(format!("volume={:.4}", c.volume));
+        if let Some(d) = eff(c, "audio_fade_in") {
+            chain.push(format!("afade=t=in:st={:.4}:d={d:.4}", (c.start - vis0).max(0.0)));
+        }
+        if let Some(d) = eff(c, "audio_fade_out") {
+            chain.push(format!("afade=t=out:st={:.4}:d={d:.4}", (c.duration - d - (vis0 - c.start)).max(0.0)));
+        }
+        let delay = ((vis0 - t0) * 1000.0).round() as i64;
+        chain.push(format!("adelay={delay}:all=1"));
+        chain.push(format!("aresample={}", p.settings.sample_rate));
+        let label = format!("a{}", labels.len());
+        filters.push(format!("[{}:a]{}[{label}]", first + labels.len(), chain.join(",")));
+        labels.push(format!("[{label}]"));
+    }
+    if labels.is_empty() {
+        return None;
+    }
+    filters.push(format!("{}amix=inputs={}:normalize=0:duration=longest,apad,atrim=0:{:.6}[aout]", labels.join(""), labels.len(), t1 - t0));
+    Some((inputs, filters.join(";")))
+}
+
+/// Звук таймлайна `[t0, t1]` для воспроизведения: стерео f32 с чередованием
+/// на частоте проекта. `None` — звука нет.
+pub fn mix_pcm(p: &Project, t0: f64, t1: f64) -> Result<Option<Vec<f32>>, String> {
+    let Some((inputs, filter)) = audio_graph(p, t0, t1, 0) else { return Ok(None) };
+    let out = Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error"])
+        .args(&inputs)
+        .args(["-filter_complex", &filter, "-map", "[aout]", "-ac", "2", "-ar", &p.settings.sample_rate.to_string(), "-f", "f32le", "-"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(Some(out.stdout.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()))
 }
