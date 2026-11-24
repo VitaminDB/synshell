@@ -35,7 +35,7 @@
 .tl-heads { background-color: var(--bg-panel); border-right-width: 1px; border-color: var(--border-soft); }
 .tl-corner { height: 24px; padding: 0 8px; justify-content: center; border-bottom-width: 1px; border-color: var(--border-soft); }
 .tl-time { font-family: monospace; font-size: 11px; color: var(--primary); }
-.tl-head { padding: 0 10px; justify-content: center; border-bottom-width: 1px; border-color: var(--border-soft); }
+.tl-head { padding: 0 4px 0 10px; justify-content: center; border-bottom-width: 1px; border-color: var(--border-soft); }
 
 
 .tl-head-text { font-size: 12px; font-weight: 600; color: var(--text-muted); }
@@ -177,3 +177,6 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .tl-bar-hint { font-size: 11px; color: var(--text-muted); }
 .tl-band { background-color: #3B82F622; border-width: 1px; border-color: var(--primary); border-radius: 2px; }
 .tl-snap { background-color: #FFD54F; }
+.tl-head-off { opacity: 0.55; }
+.tl-head-edit { font-size: 12px; height: 24px; }
+.clip-off { opacity: 0.4; }

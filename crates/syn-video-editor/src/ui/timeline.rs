@@ -22,7 +22,7 @@ use syngui::DragData;
 use super::{ed, St};
 use crate::doc::{Project, Source, TrackKind};
 
-const HEAD: f32 = 96.0;
+const HEAD: f32 = 150.0;
 const RULER: f32 = 24.0;
 const ROW_V: f32 = 52.0;
 const ROW_A: f32 = 38.0;
@@ -321,24 +321,20 @@ pub fn view(st: St) -> impl Widget {
         let mut heads = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(DecoratedBox::new().class("tl-corner").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             vec![Box::new(Text::new(crate::doc::tc(st.ph.get())).class("tl-time"))]
         })));
+        let _ = st.rename_track.get();
         for (row, _, h) in &layout {
-            let (text, class) = match row {
-                RowKind::NewVideo => ("+ видео".to_string(), "tl-head tl-head-new"),
-                RowKind::NewAudio => ("+ звук".to_string(), "tl-head tl-head-new"),
+            let text = match row {
+                RowKind::NewVideo => "+ видео",
+                RowKind::NewAudio => "+ звук",
                 RowKind::Track(i) => {
-                    let t = &p.tracks[*i];
-                    let mut flags = String::new();
-                    if t.muted {
-                        flags.push_str(" 🔇");
-                    }
-                    if t.hidden {
-                        flags.push_str(" ◌");
-                    }
-                    (format!("{}{flags}", t.name), if t.kind == TrackKind::Video { "tl-head tl-head-v" } else { "tl-head tl-head-a" })
+                    heads = heads.child(track_head(st, &p.tracks[*i], *h));
+                    continue;
                 }
             };
-            heads = heads.child(DecoratedBox::new().class(class).child(Text::new(text).max_lines(1).class("tl-head-text")).style("height", *h));
+            heads = heads.child(DecoratedBox::new().class("tl-head tl-head-new").child(Text::new(text).max_lines(1).class("tl-head-text")).style("height", *h));
         }
+        // заголовки принимают перенос дорожки: порядок
+        let heads = DropArea::new().accept_types(vec![DRAG_TRACK.to_string()]).on_drop_positioned(move |info: syngui::widgets::overlay::DropInfo| drop_track(st, &info.data, info.local_position.y)).child(heads);
 
         // поле: линейка, дорожки, клипы
         let mut field = Stack::new();
@@ -381,7 +377,7 @@ pub fn view(st: St) -> impl Widget {
                     marks.push_str(&format!("  ✦{}", c.effects.len()));
                 }
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
-                let body = DecoratedBox::new().clip(true).child(clip_content(p, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" });
+                let body = DecoratedBox::new().clip(true).child(clip_content(p, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" }).class(if (tr.hidden && tr.kind == TrackKind::Video) || (tr.muted && tr.kind == TrackKind::Audio) { "clip-off" } else { "" });
                 // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
                 let cid = c.id;
                 let body = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || select_click(st, cid)).child(body);
@@ -977,9 +973,9 @@ fn open_menu(st: St, at_window: Point) {
             if !selected {
                 st.exec("selection.set", json!({"ids": [id]}));
             }
-            st.menu_at.set((id, t));
+            st.menu_at.set(MenuAt::Field(id, t));
         }
-        None => st.menu_at.set((0, t)),
+        None => st.menu_at.set(MenuAt::Field(0, t)),
     }
     st.menu_pos.set(at_window);
     st.menu_open.set(true);
@@ -989,7 +985,10 @@ const SPEEDS: &[f64] = &[0.25, 0.5, 1.0, 1.5, 2.0, 4.0];
 
 fn menu_items(st: St) -> Vec<MenuItem> {
     use super::icons;
-    let (cid, _) = st.menu_at.get();
+    let cid = match st.menu_at.get() {
+        MenuAt::Field(c, _) => c,
+        MenuAt::Track(tid) => return track_items(tid),
+    };
     let e = ed();
     let p = &e.project;
     let paste = MenuItem::new("paste", "Вставить сюда").shortcut("Ctrl+V").disabled(e.clipboard.is_empty());
@@ -1049,7 +1048,10 @@ fn menu_items(st: St) -> Vec<MenuItem> {
 
 fn menu_run(st: St, id: &str) {
     st.menu_open.set(false);
-    let (cid, t) = st.menu_at.get_untracked();
+    let (cid, t) = match st.menu_at.get_untracked() {
+        MenuAt::Field(c, t) => (c, t),
+        MenuAt::Track(tid) => return track_run(st, tid, id),
+    };
     let sel = ed().selection.clone();
     let ids = if sel.is_empty() && cid != 0 { vec![cid] } else { sel };
     match id {
@@ -1114,4 +1116,135 @@ pub fn menu(st: St) -> impl Widget {
         let items = menu_items(st);
         vec![Box::new(PopupMenu::new().items(items).is_open(st.menu_open).position(st.menu_pos).min_width(230.0).on_select(move |id: &str| menu_run(st, id)))]
     })
+}
+
+/// По чему открыто контекстное меню.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MenuAt {
+    /// Поле: клип (0 — пустое место) и время.
+    Field(u64, f64),
+    /// Заголовок дорожки.
+    Track(u64),
+}
+
+fn track_items(tid: u64) -> Vec<MenuItem> {
+    use super::icons;
+    let e = ed();
+    let p = &e.project;
+    let Some(ti) = p.tracks.iter().position(|t| t.id == tid) else { return Vec::new() };
+    let t = &p.tracks[ti];
+    let same: Vec<usize> = (0..p.tracks.len()).filter(|i| p.tracks[*i].kind == t.kind).collect();
+    // выше на таймлайне: у видео — позже в списке
+    let (top, bottom) = if t.kind == TrackKind::Video { (same.last() == Some(&ti), same.first() == Some(&ti)) } else { (same.first() == Some(&ti), same.last() == Some(&ti)) };
+    let mut v = vec![
+        MenuItem::new("tk:rename", "Переименовать"),
+        MenuItem::new("tk:mute", if t.muted { "Включить звук" } else { "Выключить звук" }).icon(if t.muted { icons::VOLUME_UP } else { icons::VOLUME_OFF }),
+    ];
+    if t.kind == TrackKind::Video {
+        v.push(MenuItem::new("tk:hide", if t.hidden { "Показать" } else { "Скрыть" }).icon(if t.hidden { icons::VISIBLE } else { icons::HIDDEN }));
+    }
+    v.extend([
+        MenuItem::separator(),
+        MenuItem::new("tk:up", "Выше").disabled(top),
+        MenuItem::new("tk:down", "Ниже").disabled(bottom),
+        MenuItem::separator(),
+        MenuItem::new("tk:remove", if t.clips.is_empty() { "Удалить дорожку".to_string() } else { format!("Удалить дорожку (клипов: {})", t.clips.len()) }).disabled(!t.clips.is_empty()),
+    ]);
+    v
+}
+
+fn track_run(st: St, tid: u64, id: &str) {
+    let (muted, hidden) = match ed().project.track(tid) {
+        Some(t) => (t.muted, t.hidden),
+        None => return,
+    };
+    match id {
+        "tk:rename" => st.rename_track.set(Some(tid)),
+        "tk:mute" => {
+            st.exec("track.set", json!({"id": tid, "muted": !muted}));
+        }
+        "tk:hide" => {
+            st.exec("track.set", json!({"id": tid, "hidden": !hidden}));
+        }
+        "tk:up" => {
+            st.exec("track.move", json!({"id": tid, "by": -1}));
+        }
+        "tk:down" => {
+            st.exec("track.move", json!({"id": tid, "by": 1}));
+        }
+        "tk:remove" => {
+            st.exec("track.remove", json!({"id": tid}));
+        }
+        _ => {}
+    }
+}
+
+/// Тип переноса «дорожка» (payload — id дорожки): порядок перетаскиванием заголовка.
+pub const DRAG_TRACK: &str = "syn-video-editor/track";
+
+/// Заголовок дорожки: название (двойной щелчок — переименовать), звук,
+/// видимость; правый щелчок — меню; перетаскивание — порядок.
+fn track_head(st: St, t: &crate::doc::Track, h: f32) -> Box<dyn Widget> {
+    use super::icons;
+    let tid = t.id;
+    let (muted, hidden) = (t.muted, t.hidden);
+    let name: Box<dyn Widget> = if st.rename_track.get_untracked() == Some(tid) {
+        Box::new(
+            TextField::new()
+                .text(t.name.clone())
+                .autofocus(true)
+                .select_range(0, t.name.len())
+                .on_submit(move |s: &str| {
+                    st.rename_track.set(None);
+                    let s = s.trim().to_string();
+                    if !s.is_empty() {
+                        st.exec("track.set", json!({"id": tid, "name": s}));
+                    }
+                })
+                .on_escape(move || st.rename_track.set(None))
+                .class("tl-head-edit"),
+        )
+    } else {
+        Box::new(Text::new(t.name.clone()).max_lines(1).elide(Elide::End).class("tl-head-text"))
+    };
+    let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(name));
+    row = row.child(ToolButton::new(if muted { icons::VOLUME_OFF } else { icons::VOLUME_UP }).tooltip(if muted { "Включить звук дорожки" } else { "Выключить звук дорожки" }).active(muted).on_click(move || {
+        st.exec("track.set", json!({"id": tid, "muted": !muted}));
+    }));
+    if t.kind == TrackKind::Video {
+        row = row.child(ToolButton::new(if hidden { icons::HIDDEN } else { icons::VISIBLE }).tooltip(if hidden { "Показать дорожку" } else { "Скрыть дорожку" }).active(hidden).on_click(move || {
+            st.exec("track.set", json!({"id": tid, "hidden": !hidden}));
+        }));
+    }
+    let class = if t.kind == TrackKind::Video { "tl-head tl-head-v" } else { "tl-head tl-head-a" };
+    let body = DecoratedBox::new().class(class).class(if muted || hidden { "tl-head-off" } else { "" }).child(row).style("height", h);
+    let open = move |pt: Point| {
+        st.menu_at.set(MenuAt::Track(tid));
+        st.menu_pos.set(pt);
+        st.menu_open.set(true);
+    };
+    // долгое нажатие тут не ловим: оно мешало бы перетаскиванию заголовка
+    Box::new(Draggable::new(DRAG_TRACK, tid.to_string()).label(t.name.clone()).on_double_click(move || st.rename_track.set(Some(tid))).child(GestureDetector::new().on_secondary_click(open).child(body)))
+}
+
+/// Бросок заголовка дорожки на строку той же группы — встать на её место.
+fn drop_track(st: St, data: &DragData, y: f32) {
+    let Ok(tid) = data.payload.trim().parse::<u64>() else { return };
+    let to = {
+        let e = ed();
+        let p = &e.project;
+        let Some(kind) = p.track(tid).map(|t| t.kind) else { return };
+        let Some((RowKind::Track(j), _, _)) = row_under(&rows(p), y) else { return };
+        if p.tracks[j].kind != kind {
+            return;
+        }
+        let mut order: Vec<usize> = (0..p.tracks.len()).filter(|i| p.tracks[*i].kind == kind).collect();
+        if kind == TrackKind::Video {
+            order.reverse();
+        }
+        order.iter().position(|i| *i == j)
+    };
+    if let Some(to) = to {
+        st.exec("track.move", json!({"id": tid, "to": to}));
+    }
 }

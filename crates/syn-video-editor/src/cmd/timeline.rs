@@ -7,7 +7,7 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, MediaKind, Project, Source, Track, TrackKind};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &CLIP_SHIFT, &CLIP_COPY, &CLIP_PASTE, &CLIP_DETACH_AUDIO, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
+pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &TRACK_MOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &CLIP_SHIFT, &CLIP_COPY, &CLIP_PASTE, &CLIP_DETACH_AUDIO, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
 
 const MODES: &[&str] = &["overwrite", "insert"];
 const EPS: f64 = 1e-6;
@@ -869,4 +869,56 @@ fn clip_detach_audio(ed: &mut Editor, a: &Args) -> Res {
         out.push(format!("c{id} → c{nid} (t{tid})"));
     }
     Ok(Out::text(format!("Звук отделён: {}", out.join(", "))))
+}
+
+static TRACK_MOVE: Command = Command {
+    id: "track.move",
+    category: "Таймлайн",
+    title: "Переставить дорожку",
+    shortcut: "",
+    keywords: "track move order порядок выше ниже слой дорожка",
+    help: "Переставить дорожку среди дорожек того же вида. to — место сверху вниз, как на таймлайне (0 — верхняя строка; у видео верхняя — верхний слой); или by: −1 — выше, +1 — ниже.",
+    args: &[req("id", Ty::Id, "дорожка (t…)"), arg("to", Ty::Num, "место сверху (0…)"), arg("by", Ty::Num, "сдвиг: −1 выше, +1 ниже")],
+    danger: false,
+    run: track_move,
+};
+
+/// Дорожки вида `kind` в порядке строк таймлайна сверху вниз (индексы).
+fn display_order(p: &Project, kind: TrackKind) -> Vec<usize> {
+    let mut v: Vec<usize> = (0..p.tracks.len()).filter(|i| p.tracks[*i].kind == kind).collect();
+    if kind == TrackKind::Video {
+        v.reverse();
+    }
+    v
+}
+
+fn track_move(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let ti = ed.project.tracks.iter().position(|t| t.id == id).ok_or_else(|| format!("нет дорожки t{id}"))?;
+    let kind = ed.project.tracks[ti].kind;
+    let order = display_order(&ed.project, kind);
+    let cur = order.iter().position(|i| *i == ti).unwrap();
+    let to = match (a.num("to")?, a.num("by")?) {
+        (Some(t), _) => t.round().max(0.0) as usize,
+        (None, Some(b)) => (cur as i64 + b.round() as i64).max(0) as usize,
+        _ => return Err("укажите to или by".into()),
+    }
+    .min(order.len() - 1);
+    if to == cur {
+        return Ok(Out::text(format!("t{id} уже на месте")));
+    }
+    ed.begin("Переставить дорожку");
+    // новый порядок строк этого вида и перекладка в общем списке на те же места
+    let mut rows: Vec<Track> = order.iter().map(|i| ed.project.tracks[*i].clone()).collect();
+    let t = rows.remove(cur);
+    rows.insert(to, t);
+    if kind == TrackKind::Video {
+        rows.reverse();
+    }
+    let mut slots: Vec<usize> = order.clone();
+    slots.sort();
+    for (slot, t) in slots.into_iter().zip(rows) {
+        ed.project.tracks[slot] = t;
+    }
+    Ok(Out::text(format!("t{id} → место {to}")))
 }

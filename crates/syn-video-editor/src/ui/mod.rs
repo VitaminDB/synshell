@@ -44,6 +44,10 @@ pub mod icons {
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
     pub const ZOOM_IN: &str = "\u{E8FF}";
+    pub const VOLUME_UP: &str = "\u{E050}";
+    pub const VOLUME_OFF: &str = "\u{E04F}";
+    pub const VISIBLE: &str = "\u{E8F4}";
+    pub const HIDDEN: &str = "\u{E8F5}";
     pub const SNAP: &str = "\u{E157}";
     pub const ZOOM_OUT: &str = "\u{E900}";
     pub const FAVORITE: &str = "\u{E87D}";
@@ -124,7 +128,9 @@ pub struct St {
     /// Контекстное меню таймлайна: открыто, где (окно), по чему: клип (0 — пусто) и время.
     pub menu_open: RwSignal<bool>,
     pub menu_pos: RwSignal<Point>,
-    pub menu_at: RwSignal<(u64, f64)>,
+    pub menu_at: RwSignal<timeline::MenuAt>,
+    /// Дорожка, которую переименовывают (поле в заголовке).
+    pub rename_track: RwSignal<Option<u64>>,
 }
 
 impl St {
@@ -159,7 +165,8 @@ impl St {
             snap: use_signal(true),
             menu_open: use_signal(false),
             menu_pos: use_signal(Point::zero()),
-            menu_at: use_signal((0, 0.0)),
+            menu_at: use_signal(timeline::MenuAt::Field(0, 0.0)),
+            rename_track: use_signal(None),
         }
     }
 

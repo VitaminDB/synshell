@@ -166,3 +166,23 @@ fn detach_audio() {
     // второй раз — ошибка
     run(&mut ed, "clip.detach_audio", &json!({"ids": [v]})).unwrap_err();
 }
+
+#[test]
+fn track_move_order() {
+    let mut ed = Editor::new();
+    for _ in 0..3 {
+        run(&mut ed, "track.add", &json!({"kind": "video"})).unwrap();
+    }
+    let ids: Vec<u64> = ed.project.tracks.iter().filter(|t| t.kind == crate::doc::TrackKind::Video).map(|t| t.id).collect();
+    // сверху вниз сейчас: последняя, средняя, первая; первую — наверх
+    run(&mut ed, "track.move", &json!({"id": ids[0], "to": 0})).unwrap();
+    let now: Vec<u64> = ed.project.tracks.iter().filter(|t| t.kind == crate::doc::TrackKind::Video).map(|t| t.id).collect();
+    let mut want = ids[1..].to_vec();
+    want.push(ids[0]);
+    assert_eq!(now, want);
+    run(&mut ed, "track.move", &json!({"id": ids[0], "by": 1})).unwrap();
+    let now: Vec<u64> = ed.project.tracks.iter().filter(|t| t.kind == crate::doc::TrackKind::Video).map(|t| t.id).collect();
+    let n = want.len();
+    want.swap(n - 1, n - 2);
+    assert_eq!(now, want);
+}
