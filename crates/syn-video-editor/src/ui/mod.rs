@@ -816,3 +816,51 @@ fn link_chip(glyph: &'static str, variant: &'static str, label: &'static str, to
     };
     Tooltip::new(GestureDetector::new().on_hover_change(move |inside| hovered.set(inside)).on_click(on_click).child(Padding::symmetric(0.0, 6.0).child(DecoratedBox::new().child(chip))), tooltip)
 }
+
+/// Автосохранение: через 2 с после правки (проект с файлом — в свой файл,
+/// без файла — в `autosave.syn`); последний проект запоминается для запуска.
+pub fn autosave(st: St) {
+    std::thread::spawn(move || {
+        let mut saved_rev = u64::MAX;
+        let mut saved_path: Option<std::path::PathBuf> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let job = {
+                let e = ed();
+                if e.revision == saved_rev && e.path == saved_path {
+                    None
+                } else {
+                    Some((e.project.clone(), e.path.clone(), e.revision, e.dirty))
+                }
+            };
+            let Some((project, path, rev, dirty)) = job else { continue };
+            if path != saved_path {
+                crate::store::remember(path.as_deref());
+            }
+            if dirty {
+                let target = path.clone().unwrap_or_else(crate::store::autosave_path);
+                if let Some(d) = target.parent() {
+                    let _ = std::fs::create_dir_all(d);
+                }
+                match crate::store::save(&project, &target) {
+                    Ok(()) => {
+                        if path.is_some() {
+                            let mut e = ed();
+                            // правок за время сохранения не было — проект чистый
+                            if e.revision == rev {
+                                e.dirty = false;
+                                e.revision += 1;
+                                let r = e.revision;
+                                drop(e);
+                                syngui::async_runtime::run_on_main_thread(move || st.rev.set(r));
+                            }
+                        }
+                    }
+                    Err(err) => tracing::warn!("автосохранение: {err}"),
+                }
+            }
+            saved_rev = rev;
+            saved_path = path;
+        }
+    });
+}

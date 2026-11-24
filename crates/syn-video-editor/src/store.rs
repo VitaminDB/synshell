@@ -55,3 +55,25 @@ mod tests {
         assert_eq!(load(&path).unwrap().name, "Второй");
     }
 }
+
+/// Каталог данных программы (`~/.local/share/syn-video-editor`).
+pub fn data_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))).unwrap_or_else(std::env::temp_dir).join("syn-video-editor")
+}
+
+/// Автосохранение проекта, у которого ещё нет файла.
+pub fn autosave_path() -> std::path::PathBuf {
+    data_dir().join("autosave.syn")
+}
+
+/// Последний открытый файл проекта (`None` — несохранённый, из автосохранения).
+pub fn last_project() -> Option<std::path::PathBuf> {
+    let s = std::fs::read_to_string(data_dir().join("last")).ok()?;
+    let p = std::path::PathBuf::from(s.trim());
+    p.is_file().then_some(p)
+}
+
+pub fn remember(path: Option<&Path>) {
+    let _ = std::fs::create_dir_all(data_dir());
+    let _ = std::fs::write(data_dir().join("last"), path.map(|p| p.display().to_string()).unwrap_or_default());
+}

@@ -193,6 +193,18 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
     use syn_video_editor::ui;
     use syngui::prelude::*;
     synshell_common::i18n::init(&[]);
+    // без файла в аргументах — последний проект или автосохранение несохранённого
+    if project.is_none() && shot.is_none() {
+        let mut e = ui::ed();
+        if let Some(p) = store::last_project() {
+            if let Ok(pr) = store::load(&p) {
+                e.replace(pr, Some(p));
+            }
+        } else if let Ok(pr) = store::load(&store::autosave_path()) {
+            e.replace(pr, None);
+            e.dirty = true;
+        }
+    }
     if let Some(p) = &project {
         let mut e = ui::ed();
         match store::load(p) {
@@ -252,6 +264,7 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .with_window_state(st.window)
         .run(move |_| {
             ui::graph::mount(st);
+            ui::autosave(st);
             Box::new(ui::root(st)) as Box<dyn Widget>
         });
 }
