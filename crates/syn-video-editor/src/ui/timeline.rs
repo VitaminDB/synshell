@@ -486,6 +486,9 @@ pub fn view(st: St) -> impl Widget {
                 }
             })
             .on_pan_end(move |_| finish_band(st))
+            .on_secondary_click(move |pt: Point| open_menu(st, pt))
+            // на телефоне — долгое нажатие
+            .on_long_press(move |pt: Point| open_menu(st, pt))
             .child(DecoratedBox::new().child(field).style("width", width).style("height", height));
         // бросок медиа из медиатеки или клипа: время и дорожка — по точке
         let surface = DropArea::new()
@@ -951,4 +954,164 @@ fn finish_tr(st: St) {
     };
     st.exec("transition.set", args);
     st.exec("selection.set", json!({"ids": [cid]}));
+}
+
+// ── контекстное меню ────────────────────────────────────────────────────
+
+/// Правый щелчок по полю (точка окна): клип под курсором выделяется (если он
+/// не в выделении), меню — по нему; по пустому месту — меню места.
+fn open_menu(st: St, at_window: Point) {
+    let (x, y) = (*FIELD_X.lock().unwrap(), *FIELD_Y.lock().unwrap());
+    let zoom = st.zoom.get_untracked();
+    let t = (x / zoom).max(0.0) as f64;
+    let hit = {
+        let e = ed();
+        let p = &e.project;
+        match row_under(&rows(p), y) {
+            Some((RowKind::Track(i), _, _)) => p.tracks[i].clips.iter().find(|c| c.start <= t && t < c.end()).map(|c| (c.id, e.selection.contains(&c.id))),
+            _ => None,
+        }
+    };
+    match hit {
+        Some((id, selected)) => {
+            if !selected {
+                st.exec("selection.set", json!({"ids": [id]}));
+            }
+            st.menu_at.set((id, t));
+        }
+        None => st.menu_at.set((0, t)),
+    }
+    st.menu_pos.set(at_window);
+    st.menu_open.set(true);
+}
+
+const SPEEDS: &[f64] = &[0.25, 0.5, 1.0, 1.5, 2.0, 4.0];
+
+fn menu_items(st: St) -> Vec<MenuItem> {
+    use super::icons;
+    let (cid, _) = st.menu_at.get();
+    let e = ed();
+    let p = &e.project;
+    let paste = MenuItem::new("paste", "Вставить сюда").shortcut("Ctrl+V").disabled(e.clipboard.is_empty());
+    let Some(c) = (cid != 0).then(|| p.clip(cid)).flatten() else {
+        return vec![
+            paste,
+            MenuItem::new("title", "Титр здесь").icon(icons::TITLE),
+            MenuItem::new("split_all", "Разрезать всё здесь").icon(icons::CUT),
+        ];
+    };
+    let n = e.selection.len().max(1);
+    let many = if n > 1 { format!(" ({n})") } else { String::new() };
+    let media = c.media().and_then(|m| p.media(m));
+    let is_audio_track = p.find_clip(cid).map(|(ti, _)| p.tracks[ti].kind == TrackKind::Audio).unwrap_or(false);
+    let has_sound = media.is_some_and(|m| m.has_audio || m.kind == crate::doc::MediaKind::Audio) && c.volume > 0.0;
+    let mut v = vec![
+        MenuItem::new("split_here", "Разрезать здесь").icon(icons::CUT),
+        MenuItem::new("split_ph", "Разрезать по позиции").shortcut("S"),
+        MenuItem::separator(),
+        MenuItem::new("copy", format!("Копировать{many}")).shortcut("Ctrl+C"),
+        paste,
+        MenuItem::new("delete", format!("Удалить{many}")).shortcut("Delete"),
+        MenuItem::new("ripple", format!("Удалить со сдвигом{many}")).shortcut("Shift+Delete"),
+        MenuItem::separator(),
+    ];
+    if !is_audio_track {
+        let mut tr: Vec<MenuItem> = crate::render::compose::TRANSITIONS.iter().map(|(k, l)| MenuItem::new(format!("tr:{k}"), *l)).collect();
+        if c.transition.is_some() {
+            tr.push(MenuItem::separator());
+            tr.push(MenuItem::new("tr:-", "Убрать переход"));
+        }
+        v.push(MenuItem::new("tr", "Переход в начале").children(tr));
+    }
+    let kinds: Vec<&str> = if is_audio_track {
+        vec!["audio_fade_in", "audio_fade_out"]
+    } else {
+        let mut k = vec!["fade_in", "fade_out", "color", "blur", "sharpen", "vignette", "transform"];
+        if media.is_some() {
+            k.extend(["upscale", "interpolate"]);
+        }
+        if has_sound {
+            k.extend(["audio_fade_in", "audio_fade_out"]);
+        }
+        k
+    };
+    v.push(MenuItem::new("fx", format!("Эффект{many}")).children(kinds.iter().map(|k| MenuItem::new(format!("fx:{k}"), super::inspector::effect_title(k))).collect()));
+    if media.is_some() {
+        v.push(MenuItem::new("speed", "Скорость").children(SPEEDS.iter().map(|s| MenuItem::new(format!("speed:{s}"), format!("{s}×{}", if (c.speed - s).abs() < 1e-6 { "  ✓" } else { "" }))).collect()));
+    }
+    if !is_audio_track && media.is_some_and(|m| m.kind == crate::doc::MediaKind::Video && m.has_audio) && c.volume > 0.0 {
+        v.push(MenuItem::new("detach", "Отделить звук").icon(super::icons::AUDIO));
+    }
+    v.push(MenuItem::separator());
+    v.push(MenuItem::new("props", "Свойства…"));
+    v
+}
+
+fn menu_run(st: St, id: &str) {
+    st.menu_open.set(false);
+    let (cid, t) = st.menu_at.get_untracked();
+    let sel = ed().selection.clone();
+    let ids = if sel.is_empty() && cid != 0 { vec![cid] } else { sel };
+    match id {
+        "paste" => {
+            st.exec("clip.paste", json!({"at": t}));
+        }
+        "title" => {
+            st.exec("title.add", json!({"text": "Заголовок", "at": t}));
+        }
+        "split_all" => {
+            let under: Vec<u64> = ed().project.tracks.iter().flat_map(|tr| tr.clips.iter()).filter(|c| c.start < t - 1e-6 && c.end() > t + 1e-6).map(|c| c.id).collect();
+            if !under.is_empty() {
+                st.exec("clip.split", json!({"at": t, "ids": under}));
+            }
+        }
+        "split_here" => {
+            st.exec("clip.split", json!({"at": t, "ids": [cid]}));
+        }
+        "split_ph" => {
+            st.exec("clip.split", json!({}));
+        }
+        "copy" => {
+            st.exec("clip.copy", json!({"ids": ids}));
+        }
+        "delete" => {
+            st.exec("clip.remove", json!({"ids": ids}));
+        }
+        "ripple" => {
+            st.exec("clip.remove", json!({"ids": ids, "ripple": true}));
+        }
+        "detach" => {
+            st.exec("clip.detach_audio", json!({"ids": [cid]}));
+        }
+        "props" => {
+            st.exec("selection.set", json!({"ids": [cid]}));
+            st.dock.activate("inspector");
+        }
+        "tr:-" => {
+            st.exec("transition.remove", json!({"id": cid}));
+        }
+        _ => {
+            if let Some(k) = id.strip_prefix("tr:") {
+                let d = ed().project.clip(cid).and_then(|c| c.transition.as_ref().map(|t| t.duration)).unwrap_or(0.6);
+                st.exec("transition.set", json!({"id": cid, "kind": k, "duration": d}));
+            } else if let Some(k) = id.strip_prefix("fx:") {
+                st.exec("effect.add", json!({"ids": ids, "kind": k}));
+                st.dock.activate("inspector");
+            } else if let Some(s) = id.strip_prefix("speed:").and_then(|s| s.parse::<f64>().ok()) {
+                for c in &ids {
+                    st.exec("clip.set", json!({"id": c, "speed": s}));
+                }
+            }
+        }
+    }
+}
+
+/// Одно меню на окно (вне перестраиваемого поля): правка проекта не
+/// закрывает открытое меню.
+pub fn menu(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.menu_at.get();
+        let items = menu_items(st);
+        vec![Box::new(PopupMenu::new().items(items).is_open(st.menu_open).position(st.menu_pos).min_width(230.0).on_select(move |id: &str| menu_run(st, id)))]
+    })
 }

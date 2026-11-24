@@ -152,3 +152,17 @@ fn selection_shift_copy_paste() {
     run(&mut ed, "clip.remove", &json!({})).unwrap();
     assert!(ed.project.tracks[n].clips.is_empty());
 }
+
+#[test]
+fn detach_audio() {
+    let mut ed = ed_with_media(10.0);
+    run(&mut ed, "clip.add", &json!({"media": 3, "offset": 1, "duration": 4})).unwrap();
+    let v = ed.project.tracks.iter().flat_map(|t| &t.clips).next().unwrap().id;
+    run(&mut ed, "clip.detach_audio", &json!({"ids": [v]})).unwrap();
+    let au: Vec<_> = ed.project.tracks.iter().filter(|t| t.kind == crate::doc::TrackKind::Audio).flat_map(|t| &t.clips).collect();
+    assert_eq!(au.len(), 1);
+    assert_eq!((au[0].start, au[0].duration, au[0].offset), (0.0, 4.0, 1.0));
+    assert_eq!(ed.project.clip(v).unwrap().volume, 0.0);
+    // второй раз — ошибка
+    run(&mut ed, "clip.detach_audio", &json!({"ids": [v]})).unwrap_err();
+}

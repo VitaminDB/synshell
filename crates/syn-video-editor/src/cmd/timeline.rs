@@ -7,7 +7,7 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, MediaKind, Project, Source, Track, TrackKind};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &CLIP_SHIFT, &CLIP_COPY, &CLIP_PASTE, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
+pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &CLIP_SHIFT, &CLIP_COPY, &CLIP_PASTE, &CLIP_DETACH_AUDIO, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
 
 const MODES: &[&str] = &["overwrite", "insert"];
 const EPS: f64 = 1e-6;
@@ -809,4 +809,64 @@ fn clip_paste(ed: &mut Editor, a: &Args) -> Res {
     ed.selection = new_ids.clone();
     let list: Vec<String> = new_ids.iter().map(|i| format!("c{i}")).collect();
     Ok(Out::text(format!("Вставлено в {}: {}", tc(at), list.join(", "))))
+}
+
+static CLIP_DETACH_AUDIO: Command = Command {
+    id: "clip.detach_audio",
+    category: "Таймлайн",
+    title: "Отделить звук",
+    shortcut: "",
+    keywords: "detach audio отделить звук аудио разделить дорожка",
+    help: "Вынести звук видеоклипа отдельным клипом на звуковую дорожку (та же обрезка, скорость и громкость); у видеоклипа звук выключается (громкость 0). Без ids — выделенные.",
+    args: &[arg("ids", Ty::Ids, "видеоклипы (c…), по умолчанию выделенные")],
+    danger: false,
+    run: clip_detach_audio,
+};
+
+fn clip_detach_audio(ed: &mut Editor, a: &Args) -> Res {
+    let ids = a.ids("ids")?.unwrap_or_else(|| ed.selection.clone());
+    if ids.is_empty() {
+        return Err("выделите видеоклип".into());
+    }
+    for id in &ids {
+        let c = ed.project.clip(*id).ok_or_else(|| format!("нет клипа c{id}"))?;
+        let m = c.media().and_then(|m| ed.project.media(m)).ok_or_else(|| format!("c{id} не из медиатеки"))?;
+        if m.kind != MediaKind::Video || !m.has_audio {
+            return Err(format!("у c{id} нет звука для отделения"));
+        }
+        if c.volume == 0.0 {
+            return Err(format!("звук c{id} уже отделён или выключен"));
+        }
+    }
+    ed.begin("Отделить звук");
+    let mut out = Vec::new();
+    for id in &ids {
+        let c = ed.project.clip(*id).unwrap().clone();
+        let fits = |p: &Project, ti: usize| p.tracks[ti].clips.iter().all(|o| o.end() <= c.start + EPS || o.start >= c.end() - EPS);
+        let ti = match (0..ed.project.tracks.len()).find(|ti| ed.project.tracks[*ti].kind == TrackKind::Audio && fits(&ed.project, *ti)) {
+            Some(ti) => ti,
+            None => {
+                let n = ed.project.tracks.iter().filter(|t| t.kind == TrackKind::Audio).count() + 1;
+                let tid = ed.project.alloc();
+                ed.project.tracks.push(Track { id: tid, kind: TrackKind::Audio, name: format!("A{n}"), muted: false, hidden: false, clips: Vec::new() });
+                ed.project.tracks.len() - 1
+            }
+        };
+        let mut au = c.clone();
+        au.id = ed.project.alloc();
+        au.transition = None;
+        // звуковые эффекты едут со звуком, видео — остаются
+        au.effects = c.effects.iter().filter(|e| e.kind.starts_with("audio_")).cloned().collect();
+        for e in &mut au.effects {
+            e.id = ed.project.alloc();
+        }
+        let nid = au.id;
+        let tid = ed.project.tracks[ti].id;
+        place(&mut ed.project, ti, au, false);
+        let v = ed.project.clip_mut(*id).unwrap();
+        v.volume = 0.0;
+        v.effects.retain(|e| !e.kind.starts_with("audio_"));
+        out.push(format!("c{id} → c{nid} (t{tid})"));
+    }
+    Ok(Out::text(format!("Звук отделён: {}", out.join(", "))))
 }

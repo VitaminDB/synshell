@@ -3,7 +3,7 @@
 //! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
 
 pub mod graph;
-mod inspector;
+pub(super) mod inspector;
 mod panels;
 mod thumbs;
 mod wave;
@@ -121,6 +121,10 @@ pub struct St {
     pub band: RwSignal<Option<[f32; 4]>>,
     /// Привязка к краям клипов, позиции и началу (N).
     pub snap: RwSignal<bool>,
+    /// Контекстное меню таймлайна: открыто, где (окно), по чему: клип (0 — пусто) и время.
+    pub menu_open: RwSignal<bool>,
+    pub menu_pos: RwSignal<Point>,
+    pub menu_at: RwSignal<(u64, f64)>,
 }
 
 impl St {
@@ -153,6 +157,9 @@ impl St {
             tr_edit: use_signal(None),
             band: use_signal(None),
             snap: use_signal(true),
+            menu_open: use_signal(false),
+            menu_pos: use_signal(Point::zero()),
+            menu_at: use_signal((0, 0.0)),
         }
     }
 
@@ -698,6 +705,7 @@ pub fn root(st: St) -> impl Widget {
         .child(hotkeys)
         .child(CommandPalette::new(st.palette_open).placeholder("Команда… (можно в другой раскладке)").commands(palette).on_run(move |id| st.run_menu(id)).build())
         .child(toast(st))
+        .child(timeline::menu(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).

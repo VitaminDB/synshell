@@ -98,7 +98,7 @@ fn effect_params(kind: &str) -> &'static [Param] {
     }
 }
 
-fn effect_title(kind: &str) -> &'static str {
+pub(super) fn effect_title(kind: &str) -> &'static str {
     match kind {
         "fade_in" => "Проявление",
         "fade_out" => "Затухание",
