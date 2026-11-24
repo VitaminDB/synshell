@@ -36,8 +36,8 @@
 .tl-corner { height: 24px; padding: 0 8px; justify-content: center; border-bottom-width: 1px; border-color: var(--border-soft); }
 .tl-time { font-family: monospace; font-size: 11px; color: var(--primary); }
 .tl-head { padding: 0 10px; justify-content: center; border-bottom-width: 1px; border-color: var(--border-soft); }
-.tl-head-v { height: 52px; }
-.tl-head-a { height: 38px; }
+
+
 .tl-head-text { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .tl-ruler { background-color: var(--bg-panel); border-bottom-width: 1px; border-color: var(--border-soft); }
 .tl-tick { background-color: var(--text-subtle); }
@@ -149,3 +149,11 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .graph-head .ne-run-btn--pause.ne-run-btn--active { background-color: var(--warning-soft); color: var(--warning); }
 .graph-head .ne-run-btn--stop.ne-run-btn--active { background-color: var(--surface-hover); color: var(--error); }
 .clip-drop { background-color: var(--primary-soft); border-width: 2px; border-color: var(--primary); }
+.tl-head-new { justify-content: center; }
+.tl-head-new .tl-head-text { color: var(--text-subtle); font-size: 11px; font-weight: 400; }
+.tl-row-new { border-bottom-width: 1px; border-color: var(--border-soft); background-color: #FFFFFF05; }
+.clip-drop-new { border-style: dashed; }
+.clip-edge { cursor: ew-resize; border-radius: 4px; }
+.clip-edge:hover { background-color: #FFFFFF55; }
+.clip-source { border-radius: 6px; background-color: #FFFFFF14; border-width: 1px; border-color: #FFFFFF33; }
+.clip-trim { background-color: var(--primary-soft); border-width: 2px; border-color: var(--warning); }

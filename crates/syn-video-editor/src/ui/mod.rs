@@ -5,7 +5,7 @@
 pub mod graph;
 mod panels;
 mod thumbs;
-mod timeline;
+pub mod timeline;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -100,8 +100,10 @@ pub struct St {
     pub exporting: RwSignal<Option<f32>>,
     /// Ширина плиток медиатеки, пикс. (ползунок).
     pub tile_size: RwSignal<f32>,
-    /// Превью броска на таймлайн: x и y в поле, длина (с), подпись.
-    pub drop_hint: RwSignal<Option<(f32, f32, f64, String)>>,
+    /// Превью броска на таймлайн (место, куда встанет клип).
+    pub drop_hint: RwSignal<Option<timeline::Hint>>,
+    /// Идёт обрезка края клипа: клип, левый ли край, сдвиг мыши (пикс.).
+    pub trim: RwSignal<Option<(u64, bool, f32)>>,
 }
 
 impl St {
@@ -128,6 +130,7 @@ impl St {
             exporting: use_signal(None),
             tile_size: use_signal(110.0),
             drop_hint: use_signal(None),
+            trim: use_signal(None),
         }
     }
 
