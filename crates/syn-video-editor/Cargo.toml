@@ -26,6 +26,7 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+rayon = "1.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
 
 [dev-dependencies]

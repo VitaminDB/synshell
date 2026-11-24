@@ -21,6 +21,20 @@ fn usage() -> &'static str {
 }
 
 fn main() {
+    // дочерний процесс рендера (экспорт, кадр): см. render::run_child
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().map(String::as_str) == Some("--render-child") {
+        match syn_video_editor::render::child_main(&raw[1..]) {
+            Ok(s) => {
+                println!("{s}");
+                return;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_video_editor=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
 

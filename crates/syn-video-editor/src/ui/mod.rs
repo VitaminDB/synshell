@@ -3,6 +3,7 @@
 //! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
 
 mod panels;
+mod thumbs;
 mod timeline;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -29,6 +30,7 @@ pub mod icons {
     pub const CUT: &str = "\u{E14E}";
     pub const TITLE: &str = "\u{E264}";
     pub const PLAY: &str = "\u{E037}";
+    pub const PAUSE: &str = "\u{E034}";
     pub const AI: &str = "\u{E65F}";
     pub const MOVIE: &str = "\u{E02C}";
     pub const AUDIO: &str = "\u{E405}";
@@ -86,10 +88,19 @@ pub struct St {
     pub ai_log: RwSignal<Vec<AiLine>>,
     pub ai_busy: RwSignal<bool>,
     pub view: RwSignal<String>,
+    pub playing: RwSignal<bool>,
+    /// Готовы новые ленты превью медиатеки.
+    pub thumbs: RwSignal<u64>,
 }
 
 impl St {
     pub fn new() -> Self {
+        let st = Self::make();
+        thumbs::bind(st.thumbs);
+        st
+    }
+
+    fn make() -> Self {
         Self {
             rev: use_signal(0),
             window: use_signal(syngui::window::WindowState::default()),
@@ -101,6 +112,8 @@ impl St {
             ai_log: use_signal(Vec::new()),
             ai_busy: use_signal(false),
             view: use_signal("edit".to_string()),
+            playing: use_signal(false),
+            thumbs: use_signal(0),
         }
     }
 
@@ -150,6 +163,66 @@ impl St {
         }
         let args = if id == "project.save" && ed().path.is_none() { json!({"path": default_path()}) } else { json!({}) };
         self.exec(id, args);
+    }
+
+    /// Пуск и пауза: позиция идёт с частотой проекта, кадры декодирует просмотр.
+    pub fn toggle_play(self) {
+        if self.playing.get_untracked() {
+            self.playing.set(false);
+            return;
+        }
+        {
+            let mut e = ed();
+            if e.playhead >= e.project.duration() - 1e-3 {
+                e.playhead = 0.0;
+            }
+        }
+        self.playing.set(true);
+        let fps = ed().project.settings.fps.max(1.0);
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            let from = ed().playhead;
+            let mut n = 0u64;
+            loop {
+                n += 1;
+                let next = start + std::time::Duration::from_secs_f64(n as f64 / fps);
+                if let Some(d) = next.checked_duration_since(std::time::Instant::now()) {
+                    std::thread::sleep(d);
+                }
+                let (tx, rx) = std::sync::mpsc::channel();
+                syngui::async_runtime::run_on_main_thread(move || {
+                    if !self.playing.get_untracked() {
+                        let _ = tx.send(false);
+                        return;
+                    }
+                    let mut e = ed();
+                    let end = e.project.duration();
+                    let t = (from + start.elapsed().as_secs_f64()).min(end);
+                    e.playhead = (t * fps).floor() / fps;
+                    e.revision += 1;
+                    let rev = e.revision;
+                    drop(e);
+                    self.rev.set(rev);
+                    if t >= end {
+                        self.playing.set(false);
+                    }
+                    let _ = tx.send(t < end);
+                });
+                if !rx.recv().unwrap_or(false) {
+                    break;
+                }
+            }
+        });
+    }
+
+    /// Шаг позиции на `frames` кадров.
+    pub fn step(self, frames: f64) {
+        let t = {
+            let e = ed();
+            (e.playhead + frames / e.project.settings.fps.max(1.0)).max(0.0)
+        };
+        self.exec("playhead.set", json!({"at": t}));
+        self.toast.set(None);
     }
 
     /// Выбор файлов через портал — в своём потоке, окно не замирает.
@@ -384,6 +457,27 @@ pub fn root(st: St) -> impl Widget {
                 syngui::signal::set_fullscreen(false);
                 return KeyReply::Handled;
             }
+            if !mods.ctrl && !mods.alt && !mods.shift {
+                match key {
+                    Key::Space => {
+                        st.toggle_play();
+                        return KeyReply::Handled;
+                    }
+                    Key::Left => {
+                        st.step(-1.0);
+                        return KeyReply::Handled;
+                    }
+                    Key::Right => {
+                        st.step(1.0);
+                        return KeyReply::Handled;
+                    }
+                    Key::Home => {
+                        st.exec("playhead.set", json!({"at": 0}));
+                        return KeyReply::Handled;
+                    }
+                    _ => {}
+                }
+            }
             if !mods.ctrl && !mods.alt {
                 return KeyReply::Ignore;
             }
@@ -396,7 +490,9 @@ pub fn root(st: St) -> impl Widget {
             }
         })
         .child(WindowResizeRegion::new().inset(10.0).enabled(!st.window.get_untracked().fullscreen).child(shell));
+    // на всё окно: слой подсказок (внизу справа) и палитра считают от его краёв
     Stack::new()
+        .fit(StackFit::Expand)
         .clip(false)
         .child(hotkeys)
         .child(CommandPalette::new(st.palette_open).placeholder("Команда… (можно в другой раскладке)").commands(palette).on_run(move |id| st.run_menu(id)).build())
@@ -537,6 +633,11 @@ fn toolbar(st: St) -> impl Widget {
                     .child(ToolButton::new(icons::REDO).tooltip(r.as_ref().map(|l| format!("Повторить: {l} (Ctrl+Shift+Z)")).unwrap_or_else(|| "Повторить (Ctrl+Shift+Z)".into())).disabled(r.is_none()).on_click(move || st.run_menu("edit.redo")))
             })
             .child(sep())
+            .child(move || {
+                let on = st.playing.get();
+                ToolButton::new(if on { icons::PAUSE } else { icons::PLAY }).tooltip(if on { "Пауза (Пробел)" } else { "Воспроизвести (Пробел)" }).on_click(move || st.toggle_play())
+            })
+            .child(sep())
             .child(ToolButton::new(icons::CUT).tooltip("Разрезать в позиции (S)").on_click(move || {
                 st.exec("clip.split", json!({}));
             }))
@@ -592,20 +693,34 @@ fn statusbar(st: St) -> impl Widget {
     }))
 }
 
+/// Уведомления syngui (карточки внизу справа, сами исчезают). Сигнал `toast`
+/// — мост: любое новое сообщение уходит сюда.
+fn notifications() -> &'static NotificationCtx {
+    static N: OnceLock<NotificationCtx> = OnceLock::new();
+    N.get_or_init(|| NotificationCtx::with_default_duration(3500))
+}
+
 fn toast(st: St) -> impl Widget {
-    Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let Some(t) = st.toast.get() else { return vec![] };
-        let shown = t.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(4));
-            syngui::async_runtime::run_on_main_thread(move || {
-                if st.toast.get_untracked().as_deref() == Some(shown.as_str()) {
-                    st.toast.set(None);
-                }
-            });
-        });
-        vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::End).class("toast-layer").child(DecoratedBox::new().class("toast").child(Text::new(t).max_lines(3).class("toast-text"))))]
-    })
+    create_effect(move || {
+        if let Some(t) = st.toast.get() {
+            if std::env::var_os("SYN_VIDEO_EDITOR_TOAST").is_none() {
+                syngui::async_runtime::run_on_main_thread(move || st.toast.set(None));
+            }
+            let low = t.to_lowercase();
+            if low.contains("ошибк") || low.contains("нет ") || low.contains("не ") && low.contains(':') {
+                notifications().warning(t);
+            } else {
+                notifications().info(t);
+            }
+        }
+    });
+    let open = use_signal(true);
+    Portal::new()
+        .is_open(open)
+        .modal(false)
+        .backdrop(false)
+        .anchor(PortalAnchor::BottomEnd { margin_bottom: 40.0, margin_right: 24.0 })
+        .child(NotificationHost::new(notifications().clone()).grow_up(true).class("notifications"))
 }
 
 // ── чипы заголовка ──────────────────────────────────────────────────────

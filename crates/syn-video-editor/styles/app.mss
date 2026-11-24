@@ -92,3 +92,38 @@
 .titlebar-chip--hover .titlebar-chip-text { color: var(--text); }
 .titlebar-chip--hover .titlebar-chip-logo { color-tint: var(--text); }
 .titlebar-chip-donate.titlebar-chip--hover .titlebar-chip-text { color: #E5487A; }
+
+/* ── плитки медиатеки ── */
+.tile { padding: 6px; border-radius: 10px; cursor: pointer; }
+.tile:hover { background-color: var(--surface-hover); }
+.tile-thumb { height: 96px; border-radius: 8px; background-color: #000000; overflow: hidden; }
+.tile-icon { icon-size: 30px; icon-color: var(--text-subtle); }
+.tile-badge { margin: 4px; padding: 1px 6px; border-radius: 6px; background-color: #000000B0; }
+.tile-badge-text { font-size: 10px; color: #FFFFFF; font-family: monospace; }
+.tile-scrub { background-color: var(--warning); }
+
+/* ── уведомления (как в Synthos) ── */
+Notification {
+    /* Контент-driven ширина: max 25% viewport (syngui резолвит percent
+     * относительно containing-block, передаваемого Portal'ом). */
+    max-width: 25%;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background-color: var(--bg-shell);
+    color: var(--text);
+    font-size: 14px;
+    /* Transitions для opacity/transform применяются на каждом frame'е через
+     * fade animation в element. Эти MSS значения — будущая интеграция
+     * с keyframe slide-in справа. */
+    transition: opacity 200ms ease-out,
+                transform 200ms ease-out;
+}
+
+/* Severity accent colors — переопределяют fallback из syngui.
+ * Виджет читает `accent-color` для левого бордера каждой карточки. */
+Notification.severity-info    { accent-color: var(--primary, #3B82F6); }
+Notification.severity-success { accent-color: #22C55E; }
+Notification.severity-warning { accent-color: #F59E0B; }
+Notification.severity-error   { accent-color: var(--error, #EF4444); }
+

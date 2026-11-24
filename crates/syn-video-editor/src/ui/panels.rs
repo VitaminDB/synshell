@@ -1,15 +1,16 @@
 //! Панели дока: медиатека, эффекты, просмотр, инспектор, ИИ.
 
-use std::collections::HashMap;
+
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use syngui::prelude::*;
 use syngui::widgets::*;
+use syngui::containers::Positioned;
 
 use super::{ed, icons, timeline, AiLine, Pick, St};
 use syngui::widgets::overlay::MenuItem;
-use crate::doc::{tc, MediaKind, Source, TrackKind};
+use crate::doc::{tc, MediaKind, Source};
 
 pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
     match panel {
@@ -38,7 +39,8 @@ fn media(st: St) -> impl Widget {
         .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"));
     let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
-        let items: Vec<(u64, MediaKind, String, String)> = ed()
+        let _ = st.thumbs.get();
+        let items: Vec<(u64, MediaKind, String, String, std::path::PathBuf, f64)> = ed()
             .project
             .media
             .iter()
@@ -53,7 +55,7 @@ fn media(st: St) -> impl Widget {
                 if m.fps > 0.0 {
                     info.push(format!("{} fps", m.fps));
                 }
-                (m.id, m.kind, m.name(), info.join(" · "))
+                (m.id, m.kind, m.name(), info.join(" · "), m.path.clone(), m.duration)
             })
             .collect();
         if items.is_empty() {
@@ -68,54 +70,11 @@ fn media(st: St) -> impl Widget {
                     .child(Text::new("Перетащите сюда файлы или папку, нажмите Ctrl+I\nили попросите агента: «импортируй ролики из ~/Videos/…»").max_lines(3).class("panel-empty")),
             )];
         }
-        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
-        for (id, kind, name, info) in items {
-            let icon = match kind {
-                MediaKind::Video => icons::MOVIE,
-                MediaKind::Audio => icons::AUDIO,
-                MediaKind::Image => icons::IMAGE,
-            };
-            let row = Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Icon::new(icon).class("row-icon"))
-                .child(DecoratedBox::new().class("grow").child(Column::new().child(Text::new(name).max_lines(1).elide(Elide::End).class("row-title")).child(Text::new(format!("m{id} · {info}")).max_lines(1).class("row-sub"))))
-                .child(ToolButton::new(icons::ADD).tooltip("На таймлайн (в конец дорожки)").on_click(move || {
-                    st.exec("clip.add", json!({"media": id}));
-                }));
-            let row_menu = vec![
-                MenuItem::new("add", "На таймлайн (в конец)"),
-                MenuItem::new("add_here", "На таймлайн в позицию"),
-                MenuItem::separator(),
-                MenuItem::new("import", "Импорт медиа…"),
-                MenuItem::new("import_folder", "Импорт папки…"),
-                MenuItem::separator(),
-                MenuItem::new("remove", "Убрать из медиатеки"),
-            ];
-            col = col.child(
-                ContextMenu::new()
-                    .items(row_menu)
-                    .on_select(move |a: &str| match a {
-                        "add" => {
-                            st.exec("clip.add", json!({"media": id}));
-                        }
-                        "add_here" => {
-                            let at = ed().playhead;
-                            st.exec("clip.add", json!({"media": id, "at": at}));
-                        }
-                        "import" => st.dialog(Pick::ImportFiles),
-                        "import_folder" => st.dialog(Pick::ImportFolder),
-                        "remove" => {
-                            st.exec("media.remove", json!({"id": id}));
-                        }
-                        _ => {}
-                    })
-                    .child(GestureDetector::new().on_double_click(move || {
-                        st.exec("clip.add", json!({"media": id}));
-                    }).child(DecoratedBox::new().class("list-row").child(row))),
-            );
+        let mut grid = Grid::new(4).min_column_width(150.0).gap(8.0);
+        for (id, kind, name, info, path, dur) in items {
+            grid = grid.child(tile(st, id, kind, name, info, path, dur));
         }
-        vec![Box::new(col)]
+        vec![Box::new(DecoratedBox::new().child(grid).class("panel-list"))]
     }));
     let panel_menu = vec![MenuItem::new("import", "Импорт медиа…"), MenuItem::new("import_folder", "Импорт папки…")];
     ContextMenu::new()
@@ -160,73 +119,29 @@ fn effects(st: St) -> impl Widget {
 
 // ── просмотр ────────────────────────────────────────────────────────────
 
-/// Кадр источника для позиции (кэш по файлу и времени до 1/10 с).
-fn frame(path: &str, at_frac: f64) -> Option<(u32, u32, std::sync::Arc<Vec<u8>>)> {
-    static CACHE: Mutex<Option<HashMap<(String, i64), (u32, u32, std::sync::Arc<Vec<u8>>)>>> = Mutex::new(None);
-    let key = (path.to_string(), (at_frac * 1000.0).round() as i64);
-    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    let map = c.get_or_insert_with(HashMap::new);
-    if let Some(v) = map.get(&key) {
-        return Some(v.clone());
-    }
-    let t = syngui::video::thumbnail(path, 960, at_frac).ok()?;
-    let v = (t.width, t.height, std::sync::Arc::new(t.rgba));
-    if map.len() > 64 {
-        map.clear();
-    }
-    map.insert(key, v.clone());
-    Some(v)
+/// Кадры для просмотра: читатели клипов живут между кадрами (воспроизведение
+/// декодирует подряд), размер — до 1280 по большей стороне.
+fn preview_frames(p: &crate::doc::Project, t: f64) -> crate::render::compose::Frames {
+    static SRC: Mutex<Option<crate::render::compose::FrameSource>> = Mutex::new(None);
+    let mut s = SRC.lock().unwrap_or_else(|e| e.into_inner());
+    s.get_or_insert_with(|| crate::render::compose::FrameSource::new(1280, 1280)).frames(p, t)
 }
 
+/// Просмотр — кадр композитора (тот же, что при экспорте) в масштабе панели.
 fn viewer(st: St) -> impl Widget {
-    DecoratedBox::new().class("viewer").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+    let area = use_signal(syngui::prelude::Size::new(640.0, 360.0));
+    EventHook::new().fill().on_resize(move |s| area.set(s)).child(DecoratedBox::new().class("viewer").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
-        let (pic, titles, aspect) = {
+        let a = area.get();
+        let (p, t) = {
             let e = ed();
-            let p = &e.project;
-            let t = e.playhead;
-            let aspect = p.settings.width as f32 / p.settings.height.max(1) as f32;
-            let mut pic = None;
-            let mut titles = Vec::new();
-            // верхние дорожки — поверх: идём сверху вниз
-            for tr in p.tracks.iter().rev().filter(|tr| tr.kind == TrackKind::Video && !tr.hidden) {
-                for c in tr.clips.iter().filter(|c| c.start <= t && t < c.end()) {
-                    match &c.source {
-                        Source::Title { text, .. } => titles.push(text.clone()),
-                        Source::Media { media } if pic.is_none() => {
-                            if let Some(m) = p.media(*media) {
-                                let src = c.offset + (t - c.start) * c.speed;
-                                let frac = if m.duration > 0.0 { (src / m.duration).clamp(0.0, 0.999) } else { 0.0 };
-                                pic = Some((m.path.display().to_string(), frac, m.kind));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            (pic, titles, aspect)
+            (e.project.clone(), e.playhead)
         };
-        let mut stack = Stack::new().fit(StackFit::Expand);
-        match pic {
-            Some((path, frac, MediaKind::Video)) => {
-                if let Some((w, h, rgba)) = frame(&path, frac) {
-                    stack = stack.child(Center::new().child(Image::from_rgba(format!("frame:{path}:{frac:.3}"), w, h, (*rgba).clone()).fit(ImageFit::Contain)));
-                }
-            }
-            Some((path, _, MediaKind::Image)) => {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    stack = stack.child(Center::new().child(Image::from_bytes(path.clone(), bytes).fit(ImageFit::Contain)));
-                }
-            }
-            _ => {
-                stack = stack.child(Center::new().child(Text::new(format!("Кадр {}:{}", if aspect >= 1.0 { "16" } else { "9" }, if aspect >= 1.0 { "9" } else { "16" })).class("panel-empty")));
-            }
-        }
-        if !titles.is_empty() {
-            stack = stack.child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("viewer-title").child(Text::new(titles.join("\n")).max_lines(4).class("viewer-title-text"))));
-        }
-        vec![Box::new(stack)]
-    }))
+        let k = ((a.width - 16.0) / p.settings.width as f32).min((a.height - 16.0) / p.settings.height as f32).max(0.02);
+        let frames = preview_frames(&p, t);
+        let frame = crate::render::compose::frame_widget(&p, t, &frames, k);
+        vec![Box::new(Center::new().child(Column::new().children(vec![frame])))]
+    })))
 }
 
 // ── инспектор ───────────────────────────────────────────────────────────
@@ -329,4 +244,85 @@ fn ai(st: St) -> impl Widget {
                     .class("ai-field"),
             )))]
         })))
+}
+
+/// Плитка медиатеки: превью (ведение курсора — промотка по ленте кадров),
+/// длительность, имя; двойной щелчок — на таймлайн, правая кнопка — меню.
+fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std::path::PathBuf, dur: f64) -> Box<dyn Widget> {
+    let hover = use_signal(None::<f32>);
+    let width = use_signal(150.0f32);
+    // ширина плитки — из события наведения (on_resize в сетке приходит не всегда)
+    let thumb = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.thumbs.get();
+        let frac = hover.get();
+        let mut stack = Stack::new().fit(StackFit::Expand);
+        match (kind, super::thumbs::strip(&path)) {
+            (MediaKind::Audio, _) => {
+                stack = stack.child(Center::new().child(Icon::new(icons::AUDIO).class("tile-icon")));
+            }
+            (_, Some(strip)) => {
+                let i = frac.map(|f| ((f * super::thumbs::FRAMES as f32) as usize).min(super::thumbs::FRAMES - 1)).unwrap_or(super::thumbs::FRAMES / 3);
+                let f = &strip[i];
+                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Contain).placeholder(false)));
+            }
+            (_, None) => {
+                stack = stack.child(Center::new().child(Icon::new(if kind == MediaKind::Image { icons::IMAGE } else { icons::MOVIE }).class("tile-icon")));
+            }
+        }
+        if dur > 0.0 {
+            let label = match frac {
+                Some(f) => format!("{} / {}", tc(dur * f as f64), tc(dur)),
+                None => tc(dur),
+            };
+            stack = stack.child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::End).child(DecoratedBox::new().class("tile-badge").child(Text::new(label).class("tile-badge-text"))));
+        }
+        if let Some(f) = frac.filter(|_| dur > 0.0) {
+            // полоска позиции промотки
+            let w = width.get_untracked();
+            stack = stack.child(Positioned::new(DecoratedBox::new().class("tile-scrub")).at((f * w - 1.0).max(0.0), 0.0).dimensions(2.0, 96.0));
+        }
+        vec![Box::new(stack)]
+    });
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(EventHook::new().fill().on_resize(move |s| width.set(s.width)).on_hover_at(move |p| {
+            if let Some((_, s)) = p {
+                width.set(s.width);
+            }
+            hover.set(p.map(|(p, s)| (p.x / s.width.max(1.0)).clamp(0.0, 0.999)))
+        }).child(DecoratedBox::new().class("tile-thumb").child(thumb)))
+        .child(Text::new(name).max_lines(1).elide(Elide::End).class("row-title"))
+        .child(Text::new(format!("m{id} · {info}")).max_lines(1).elide(Elide::End).class("row-sub"));
+    let menu = vec![
+        MenuItem::new("add", "На таймлайн (в конец)"),
+        MenuItem::new("add_here", "На таймлайн в позицию"),
+        MenuItem::separator(),
+        MenuItem::new("import", "Импорт медиа…"),
+        MenuItem::new("import_folder", "Импорт папки…"),
+        MenuItem::separator(),
+        MenuItem::new("remove", "Убрать из медиатеки"),
+    ];
+    Box::new(
+        ContextMenu::new()
+            .items(menu)
+            .on_select(move |a: &str| match a {
+                "add" => {
+                    st.exec("clip.add", json!({"media": id}));
+                }
+                "add_here" => {
+                    let at = ed().playhead;
+                    st.exec("clip.add", json!({"media": id, "at": at}));
+                }
+                "import" => st.dialog(Pick::ImportFiles),
+                "import_folder" => st.dialog(Pick::ImportFolder),
+                "remove" => {
+                    st.exec("media.remove", json!({"id": id}));
+                }
+                _ => {}
+            })
+            .child(GestureDetector::new().on_double_click(move || {
+                st.exec("clip.add", json!({"media": id}));
+            }).child(DecoratedBox::new().class("tile").child(body))),
+    )
 }
