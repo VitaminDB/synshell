@@ -5,6 +5,7 @@ use serde_json::json;
 use syngui::prelude::*;
 use syngui::widgets::*;
 use syngui::containers::Positioned;
+use syngui::DragData;
 
 use super::{ed, St};
 use crate::doc::{Source, TrackKind};
@@ -93,6 +94,18 @@ pub fn view(st: St) -> impl Widget {
                 let fx = if c.effects.is_empty() { String::new() } else { format!("  ✦{}", c.effects.len()) };
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
                 let clip = DecoratedBox::new().class(class).class(if selected { "clip-selected" } else { "" }).child(Text::new(format!("{name}{fx}")).max_lines(1).elide(Elide::End).class("clip-text"));
+                // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
+                let cid = c.id;
+                let clip = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || {
+                    st.exec("selection.set", json!({"ids": [cid]}));
+                    st.toast.set(None);
+                }).child(clip);
+                // где курсор на клипе — чтобы при переносе клип не прыгал началом к курсору
+                let clip = EventHook::new().on_hover_at(move |p| {
+                    if let Some((p, _)) = p {
+                        *GRAB.lock().unwrap() = (cid, p.x);
+                    }
+                }).child(clip);
                 field = field.child(
                     Positioned::new(clip)
                     .at(c.start as f32 * zoom + 1.0, y + 3.0)
@@ -110,6 +123,11 @@ pub fn view(st: St) -> impl Widget {
         let surface = GestureDetector::new()
             .on_click_with_bounds(move |pt: Point, b: Rect| click(st, pt.x - b.origin.x, pt.y - b.origin.y))
             .child(DecoratedBox::new().child(field).style("width", width).style("height", height));
+        // бросок медиа из медиатеки или клипа: время и дорожка — по точке
+        let surface = DropArea::new()
+            .accept_types(vec![super::panels::DRAG_MEDIA.to_string(), DRAG_CLIP.to_string()])
+            .on_drop_positioned(move |info: syngui::widgets::overlay::DropInfo| on_drop(st, &info.data, info.local_position.x, info.local_position.y))
+            .child(surface);
 
         vec![Box::new(
             Row::new()
@@ -156,6 +174,60 @@ fn click(st: St, x: f32, y: f32) {
             st.exec("playhead.set", json!({"at": t}));
             st.exec("selection.set", json!({"ids": []}));
         }
+    }
+    st.toast.set(None);
+}
+
+/// Клип и смещение курсора от его левого края при последнем наведении, пикс.
+static GRAB: std::sync::Mutex<(u64, f32)> = std::sync::Mutex::new((0, 0.0));
+
+/// Тип переноса «клип таймлайна» (payload — id клипа).
+pub const DRAG_CLIP: &str = "syn-video-editor/clip";
+
+/// Дорожка под точкой поля (`None` — над линейкой или ниже дорожек).
+fn track_at(y: f32) -> Option<(u64, TrackKind)> {
+    let e = ed();
+    let p = &e.project;
+    let mut order: Vec<usize> = (0..p.tracks.len()).filter(|i| p.tracks[*i].kind == TrackKind::Video).rev().collect();
+    order.extend((0..p.tracks.len()).filter(|i| p.tracks[*i].kind == TrackKind::Audio));
+    let mut top = RULER;
+    for i in order {
+        let h = row_h(p.tracks[i].kind);
+        if y >= top && y < top + h {
+            return Some((p.tracks[i].id, p.tracks[i].kind));
+        }
+        top += h;
+    }
+    None
+}
+
+/// Бросок на таймлайн: медиа — новый клип, клип — перенос.
+fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
+    let t = (x / st.zoom.get_untracked()).max(0.0) as f64;
+    let track = track_at(y);
+    let Ok(id) = data.payload.trim().parse::<u64>() else { return };
+    if data.drag_type == super::panels::DRAG_MEDIA {
+        let kind = ed().project.media(id).map(|m| m.kind);
+        let want = if kind == Some(crate::doc::MediaKind::Audio) { TrackKind::Audio } else { TrackKind::Video };
+        let mut args = json!({"media": id, "at": t});
+        if let Some((tid, k)) = track.filter(|(_, k)| *k == want) {
+            let _ = k;
+            args["track"] = json!(tid);
+        }
+        st.exec("clip.add", args);
+    } else if data.drag_type == DRAG_CLIP {
+        let (gid, gx) = *GRAB.lock().unwrap();
+        let t = if gid == id { ((x - gx) / st.zoom.get_untracked()).max(0.0) as f64 } else { t };
+        let mut args = json!({"id": id, "at": t});
+        let kind = {
+            let e = ed();
+            e.project.find_clip(id).map(|(ti, _)| e.project.tracks[ti].kind)
+        };
+        if let Some((tid, _)) = track.filter(|(_, k)| Some(*k) == kind) {
+            args["track"] = json!(tid);
+        }
+        st.exec("clip.move", args);
+        st.exec("selection.set", json!({"ids": [id]}));
     }
     st.toast.set(None);
 }

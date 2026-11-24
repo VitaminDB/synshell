@@ -20,6 +20,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "timeline" => Box::new(timeline::view(st)),
         "inspector" => Box::new(inspector(st)),
         "ai" => Box::new(ai(st)),
+        "graph" => super::graph::panel(),
         _ => Box::new(DecoratedBox::new()),
     }
 }
@@ -36,11 +37,15 @@ fn media(st: St) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .class("panel-head")
         .child(Button::new("Импорт…").on_click(move || st.dialog(Pick::ImportFiles)).class("head-btn"))
-        .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"));
+        .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"))
+        .child(DecoratedBox::new().class("grow"))
+        .child(Icon::new(icons::IMAGE).class("head-icon"))
+        .child(Slider::new().range(90.0, 360.0).value(st.tile_size.get_untracked()).width(110.0).on_change(move |v| st.tile_size.set(v)));
     let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
         let _ = st.thumbs.get();
-        let items: Vec<(u64, MediaKind, String, String, std::path::PathBuf, f64)> = ed()
+        let tile_size = st.tile_size.get();
+        let items: Vec<(u64, MediaKind, String, String, std::path::PathBuf, f64, f32)> = ed()
             .project
             .media
             .iter()
@@ -55,7 +60,8 @@ fn media(st: St) -> impl Widget {
                 if m.fps > 0.0 {
                     info.push(format!("{} fps", m.fps));
                 }
-                (m.id, m.kind, m.name(), info.join(" · "), m.path.clone(), m.duration)
+                let aspect = if m.width > 0 && m.height > 0 { m.width as f32 / m.height as f32 } else { 16.0 / 9.0 };
+                (m.id, m.kind, m.name(), info.join(" · "), m.path.clone(), m.duration, aspect)
             })
             .collect();
         if items.is_empty() {
@@ -70,9 +76,10 @@ fn media(st: St) -> impl Widget {
                     .child(Text::new("Перетащите сюда файлы или папку, нажмите Ctrl+I\nили попросите агента: «импортируй ролики из ~/Videos/…»").max_lines(3).class("panel-empty")),
             )];
         }
-        let mut grid = Grid::new(4).min_column_width(150.0).gap(8.0);
-        for (id, kind, name, info, path, dur) in items {
-            grid = grid.child(tile(st, id, kind, name, info, path, dur));
+        // масонская раскладка: плитки по пропорциям роликов, ширина колонки — ползунком
+        let mut grid = Grid::new(16).min_column_width(tile_size).gap(8.0).masonry(true);
+        for (id, kind, name, info, path, dur, aspect) in items {
+            grid = grid.child(tile(st, id, kind, name, info, path, dur, aspect));
         }
         vec![Box::new(DecoratedBox::new().child(grid).class("panel-list"))]
     }));
@@ -246,9 +253,14 @@ fn ai(st: St) -> impl Widget {
         })))
 }
 
+/// Тип переноса «медиа из медиатеки» (payload — id медиа).
+pub const DRAG_MEDIA: &str = "syn-video-editor/media";
+
 /// Плитка медиатеки: превью (ведение курсора — промотка по ленте кадров),
 /// длительность, имя; двойной щелчок — на таймлайн, правая кнопка — меню.
-fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std::path::PathBuf, dur: f64) -> Box<dyn Widget> {
+#[allow(clippy::too_many_arguments)]
+fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std::path::PathBuf, dur: f64, aspect: f32) -> Box<dyn Widget> {
+    let drag_label = name.clone();
     let hover = use_signal(None::<f32>);
     let width = use_signal(150.0f32);
     // ширина плитки — из события наведения (on_resize в сетке приходит не всегда)
@@ -263,7 +275,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
             (_, Some(strip)) => {
                 let i = frac.map(|f| ((f * super::thumbs::FRAMES as f32) as usize).min(super::thumbs::FRAMES - 1)).unwrap_or(super::thumbs::FRAMES / 3);
                 let f = &strip[i];
-                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Contain).placeholder(false)));
+                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)));
             }
             (_, None) => {
                 stack = stack.child(Center::new().child(Icon::new(if kind == MediaKind::Image { icons::IMAGE } else { icons::MOVIE }).class("tile-icon")));
@@ -279,7 +291,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
         if let Some(f) = frac.filter(|_| dur > 0.0) {
             // полоска позиции промотки
             let w = width.get_untracked();
-            stack = stack.child(Positioned::new(DecoratedBox::new().class("tile-scrub")).at((f * w - 1.0).max(0.0), 0.0).dimensions(2.0, 96.0));
+            stack = stack.child(Positioned::new(DecoratedBox::new().class("tile-scrub")).at((f * w - 1.0).max(0.0), 0.0).dimensions(2.0, 4000.0));
         }
         vec![Box::new(stack)]
     });
@@ -291,7 +303,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
                 width.set(s.width);
             }
             hover.set(p.map(|(p, s)| (p.x / s.width.max(1.0)).clamp(0.0, 0.999)))
-        }).child(DecoratedBox::new().class("tile-thumb").child(thumb)))
+        }).child(AspectRatio::new(aspect.clamp(0.3, 3.0)).child(DecoratedBox::new().class("tile-thumb").child(thumb))))
         .child(Text::new(name).max_lines(1).elide(Elide::End).class("row-title"))
         .child(Text::new(format!("m{id} · {info}")).max_lines(1).elide(Elide::End).class("row-sub"));
     let menu = vec![
@@ -321,7 +333,8 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
                 }
                 _ => {}
             })
-            .child(GestureDetector::new().on_double_click(move || {
+            // тащить на дорожку таймлайна; двойной щелчок — в конец дорожки
+            .child(Draggable::new(DRAG_MEDIA, id.to_string()).label(drag_label.clone()).on_double_click(move || {
                 st.exec("clip.add", json!({"media": id}));
             }).child(DecoratedBox::new().class("tile").child(body))),
     )

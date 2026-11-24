@@ -96,7 +96,8 @@
 /* ── плитки медиатеки ── */
 .tile { padding: 6px; border-radius: 10px; cursor: pointer; }
 .tile:hover { background-color: var(--surface-hover); }
-.tile-thumb { height: 96px; border-radius: 8px; background-color: #000000; overflow: hidden; }
+.tile-thumb { flex-grow: 1; border-radius: 8px; background-color: #000000; overflow: hidden; }
+.head-icon { icon-size: 16px; icon-color: var(--text-subtle); }
 .tile-icon { icon-size: 30px; icon-color: var(--text-subtle); }
 .tile-badge { margin: 4px; padding: 1px 6px; border-radius: 6px; background-color: #000000B0; }
 .tile-badge-text { font-size: 10px; color: #FFFFFF; font-family: monospace; }
@@ -127,3 +128,10 @@ Notification.severity-success { accent-color: #22C55E; }
 Notification.severity-warning { accent-color: #F59E0B; }
 Notification.severity-error   { accent-color: var(--error, #EF4444); }
 
+.graph-head { padding: 4px 8px; border-bottom-width: 1px; border-color: var(--border-soft); }
+.graph-tab { height: 26px; padding: 0 6px 0 10px; border-radius: 7px; cursor: pointer; }
+.graph-tab:hover { background-color: var(--surface-hover); }
+.graph-tab-on { background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border); }
+.graph-tab-text { font-size: 12px; color: var(--text-muted); }
+.graph-tab-on .graph-tab-text { color: var(--text); }
+.graph-tab-x { icon-size: 13px; icon-color: var(--text-subtle); }

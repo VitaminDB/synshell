@@ -191,12 +191,17 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
             Err(_) => e.path = Some(p.clone()),
         }
     }
+    ui::graph::init();
     let (cfg, _) = synshell_common::Config::load();
     let mss = ui::theme(&cfg);
     if let Some((out, size)) = shot {
         let r = syngui::shot::render_png(
             || {
                 let st = ui::St::new();
+                ui::graph::mount(st);
+                if let Ok(v) = std::env::var("SYN_VIDEO_EDITOR_VIEW") {
+                    st.set_view(&v);
+                }
                 if let Ok(sel) = std::env::var("SYN_VIDEO_EDITOR_SELECT") {
                     st.exec("selection.set", serde_json::json!({"ids": [sel]}));
                 }
@@ -235,5 +240,8 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(st.theme)
         .with_window_state(st.window)
-        .run(move |_| Box::new(ui::root(st)) as Box<dyn Widget>);
+        .run(move |_| {
+            ui::graph::mount(st);
+            Box::new(ui::root(st)) as Box<dyn Widget>
+        });
 }

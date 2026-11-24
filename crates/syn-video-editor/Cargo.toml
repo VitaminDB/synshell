@@ -18,6 +18,8 @@ path = "src/main.rs"
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "ffmpeg", "wayland-dnd", "svg"] }
 syn-assist.workspace = true
+syn-node-editor.workspace = true
+synaptix-flow.workspace = true
 synaptixd = { workspace = true, features = ["vfx-models"] }
 synaptix-bundle.workspace = true
 serde.workspace = true

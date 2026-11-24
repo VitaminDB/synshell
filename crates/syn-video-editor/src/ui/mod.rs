@@ -2,6 +2,7 @@
 //! инструментов, док-панели, строка состояния. Любое действие окна —
 //! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
 
+pub mod graph;
 mod panels;
 mod thumbs;
 mod timeline;
@@ -94,6 +95,8 @@ pub struct St {
     pub thumbs: RwSignal<u64>,
     /// Идёт экспорт: доля готовности.
     pub exporting: RwSignal<Option<f32>>,
+    /// Ширина плиток медиатеки, пикс. (ползунок).
+    pub tile_size: RwSignal<f32>,
 }
 
 impl St {
@@ -118,6 +121,7 @@ impl St {
             playing: use_signal(false),
             thumbs: use_signal(0),
             exporting: use_signal(None),
+            tile_size: use_signal(110.0),
         }
     }
 
@@ -361,18 +365,19 @@ fn default_path() -> String {
 }
 
 /// Раскладки видов (позже — сценарии Rhai `library/layouts`, как в hexspire).
-pub const VIEWS: &[(&str, &str)] = &[("edit", "Монтаж"), ("ai", "ИИ-монтаж")];
+pub const VIEWS: &[(&str, &str)] = &[("edit", "Монтаж"), ("graph", "Граф"), ("ai", "ИИ-монтаж")];
 
 pub fn layout(key: &str) -> DockSpec {
     let left = DockSpec::tabs(["media", "effects"]);
     let right = DockSpec::tabs(["inspector", "ai"]);
     match key {
+        "graph" => DockSpec::column(DockSpec::row(DockSpec::tabs(["media", "effects"]), DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7), 0.2), DockSpec::tabs(["timeline"]), 0.7),
         "ai" => DockSpec::row(
             DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline"]), 0.58),
             DockSpec::tabs(["ai", "inspector"]),
             0.68,
         ),
-        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline"]), 0.58),
+        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer", "graph"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline"]), 0.58),
     }
 }
 
@@ -384,6 +389,7 @@ pub fn panel_title(id: &str) -> String {
         "timeline" => "Таймлайн",
         "inspector" => "Инспектор",
         "ai" => "ИИ",
+        "graph" => "Граф",
         other => other,
     }
     .to_string()
@@ -440,7 +446,7 @@ pub fn theme(cfg: &Config) -> String {
             ("clip-title", Rgba::rgb(0x9b, 0x6b, 0xf2).mix(shell, 0.4).hex()),
             ("clip-color", p.warning.mix(shell, 0.5).hex()),
         ])
-        .base(concat!(
+        .base(&format!("{}\n{}", concat!(
             include_str!("../../styles/base/reset.mss"),
             "\n",
             include_str!("../../styles/base/layout.mss"),
@@ -458,7 +464,7 @@ pub fn theme(cfg: &Config) -> String {
             include_str!("../../styles/components/statusbar.mss"),
             "\n",
             include_str!("../../styles/app.mss"),
-        ))
+        ), syn_node_editor::STYLES))
         .build()
 }
 
