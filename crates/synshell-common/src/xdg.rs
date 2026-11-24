@@ -29,6 +29,27 @@ pub struct DesktopEntry {
     /// Приложение Android (syndroid): из какого Android. Такие ярлыки лежат отдельно от программ Linux
     /// (`$XDG_DATA_HOME/syndroid/applications/<экземпляр>/`), и меню показывает их своим разделом.
     pub android: Option<AndroidOrigin>,
+    /// Программа Windows (Wine): ярлыки `winemenubuilder` (`applications/wine/…`), `Exec=wine …`,
+    /// `env WINEPREFIX=… wine …`, syn-wine. Меню показывает их своим разделом «Windows».
+    pub wine: Option<WineOrigin>,
+}
+
+/// Префикс Wine, в котором живёт программа Windows.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct WineOrigin {
+    /// Путь префикса (`WINEPREFIX=` из `Exec` или `X-Syn-Wine-Prefix`); пусто — префикс по умолчанию (`~/.wine`).
+    pub prefix: String,
+}
+
+impl WineOrigin {
+    /// Название префикса для людей: имя каталога (`~/.wine` → «Wine»).
+    pub fn title(&self) -> String {
+        let p = self.prefix.trim_end_matches('/');
+        match p.rsplit('/').next() {
+            None | Some("") | Some(".wine") => "Wine".into(),
+            Some(n) => n.trim_start_matches('.').to_string(),
+        }
+    }
 }
 
 /// Экземпляр Android, которому принадлежит приложение.
@@ -41,6 +62,11 @@ pub struct AndroidOrigin {
 }
 
 impl DesktopEntry {
+    /// Программа Linux — не приложение Android и не программа Windows.
+    pub fn is_linux(&self) -> bool {
+        self.android.is_none() && self.wine.is_none()
+    }
+
     /// Команда запуска без кодов полей (`%u`, `%F`…).
     pub fn command(&self) -> String {
         let mut out = String::new();
@@ -335,7 +361,78 @@ pub fn parse_desktop_file(path: &Path, id: String, locales: &[String]) -> Option
             instance: i.clone(),
             title: kv.get("X-Syndroid-Title").cloned().unwrap_or_else(|| i.clone()),
         }),
+        wine: wine_origin(path, kv.get("Exec").map(String::as_str).unwrap_or(""), kv.get("X-Syn-Wine-Prefix")),
     })
+}
+
+/// Программа Windows ли это (и в каком префиксе): `X-Syn-Wine-Prefix=`, ярлык из `applications/wine/`
+/// (`winemenubuilder`) или `Exec`, запускающий wine (`env WINEPREFIX=… wine …`, `/usr/bin/wine64 …`, `syn-wine …`).
+/// Служебные программы Wine (`winecfg`, `winetricks`, `wineconsole`) — тоже сюда.
+fn wine_origin(path: &Path, exec: &str, prefix_key: Option<&String>) -> Option<WineOrigin> {
+    if let Some(p) = prefix_key {
+        return Some(WineOrigin { prefix: p.clone() });
+    }
+    let mut prefix = String::new();
+    let mut words = shell_words(exec).into_iter();
+    let mut prog = None;
+    while let Some(w) = words.next() {
+        if w == "env" || w.starts_with('-') {
+            continue;
+        }
+        if let Some((k, v)) = w.split_once('=') {
+            if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                if k == "WINEPREFIX" {
+                    prefix = v.to_string();
+                }
+                continue;
+            }
+        }
+        prog = Some(w);
+        break;
+    }
+    let base = prog.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_ascii_lowercase()).unwrap_or_default();
+    let wine_prog = base == "syn-wine" || (base.starts_with("wine") && base != "wineserver");
+    let from_menubuilder = path.components().collect::<Vec<_>>().windows(2).any(|w| w[0].as_os_str() == "applications" && w[1].as_os_str() == "wine");
+    (wine_prog || from_menubuilder).then_some(WineOrigin { prefix })
+}
+
+/// Слова `Exec` с учётом кавычек и `\\` (для разбора, не для запуска).
+fn shell_words(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut q: Option<char> = None;
+    let mut any = false;
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        match (q, c) {
+            (None, ' ' | '\t') => {
+                if any {
+                    out.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            (None, '"' | '\'') => {
+                q = Some(c);
+                any = true;
+            }
+            (Some(x), c) if c == x => q = None,
+            (Some('\''), c) => cur.push(c),
+            (_, '\\') => {
+                if let Some(n) = it.next() {
+                    cur.push(n);
+                }
+                any = true;
+            }
+            (_, c) => {
+                cur.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        out.push(cur);
+    }
+    out
 }
 
 /// Каталог ярлыков приложений Android (syndroid): `<экземпляр>/<пакет>.desktop`. Не входит в
@@ -347,9 +444,9 @@ pub fn android_apps_dir() -> PathBuf {
 /// Вторая строка карточки окна: у окон приложений Android — из какого Android (их заголовки от hwcomposer
 /// образа бывают служебными, «Waydroid»), у остальных — заголовок окна.
 pub fn window_subtitle(entry: Option<&DesktopEntry>, title: &str) -> String {
-    match entry.and_then(|e| e.android.as_ref()) {
-        Some(a) => format!("Android · {}", a.title),
-        None => title.to_string(),
+    match entry {
+        Some(DesktopEntry { android: Some(a), .. }) => format!("Android · {}", a.title),
+        _ => title.to_string(),
     }
 }
 
@@ -359,6 +456,11 @@ pub fn android_instances(apps: &[DesktopEntry]) -> Vec<AndroidOrigin> {
     v.sort_by(|a, b| a.title.cmp(&b.title).then_with(|| a.instance.cmp(&b.instance)));
     v.dedup();
     v
+}
+
+/// Есть ли видимые программы Windows (Wine) — для раздела «Windows» в меню.
+pub fn has_wine_apps(apps: &[DesktopEntry]) -> bool {
+    apps.iter().any(|e| !e.no_display && e.wine.is_some())
 }
 
 /// Все приложения из `$XDG_DATA_DIRS/applications`.
@@ -849,4 +951,37 @@ pub fn path_from_uri(uri: &str) -> Option<PathBuf> {
     }
     use std::os::unix::ffi::OsStringExt;
     Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
+#[cfg(test)]
+mod wine_tests {
+    use super::*;
+
+    fn w(path: &str, exec: &str) -> Option<WineOrigin> {
+        wine_origin(Path::new(path), exec, None)
+    }
+
+    #[test]
+    fn wine_shortcuts() {
+        let home = "/home/u/.local/share/applications";
+        // winemenubuilder: env WINEPREFIX="…" wine C:\\…
+        let o = w(&format!("{home}/wine/Programs/RAD Studio/Delphi.desktop"), r#"env WINEPREFIX="/home/u/.wine-rad" wine C:\\\\Program\\ Files\\\\bds.exe"#).unwrap();
+        assert_eq!(o.prefix, "/home/u/.wine-rad");
+        assert_eq!(o.title(), "wine-rad");
+        // ярлык из applications/wine без узнаваемого Exec — всё равно Windows
+        assert!(w(&format!("{home}/wine/Programs/x.desktop"), "start.exe /Unix x.lnk").is_some());
+        // свой ярлык игры: Exec=wine "…/Fable.exe"
+        let o = w(&format!("{home}/fable.desktop"), r#"wine "/home/u/Games/Fable/Fable.exe""#).unwrap();
+        assert_eq!((o.prefix.as_str(), o.title().as_str()), ("", "Wine"));
+        assert!(w("/usr/share/applications/a.desktop", "/usr/bin/wine64 a.exe").is_some());
+        assert!(w("/usr/share/applications/a.desktop", "syn-wine game.exe").is_some());
+        assert!(w("/usr/share/applications/winecfg.desktop", "winecfg").is_some());
+        // программы Linux
+        assert!(w("/usr/share/applications/steam.desktop", "steam steam://rungameid/1").is_none());
+        assert!(w("/usr/share/applications/a.desktop", "env FOO=1 firefox %u").is_none());
+        assert!(w("/usr/share/applications/a.desktop", "wineserver -k").is_none());
+        assert!(w("/home/u/.local/share/applications-wine/a.desktop", "foo").is_none());
+        // явная метка syn-wine
+        assert_eq!(wine_origin(Path::new("/a.desktop"), "foo", Some(&"/p/games".to_string())).unwrap().title(), "games");
+    }
 }

@@ -741,10 +741,10 @@ fn mark_range(w: &mut DeskWidget, r: &std::ops::Range<usize>) {
 }
 
 /// Программы общей сетки значков: `[mobile] home_apps` или все программы
-/// Linux по алфавиту (приложения Android — в меню, своим разделом).
+/// Linux по алфавиту (приложения Android и программы Windows — в меню, своими разделами).
 pub fn home_entries(cfg: &synshell_common::Config) -> Vec<crate::xdg::DesktopEntry> {
     if cfg.mobile.home_apps.is_empty() {
-        let mut v: Vec<_> = crate::xdg::apps().iter().filter(|a| !a.no_display && a.android.is_none()).cloned().collect();
+        let mut v: Vec<_> = crate::xdg::apps().iter().filter(|a| !a.no_display && a.is_linux()).cloned().collect();
         v.sort_by_key(|a| a.name.to_lowercase());
         v
     } else {

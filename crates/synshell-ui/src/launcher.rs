@@ -160,12 +160,14 @@ pub fn search(ctx: &ShellCtx, query: &str) -> Vec<Item> {
 /// Приложения раздела меню: `favorites`, `recent`, `all` или категория.
 fn section_items(ctx: &ShellCtx, key: &str) -> Vec<Item> {
     let apps = xdg::apps();
-    // Программы Linux; приложения Android — только в разделах своих экземпляров (`android:<экземпляр>`)
-    let visible = || apps.iter().filter(|e| !e.no_display && e.android.is_none());
+    // Программы Linux; программы Windows — в разделе `windows`, приложения Android — в разделах своих
+    // экземпляров (`android:<экземпляр>`)
+    let visible = || apps.iter().filter(|e| !e.no_display && e.is_linux());
     let v: Vec<DesktopEntry> = match key {
         "favorites" => ctx.cfg().launcher.favorite_apps().iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "recent" => recent().iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "all" => visible().cloned().collect(),
+        "windows" => apps.iter().filter(|e| !e.no_display && e.android.is_none() && e.wine.is_some()).cloned().collect(),
         k if k.starts_with("android:") => {
             let inst = &k["android:".len()..];
             apps.iter().filter(|e| !e.no_display && e.android.as_ref().is_some_and(|a| a.instance == inst)).cloned().collect()
@@ -302,6 +304,8 @@ pub fn item_text(item: &Item) -> (String, String) {
             // Приложение Android — всегда с подписью, из какого Android (не путать с программами Linux)
             let sub = if let Some(a) = &e.android {
                 format!("Android · {}", a.title)
+            } else if let Some(w) = &e.wine {
+                if w.prefix.is_empty() { "Windows".to_string() } else { format!("Windows · {}", w.title()) }
             } else if !e.generic_name.is_empty() && e.generic_name != e.name {
                 e.generic_name.clone()
             } else {
@@ -470,10 +474,14 @@ fn sidebar_entries(ctx: &ShellCtx) -> Vec<(String, String, String)> {
     entries.push(("all".into(), t!("Все приложения").into(), mi::APPS.into()));
     if cfg.launcher.show_categories {
         for (key, label, glyph) in xdg::CATEGORIES {
-            if apps.iter().any(|e| !e.no_display && e.android.is_none() && e.main_category() == *key) {
+            if apps.iter().any(|e| !e.no_display && e.is_linux() && e.main_category() == *key) {
                 entries.push((key.to_string(), label.to_string(), glyph.to_string()));
             }
         }
+    }
+    // Windows (Wine) — свой раздел
+    if xdg::has_wine_apps(&apps) {
+        entries.push(("windows".into(), t!("Программы Windows").into(), mi::WINDOW.into()));
     }
     // Android — свои разделы, по экземпляру
     let instances = xdg::android_instances(&apps);

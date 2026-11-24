@@ -554,6 +554,12 @@ Text {
 .start-chip-on .start-chip-icon { icon-color: var(--accent-fg); }
 .start-android-badge { padding: 2px; border-radius: 999px; background-color: #3DDC84; }
 .start-android-badge-icon { icon-size: 12px; icon-color: #10251a; }
+/* Windows (Wine) — синий значок и рамка */
+.start-chip-windows { border-color: #3C9CF066; }
+.start-chip-windows .start-chip-icon { icon-color: #3C9CF0; }
+.start-chip-on .start-chip-icon { icon-color: var(--accent-fg); }
+.start-windows-badge { background-color: #3C9CF0; }
+.start-windows-badge-icon { icon-color: #0b1a2a; }
 
 .start-pinned { accent-color: var(--accent); border-color: var(--border); }
 .start-tile {

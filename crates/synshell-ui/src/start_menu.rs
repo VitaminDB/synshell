@@ -13,6 +13,7 @@
 //! приложения значками по страницам во всю высоту, `list` — как на
 //! рабочем столе.
 //!
+//! Программы Windows (Wine, `xdg::WineOrigin`) — чип «Windows», без деления по префиксам.
 //! Приложения Android (syndroid) — отдельно от программ Linux: под поиском чипы «Linux» и «Android»
 //! (по чипу на каждый экземпляр Android, если их несколько); «Все приложения» и страницы телефона
 //! показывают выбранный источник, в смешанных местах (закреплённые, рекомендуемые) у значка Android —
@@ -39,21 +40,39 @@ use crate::launchers::Launchable;
 use crate::ui::{icon, mi, rx, InputArea};
 use crate::xdg::{self, DesktopEntry};
 
-/// Чьи приложения показывает меню: программы Linux или экземпляр Android (`xdg::AndroidOrigin::instance`).
+/// Чьи приложения показывает меню: программы Linux, программы Windows (Wine) или экземпляр Android
+/// (`xdg::AndroidOrigin::instance`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Source {
     Linux,
+    Windows,
     Android(String),
 }
 
 impl Source {
     fn matches(&self, e: &DesktopEntry) -> bool {
-        match (self, &e.android) {
-            (Source::Linux, None) => true,
-            (Source::Android(i), Some(a)) => a.instance == *i,
-            _ => false,
+        match self {
+            Source::Linux => e.is_linux(),
+            Source::Windows => e.android.is_none() && e.wine.is_some(),
+            Source::Android(i) => e.android.as_ref().is_some_and(|a| a.instance == *i),
         }
     }
+}
+
+/// Источники кроме Linux, у которых есть программы: «Windows» (Wine) и экземпляры Android
+/// (несколько — по названию каждого). Пусто — чипов нет.
+fn extra_sources(apps: &[DesktopEntry]) -> Vec<(Source, String, &'static str)> {
+    let mut v = Vec::new();
+    if xdg::has_wine_apps(apps) {
+        v.push((Source::Windows, "Windows".to_string(), mi::WINDOW));
+    }
+    let instances = xdg::android_instances(apps);
+    let many = instances.len() > 1;
+    for i in instances {
+        let label = if many { i.title.clone() } else { "Android".into() };
+        v.push((Source::Android(i.instance), label, mi::ANDROID));
+    }
+    v
 }
 
 /// Видимые приложения источника.
@@ -67,13 +86,9 @@ const CHIPS_H: f32 = 40.0;
 const CHIP_ROW_H: f32 = 34.0;
 const CHIP_GAP: f32 = 6.0;
 
-/// Подписи чипов источников: «Linux» и Android (несколько экземпляров — по названию каждого).
-fn chip_labels(instances: &[xdg::AndroidOrigin]) -> Vec<String> {
-    let mut v = vec!["Linux".to_string()];
-    for i in instances {
-        v.push(if instances.len() > 1 { i.title.clone() } else { "Android".into() });
-    }
-    v
+/// Подписи чипов источников: «Linux», «Windows», Android (несколько экземпляров — по названию каждого).
+fn chip_labels(extra: &[(Source, String, &'static str)]) -> Vec<String> {
+    std::iter::once("Linux".to_string()).chain(extra.iter().map(|(_, l, _)| l.clone())).collect()
 }
 
 /// Сколько строк займут чипы в ширине `avail`. Ширина подписи — по числу знаков с запасом (шрифт 13 px):
@@ -214,7 +229,7 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
     };
     // Рабочий стол: размер меню — уголком, живьём.
     let msize = crate::menu_prefs::size_signal(&ctx);
-    let instances = xdg::android_instances(&xdg::apps());
+    let extra = extra_sources(&xdg::apps());
     create_effect(move || {
         let q = st.query.get();
         st.results.set(launcher::search(&ctx, &q));
@@ -301,11 +316,11 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
             let close = move || st.settings.set(false);
             return Box::new(Column::new().child(crate::menu_prefs::view(ctx, msize, close)).class("start").style("height", StyleValue::px(h)).style("width", StyleValue::px(w - 24.0)));
         }
-        let chips_h = if instances.is_empty() {
+        let chips_h = if extra.is_empty() {
             0.0
         } else {
             // меню: ширина листа минус поля `.start`
-            let rows = chip_rows(&chip_labels(&instances), w - 24.0 - 8.0);
+            let rows = chip_rows(&chip_labels(&extra), w - 24.0 - 8.0);
             CHIPS_H + (rows - 1) as f32 * (CHIP_ROW_H + CHIP_GAP)
         };
         // Горизонтально высоты мало: кнопки низа — справа от поиска, а не отдельной строкой.
@@ -315,8 +330,8 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
             Box::new(search(st))
         };
         let mut col = Column::new().gap(14.0).child(top);
-        if !instances.is_empty() {
-            col = col.child(chips(st, instances.clone()));
+        if !extra.is_empty() {
+            col = col.child(chips(st, extra.clone()));
         }
         let chrome = if wide { CHROME_H_WIDE } else { CHROME_H };
         col = col.child(body_ref(st, ctx, h - chrome - chips_h));
@@ -397,35 +412,32 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
     })
 }
 
-/// Номер источника для ключа перетекания: Linux — 0, Android — по экземпляру.
+/// Номер источника для ключа перетекания: Linux — 0, Android — по экземпляру (1…1000), Windows — 1001.
 fn source_key(s: &Source) -> u64 {
     match s {
         Source::Linux => 0,
+        Source::Windows => 1001,
         Source::Android(i) => 1 + i.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) % 1000,
     }
 }
 
-/// Чипы источников под поиском: «Linux», «Android» (несколько экземпляров — по названию каждого).
-fn chips(st: St, instances: Vec<xdg::AndroidOrigin>) -> impl Widget {
+/// Чипы источников под поиском: «Linux», «Windows», «Android» (несколько экземпляров — по названию каждого).
+fn chips(st: St, extra: Vec<(Source, String, &'static str)>) -> impl Widget {
     rx(move || {
         let cur = st.source.get();
         let searching = !st.query.get().trim().is_empty();
-        let labels = chip_labels(&instances);
-        let mut items: Vec<(Source, String, &'static str)> = vec![(Source::Linux, labels[0].clone(), mi::COMPUTER)];
-        for (i, label) in instances.iter().zip(labels.into_iter().skip(1)) {
-            items.push((Source::Android(i.instance.clone()), label, mi::ANDROID));
-        }
+        let mut items: Vec<(Source, String, &'static str)> = vec![(Source::Linux, "Linux".into(), mi::COMPUTER)];
+        items.extend(extra.iter().cloned());
         // Не влезли в ширину меню (несколько экземпляров Android с длинными названиями) — переносятся
         let mut row = Flex::row().gap(CHIP_GAP).wrap().cross_axis_alignment(CrossAxisAlignment::Center);
         for (src, label, glyph) in items {
             let on = cur == src && !searching;
-            let android = matches!(src, Source::Android(_));
-            let class = match (on, android) {
-                (true, true) => "start-chip start-chip-android start-chip-on",
-                (true, false) => "start-chip start-chip-on",
-                (false, true) => "start-chip start-chip-android",
-                (false, false) => "start-chip",
+            let kind = match src {
+                Source::Linux => "",
+                Source::Windows => " start-chip-windows",
+                Source::Android(_) => " start-chip-android",
             };
+            let class = format!("start-chip{kind}{}", if on { " start-chip-on" } else { "" });
             row = row.child(
                 GestureDetector::new()
                     .on_click(move || {
@@ -453,19 +465,29 @@ fn chips(st: St, instances: Vec<xdg::AndroidOrigin>) -> impl Widget {
     })
 }
 
-/// Значок приложения; `badge` — у приложений Android метка Android в углу (там, где они рядом с
-/// программами Linux: закреплённые, рекомендуемые).
+/// Значок приложения; `badge` — у приложений Android и программ Windows метка в углу (там, где они рядом
+/// с программами Linux: закреплённые, рекомендуемые).
 fn app_icon(e: &DesktopEntry, class: &str, size: f32, badge: bool) -> Box<dyn Widget> {
     let l = Launchable::from_entry(e);
     let ic = crate::launchers::icon_widget(&l.icon, &None, class, size);
-    if e.android.is_none() || !badge {
+    let (glyph, kind) = if e.android.is_some() {
+        (mi::ANDROID, "android")
+    } else if e.wine.is_some() {
+        (mi::WINDOW, "windows")
+    } else {
+        return ic;
+    };
+    if !badge {
         return ic;
     }
     let b = (size * 0.42).round();
     Box::new(
         Stack::new()
             .child(ic)
-            .child(Positioned::new(DecoratedBox::new().child(icon(mi::ANDROID).class("start-android-badge-icon")).class("start-android-badge")).at(size - b * 0.8, size - b * 0.8))
+            .child(
+                Positioned::new(DecoratedBox::new().child(icon(glyph).class(format!("start-android-badge-icon start-{kind}-badge-icon"))).class(format!("start-android-badge start-{kind}-badge")))
+                    .at(size - b * 0.8, size - b * 0.8),
+            )
             .style("width", StyleValue::px(size))
             .style("height", StyleValue::px(size)),
     )
@@ -1043,6 +1065,7 @@ fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let source = st.source.get_untracked();
     let title = match &source {
         Source::Linux => t!("Все приложения").to_string(),
+        Source::Windows => t!("Программы Windows").to_string(),
         Source::Android(i) => {
             let t = xdg::android_instances(&xdg::apps()).into_iter().find(|a| a.instance == *i).map(|a| a.title).unwrap_or_default();
             format!("Android · {t}")
