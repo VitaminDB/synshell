@@ -190,3 +190,11 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .fp-sample { font-size: 24px; color: var(--text); }
 .fp-name { font-size: 11px; color: var(--text-muted); }
 .clip-key { font-size: 10px; color: #FFD54F; }
+.curves { padding: 8px 10px; }
+.cv-area { background-color: var(--bg-panel); border-radius: 8px; border-width: 1px; border-color: var(--border-soft); }
+.cv-chip { height: 22px; padding: 0 9px; border-radius: 11px; border-width: 1px; border-color: var(--border-soft); justify-content: center; }
+.cv-chip:hover { background-color: var(--surface-hover); }
+.cv-chip-on { background-color: var(--primary-soft); border-color: var(--primary); }
+.cv-chip-text { font-size: 11px; color: var(--text); }
+.cv-hint { font-size: 11px; color: var(--text-muted); }
+.cv-axis { font-size: 10px; color: var(--text-muted); font-family: monospace; }

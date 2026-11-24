@@ -9,6 +9,7 @@ mod thumbs;
 mod wave;
 pub mod timeline;
 mod fontpick;
+mod curves;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -135,6 +136,9 @@ pub struct St {
     /// Окно выбора шрифта: для какого титра, строка поиска.
     pub font_pick: RwSignal<Option<u64>>,
     pub font_query: RwSignal<String>,
+    /// Панель «Кривые»: выбранный параметр и перетаскивание ключа или ручки.
+    pub curve_param: RwSignal<Option<String>>,
+    pub curve_drag: RwSignal<Option<curves::Drag>>,
 }
 
 impl St {
@@ -173,6 +177,8 @@ impl St {
             rename_track: use_signal(None),
             font_pick: use_signal(None),
             font_query: use_signal(String::new()),
+            curve_param: use_signal(None),
+            curve_drag: use_signal(None),
         }
     }
 
@@ -470,13 +476,13 @@ pub fn layout(key: &str) -> DockSpec {
     let left = DockSpec::tabs(["media", "effects"]);
     let right = DockSpec::tabs(["inspector", "ai"]);
     match key {
-        "graph" => DockSpec::column(DockSpec::row(DockSpec::tabs(["media", "effects"]), DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7), 0.2), DockSpec::tabs(["timeline"]), 0.7),
+        "graph" => DockSpec::column(DockSpec::row(DockSpec::tabs(["media", "effects"]), DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7), 0.2), DockSpec::tabs(["timeline", "curves"]), 0.7),
         "ai" => DockSpec::row(
-            DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline"]), 0.58),
+            DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline", "curves"]), 0.58),
             DockSpec::tabs(["ai", "inspector"]),
             0.68,
         ),
-        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer", "graph"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline"]), 0.58),
+        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer", "graph"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline", "curves"]), 0.58),
     }
 }
 
@@ -489,6 +495,7 @@ pub fn panel_title(id: &str) -> String {
         "inspector" => "Инспектор",
         "ai" => "ИИ",
         "graph" => "Граф",
+        "curves" => "Кривые",
         other => other,
     }
     .to_string()

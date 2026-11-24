@@ -226,3 +226,29 @@ fn keyframe_color_interp() {
     let h = vec![crate::doc::Key { t: 0.0, v: json!(0.0), ease: "hold".into() }, crate::doc::Key { t: 1.0, v: json!(1.0), ease: "linear".into() }];
     assert_eq!(crate::doc::interp(&h, 0.9), json!(0.0));
 }
+
+#[test]
+fn eases_and_key_move() {
+    use crate::doc::ease;
+    for k in ["linear", "ease", "in", "out", "back", "elastic", "bounce", "bezier(0.25,0.1,0.25,1)"] {
+        assert!((ease(k, 0.0)).abs() < 1e-6, "{k} в 0");
+        assert!((ease(k, 1.0) - 1.0).abs() < 1e-6, "{k} в 1");
+    }
+    assert!(ease("back", 0.8) > 1.0, "перелёт");
+    // bezier(0,0,1,1) — прямая
+    assert!((ease("bezier(0,0,1,1)", 0.3) - 0.3).abs() < 1e-3);
+    let mut ed = ed_with_media(10.0);
+    run(&mut ed, "clip.add", &json!({"media": 3, "duration": 4})).unwrap();
+    let c = ed.project.tracks[0].clips[0].id;
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.x", "at": 0, "value": 0, "ease": "bezier(0.4,0,0.2,1)"})).unwrap();
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.x", "at": 2, "value": 1})).unwrap();
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.x", "at": 0, "ease": "nonsense"})).unwrap_err();
+    // value без ease — сглаживание прежнее
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.x", "at": 0, "value": 0.1})).unwrap();
+    let path = ed.project.clip(c).unwrap().keys.keys().next().unwrap().clone();
+    assert_eq!(ed.project.clip(c).unwrap().keys[&path][0].ease, "bezier(0.4,0,0.2,1)");
+    run(&mut ed, "key.move", &json!({"id": c, "param": "transform.x", "from": 2, "to": 3, "value": 0.5})).unwrap();
+    let k = &ed.project.clip(c).unwrap().keys[&path][1];
+    assert_eq!((k.t, k.v.as_f64().unwrap()), (3.0, 0.5));
+    run(&mut ed, "key.move", &json!({"id": c, "param": "transform.x", "from": 3, "to": 0})).unwrap_err();
+}

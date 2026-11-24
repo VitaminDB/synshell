@@ -21,6 +21,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "inspector" => Box::new(super::inspector::view(st)),
         "ai" => Box::new(ai(st)),
         "graph" => super::graph::panel(),
+        "curves" => Box::new(super::curves::view(st)),
         _ => Box::new(DecoratedBox::new()),
     }
 }

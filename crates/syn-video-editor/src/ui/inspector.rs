@@ -114,9 +114,9 @@ fn num(m: &Map<String, Value>, k: &str, d: f64) -> f64 {
 }
 
 /// Параметр эффекта: имя, подпись, мин, макс, шаг, по умолчанию.
-type Param = (&'static str, &'static str, f64, f64, f64, f64);
+pub(super) type Param = (&'static str, &'static str, f64, f64, f64, f64);
 
-fn effect_params(kind: &str) -> &'static [Param] {
+pub(super) fn effect_params(kind: &str) -> &'static [Param] {
     match kind {
         "fade_in" | "fade_out" | "audio_fade_in" | "audio_fade_out" => &[("duration", "Длительность, с", 0.05, 5.0, 0.05, 0.5)],
         "lut" => &[("strength", "Сила", 0.0, 1.0, 0.01, 1.0)],

@@ -299,15 +299,89 @@ fn is_linear(s: &String) -> bool {
     s == "linear"
 }
 
-/// Доля пути `p` (0–1) с учётом сглаживания.
+/// Виды сглаживания (кроме `bezier(x1,y1,x2,y2)`).
+pub const EASES: &[(&str, &str)] = &[("linear", "Ровно"), ("ease", "Плавно"), ("in", "Разгон"), ("out", "Торможение"), ("back", "С перелётом"), ("elastic", "Пружина"), ("bounce", "Отскок"), ("hold", "Скачком")];
+
+/// Кривая Безье участка: `bezier(x1,y1,x2,y2)` как cubic-bezier в CSS.
+pub fn parse_bezier(s: &str) -> Option<[f64; 4]> {
+    let inner = s.trim().strip_prefix("bezier(")?.strip_suffix(')')?;
+    let v: Vec<f64> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    (v.len() == 4).then(|| [v[0].clamp(0.0, 1.0), v[1], v[2].clamp(0.0, 1.0), v[3]])
+}
+
+/// Сглаживание допустимо.
+pub fn valid_ease(s: &str) -> bool {
+    EASES.iter().any(|(k, _)| *k == s) || parse_bezier(s).is_some()
+}
+
+fn bezier(b: [f64; 4], x: f64) -> f64 {
+    let [x1, y1, x2, y2] = b;
+    let f = |t: f64, a: f64, c: f64| 3.0 * (1.0 - t) * (1.0 - t) * t * a + 3.0 * (1.0 - t) * t * t * c + t * t * t;
+    let df = |t: f64, a: f64, c: f64| 3.0 * (1.0 - t) * (1.0 - t) * a + 6.0 * (1.0 - t) * t * (c - a) + 3.0 * t * t * (1.0 - c);
+    // t по x: Ньютон, затем деление пополам, если производная мала
+    let mut t = x;
+    for _ in 0..8 {
+        let d = df(t, x1, x2);
+        if d.abs() < 1e-6 {
+            break;
+        }
+        t = (t - (f(t, x1, x2) - x) / d).clamp(0.0, 1.0);
+    }
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..20 {
+        if (f(t, x1, x2) - x).abs() < 1e-6 {
+            break;
+        }
+        if f(t, x1, x2) < x {
+            lo = t;
+        } else {
+            hi = t;
+        }
+        t = (lo + hi) / 2.0;
+    }
+    f(t, y1, y2)
+}
+
+fn bounce(p: f64) -> f64 {
+    let (n, d) = (7.5625, 2.75);
+    if p < 1.0 / d {
+        n * p * p
+    } else if p < 2.0 / d {
+        let q = p - 1.5 / d;
+        n * q * q + 0.75
+    } else if p < 2.5 / d {
+        let q = p - 2.25 / d;
+        n * q * q + 0.9375
+    } else {
+        let q = p - 2.625 / d;
+        n * q * q + 0.984375
+    }
+}
+
+/// Доля пути `p` (0–1) с учётом сглаживания (back и elastic выходят за 0–1).
 pub fn ease(kind: &str, p: f64) -> f64 {
     let p = p.clamp(0.0, 1.0);
     match kind {
         "ease" => p * p * (3.0 - 2.0 * p),
         "in" => p * p * p,
         "out" => 1.0 - (1.0 - p).powi(3),
+        "back" => {
+            let (c1, c3) = (1.70158, 2.70158);
+            1.0 + c3 * (p - 1.0).powi(3) + c1 * (p - 1.0).powi(2)
+        }
+        "elastic" => {
+            if p <= 0.0 || p >= 1.0 {
+                p
+            } else {
+                2f64.powf(-10.0 * p) * ((p * 10.0 - 0.75) * (2.0 * std::f64::consts::PI / 3.0)).sin() + 1.0
+            }
+        }
+        "bounce" => bounce(p),
         "hold" => 0.0,
-        _ => p,
+        k => match parse_bezier(k) {
+            Some(b) => bezier(b, p),
+            None => p,
+        },
     }
 }
 

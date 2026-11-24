@@ -8,9 +8,8 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, Key, Source};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&SET, &REMOVE, &CLEAR, &LIST];
+pub static COMMANDS: &[&Command] = &[&SET, &MOVE, &REMOVE, &CLEAR, &LIST];
 
-const EASES: &[&str] = &["linear", "ease", "in", "out", "hold"];
 
 /// Значение по умолчанию параметра эффекта `kind` или поля титра.
 pub fn default_value(kind: &str, name: &str, p: &crate::doc::Project) -> Option<Value> {
@@ -87,8 +86,8 @@ static SET: Command = Command {
     title: "Ключевой кадр",
     shortcut: "",
     keywords: "key keyframe ключ анимация движение масштаб поворот прозрачность цвет",
-    help: "Поставить ключевой кадр параметра клипа. param: transform.x|y|scale|rotation|opacity (x, y — доли кадра от центра), color.brightness|contrast|saturation|temperature, blur.radius, vignette.amount, sharpen.amount, lut.strength, style.size|color (титр) или e<id>.<поле>; нет эффекта — добавится. at — время таймлайна (по умолчанию позиция), value — значение (по умолчанию текущее), ease — сглаживание до следующего ключа: linear, ease, in, out, hold. Между ключами значение меняется плавно.",
-    args: &[req("id", Ty::Id, "клип (c…)"), req("param", Ty::Str, "параметр"), arg("at", Ty::Time, "момент"), arg("value", Ty::Any, "значение (число или #цвет)"), arg("ease", Ty::Choice(EASES), "сглаживание")],
+    help: "Поставить ключевой кадр параметра клипа. param: transform.x|y|scale|rotation|opacity (x, y — доли кадра от центра), color.brightness|contrast|saturation|temperature, blur.radius, vignette.amount, sharpen.amount, lut.strength, style.size|color (титр) или e<id>.<поле>; нет эффекта — добавится. at — время таймлайна (по умолчанию позиция), value — значение (по умолчанию текущее), ease — сглаживание до следующего ключа: linear, ease (плавно), in (разгон), out (торможение), back (с перелётом), elastic (пружина), bounce (отскок), hold (скачком), bezier(x1,y1,x2,y2) — своя кривая; без value у существующего ключа меняется только сглаживание. Между ключами значение меняется плавно.",
+    args: &[req("id", Ty::Id, "клип (c…)"), req("param", Ty::Str, "параметр"), arg("at", Ty::Time, "момент"), arg("value", Ty::Any, "значение (число или #цвет)"), arg("ease", Ty::Str, "сглаживание: linear, ease, in, out, back, elastic, bounce, hold или bezier(x1,y1,x2,y2)")],
     danger: false,
     run: set,
 };
@@ -96,7 +95,12 @@ static SET: Command = Command {
 fn set(ed: &mut Editor, a: &Args) -> Res {
     let cid = a.need_id("id")?;
     let param = a.need_str("param")?;
-    let ease = a.str("ease")?.unwrap_or_else(|| "linear".into());
+    let ease = a.str("ease")?;
+    if let Some(e) = &ease {
+        if !crate::doc::valid_ease(e) {
+            return Err(format!("сглаживание «{e}»: linear, ease, in, out, back, elastic, bounce, hold или bezier(x1,y1,x2,y2)"));
+        }
+    }
     // всё проверяется до правки: ошибка не оставляет шага в истории
     let target = resolve(&ed.project, cid, &param)?;
     let c = ed.project.clip(cid).unwrap().clone();
@@ -124,7 +128,9 @@ fn set(ed: &mut Editor, a: &Args) -> Res {
     let half = 0.5 / ed.project.settings.fps.max(1.0);
     let cm = ed.project.clip_mut(cid).unwrap();
     let keys = cm.keys.entry(path.clone()).or_default();
+    let old = keys.iter().find(|k| (k.t - lt).abs() <= half).map(|k| k.ease.clone());
     keys.retain(|k| (k.t - lt).abs() > half);
+    let ease = ease.or(old).unwrap_or_else(|| "linear".into());
     keys.push(Key { t: lt, v: v.clone(), ease });
     keys.sort_by(|a, b| a.t.total_cmp(&b.t));
     let n = keys.len();
@@ -246,4 +252,47 @@ fn list(ed: &mut Editor, a: &Args) -> Res {
         lines.push(format!("{p}: {}", ks.join(", ")));
     }
     Ok(Out::with(lines.join("\n"), json!(c.keys)))
+}
+
+static MOVE: Command = Command {
+    id: "key.move",
+    category: "Анимация",
+    title: "Сдвинуть ключ",
+    shortcut: "",
+    keywords: "key move сдвинуть ключ время значение",
+    help: "Сдвинуть ключевой кадр параметра: from — его время (таймлайн), to — новое время, value — новое значение (можно одно из двух). Внутри клипа, не поверх соседнего ключа.",
+    args: &[req("id", Ty::Id, "клип (c…)"), req("param", Ty::Str, "параметр (как в key.set)"), req("from", Ty::Time, "время ключа"), arg("to", Ty::Time, "новое время"), arg("value", Ty::Any, "новое значение")],
+    danger: false,
+    run: move_key,
+};
+
+fn move_key(ed: &mut Editor, a: &Args) -> Res {
+    let cid = a.need_id("id")?;
+    let param = a.need_str("param")?;
+    let c = ed.project.clip(cid).ok_or_else(|| format!("нет клипа c{cid}"))?.clone();
+    let path = existing(&c, &param).filter(|p| c.keys.contains_key(p)).ok_or_else(|| format!("у c{cid} нет ключей {param}"))?;
+    let from = local(ed, &c, a.time("from")?);
+    let half = 0.5 / ed.project.settings.fps.max(1.0);
+    let i = c.keys[&path].iter().position(|k| (k.t - from).abs() <= half).ok_or_else(|| format!("в {} нет ключа {path}", tc(c.start + from)))?;
+    let to = match a.time("to")? {
+        Some(t) => local(ed, &c, Some(t)),
+        None => c.keys[&path][i].t,
+    };
+    if c.keys[&path].iter().enumerate().any(|(j, k)| j != i && (k.t - to).abs() <= half) {
+        return Err(format!("в {} уже есть ключ {path}", tc(c.start + to)));
+    }
+    let value = a.value("value").filter(|v| !v.is_null());
+    if let Some(v) = &value {
+        if !(v.is_number() || v.as_str().is_some_and(|s| s.starts_with('#'))) {
+            return Err(format!("value — число или цвет #rrggbb, а не {v}"));
+        }
+    }
+    ed.begin("Сдвинуть ключ");
+    let keys = ed.project.clip_mut(cid).unwrap().keys.get_mut(&path).unwrap();
+    keys[i].t = to;
+    if let Some(v) = value {
+        keys[i].v = v;
+    }
+    keys.sort_by(|a, b| a.t.total_cmp(&b.t));
+    Ok(Out::text(format!("Ключ {path}: {} → {}", tc(c.start + from), tc(c.start + to))))
 }
