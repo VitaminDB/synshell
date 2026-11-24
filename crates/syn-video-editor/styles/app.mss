@@ -148,3 +148,4 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .graph-head .ne-run-btn--play.ne-run-btn--active { background-color: var(--success-soft); color: var(--success); box-shadow: none; }
 .graph-head .ne-run-btn--pause.ne-run-btn--active { background-color: var(--warning-soft); color: var(--warning); }
 .graph-head .ne-run-btn--stop.ne-run-btn--active { background-color: var(--surface-hover); color: var(--error); }
+.clip-drop { background-color: var(--primary-soft); border-width: 2px; border-color: var(--primary); }

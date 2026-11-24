@@ -100,6 +100,8 @@ pub struct St {
     pub exporting: RwSignal<Option<f32>>,
     /// Ширина плиток медиатеки, пикс. (ползунок).
     pub tile_size: RwSignal<f32>,
+    /// Превью броска на таймлайн: x и y в поле, длина (с), подпись.
+    pub drop_hint: RwSignal<Option<(f32, f32, f64, String)>>,
 }
 
 impl St {
@@ -125,6 +127,7 @@ impl St {
             thumbs: use_signal(0),
             exporting: use_signal(None),
             tile_size: use_signal(110.0),
+            drop_hint: use_signal(None),
         }
     }
 

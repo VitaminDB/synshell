@@ -180,7 +180,13 @@ pub fn panel() -> Box<dyn Widget> {
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(tabs(ws)).child(DecoratedBox::new().class("grow")).child(DecoratedBox::new().class("graph-zoom").child(syn_node_editor::canvas::zoom_controls(ctx))).child(DecoratedBox::new().class("toolbar-sep")).child(syn_node_editor::run_controls::view(ctx))))
-                    .child(DecoratedBox::new().class("grow").child(syn_node_editor::canvas::view_bare(ctx, Vec::new()))),
+                    // медиа из медиатеки или файл из проводника — нода «Файл» в точке броска
+                    .child(DecoratedBox::new().class("grow").child(
+                        DropArea::new()
+                            .accept_types(vec![super::panels::DRAG_MEDIA.to_string(), syngui::DragData::TYPE_FILE.to_string()])
+                            .on_drop_positioned(move |info: syngui::widgets::overlay::DropInfo| drop_file(ctx, &info.data, info.local_position))
+                            .child(syn_node_editor::canvas::view_bare(ctx, Vec::new())),
+                    )),
             ),
             None => Box::new(Center::new().child(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Нет открытого графа").class("panel-empty")).child(Button::new("Новый граф").on_click(move || {
                 ws.new_untitled();
@@ -213,4 +219,23 @@ fn tabs(ws: EditorWorkspace) -> impl Widget {
         }));
         vec![Box::new(row)]
     })
+}
+
+/// Бросок на холст: по ноде «Файл» на каждый файл, в точке броска (лесенкой).
+fn drop_file(ctx: syn_node_editor::NodeEditorCtx, data: &syngui::DragData, at: Point) {
+    let paths: Vec<PathBuf> = if data.drag_type == super::panels::DRAG_MEDIA {
+        data.payload.trim().parse::<u64>().ok().and_then(|id| ed().project.media(id).map(|m| m.path.clone())).into_iter().collect()
+    } else {
+        data.payload.lines().map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).collect()
+    };
+    let (pan, zoom) = (ctx.pan.get_untracked(), ctx.zoom.get_untracked().max(0.01));
+    for (i, p) in paths.into_iter().enumerate() {
+        let world = Point::new((at.x - pan.x) / zoom + i as f32 * 24.0, (at.y - pan.y) / zoom + i as f32 * 24.0);
+        let id = ctx.add_node(NodeKind::FlowFile, world);
+        if let Some(n) = ctx.find_node(id) {
+            if let Some(syn_node_editor::types::FieldValue::Text(s)) = n.fields.lock().unwrap().get("path") {
+                s.set(p.display().to_string());
+            }
+        }
+    }
 }

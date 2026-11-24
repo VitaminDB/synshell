@@ -147,7 +147,7 @@ fn zoom_row(ctx: NodeEditorCtx) -> Row {
         .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let z = ctx_in.zoom.get();
             let pct = (z * 100.0).round() as i32;
-            vec![Box::new(Text::new(format!("{}%", pct)).class("node-editor-toolbar-zoom"))]
+            vec![Box::new(Center::new().child(Text::new(format!("{}%", pct)).class("node-editor-toolbar-zoom")))]
         }))
         .class("node-editor-toolbar-zoom-host");
 

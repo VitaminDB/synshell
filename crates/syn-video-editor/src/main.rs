@@ -256,6 +256,7 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .app_id("syn-video-editor")
         .size(1600, 1000)
         .min_size(900, 600)
+        .maximized(std::env::var("SYN_VIDEO_EDITOR_MAXIMIZED").map(|v| v != "0").unwrap_or(true))
         .frameless()
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))

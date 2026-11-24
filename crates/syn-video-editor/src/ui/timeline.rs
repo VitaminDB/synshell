@@ -114,6 +114,13 @@ pub fn view(st: St) -> impl Widget {
             }
             y += h;
         }
+        // превью броска: клип на дорожке под курсором
+        if let Some((hx, hy, dur, label)) = st.drop_hint.get() {
+            if let Some((row_y, row_h)) = row_at(&order, p, hy) {
+                let x = (hx.max(0.0) / zoom).max(0.0) as f32 * zoom;
+                field = field.child(Positioned::new(DecoratedBox::new().class("clip clip-drop").child(Text::new(label).max_lines(1).elide(Elide::End).class("clip-text"))).at(x + 1.0, row_y + 3.0).dimensions((dur as f32 * zoom).max(8.0), row_h - 6.0));
+            }
+        }
         // позиция воспроизведения
         let px = e.playhead as f32 * zoom;
         field = field.child(Positioned::new(DecoratedBox::new().class("tl-playhead")).at(px, 0.0).dimensions(2.0, height));
@@ -126,7 +133,14 @@ pub fn view(st: St) -> impl Widget {
         // бросок медиа из медиатеки или клипа: время и дорожка — по точке
         let surface = DropArea::new()
             .accept_types(vec![super::panels::DRAG_MEDIA.to_string(), DRAG_CLIP.to_string()])
-            .on_drop_positioned(move |info: syngui::widgets::overlay::DropInfo| on_drop(st, &info.data, info.local_position.x, info.local_position.y))
+            // над дорожками вместо призрака — клип нужной длины в месте броска
+            .hide_ghost()
+            .on_drag_over(move |info: syngui::widgets::overlay::DropInfo| hint(st, &info.data, info.local_position.x, info.local_position.y))
+            .on_drag_leave(move || st.drop_hint.set(None))
+            .on_drop_positioned(move |info: syngui::widgets::overlay::DropInfo| {
+                st.drop_hint.set(None);
+                on_drop(st, &info.data, info.local_position.x, info.local_position.y)
+            })
             .child(surface);
 
         vec![Box::new(
@@ -230,4 +244,45 @@ fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
         st.exec("selection.set", json!({"ids": [id]}));
     }
     st.toast.set(None);
+}
+
+/// Верх и высота дорожки под `y` поля.
+fn row_at(order: &[usize], p: &crate::doc::Project, y: f32) -> Option<(f32, f32)> {
+    let mut top = RULER;
+    for &i in order {
+        let h = row_h(p.tracks[i].kind);
+        if y >= top && y < top + h {
+            return Some((top, h));
+        }
+        top += h;
+    }
+    None
+}
+
+/// Превью броска: длина клипа и подпись; x — начало (с учётом места захвата клипа).
+fn hint(st: St, data: &DragData, x: f32, y: f32) {
+    let Ok(id) = data.payload.trim().parse::<u64>() else { return };
+    let (dur, label, x) = {
+        let e = ed();
+        if data.drag_type == super::panels::DRAG_MEDIA {
+            match e.project.media(id) {
+                Some(m) => (if m.duration > 0.0 { m.duration } else { 5.0 }, m.name(), x),
+                None => return,
+            }
+        } else {
+            match e.project.clip(id) {
+                Some(c) => {
+                    let (gid, gx) = *GRAB.lock().unwrap();
+                    let name = if c.name.is_empty() { c.media().and_then(|m| e.project.media(m)).map(|m| m.name()).unwrap_or_default() } else { c.name.clone() };
+                    (c.duration, name, if gid == id { x - gx } else { x })
+                }
+                None => return,
+            }
+        }
+    };
+    let cur = st.drop_hint.get_untracked();
+    let next = Some((x, y, dur, label));
+    if cur != next {
+        st.drop_hint.set(next);
+    }
 }
