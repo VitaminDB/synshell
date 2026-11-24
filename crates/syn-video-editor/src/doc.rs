@@ -176,6 +176,10 @@ pub struct Clip {
     /// Переход в начале клипа от предыдущего на дорожке (по центру склейки).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
+    /// Ключевые кадры: путь параметра (`e<эффект>.<параметр>`, `style.<поле>`
+    /// титра) → ключи по времени клипа.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub keys: std::collections::BTreeMap<String, Vec<Key>>,
 }
 
 fn one() -> f64 {
@@ -192,6 +196,152 @@ impl Clip {
             _ => None,
         }
     }
+
+    /// Текущее значение параметра по пути (без ключей).
+    pub fn base(&self, path: &str) -> Option<Value> {
+        let (head, name) = path.split_once('.')?;
+        if head == "style" {
+            return match &self.source {
+                Source::Title { style, .. } => style.get(name).cloned(),
+                _ => None,
+            };
+        }
+        let id: Id = head.strip_prefix('e')?.parse().ok()?;
+        self.effects.iter().find(|e| e.id == id)?.params.get(name).cloned()
+    }
+
+    /// Значение параметра в момент `lt` (время клипа): по ключам, иначе базовое.
+    pub fn value_at(&self, path: &str, lt: f64) -> Option<Value> {
+        match self.keys.get(path) {
+            Some(k) if !k.is_empty() => Some(interp(k, lt)),
+            _ => self.base(path),
+        }
+    }
+
+    /// Новые id эффектов (копия, разрез): пути ключей переименовываются вместе с ними.
+    pub fn renew_effect_ids(&mut self, mut alloc: impl FnMut() -> Id) {
+        let mut map = std::collections::HashMap::new();
+        for e in &mut self.effects {
+            let n = alloc();
+            map.insert(e.id, n);
+            e.id = n;
+        }
+        let keys = std::mem::take(&mut self.keys);
+        for (path, k) in keys {
+            let renamed = path.split_once('.').and_then(|(h, name)| h.strip_prefix('e').and_then(|s| s.parse::<Id>().ok()).map(|old| (old, name))).map(|(old, name)| match map.get(&old) {
+                Some(n) => Some(format!("e{n}.{name}")),
+                None => None,
+            });
+            match renamed {
+                Some(Some(p)) => {
+                    self.keys.insert(p, k);
+                }
+                Some(None) => {} // ключи эффекта, которого больше нет
+                None => {
+                    self.keys.insert(path, k);
+                }
+            }
+        }
+    }
+
+    /// Сдвинуть ключи на `dt` по времени клипа (правая часть разреза).
+    pub fn shift_keys(&mut self, dt: f64) {
+        for k in self.keys.values_mut() {
+            for key in k.iter_mut() {
+                key.t += dt;
+            }
+        }
+    }
+
+    /// Клип в момент `lt`: параметры с ключами заменены значениями на этот
+    /// момент (композитор читает обычные параметры и о ключах не знает).
+    pub fn at(&self, lt: f64) -> std::borrow::Cow<'_, Clip> {
+        if self.keys.is_empty() {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut c = self.clone();
+        for (path, keys) in &self.keys {
+            if keys.is_empty() {
+                continue;
+            }
+            let v = interp(keys, lt);
+            let Some((head, name)) = path.split_once('.') else { continue };
+            if head == "style" {
+                if let Source::Title { style, .. } = &mut c.source {
+                    style.insert(name.to_string(), v);
+                }
+            } else if let Some(id) = head.strip_prefix('e').and_then(|s| s.parse::<Id>().ok()) {
+                if let Some(e) = c.effects.iter_mut().find(|e| e.id == id) {
+                    e.params.insert(name.to_string(), v);
+                }
+            }
+        }
+        std::borrow::Cow::Owned(c)
+    }
+}
+
+/// Ключевой кадр: время клипа, значение (число или цвет `#rrggbb`) и
+/// сглаживание участка до следующего ключа.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Key {
+    pub t: f64,
+    pub v: Value,
+    /// linear, ease (плавно), in (разгон), out (торможение), hold (скачком).
+    #[serde(default = "linear", skip_serializing_if = "is_linear")]
+    pub ease: String,
+}
+
+fn linear() -> String {
+    "linear".into()
+}
+
+fn is_linear(s: &String) -> bool {
+    s == "linear"
+}
+
+/// Доля пути `p` (0–1) с учётом сглаживания.
+pub fn ease(kind: &str, p: f64) -> f64 {
+    let p = p.clamp(0.0, 1.0);
+    match kind {
+        "ease" => p * p * (3.0 - 2.0 * p),
+        "in" => p * p * p,
+        "out" => 1.0 - (1.0 - p).powi(3),
+        "hold" => 0.0,
+        _ => p,
+    }
+}
+
+fn hex(v: &Value) -> Option<[f64; 4]> {
+    let s = v.as_str()?.trim().trim_start_matches('#');
+    let b = |i: usize| u8::from_str_radix(s.get(i..i + 2)?, 16).ok().map(|x| x as f64);
+    match s.len() {
+        6 => Some([b(0)?, b(2)?, b(4)?, 255.0]),
+        8 => Some([b(0)?, b(2)?, b(4)?, b(6)?]),
+        _ => None,
+    }
+}
+
+/// Значение ключей в момент `t`: числа и цвета плавно, остальное — скачком.
+pub fn interp(keys: &[Key], t: f64) -> Value {
+    let first = &keys[0];
+    if t <= first.t || keys.len() == 1 {
+        return first.v.clone();
+    }
+    let last = &keys[keys.len() - 1];
+    if t >= last.t {
+        return last.v.clone();
+    }
+    let i = keys.windows(2).position(|w| t >= w[0].t && t < w[1].t).unwrap_or(0);
+    let (a, b) = (&keys[i], &keys[i + 1]);
+    let p = ease(&a.ease, (t - a.t) / (b.t - a.t).max(1e-9));
+    if let (Some(x), Some(y)) = (a.v.as_f64(), b.v.as_f64()) {
+        return serde_json::json!(x + (y - x) * p);
+    }
+    if let (Some(x), Some(y)) = (hex(&a.v), hex(&b.v)) {
+        let c: Vec<u8> = (0..4).map(|i| (x[i] + (y[i] - x[i]) * p).round() as u8).collect();
+        return Value::String(if c[3] == 255 { format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]) } else { format!("#{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3]) });
+    }
+    if p >= 1.0 { b.v.clone() } else { a.v.clone() }
 }
 
 /// Переход: вид (dissolve, dip_black, slide_left, slide_right, slide_up, slide_down,

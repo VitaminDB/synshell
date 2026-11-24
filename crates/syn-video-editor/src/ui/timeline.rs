@@ -389,6 +389,13 @@ pub fn view(st: St) -> impl Widget {
                 }).child(body);
                 let x = c.start as f32 * zoom + 1.0;
                 field = field.child(Positioned::new(body).at(x, y + 3.0).dimensions(w, h - 6.0));
+                // ключевые кадры — ромбики у нижнего края клипа
+                let mut kt: Vec<f64> = c.keys.values().flatten().map(|k| k.t).filter(|t| (0.0..=c.duration).contains(t)).collect();
+                kt.sort_by(f64::total_cmp);
+                kt.dedup_by(|a, b| ((*a - *b) * zoom as f64).abs() < 6.0);
+                for t in kt {
+                    field = field.child(Positioned::new(Text::new("\u{25C6}").class("clip-key")).at(x + t as f32 * zoom - 5.0, y + h - 17.0));
+                }
                 // ручки обрезки на краях (поверх клипа — ловят перетаскивание первыми)
                 for left in [true, false] {
                     let hx = if left { x } else { x + w - EDGE };

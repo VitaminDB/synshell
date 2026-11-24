@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use syngui::prelude::*;
+use syngui::PropertyMark;
 
 use super::{ed, St};
 use crate::doc::{tc, Source};
@@ -25,33 +26,40 @@ pub fn key() -> String {
                 Source::Color { .. } => "color".into(),
             };
             let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""))).collect();
-            format!("c{}:{src}:{}:{}:{:.4}:{:.4}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"), c.start, c.duration)
+            // с ключами — значения зависят от позиции: перестройка по ней (кадр)
+            let anim = if c.keys.is_empty() { String::new() } else { format!(":k{}:{:.0}", c.keys.values().map(Vec::len).sum::<usize>(), (e.playhead - c.start).clamp(0.0, c.duration) * p.settings.fps) };
+            format!("c{}:{src}:{}:{}:{:.4}:{:.4}{anim}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"), c.start, c.duration)
         }
         None => format!("p:{}x{}@{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.media.len(), p.tracks.len(), p.duration()),
     }
 }
 
 type Handler = Arc<dyn Fn(St, PropertyValue) + Send + Sync>;
+type MarkHandler = Arc<dyn Fn(St) + Send + Sync>;
 
 /// Строки сетки и обработчики их правок.
 #[derive(Default)]
 struct Rows {
     props: Vec<Property>,
     on: Vec<Option<Handler>>,
+    marks: Vec<Option<MarkHandler>>,
 }
 
 impl Rows {
     fn header(&mut self, name: &str) {
         self.props.push(Property::header(name));
         self.on.push(None);
+        self.marks.push(None);
     }
     fn info(&mut self, name: &str, v: impl Into<String>) {
         self.props.push(Property::text(name, v));
         self.on.push(None);
+        self.marks.push(None);
     }
     fn add(&mut self, p: Property, f: impl Fn(St, PropertyValue) + Send + Sync + 'static) {
         self.props.push(p);
         self.on.push(Some(Arc::new(f)));
+        self.marks.push(None);
     }
     /// Число в пределах: значение ровно по шагу.
     fn range(&mut self, name: &str, v: f64, min: f64, max: f64, step: f64, f: impl Fn(St, f64) + Send + Sync + 'static) {
@@ -75,6 +83,29 @@ impl Rows {
     }
     fn action(&mut self, name: &str, label: &str, f: impl Fn(St) + Send + Sync + 'static) {
         self.add(Property::action(name, label), move |st, _| f(st));
+    }
+    /// Ключ анимации у последней строки: ◇ нет ключей, ◈ есть, но не в
+    /// позиции, ◆ ключ в позиции; щелчок — поставить или убрать ключ.
+    fn key_mark(&mut self, base: &crate::doc::Clip, lt: f64, fps: f64, path: String) {
+        let half = 0.5 / fps.max(1.0);
+        let m = match base.keys.get(&path) {
+            None => PropertyMark::Empty,
+            Some(k) if k.iter().any(|k| (k.t - lt).abs() <= half) => PropertyMark::Full,
+            Some(_) => PropertyMark::Partial,
+        };
+        let cid = base.id;
+        if let Some(p) = self.props.last_mut() {
+            p.mark = Some(m);
+        }
+        if let Some(slot) = self.marks.last_mut() {
+            *slot = Some(Arc::new(move |st: St| {
+                if m == PropertyMark::Full {
+                    st.exec("key.remove", json!({"id": cid, "param": path}));
+                } else {
+                    st.exec("key.set", json!({"id": cid, "param": path}));
+                }
+            }));
+        }
     }
 }
 
@@ -122,6 +153,7 @@ pub fn view(st: St) -> impl Widget {
     // ключ пересчитывается по каждой правке, сетка — только при его смене
     create_effect(move || {
         let _ = st.rev.get();
+        let _ = st.ph.get();
         let k = key();
         if st.insp_key.get_untracked() != k {
             st.insp_key.set(k);
@@ -137,9 +169,14 @@ pub fn view(st: St) -> impl Widget {
         let clip_sel = sel.and_then(|id| proj.clip(id).cloned());
         match &clip_sel {
             None => project(&mut r, &proj),
-            Some(c) => clip(&mut r, &proj, c),
+            Some(c) => {
+                // значения — на момент позиции (ключевые кадры)
+                let lt = (ed().playhead - c.start).clamp(0.0, c.duration);
+                clip(&mut r, &proj, &c.at(lt), c, lt)
+            }
         }
         let handlers = r.on;
+        let marks = r.marks;
         let h = r.props.len() as f32 * ROW_H + 2.0;
         let grid = PropertyGrid::new()
             .properties(r.props)
@@ -149,6 +186,11 @@ pub fn view(st: St) -> impl Widget {
             .on_change(move |i, v| {
                 if let Some(Some(f)) = handlers.get(i) {
                     f(st, v);
+                }
+            })
+            .on_mark(move |i| {
+                if let Some(Some(f)) = marks.get(i) {
+                    f(st);
                 }
             })
             .class("insp-grid");
@@ -186,8 +228,20 @@ fn project(r: &mut Rows, p: &crate::doc::Project) {
     r.info("Дорожки", p.tracks.len().to_string());
 }
 
-fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip) {
+/// Правка параметра: есть ключи — ключ в позиции, иначе постоянное значение.
+fn set_or_key(st: St, cid: u64, path: &str, v: Value, fallback: impl FnOnce()) {
+    let keyed = ed().project.clip(cid).is_some_and(|c| c.keys.contains_key(path));
+    if keyed {
+        st.exec("key.set", json!({"id": cid, "param": path, "value": v}));
+    } else {
+        fallback();
+    }
+}
+
+/// `c` — клип со значениями на момент позиции, `base` — как в проекте (ключи).
+fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crate::doc::Clip, lt: f64) {
     let id = c.id;
+    let fps = p.settings.fps;
     r.header(&format!("Клип c{id}"));
     let src = match &c.source {
         Source::Media { media } => p.media(*media).map(|m| format!("m{media} {}", m.name())).unwrap_or_default(),
@@ -219,16 +273,23 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip) {
         });
         let h = p.settings.width.min(p.settings.height) as f64;
         r.range("Размер", num(style, "size", h * 0.075), 12.0, 400.0, 1.0, move |st, x| {
-            st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
+            set_or_key(st, id, "style.size", json!(x), || {
+                st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
+            });
         });
+        r.key_mark(base, lt, fps, "style.size".into());
         let font = style.get("font").and_then(Value::as_str).unwrap_or("По умолчанию").to_string();
         r.action("Шрифт", &font, move |st| st.font_pick.set(Some(id)));
         let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff");
         r.add(Property::color("Цвет", Color::from_hex(col)), move |st, v| {
             if let PropertyValue::Color(c) = v {
-                st.exec("clip.set", json!({"id": id, "style": {"color": c.to_hex()}}));
+                let hex = c.to_hex();
+                set_or_key(st, id, "style.color", json!(hex), || {
+                    st.exec("clip.set", json!({"id": id, "style": {"color": hex}}));
+                });
             }
         });
+        r.key_mark(base, lt, fps, "style.color".into());
         let pos = style.get("position").and_then(Value::as_str).unwrap_or("bottom");
         r.choice("Положение", &[("top", "Сверху"), ("center", "По центру"), ("bottom", "Снизу")], pos, move |st, k| {
             st.exec("clip.set", json!({"id": id, "style": {"position": k}}));
@@ -267,10 +328,19 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip) {
     for ef in &c.effects {
         let eid = ef.id;
         r.header(&format!("Эффект: {}", effect_title(&ef.kind)));
+        // длительности затуханий — не анимируются
+        let animatable = !ef.kind.contains("fade");
         for &(name, label, min, max, step, def) in effect_params(&ef.kind) {
+            let path = format!("e{eid}.{name}");
+            let pk = path.clone();
             r.range(label, num(&ef.params, name, def), min, max, step, move |st, x| {
-                st.exec("effect.set", json!({"id": eid, "params": {name: x}}));
+                set_or_key(st, id, &pk, json!(x), || {
+                    st.exec("effect.set", json!({"id": eid, "params": {name: x}}));
+                });
             });
+            if animatable {
+                r.key_mark(base, lt, fps, path);
+            }
         }
         match ef.kind.as_str() {
             "lut" => {

@@ -180,8 +180,10 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
     let mut stack = Stack::new().clip(true);
     stack = stack.child(Positioned::new(DecoratedBox::new().style("background-color", Color::from_srgb(0, 0, 0, 1.0))).at(0.0, 0.0).dimensions(w, h));
     for l in layers(p, t) {
-        let c = l.clip;
-        let lt = l.t - c.start;
+        let lt = l.t - l.clip.start;
+        // ключевые кадры — значения на этот момент
+        let ce = l.clip.at(lt);
+        let c: &Clip = &ce;
         let mut alpha = fade(c, lt, "");
         // положение и масштаб: x, y — доли кадра от центра, scale, rotation, opacity
         let (mut x, mut y, mut k, mut rot) = (0.0f32, 0.0f32, 1.0f32, 0.0f32);

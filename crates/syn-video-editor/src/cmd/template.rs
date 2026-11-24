@@ -106,7 +106,7 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
     // освободить место (перезапись)
     let t = &mut p.tracks[ti];
     t.clips.retain(|c| c.end() <= start + 1e-6 || c.start >= start + dur - 1e-6);
-    t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None });
+    t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None, keys: Default::default() });
     t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("c{id} шаблон {tname}: «{}» {}–{}", body.replace('\n', " / "), tc(start), tc(start + dur)), json!({"id": id})))
 }

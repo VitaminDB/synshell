@@ -9,6 +9,7 @@ pub mod media;
 mod template;
 mod project;
 mod timeline;
+mod keys;
 pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
@@ -33,6 +34,8 @@ pub enum Ty {
     Object,
     /// Список (например, куски времени [[начало, конец], …]).
     Array,
+    /// Число или строка (значение ключа: число или цвет).
+    Any,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -100,6 +103,7 @@ impl Command {
                 Ty::Choice(v) => json!({"type": "string", "enum": v}),
                 Ty::Object => json!({"type": "object"}),
                 Ty::Array => json!({"type": "array"}),
+                Ty::Any => json!({"type": ["number", "string"]}),
             };
             p["description"] = Value::String(a.help.to_string());
             props.insert(a.name.to_string(), p);
@@ -124,6 +128,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(audio::COMMANDS);
     v.extend(template::COMMANDS);
     v.extend(timeline::COMMANDS);
+    v.extend(keys::COMMANDS);
     v.extend(edit::COMMANDS);
     v
 }
@@ -170,6 +175,11 @@ impl Args {
 
     pub fn has(&self, name: &str) -> bool {
         self.v.get(name).is_some_and(|v| !v.is_null())
+    }
+
+    /// Значение как есть (числа и строки).
+    pub fn value(&self, name: &str) -> Option<Value> {
+        self.raw(name).cloned()
     }
 
     pub fn raw(&self, name: &str) -> Option<&Value> {

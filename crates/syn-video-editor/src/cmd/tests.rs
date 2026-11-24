@@ -186,3 +186,43 @@ fn track_move_order() {
     want.swap(n - 1, n - 2);
     assert_eq!(now, want);
 }
+
+#[test]
+fn keyframes() {
+    let mut ed = ed_with_media(10.0);
+    run(&mut ed, "clip.add", &json!({"media": 3, "duration": 4})).unwrap();
+    let c = ed.project.tracks[0].clips[0].id;
+    // масштаб 1 → 2 за 2 с, эффект transform создаётся сам
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.scale", "at": 0, "value": 1})).unwrap();
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.scale", "at": 2, "value": 2})).unwrap();
+    let clip = ed.project.clip(c).unwrap().clone();
+    let eid = clip.effects.iter().find(|e| e.kind == "transform").unwrap().id;
+    let path = format!("e{eid}.scale");
+    assert_eq!(clip.value_at(&path, 1.0).unwrap().as_f64().unwrap(), 1.5);
+    assert_eq!(clip.value_at(&path, 3.0).unwrap().as_f64().unwrap(), 2.0);
+    let at = clip.at(0.5);
+    assert_eq!(at.effects[0].params["scale"].as_f64().unwrap(), 1.25);
+    // разрез в 1 с: справа ключи сдвинуты, эффект с новым id
+    run(&mut ed, "clip.split", &json!({"at": 1})).unwrap();
+    let right = ed.project.tracks[0].clips[1].clone();
+    let reid = right.effects[0].id;
+    assert_ne!(reid, eid);
+    let rk = &right.keys[&format!("e{reid}.scale")];
+    assert_eq!(rk[0].t, -1.0);
+    assert_eq!(right.value_at(&format!("e{reid}.scale"), 0.0).unwrap().as_f64().unwrap(), 1.5);
+    // ошибка — без шага в истории
+    let undo = ed.undo_label().map(str::to_string);
+    run(&mut ed, "key.set", &json!({"id": c, "param": "transform.bogus"})).unwrap_err();
+    assert_eq!(ed.undo_label().map(str::to_string), undo);
+    // удаление эффекта убирает его ключи
+    run(&mut ed, "effect.remove", &json!({"id": eid})).unwrap();
+    assert!(ed.project.clip(c).unwrap().keys.is_empty());
+}
+
+#[test]
+fn keyframe_color_interp() {
+    let k = vec![crate::doc::Key { t: 0.0, v: json!("#000000"), ease: "linear".into() }, crate::doc::Key { t: 1.0, v: json!("#ff0080"), ease: "linear".into() }];
+    assert_eq!(crate::doc::interp(&k, 0.5), json!("#800040"));
+    let h = vec![crate::doc::Key { t: 0.0, v: json!(0.0), ease: "hold".into() }, crate::doc::Key { t: 1.0, v: json!(1.0), ease: "linear".into() }];
+    assert_eq!(crate::doc::interp(&h, 0.9), json!(0.0));
+}

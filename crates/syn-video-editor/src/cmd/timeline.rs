@@ -177,10 +177,8 @@ fn split_clip(p: &mut Project, id: Id, at: f64) -> Option<Id> {
     right.offset = c.offset + (at - c.start) * c.speed;
     // переход «в начале» остаётся у левой части: на разрезе склейки нет
     right.transition = None;
-    right.effects = c.effects.iter().map(|e| Effect { id: 0, ..e.clone() }).collect();
-    for e in &mut right.effects {
-        e.id = p.alloc();
-    }
+    right.renew_effect_ids(|| p.alloc());
+    right.shift_keys(-(at - c.start));
     p.tracks[ti].clips[ci].duration = at - c.start;
     p.tracks[ti].clips.insert(ci + 1, right);
     Some(nid)
@@ -255,7 +253,7 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
     let ti = target_track(p, track, kind)?;
     let start = at.unwrap_or_else(|| track_end(p, ti));
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None };
+    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default() };
     place(p, ti, clip, insert);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} {} на t{} {}–{}", m.name(), p.tracks[ti].id, tc(c.start), tc(c.end())), json!({"id": id})))
@@ -292,7 +290,7 @@ fn title_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None };
+    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default() };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} титр «{text}» {}–{}", tc(c.start), tc(c.end())), json!({"id": id})))
@@ -620,7 +618,9 @@ fn effect_remove(ed: &mut Editor, a: &Args) -> Res {
     let eid = a.need_id("id")?;
     let (cid, i) = find_effect(&ed.project, eid).ok_or_else(|| format!("нет эффекта e{eid}"))?;
     ed.begin("Убрать эффект");
-    let e = ed.project.clip_mut(cid).unwrap().effects.remove(i);
+    let c = ed.project.clip_mut(cid).unwrap();
+    let e = c.effects.remove(i);
+    c.keys.retain(|k, _| !k.starts_with(&format!("e{eid}.")));
     Ok(Out::text(format!("Убран e{eid} {} с c{cid}", e.kind)))
 }
 
@@ -799,9 +799,7 @@ fn clip_paste(ed: &mut Editor, a: &Args) -> Res {
         for mut c in group {
             c.start = at + c.start - base;
             c.id = ed.project.alloc();
-            for e in &mut c.effects {
-                e.id = ed.project.alloc();
-            }
+            c.renew_effect_ids(|| ed.project.alloc());
             new_ids.push(c.id);
             place(&mut ed.project, ti, c, false);
         }
@@ -857,9 +855,7 @@ fn clip_detach_audio(ed: &mut Editor, a: &Args) -> Res {
         au.transition = None;
         // звуковые эффекты едут со звуком, видео — остаются
         au.effects = c.effects.iter().filter(|e| e.kind.starts_with("audio_")).cloned().collect();
-        for e in &mut au.effects {
-            e.id = ed.project.alloc();
-        }
+        au.renew_effect_ids(|| ed.project.alloc());
         let nid = au.id;
         let tid = ed.project.tracks[ti].id;
         place(&mut ed.project, ti, au, false);

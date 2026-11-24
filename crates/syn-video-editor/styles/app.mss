@@ -189,3 +189,4 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .fp-row-on { background-color: #3B82F633; }
 .fp-sample { font-size: 24px; color: var(--text); }
 .fp-name { font-size: 11px; color: var(--text-muted); }
+.clip-key { font-size: 10px; color: #FFD54F; }
