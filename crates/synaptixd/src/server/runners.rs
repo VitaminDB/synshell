@@ -1311,8 +1311,9 @@ impl Loaded {
                     MediaPart::Embed(key) => {
                         let e = &cache.iter().find(|(k, _)| k == key).expect("эмбеддинг в кэше").1;
                         s.push_str(&e.prompt_block);
-                        // У WeMM-Video перевод строки уже в блоке.
-                        if !e.prompt_block.ends_with('\n') {
+                        // У WeMM-Video перевод строки уже в блоке, у AF-Next
+                        // блок идёт вплотную к тексту.
+                        if !e.prompt_block.ends_with('\n') && !llm.media_joins_text() {
                             s.push('\n');
                         }
                         order.push(key.clone());
