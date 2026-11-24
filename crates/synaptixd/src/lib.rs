@@ -928,6 +928,24 @@ pub struct Media {
 pub enum MediaKind {
     Image,
     Video,
+    /// Звук (модели с аудио-башней — WeMM-Video).
+    Audio,
+}
+
+impl MediaKind {
+    /// Вид вложения по расширению файла: видео и звук — по известным
+    /// расширениям, остальное — картинка.
+    pub fn from_path(path: &str) -> Self {
+        let ext = std::path::Path::new(path)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        match ext.as_str() {
+            "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" | "mxf" => Self::Video,
+            "wav" | "mp3" | "flac" | "ogg" | "opus" | "m4a" | "aac" | "aif" | "aiff" => Self::Audio,
+            _ => Self::Image,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]

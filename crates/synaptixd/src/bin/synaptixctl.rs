@@ -600,7 +600,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// Сообщение `gen`: MEDIA=картинка — она встаёт маркером перед текстом с подписью.
+/// Сообщение `gen`: MEDIA=файл (картинка, видео или звук — по расширению,
+/// либо явно MEDIA_KIND=image|video|audio) — встаёт маркером перед текстом с
+/// подписью; MEDIA_NOMARK — без подписи, блок прямо перед текстом.
 fn gen_message(prompt: String) -> synaptixd::Message {
     let mut m = synaptixd::Message::user(prompt.clone());
     if let Ok(path) = std::env::var("MEDIA") {
@@ -608,7 +610,13 @@ fn gen_message(prompt: String) -> synaptixd::Message {
         if std::env::var("MEDIA_NOMARK").is_err() {
             m.content = format!("[file 1: {name}]\n{}\n{prompt}", synaptixd::MEDIA_MARK);
         }
-        m.media = vec![synaptixd::Media { kind: synaptixd::MediaKind::Image, path }];
+        let kind = match std::env::var("MEDIA_KIND").ok().as_deref() {
+            Some("image") => synaptixd::MediaKind::Image,
+            Some("video") => synaptixd::MediaKind::Video,
+            Some("audio") => synaptixd::MediaKind::Audio,
+            _ => synaptixd::MediaKind::from_path(&path),
+        };
+        m.media = vec![synaptixd::Media { kind, path }];
     }
     m
 }

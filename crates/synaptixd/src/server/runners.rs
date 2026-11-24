@@ -1271,7 +1271,8 @@ impl Loaded {
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
         let max_tokens = params.u32("max_tokens").unwrap_or(16384).max(1) as usize;
-        let system = params.text("system_prompt");
+        // Без своей системной реплики — та, с которой модель обучена (WeMM-Video).
+        let system = params.text("system_prompt").map(str::to_string).or_else(|| llm.default_system_prompt().map(str::to_string));
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
         // Картинки и видео: эмбеддинги (из кэша или башней зрения), блоки — перед текстом.
         let mut cache = b.media.lock().unwrap_or_else(|e| e.into_inner());
@@ -1285,12 +1286,17 @@ impl Loaded {
             // на место своего маркера, по порядку.
             if m.content.matches(crate::MEDIA_MARK).count() == parts.len() {
                 let mut s = String::new();
+                let mut block_nl = false;
                 for (piece, p) in m.content.split(crate::MEDIA_MARK).zip(parts.iter().map(Some).chain(std::iter::once(None))) {
+                    // Блок с переводом строки внутри (WeMM-Video) + `\n` клиента после маркера — один.
+                    let piece = if block_nl { piece.strip_prefix('\n').unwrap_or(piece) } else { piece };
+                    block_nl = false;
                     s.push_str(piece);
                     match p {
                         Some(MediaPart::Embed(key)) => {
                             let e = &cache.iter().find(|(k, _)| k == key).expect("эмбеддинг в кэше").1;
                             s.push_str(&e.prompt_block);
+                            block_nl = e.prompt_block.ends_with('\n');
                             order.push(key.clone());
                         }
                         Some(MediaPart::Text(t)) => s.push_str(t),
@@ -1305,7 +1311,10 @@ impl Loaded {
                     MediaPart::Embed(key) => {
                         let e = &cache.iter().find(|(k, _)| k == key).expect("эмбеддинг в кэше").1;
                         s.push_str(&e.prompt_block);
-                        s.push('\n');
+                        // У WeMM-Video перевод строки уже в блоке.
+                        if !e.prompt_block.ends_with('\n') {
+                            s.push('\n');
+                        }
                         order.push(key.clone());
                     }
                     MediaPart::Text(t) => {
@@ -2178,6 +2187,24 @@ fn encode_media(
                 continue;
             }
             match item.kind {
+                // Звук — своей башней (WeMM-Video), без башни зрения.
+                MediaKind::Audio => {
+                    let key = media_key(path, "audio");
+                    let res = if cache.iter().any(|(k, _)| *k == key) {
+                        Ok(())
+                    } else if !llm.supports_audio() {
+                        Err("модель не принимает звук".to_string())
+                    } else {
+                        llm.encode_audio(path).map(|e| cache.push((key.clone(), e))).map_err(|e| e.to_string())
+                    };
+                    match res {
+                        Ok(()) => {
+                            used.push(key.clone());
+                            parts.push(MediaPart::Embed(key));
+                        }
+                        Err(e) => parts.push(MediaPart::Text(format!("[звук «{name}» — не удалось передать модели: {e}]"))),
+                    }
+                }
                 MediaKind::Image => {
                     let key = media_key(path, "image");
                     match embed(key, cache, &mut tower, &|| llm.encode_image(path, max_tokens).map_err(|e| e.to_string())) {
