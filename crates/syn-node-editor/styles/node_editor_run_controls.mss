@@ -13,7 +13,7 @@
  * ─────────────────────────────────────────────────────────────────── */
 
 .ne-run-controls {
-    background-color: rgba(35, 37, 46, 0.92);
+    background-color: var(--ne-panel-bg, rgba(35, 37, 46, 0.92));
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-pill);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
@@ -35,7 +35,7 @@
 /* ───────────────────────── Кнопки ───────────────────────────────────── */
 
 .ne-run-btn {
-    color: #D8DCE4;
+    color: var(--ne-text, #D8DCE4);
     background-color: transparent;
     border-radius: var(--radius-pill);
     padding: 6px 10px 6px 10px;
@@ -47,8 +47,8 @@
 }
 
 .ne-run-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #FFFFFF;
+    background-color: var(--ne-hover, rgba(255, 255, 255, 0.08));
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 /* Per-button accent-цвета на active. Чтобы pulse-keyframes тоже

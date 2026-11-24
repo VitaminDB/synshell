@@ -3,7 +3,7 @@
 }
 
 .ffmpeg-player-body-host {
-    background-color: #232631;
+    background-color: var(--ne-node-header, #232631);
     border-radius: 6px;
     padding: 10px;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);

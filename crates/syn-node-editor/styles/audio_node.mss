@@ -136,13 +136,13 @@
 }
 
 .audio-node-filename {
-    color: #F0F1F4;
+    color: var(--ne-text-strong, #F0F1F4);
     font-size: 12px;
     font-weight: 600;
 }
 
 .audio-node-meta {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 10px;
 }
 
@@ -153,7 +153,7 @@
 }
 
 .audio-node-status {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 10px;
 }
 
@@ -169,14 +169,14 @@
 }
 
 .audio-node-format-icon {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     icon-size: 16px;
 }
 
 /* ── transport-buttons (Play / Pause / Stop / Record) ─────────────────── */
 .audio-node-transport-btn {
     background-color: rgba(255, 255, 255, 0.04);
-    color: #F0F1F4;
+    color: var(--ne-text-strong, #F0F1F4);
     border-radius: 14px;
     transition: background-color 140ms ease-out, color 140ms ease-out, transform 100ms ease-out;
 }
@@ -191,7 +191,7 @@
 
 .audio-node-play {
     background-color: var(--primary);
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 .audio-node-play:hover {
@@ -209,17 +209,17 @@
 
 .audio-node-stop {
     background-color: rgba(255, 255, 255, 0.04);
-    color: #B7BDC9;
+    color: var(--ne-text, #B7BDC9);
 }
 
 .audio-node-stop:hover {
     background-color: rgba(255, 255, 255, 0.10);
-    color: #F0F1F4;
+    color: var(--ne-text-strong, #F0F1F4);
 }
 
 .audio-node-record {
     background-color: #B91C1C;
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 .audio-node-record:hover {
@@ -235,7 +235,7 @@
 
 .audio-node-record-active {
     background-color: #DC2626;
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
     animation: audio-record-pulse 1.4s infinite ease-in-out;
 }
 
@@ -244,7 +244,7 @@
     width: 100px;
     background-color: rgba(255, 255, 255, 0.06);
     color: var(--primary);
-    accent-color: #FFFFFF;
+    accent-color: var(--ne-text-strong, #FFFFFF);
     border-color: var(--primary);
     border-radius: 2px;
     min-height: 3px;
@@ -252,7 +252,7 @@
 }
 
 .audio-node-volume-icon {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     icon-size: 14px;
 }
 
@@ -285,14 +285,14 @@
 
 /* ── timecode + open-button ───────────────────────────────────────────── */
 .audio-node-timecode {
-    color: #B7BDC9;
+    color: var(--ne-text, #B7BDC9);
     font-size: 10px;
     font-weight: 500;
 }
 
 .audio-node-open-btn {
     background-color: rgba(255, 255, 255, 0.06);
-    color: #B7BDC9;
+    color: var(--ne-text, #B7BDC9);
     border-radius: 6px;
     transition: background-color 140ms ease-out, color 140ms ease-out;
 }
@@ -313,7 +313,7 @@
     width: 110px;
     background-color: rgba(255, 255, 255, 0.06);
     color: var(--primary);
-    accent-color: #FFFFFF;
+    accent-color: var(--ne-text-strong, #FFFFFF);
     border-color: var(--primary);
     border-radius: 2px;
     min-height: 3px;
@@ -381,7 +381,7 @@
 }
 
 .save-node-status {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 10px;
     transition: color 200ms ease-out;
 }
@@ -432,7 +432,7 @@
 /* Индекс канала — мелкий моноширинный счётчик. Чтобы у разных N
    ширина row'а не «дёргалась», даём min-width=14px. */
 .mixer-channel-index {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 10px;
     font-weight: 600;
     min-width: 14px;
@@ -512,7 +512,7 @@
 }
 
 .node-slider-readout {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 500;
     min-width: 38px;
@@ -544,13 +544,13 @@
 }
 
 .node-file-picker-empty {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 400;
 }
 
 .node-timecode {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 500;
     font-family: monospace;
@@ -609,7 +609,7 @@
 }
 
 .node-status-done {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
 }
 

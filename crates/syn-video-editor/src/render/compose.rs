@@ -18,13 +18,105 @@ use crate::doc::{Clip, Effect, Project, Source, TrackKind};
 /// Кадр источника клипа (уже с LUT).
 pub type Frames = HashMap<u64, syngui::video::RgbaFrame>;
 
-/// Видимые клипы видеодорожек в момент `t`, снизу вверх.
-pub fn layers(p: &Project, t: f64) -> Vec<&Clip> {
-    p.tracks
-        .iter()
-        .filter(|tr| tr.kind == TrackKind::Video && !tr.hidden)
-        .filter_map(|tr| tr.clips.iter().find(|c| c.start <= t + 1e-9 && t < c.end() - 1e-9))
-        .collect()
+/// Слой кадра: клип, его время на таймлайне (на переходе — зажатое в границы
+/// клипа) и переход (вид, доля 0–1, входящий ли клип).
+pub struct Layer<'a> {
+    pub clip: &'a Clip,
+    pub t: f64,
+    pub tr: Option<(&'a str, f64, bool)>,
+}
+
+/// Все виды переходов: (вид, подпись).
+pub const TRANSITIONS: &[(&str, &str)] = &[
+    ("dissolve", "Наплыв"),
+    ("dip_black", "Через чёрное"),
+    ("slide_left", "Сдвиг влево"),
+    ("slide_right", "Сдвиг вправо"),
+    ("slide_up", "Сдвиг вверх"),
+    ("slide_down", "Сдвиг вниз"),
+    ("wipe_left", "Шторка слева"),
+    ("wipe_right", "Шторка справа"),
+    ("zoom", "Зум"),
+    ("blur", "Размытие"),
+];
+
+/// Видимые клипы видеодорожек в момент `t`, снизу вверх; на переходе — оба
+/// клипа склейки (уходящий, затем входящий).
+pub fn layers(p: &Project, t: f64) -> Vec<Layer<'_>> {
+    let mut out = Vec::new();
+    for tr in p.tracks.iter().filter(|tr| tr.kind == TrackKind::Video && !tr.hidden) {
+        let clips = &tr.clips;
+        let mut done = false;
+        for (i, c) in clips.iter().enumerate() {
+            let Some(trn) = &c.transition else { continue };
+            let d = trn.duration.max(1e-3);
+            let (w0, w1) = (c.start - d / 2.0, c.start + d / 2.0);
+            if t < w0 || t >= w1 {
+                continue;
+            }
+            let Some(prev) = i.checked_sub(1).map(|j| &clips[j]).filter(|pr| (pr.end() - c.start).abs() < 1e-3) else { continue };
+            let q = ((t - w0) / d).clamp(0.0, 1.0);
+            out.push(Layer { clip: prev, t: t.min(prev.end() - 1e-3).max(prev.start), tr: Some((trn.kind.as_str(), q, false)) });
+            out.push(Layer { clip: c, t: t.max(c.start), tr: Some((trn.kind.as_str(), q, true)) });
+            done = true;
+            break;
+        }
+        if !done {
+            if let Some(c) = clips.iter().find(|c| c.start <= t + 1e-9 && t < c.end() - 1e-9) {
+                out.push(Layer { clip: c, t, tr: None });
+            }
+        }
+    }
+    out
+}
+
+/// Как переход меняет слой: множитель непрозрачности, сдвиг (доли кадра),
+/// множитель масштаба, размытие (пикс. при масштабе 1), видимая полоса по x (доли).
+struct TrFx {
+    alpha: f64,
+    dx: f32,
+    dy: f32,
+    k: f32,
+    blur: f32,
+    clip: Option<(f32, f32)>,
+}
+
+fn tr_fx(kind: &str, q: f64, incoming: bool) -> TrFx {
+    let e = (q * q * (3.0 - 2.0 * q)) as f32; // плавный вход и выход
+    let mut f = TrFx { alpha: 1.0, dx: 0.0, dy: 0.0, k: 1.0, blur: 0.0, clip: None };
+    match (kind, incoming) {
+        ("dissolve", true) => f.alpha = e as f64,
+        ("dip_black", false) => f.alpha = (1.0 - 2.0 * q).max(0.0),
+        ("dip_black", true) => f.alpha = (2.0 * q - 1.0).max(0.0),
+        ("slide_left", false) => f.dx = -e,
+        ("slide_left", true) => f.dx = 1.0 - e,
+        ("slide_right", false) => f.dx = e,
+        ("slide_right", true) => f.dx = e - 1.0,
+        ("slide_up", false) => f.dy = -e,
+        ("slide_up", true) => f.dy = 1.0 - e,
+        ("slide_down", false) => f.dy = e,
+        ("slide_down", true) => f.dy = e - 1.0,
+        ("wipe_left", true) => f.clip = Some((0.0, e)),
+        ("wipe_right", true) => f.clip = Some((1.0 - e, 1.0)),
+        ("zoom", false) => {
+            f.k = 1.0 + e * 0.6;
+            f.alpha = 1.0 - e as f64;
+        }
+        ("zoom", true) => {
+            f.k = 0.7 + 0.3 * e;
+            f.alpha = e as f64;
+        }
+        ("blur", false) => {
+            f.blur = e * 24.0;
+            f.alpha = 1.0 - e as f64;
+        }
+        ("blur", true) => {
+            f.blur = (1.0 - e) * 24.0;
+            f.alpha = e as f64;
+        }
+        _ => {}
+    }
+    f
 }
 
 fn num(m: &Map<String, Value>, k: &str, d: f64) -> f64 {
@@ -87,11 +179,13 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
     let h = p.settings.height as f32 * scale;
     let mut stack = Stack::new().clip(true);
     stack = stack.child(Positioned::new(DecoratedBox::new().style("background-color", Color::from_srgb(0, 0, 0, 1.0))).at(0.0, 0.0).dimensions(w, h));
-    for c in layers(p, t) {
-        let lt = t - c.start;
+    for l in layers(p, t) {
+        let c = l.clip;
+        let lt = l.t - c.start;
         let mut alpha = fade(c, lt, "");
         // положение и масштаб: x, y — доли кадра от центра, scale, rotation, opacity
         let (mut x, mut y, mut k, mut rot) = (0.0f32, 0.0f32, 1.0f32, 0.0f32);
+        let fx = l.tr.map(|(kind, q, inc)| tr_fx(kind, q, inc));
         if let Some(e) = effect(c, "transform") {
             let pm = &e.params;
             x = num(pm, "x", 0.0) as f32;
@@ -101,6 +195,16 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
             alpha *= num(pm, "opacity", 1.0);
         }
         let filter = filters(c, scale);
+        let mut filter = filter;
+        if let Some(f) = &fx {
+            alpha *= f.alpha;
+            x += f.dx;
+            y += f.dy;
+            k *= f.k;
+            if f.blur > 0.0 {
+                filter = format!("{filter} blur({:.1}px)", f.blur * scale).trim().to_string();
+            }
+        }
         let layer: Box<dyn Widget> = match &c.source {
             Source::Media { .. } => {
                 let Some(f) = frames.get(&c.id) else { continue };
@@ -122,6 +226,14 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
                 Box::new(Positioned::new(DecoratedBox::new().style("background-color", col).style("opacity", alpha as f32)).at(0.0, 0.0).dimensions(w, h))
             }
             Source::Title { text, style } => title(text, style, lt, c.duration, alpha as f32, (x, y, k), w, h, scale),
+        };
+        // шторка: видна полоса кадра [x0, x1] (доли ширины)
+        let layer: Box<dyn Widget> = match fx.as_ref().and_then(|f| f.clip) {
+            Some((x0, x1)) => {
+                let inner = Stack::new().child(Positioned::new(Stack::new().child(layer)).at(-x0 * w, 0.0).dimensions(w, h));
+                Box::new(Positioned::new(DecoratedBox::new().clip(true).child(inner)).at(x0 * w, 0.0).dimensions(((x1 - x0) * w).max(0.0), h))
+            }
+            None => layer,
         };
         stack = stack.child(layer);
     }
@@ -201,7 +313,8 @@ impl FrameSource {
 
     pub fn frames(&mut self, p: &Project, t: f64) -> Frames {
         let mut out = Frames::new();
-        for c in layers(p, t) {
+        for l in layers(p, t) {
+            let (c, t) = (l.clip, l.t);
             let Some(mid) = c.media() else { continue };
             let Some(m) = p.media(mid) else { continue };
             let path = m.path.display().to_string();

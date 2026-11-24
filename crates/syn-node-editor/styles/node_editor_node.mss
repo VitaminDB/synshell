@@ -20,7 +20,7 @@
        той же при наведении и фон не мигает на дефолтный.
        Парсер syngui MSS не поддерживает fallback `var(--x, default)` —
        поэтому базовое значение задаём отдельным declaration'ом. */
-    --node-bg: #2A2D38;
+    --node-bg: var(--ne-node-bg, #2A2D38);
     background-color: var(--node-bg);
     border-radius: 8px;
     box-shadow:
@@ -74,24 +74,24 @@
 }
 
 .node-card-title {
-    color: #F0F1F4;
+    color: var(--ne-text-strong, #F0F1F4);
     font-size: 13px;
     font-weight: 600;
 }
 
 .node-card-close {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     border-radius: 4px;
     transition: background-color 140ms ease-out, color 140ms ease-out;
 }
 
 .node-card-close:hover {
     background-color: rgba(255, 255, 255, 0.10);
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 .node-card-body {
-    background-color: #232631;
+    background-color: var(--ne-node-header, #232631);
     border-radius: 0 0 8px 8px;
     padding-top: 6px;
     padding-bottom: 6px;
@@ -107,7 +107,7 @@
 /* Лейблы портов */
 .node-card-port-label-in,
 .node-card-port-label-out {
-    color: #B7BDC9;
+    color: var(--ne-text, #B7BDC9);
     font-size: 11px;
     font-weight: 500;
 }
@@ -123,7 +123,7 @@
 
 /* Поля ноды */
 .node-card-field-label {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 500;
 }
@@ -151,7 +151,7 @@
 }
 
 .node-port-value {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 500;
     text-align: right;

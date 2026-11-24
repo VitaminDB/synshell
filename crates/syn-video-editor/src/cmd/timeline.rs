@@ -7,7 +7,7 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, MediaKind, Project, Source, Track, TrackKind};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE];
+pub static COMMANDS: &[&Command] = &[&TRACK_ADD, &TRACK_SET, &TRACK_REMOVE, &CLIP_ADD, &TITLE_ADD, &CLIP_MOVE, &CLIP_TRIM, &CLIP_SPLIT, &CLIP_REMOVE, &CLIP_SET, &EFFECT_ADD, &EFFECT_SET, &EFFECT_REMOVE, &TRANSITION_SET, &TRANSITION_REMOVE];
 
 const MODES: &[&str] = &["overwrite", "insert"];
 const EPS: f64 = 1e-6;
@@ -253,7 +253,7 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
     let ti = target_track(p, track, kind)?;
     let start = at.unwrap_or_else(|| track_end(p, ti));
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new() };
+    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None };
     place(p, ti, clip, insert);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} {} на t{} {}–{}", m.name(), p.tracks[ti].id, tc(c.start), tc(c.end())), json!({"id": id})))
@@ -290,7 +290,7 @@ fn title_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new() };
+    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} титр «{text}» {}–{}", tc(c.start), tc(c.end())), json!({"id": id})))
@@ -609,4 +609,58 @@ fn effect_remove(ed: &mut Editor, a: &Args) -> Res {
     ed.begin("Убрать эффект");
     let e = ed.project.clip_mut(cid).unwrap().effects.remove(i);
     Ok(Out::text(format!("Убран e{eid} {} с c{cid}", e.kind)))
+}
+
+// ── переходы ────────────────────────────────────────────────────────────
+
+static TRANSITION_SET: Command = Command {
+    id: "transition.set",
+    category: "Эффекты",
+    title: "Переход",
+    shortcut: "",
+    keywords: "transition переход наплыв dissolve сдвиг шторка зум склейка",
+    help: "Переход в начале клипа от предыдущего на той же дорожке (клипы должны стоять встык; переход по центру склейки). kind: dissolve (наплыв), dip_black (через чёрное), slide_left, slide_right, slide_up, slide_down, wipe_left, wipe_right, zoom, blur. duration — с (0.6).",
+    args: &[req("id", Ty::Id, "клип (c…), к началу которого переход"), req("kind", Ty::Str, "вид перехода"), arg("duration", Ty::Time, "длительность, с")],
+    danger: false,
+    run: transition_set,
+};
+
+fn transition_set(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let kind = a.need_str("kind")?;
+    if !crate::render::compose::TRANSITIONS.iter().any(|(k, _)| *k == kind) {
+        return Err(format!("нет перехода «{kind}»; есть: {}", crate::render::compose::TRANSITIONS.iter().map(|t| t.0).collect::<Vec<_>>().join(", ")));
+    }
+    let (ti, ci) = ed.project.find_clip(id).ok_or_else(|| format!("нет клипа c{id}"))?;
+    let c = &ed.project.tracks[ti].clips[ci];
+    let prev = ci.checked_sub(1).map(|j| &ed.project.tracks[ti].clips[j]);
+    let Some(prev) = prev.filter(|p| (p.end() - c.start).abs() < 1e-3) else {
+        return Err(format!("c{id}: перед ним на дорожке нет клипа встык — переходу не из чего"));
+    };
+    let max = prev.duration.min(c.duration);
+    let d = a.time("duration")?.unwrap_or(0.6).clamp(1.0 / ed.project.settings.fps, max);
+    ed.begin("Переход");
+    let fps = ed.project.settings.fps;
+    ed.project.tracks[ti].clips[ci].transition = Some(crate::doc::Transition { kind: kind.clone(), duration: (d * fps).round() / fps });
+    Ok(Out::text(format!("c{id}: переход {kind} {:.2} с", d)))
+}
+
+static TRANSITION_REMOVE: Command = Command {
+    id: "transition.remove",
+    category: "Эффекты",
+    title: "Убрать переход",
+    shortcut: "",
+    keywords: "transition remove убрать переход",
+    help: "Убрать переход в начале клипа.",
+    args: &[req("id", Ty::Id, "клип (c…)")],
+    danger: false,
+    run: transition_remove,
+};
+
+fn transition_remove(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    ed.project.clip(id).ok_or_else(|| format!("нет клипа c{id}"))?;
+    ed.begin("Убрать переход");
+    ed.project.clip_mut(id).unwrap().transition = None;
+    Ok(Out::text(format!("c{id}: переход убран")))
 }

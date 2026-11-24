@@ -23,6 +23,16 @@ fn usage() -> &'static str {
 fn main() {
     // дочерний процесс рендера (экспорт, кадр): см. render::run_child
     let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().map(String::as_str) == Some("--preview-strips") {
+        match syn_video_editor::render::preview::render_all() {
+            Ok(s) => println!("{s}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if raw.first().map(String::as_str) == Some("--render-child") {
         match syn_video_editor::render::child_main(&raw[1..]) {
             Ok(s) => {

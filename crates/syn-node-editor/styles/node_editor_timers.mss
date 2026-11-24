@@ -37,7 +37,7 @@
 
 .node-timer-icon {
     icon-size: 12px;
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
 }
 
 .node-timer-text {
@@ -81,13 +81,13 @@
 
 .ne-run-timer-icon {
     icon-size: 13px;
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
 }
 
 .ne-run-timer-text {
     font-size: 12px;
     font-weight: 600;
-    color: #D8DCE4;
+    color: var(--ne-text, #D8DCE4);
     letter-spacing: 0.2px;
     /* Фиксированная колонка под время: pill центрируется в overlay-строке
        балансировкой краёв, и «прыгающая» ширина сдвигала бы его при

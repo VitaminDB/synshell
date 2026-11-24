@@ -21,6 +21,16 @@ use crate::{node_view, style_dialog, wires};
 
 /// Холст графа `ctx` с панелями программы `overlays` поверх него.
 pub fn view(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>) -> impl Widget {
+    view_with(ctx, overlays, true)
+}
+
+/// Холст без плавающей панели масштаба: программа ставит [`zoom_controls`]
+/// в свою шапку (видеоредактор).
+pub fn view_bare(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>) -> impl Widget {
+    view_with(ctx, overlays, false)
+}
+
+fn view_with(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>, zoom_toolbar: bool) -> impl Widget {
     let menu_ctx = ctx;
     let filter_ctx = ctx;
     let viewport = PanZoomViewport::new()
@@ -57,11 +67,11 @@ pub fn view(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>) -> impl Widget {
         .child(world_layer(ctx))
         .class("node-editor-viewport");
 
-    let toolbar = build_toolbar(ctx);
     let bg_menu = build_bg_menu(ctx);
-    let overlay = overlay_row(ctx, toolbar);
-
-    let mut layers: Vec<Box<dyn Widget>> = vec![Box::new(viewport), Box::new(overlay)];
+    let mut layers: Vec<Box<dyn Widget>> = vec![Box::new(viewport)];
+    if zoom_toolbar {
+        layers.push(Box::new(overlay_row(ctx, build_toolbar(ctx))));
+    }
     layers.extend(overlays);
     layers.push(bg_menu);
     layers.push(Box::new(style_dialog::view(ctx)));
@@ -117,6 +127,14 @@ fn world_layer(ctx: NodeEditorCtx) -> impl Widget {
 }
 
 fn build_toolbar(ctx: NodeEditorCtx) -> Box<dyn Widget> {
+    let row = zoom_row(ctx);
+    let panel = DecoratedBox::new()
+        .child(Padding::symmetric(8.0, 4.0).child(row))
+        .class("node-editor-toolbar");
+    Box::new(panel)
+}
+
+fn zoom_row(ctx: NodeEditorCtx) -> Row {
     let ctx_in = ctx;
     let ctx_out = ctx;
     let ctx_fit = ctx;
@@ -158,12 +176,13 @@ fn build_toolbar(ctx: NodeEditorCtx) -> Box<dyn Widget> {
                     .class("node-editor-toolbar-btn"),
             ]
     };
+    row
+}
 
-    let panel = DecoratedBox::new()
-        .child(Padding::symmetric(8.0, 4.0).child(row))
-        .class("node-editor-toolbar");
-
-    Box::new(panel)
+/// Кнопки масштаба холста (−, проценты, +, весь граф) без плавающей подложки —
+/// для шапки программы.
+pub fn zoom_controls(ctx: NodeEditorCtx) -> impl Widget {
+    zoom_row(ctx)
 }
 
 /// PopupMenu «Add Node» — открывается через ctx.menu_open + позиция в

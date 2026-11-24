@@ -28,12 +28,12 @@
 }
 
 .node-editor-viewport {
-    background-color: #1A1B22;
+    background-color: var(--ne-canvas-bg, #1A1B22);
     border-radius: 12px;
     width: 100%;
     height: 100%;
     /* Цвет точек сетки (читается через mss.color у PanZoomViewport) */
-    color: rgba(180, 190, 210, 0.18);
+    color: var(--ne-grid, rgba(180, 190, 210, 0.18));
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04),
                 inset 0 0 24px rgba(0, 0, 0, 0.35);
 }
@@ -62,7 +62,7 @@
  * Фиксированная высота 36px (чтобы Row.cross-axis stretch не растягивал
  * на всю высоту canvas) + pill-radius + тот же фон/тень/border. */
 .node-editor-toolbar {
-    background-color: rgba(35, 37, 46, 0.92);
+    background-color: var(--ne-panel-bg, rgba(35, 37, 46, 0.92));
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-pill);
     height: 36px;
@@ -72,12 +72,12 @@
 }
 
 .node-editor-toolbar:hover {
-    background-color: rgba(45, 47, 58, 0.94);
+    background-color: var(--ne-panel-hover, rgba(45, 47, 58, 0.94));
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
 .node-editor-toolbar-btn {
-    color: #D8DCE4;
+    color: var(--ne-text, #D8DCE4);
     background-color: transparent;
     border-radius: var(--radius-pill);
     transition: background-color var(--duration-fast) var(--ease-standard),
@@ -85,8 +85,8 @@
 }
 
 .node-editor-toolbar-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #FFFFFF;
+    background-color: var(--ne-hover, rgba(255, 255, 255, 0.08));
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 /* Хост-обёртка Reactive: даёт фиксированные constraints, иначе
@@ -99,7 +99,7 @@
 }
 
 .node-editor-toolbar-zoom {
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
     font-size: 12px;
     font-weight: 600;
     text-align: center;

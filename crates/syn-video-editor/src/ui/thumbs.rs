@@ -152,3 +152,35 @@ fn worker() {
         }
     }
 }
+
+/// Лента из готового PNG (ленты эффектов): кэш в памяти по пути.
+pub fn strip_file(path: &Path) -> Option<Strip> {
+    static FILES: OnceLock<Mutex<HashMap<PathBuf, Strip>>> = OnceLock::new();
+    let m = FILES.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(s) = m.lock().unwrap().get(path) {
+        return Some(s.clone());
+    }
+    let v = Arc::new(load_cached(path)?);
+    m.lock().unwrap().insert(path.to_path_buf(), v.clone());
+    Some(v)
+}
+
+/// Отрисовать недостающие ленты эффектов (один раз, отдельным процессом);
+/// по готовности — сигнал `REV`.
+pub fn ensure_fx_strips() {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if crate::render::preview::kinds().iter().all(|(k, _)| crate::render::preview::strip_path(k).exists()) {
+        return;
+    }
+    std::thread::spawn(|| {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("--preview-strips").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        }
+        if let Some(rev) = REV.get().copied() {
+            syngui::async_runtime::run_on_main_thread(move || rev.update(|r| *r += 1));
+        }
+    });
+}

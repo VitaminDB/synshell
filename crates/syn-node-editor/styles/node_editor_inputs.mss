@@ -35,7 +35,7 @@
     height: 26px;
     accent-color: var(--primary);
     background-color: rgba(255, 255, 255, 0.10);
-    label-color: #98A0AD;
+    label-color: var(--ne-text-muted, #98A0AD);
     caret-color: var(--primary);
     font-size: 11px;
     transition: accent-color 160ms ease-out;

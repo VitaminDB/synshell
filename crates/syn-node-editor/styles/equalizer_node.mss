@@ -25,7 +25,7 @@
 }
 .equalizer-reset-btn:hover {
     background-color: rgba(255, 255, 255, 0.10);
-    color: #FFFFFF;
+    color: var(--ne-text-strong, #FFFFFF);
 }
 
 /* Столбец одной полосы */
@@ -64,9 +64,9 @@
     height: 120px;
     min-width: 4px;
     max-width: 18px;
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--ne-hover, rgba(255, 255, 255, 0.08));
     color: var(--primary);
-    accent-color: #FFFFFF;
+    accent-color: var(--ne-text-strong, #FFFFFF);
     border-color: var(--primary);
     border-radius: 2px;
     border-width: 1px;

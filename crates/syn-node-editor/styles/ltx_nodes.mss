@@ -43,7 +43,7 @@
 
 /* «47% · ≈ 5:32» — процент + оценка оставшегося времени справа от бара. */
 .ltx-progress-label {
-    color: #98A0AD;
+    color: var(--ne-text-muted, #98A0AD);
     font-size: 11px;
     font-weight: 500;
 }

@@ -5,7 +5,7 @@
 
 app.cancel = "Отмена"
 app.delete = "Удалить"
-nodes.tabs.untitled = "Untitled"
+nodes.tabs.untitled = "Без названия"
 node.audio_equalizer.reset_bands = "Сбросить все полосы"
 node.audio_file.dialog_title = "Выберите аудио-файл"
 node.audio_file.filter_all = "Все файлы"

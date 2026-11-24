@@ -135,3 +135,16 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .graph-tab-text { font-size: 12px; color: var(--text-muted); }
 .graph-tab-on .graph-tab-text { color: var(--text); }
 .graph-tab-x { icon-size: 13px; icon-color: var(--text-subtle); }
+
+/* ── шапка графа: масштаб и прогон в стиле панели инструментов ── */
+.graph-zoom .node-editor-toolbar-btn { border-radius: 6px; color: var(--text-muted); }
+.graph-zoom .node-editor-toolbar-btn:hover { background-color: var(--surface-hover); color: var(--text); }
+.graph-zoom .node-editor-toolbar-zoom { color: var(--text); font-weight: 500; }
+.graph-head .ne-run-controls { background-color: transparent; border-width: 0px; box-shadow: none; padding: 0px; }
+.graph-head .ne-run-controls--running { background-color: var(--success-soft); border-radius: 8px; }
+.graph-head .ne-run-controls--paused { background-color: var(--warning-soft); border-radius: 8px; }
+.graph-head .ne-run-btn { border-radius: 6px; color: var(--text-muted); background-color: transparent; }
+.graph-head .ne-run-btn:hover { background-color: var(--surface-hover); color: var(--text); }
+.graph-head .ne-run-btn--play.ne-run-btn--active { background-color: var(--success-soft); color: var(--success); box-shadow: none; }
+.graph-head .ne-run-btn--pause.ne-run-btn--active { background-color: var(--warning-soft); color: var(--warning); }
+.graph-head .ne-run-btn--stop.ne-run-btn--active { background-color: var(--surface-hover); color: var(--error); }

@@ -56,6 +56,9 @@ pub fn ed() -> MutexGuard<'static, Editor> {
     shared().lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Команды, об успехе которых стоит сказать уведомлением (остальные видны сами).
+const LOUD: &[&str] = &["project.save", "project.open", "project.new", "project.export", "frame.export", "media.import", "media.transcribe", "clip.cut_silence", "clip.cut_ranges", "template.apply", "edit.undo", "edit.redo"];
+
 /// Какой диалог выбора файлов открыть.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Pick {
@@ -135,7 +138,8 @@ impl St {
         };
         match r {
             Ok(o) => {
-                if !o.text.is_empty() {
+                // удачные правки видны сами (таймлайн, просмотр) — уведомление только об итогах
+                if !o.text.is_empty() && LOUD.contains(&id) {
                     self.toast.set(Some(o.text.lines().next().unwrap_or_default().to_string()));
                 }
                 Some(o)
@@ -445,6 +449,23 @@ pub fn theme(cfg: &Config) -> String {
             ("clip-audio", p.success.mix(shell, 0.5).hex()),
             ("clip-title", Rgba::rgb(0x9b, 0x6b, 0xf2).mix(shell, 0.4).hex()),
             ("clip-color", p.warning.mix(shell, 0.5).hex()),
+            // редактор узлов (syn-node-editor) — в цветах темы
+            ("ne-canvas-bg", shell.mix(panel, 0.35).hex()),
+            ("ne-grid", p.muted.with_alpha(0.22).hex()),
+            ("ne-panel-bg", panel2.hex()),
+            ("ne-panel-hover", panel2.mix(p.fg, 0.06).hex()),
+            ("ne-text", p.fg.mix(p.muted, 0.3).hex()),
+            ("ne-text-strong", p.fg.hex()),
+            ("ne-text-muted", p.muted.hex()),
+            ("ne-node-bg", panel2.hex()),
+            ("ne-node-header", panel.hex()),
+            ("ne-hover", hover.hex()),
+            ("bg-popup", panel2.hex()),
+            ("border-strong", p.border.mix(p.fg, 0.15).hex()),
+            ("radius-panel", "12px".into()),
+            ("duration-fast", "120ms".into()),
+            ("duration-med", "200ms".into()),
+            ("ease-standard", "ease-out".into()),
         ])
         .base(&format!("{}\n{}", concat!(
             include_str!("../../styles/base/reset.mss"),

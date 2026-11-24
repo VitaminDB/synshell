@@ -94,34 +94,107 @@ fn media(st: St) -> impl Widget {
         .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(DecoratedBox::new().class("grow").child(list)))
 }
 
-// ── эффекты ─────────────────────────────────────────────────────────────
+// ── эффекты и переходы ──────────────────────────────────────────────────
 
+/// Подпись эффекта для людей.
+fn fx_title(kind: &str) -> &'static str {
+    match kind {
+        "fade_in" => "Проявление",
+        "fade_out" => "Затухание",
+        "audio_fade_in" => "Нарастание звука",
+        "audio_fade_out" => "Затухание звука",
+        "lut" => "LUT",
+        "color" => "Цвет",
+        "blur" => "Размытие",
+        "sharpen" => "Резкость",
+        "vignette" => "Виньетка",
+        "transform" => "Положение и масштаб",
+        "upscale" => "Нейроувеличение",
+        "interpolate" => "Плавность RIFE",
+        _ => "Эффект",
+    }
+}
+
+/// Плитки переходов и эффектов: превью — лента того же композитора, ведение
+/// курсора — промотка; щелчок — применить к выделенному клипу.
 fn effects(st: St) -> impl Widget {
+    super::thumbs::ensure_fx_strips();
     ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.thumbs.get();
         let _ = st.rev.get();
-        let sel = ed().selection.clone();
-        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
-        col = col.child(Text::new(if sel.is_empty() { "Выделите клип на таймлайне, затем выберите эффект" } else { "Щелчок — добавить эффект выделенным клипам" }).max_lines(2).class("panel-hint"));
-        for (kind, help) in crate::cmd::EFFECTS {
-            let k = *kind;
-            let ids: Vec<Value> = sel.iter().map(|i| json!(i)).collect();
-            col = col.child(
-                GestureDetector::new()
-                    .on_click(move || {
-                        if ids.is_empty() {
-                            st.toast.set(Some("Сначала выделите клип".into()));
-                        } else if k == "lut" {
-                            st.dock.open("ai", Some("inspector"));
-                            st.toast.set(Some("LUT: скажите агенту, какой файл .cube".into()));
-                        } else {
-                            st.exec("effect.add", json!({"ids": ids, "kind": k}));
-                        }
-                    })
-                    .child(DecoratedBox::new().class("list-row").child(Column::new().child(Text::new(k).class("row-title")).child(Text::new(*help).max_lines(2).class("row-sub")))),
-            );
+        let size = st.tile_size.get();
+        let has_sel = !ed().selection.is_empty();
+        let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
+        col = col.child(Text::new(if has_sel { "Щелчок — применить к выделенному клипу; переход — к его началу" } else { "Выделите клип на таймлайне, затем щёлкните переход или эффект" }).max_lines(2).class("panel-hint"));
+        for (section, prefix) in [("ПЕРЕХОДЫ", "transition:"), ("ЭФФЕКТЫ", "effect:")] {
+            col = col.child(Text::new(section).class("section-title"));
+            let mut grid = Grid::new(16).min_column_width(size).gap(8.0);
+            for (key, label) in crate::render::preview::kinds().into_iter().filter(|(k, _)| k.starts_with(prefix)) {
+                let name = key[prefix.len()..].to_string();
+                let title = if prefix == "effect:" { fx_title(&name).to_string() } else { label };
+                grid = grid.child(fx_tile(st, key, name, title, prefix == "transition:"));
+            }
+            col = col.child(grid);
         }
         vec![Box::new(col)]
     }))
+}
+
+fn fx_tile(st: St, key: String, name: String, title: String, transition: bool) -> Box<dyn Widget> {
+    let hover = use_signal(None::<f32>);
+    let width = use_signal(150.0f32);
+    let path = crate::render::preview::strip_path(&key);
+    let key2 = key.clone();
+    let thumb = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.thumbs.get();
+        let frac = hover.get();
+        let mut stack = Stack::new().fit(StackFit::Expand);
+        match super::thumbs::strip_file(&path) {
+            Some(strip) if !strip.is_empty() => {
+                let n = strip.len();
+                // без наведения — середина (переход наполовину, эффект в силе)
+                let i = frac.map(|f| ((f * n as f32) as usize).min(n - 1)).unwrap_or(n / 2);
+                let f = &strip[i];
+                stack = stack.child(Image::from_rgba_shared(format!("fx:{key2}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false));
+            }
+            _ => {
+                stack = stack.child(Center::new().child(Icon::new(if transition { "\u{E8D4}" } else { "\u{E3A1}" }).class("tile-icon")));
+            }
+        }
+        if let Some(f) = frac {
+            let w = width.get_untracked();
+            stack = stack.child(Positioned::new(DecoratedBox::new().class("tile-scrub")).at((f * w - 1.0).max(0.0), 0.0).dimensions(2.0, 4000.0));
+        }
+        vec![Box::new(stack)]
+    });
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(EventHook::new().fill().on_hover_at(move |p| {
+            if let Some((_, s)) = p {
+                width.set(s.width);
+            }
+            hover.set(p.map(|(p, s)| (p.x / s.width.max(1.0)).clamp(0.0, 0.999)))
+        }).child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb").child(thumb))))
+        .child(Text::new(title).max_lines(1).elide(Elide::End).class("row-title"));
+    let apply = move || {
+        let sel = ed().selection.clone();
+        if sel.is_empty() {
+            st.toast.set(Some("Сначала выделите клип на таймлайне".into()));
+            return;
+        }
+        if transition {
+            for id in sel {
+                st.exec("transition.set", json!({"id": id, "kind": name}));
+            }
+        } else if name == "lut" {
+            st.dock.open("ai", Some("inspector"));
+            st.toast.set(Some("LUT: скажите агенту, какой файл .cube".into()));
+        } else {
+            st.exec("effect.add", json!({"ids": sel, "kind": name}));
+        }
+    };
+    Box::new(GestureDetector::new().on_click(apply).child(DecoratedBox::new().class("tile").child(body)))
 }
 
 // ── просмотр ────────────────────────────────────────────────────────────

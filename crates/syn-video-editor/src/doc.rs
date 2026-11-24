@@ -173,6 +173,9 @@ pub struct Clip {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// Переход в начале клипа от предыдущего на дорожке (по центру склейки).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<Transition>,
 }
 
 fn one() -> f64 {
@@ -189,6 +192,14 @@ impl Clip {
             _ => None,
         }
     }
+}
+
+/// Переход: вид (dissolve, dip_black, slide_left, slide_right, slide_up, slide_down,
+/// wipe_left, wipe_right, zoom, blur) и длительность, с.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Transition {
+    pub kind: String,
+    pub duration: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -314,6 +325,9 @@ impl Project {
                 }
                 for e in &c.effects {
                     extra.push(format!("эффект e{} {}{}", e.id, e.kind, if e.params.is_empty() { String::new() } else { format!(" {}", Value::Object(e.params.clone())) }));
+                }
+                if let Some(t) = &c.transition {
+                    extra.push(format!("переход {} {:.2} с", t.kind, t.duration));
                 }
                 let extra = if extra.is_empty() { String::new() } else { format!(" — {}", extra.join("; ")) };
                 let _ = writeln!(o, "  c{} {}–{} {}{}", c.id, tc(c.start), tc(c.end()), what, extra);

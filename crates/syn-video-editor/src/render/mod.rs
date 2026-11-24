@@ -6,6 +6,7 @@ pub mod compose;
 pub mod export;
 pub mod lut;
 pub mod neural;
+pub mod preview;
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};

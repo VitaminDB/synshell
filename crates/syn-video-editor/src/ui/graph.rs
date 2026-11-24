@@ -179,8 +179,8 @@ pub fn panel() -> Box<dyn Widget> {
             Some(ctx) => Box::new(
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(tabs(ws)).child(DecoratedBox::new().class("grow")).child(syn_node_editor::run_controls::view(ctx))))
-                    .child(DecoratedBox::new().class("grow").child(syn_node_editor::canvas::view(ctx, Vec::new()))),
+                    .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(tabs(ws)).child(DecoratedBox::new().class("grow")).child(DecoratedBox::new().class("graph-zoom").child(syn_node_editor::canvas::zoom_controls(ctx))).child(DecoratedBox::new().class("toolbar-sep")).child(syn_node_editor::run_controls::view(ctx))))
+                    .child(DecoratedBox::new().class("grow").child(syn_node_editor::canvas::view_bare(ctx, Vec::new()))),
             ),
             None => Box::new(Center::new().child(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Нет открытого графа").class("panel-empty")).child(Button::new("Новый граф").on_click(move || {
                 ws.new_untitled();
