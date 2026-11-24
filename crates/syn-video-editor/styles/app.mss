@@ -157,3 +157,8 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .clip-edge:hover { background-color: #FFFFFF55; }
 .clip-source { border-radius: 6px; background-color: #FFFFFF14; border-width: 1px; border-color: #FFFFFF33; }
 .clip-trim { background-color: var(--primary-soft); border-width: 2px; border-color: var(--warning); }
+.tl-ruler-hit { background-color: transparent; }
+.tl-playhead-hit { background-color: transparent; }
+.transport { padding: 4px 10px; border-top-width: 1px; border-color: var(--border-soft); background-color: var(--bg-panel); }
+.transport-time { font-family: monospace; font-size: 12px; color: var(--text-muted); }
+.transport-play { icon-size: 22px; }

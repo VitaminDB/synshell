@@ -149,7 +149,9 @@ pub fn view(st: St) -> impl Widget {
         let height = layout.last().map(|(_, t, h)| t + h).unwrap_or(RULER) + 8.0;
 
         // заголовки дорожек
-        let mut heads = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(DecoratedBox::new().class("tl-corner").child(Text::new(crate::doc::tc(e.playhead)).class("tl-time")));
+        let mut heads = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(DecoratedBox::new().class("tl-corner").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            vec![Box::new(Text::new(crate::doc::tc(st.ph.get())).class("tl-time"))]
+        })));
         for (row, _, h) in &layout {
             let (text, class) = match row {
                 RowKind::NewVideo => ("+ видео".to_string(), "tl-head tl-head-new"),
@@ -239,14 +241,45 @@ pub fn view(st: St) -> impl Widget {
                 }
             }
         }
-        // слой превью (бросок, обрезка) — свой Reactive, поле не перестраивается
+        // протяжка по линейке: зажать и вести — позиция за курсором
+        let ruler_scrub = EventHook::new()
+            .on_hover_at(move |p| {
+                if let Some((p, _)) = p {
+                    *RULER_X.lock().unwrap() = p.x;
+                    if SCRUB.load(std::sync::atomic::Ordering::Relaxed) {
+                        st.seek_live((p.x / st.zoom.get_untracked()) as f64);
+                    }
+                }
+            })
+            .child(
+                GestureDetector::new()
+                    .cursor(syngui::input::CursorIcon::ColResize)
+                    .on_pan_start(move |_| {
+                        SCRUB.store(true, std::sync::atomic::Ordering::Relaxed);
+                        st.seek_live((*RULER_X.lock().unwrap() / st.zoom.get_untracked()) as f64);
+                    })
+                    .on_pan_end(move |_| SCRUB.store(false, std::sync::atomic::Ordering::Relaxed))
+                    .on_click(move || st.seek_live((*RULER_X.lock().unwrap() / st.zoom.get_untracked()) as f64))
+                    .child(DecoratedBox::new().class("tl-ruler-hit")),
+            );
+        field = field.child(Positioned::new(ruler_scrub).at(0.0, 0.0).dimensions(width, RULER));
+        // слой превью (бросок, обрезка) и позиция воспроизведения — свои Reactive,
+        // поле не перестраивается (протяжка, воспроизведение)
         field = field.child(overlay(st));
-        // позиция воспроизведения
-        let px = e.playhead as f32 * zoom;
-        field = field.child(Positioned::new(DecoratedBox::new().class("tl-playhead")).at(px, 0.0).dimensions(2.0, height));
-        field = field.child(Positioned::new(DecoratedBox::new().class("tl-playhead-cap")).at(px - 5.0, 0.0).dimensions(12.0, 10.0));
+        field = field.child(playhead(st, height));
         drop(e);
 
+        // точка мыши над полем: за ней идёт перетаскиваемая головка курсора
+        let field = EventHook::new()
+            .on_hover_at(move |p| {
+                if let Some((p, _)) = p {
+                    *FIELD_X.lock().unwrap() = p.x;
+                    if PH_DRAG.load(std::sync::atomic::Ordering::Relaxed) {
+                        st.seek_live((p.x / st.zoom.get_untracked()) as f64);
+                    }
+                }
+            })
+            .child(field);
         let surface = GestureDetector::new()
             .on_click_with_bounds(move |pt: Point, b: Rect| click(st, pt.x - b.origin.x, pt.y - b.origin.y))
             .child(DecoratedBox::new().child(field).style("width", width).style("height", height));
@@ -442,4 +475,32 @@ fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
         st.exec("clip.move", json!({"id": id, "at": s, "track": tid}));
         st.exec("selection.set", json!({"ids": [id]}));
     }
+}
+
+/// Протяжка по линейке идёт; последняя точка курсора над линейкой (пикс. поля).
+static SCRUB: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static RULER_X: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
+/// Головку курсора тянут; точка мыши над полем (пикс.).
+static PH_DRAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FIELD_X: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
+
+/// Курсор позиции: линия и головка; головку и линию можно тащить.
+fn playhead(st: St, height: f32) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let px = st.ph.get() as f32 * st.zoom.get_untracked();
+        let grab = GestureDetector::new()
+            .cursor(syngui::input::CursorIcon::ColResize)
+            .on_pan_start(move |_| {
+                PH_DRAG.store(true, std::sync::atomic::Ordering::Relaxed);
+                st.seek_live((*FIELD_X.lock().unwrap() / st.zoom.get_untracked()) as f64);
+            })
+            .on_pan_end(move |_| PH_DRAG.store(false, std::sync::atomic::Ordering::Relaxed))
+            .child(DecoratedBox::new().class("tl-playhead-hit"));
+        vec![
+            Box::new(Positioned::new(DecoratedBox::new().class("tl-playhead")).at(px, 0.0).dimensions(2.0, height)),
+            Box::new(Positioned::new(DecoratedBox::new().class("tl-playhead-cap")).at(px - 5.0, 0.0).dimensions(12.0, 12.0)),
+            // зона захвата шире линии: головка и вся линия
+            Box::new(Positioned::new(grab).at(px - 6.0, 0.0).dimensions(14.0, height)),
+        ]
+    })
 }

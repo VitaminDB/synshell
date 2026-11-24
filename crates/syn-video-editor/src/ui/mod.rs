@@ -56,6 +56,9 @@ pub fn ed() -> MutexGuard<'static, Editor> {
     shared().lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Откуда пустили воспроизведение (для «Стоп»).
+static PLAY_FROM: std::sync::Mutex<f64> = std::sync::Mutex::new(0.0);
+
 /// Команды, об успехе которых стоит сказать уведомлением (остальные видны сами).
 const LOUD: &[&str] = &["project.save", "project.open", "project.new", "project.export", "frame.export", "media.import", "media.transcribe", "clip.cut_silence", "clip.cut_ranges", "template.apply", "edit.undo", "edit.redo"];
 
@@ -104,6 +107,9 @@ pub struct St {
     pub drop_hint: RwSignal<Option<timeline::Hint>>,
     /// Идёт обрезка края клипа: клип, левый ли край, сдвиг мыши (пикс.).
     pub trim: RwSignal<Option<(u64, bool, f32)>>,
+    /// Позиция воспроизведения (зеркало `Editor::playhead`): курсор, просмотр,
+    /// время — по нему, без перестройки таймлайна (протяжка, воспроизведение).
+    pub ph: RwSignal<f64>,
 }
 
 impl St {
@@ -131,6 +137,7 @@ impl St {
             tile_size: use_signal(110.0),
             drop_hint: use_signal(None),
             trim: use_signal(None),
+            ph: use_signal(0.0),
         }
     }
 
@@ -140,6 +147,7 @@ impl St {
             let mut e = ed();
             let r = cmd::run(&mut e, id, &args);
             self.rev.set(e.revision);
+            self.ph.set(e.playhead);
             r
         };
         match r {
@@ -196,6 +204,7 @@ impl St {
                 e.playhead = 0.0;
             }
         }
+        *PLAY_FROM.lock().unwrap() = ed().playhead;
         self.playing.set(true);
         let fps = ed().project.settings.fps.max(1.0);
         std::thread::spawn(move || {
@@ -239,10 +248,10 @@ impl St {
                     let end = e.project.duration();
                     let t = (from + now).min(end);
                     e.playhead = (t * fps).floor() / fps;
-                    e.revision += 1;
-                    let rev = e.revision;
+                    let ph = e.playhead;
                     drop(e);
-                    self.rev.set(rev);
+                    // только позиция: таймлайн не перестраивается на каждом кадре
+                    self.ph.set(ph);
                     if t >= end {
                         self.playing.set(false);
                     }
@@ -256,6 +265,27 @@ impl St {
                 p.stop();
             }
         });
+    }
+
+    /// Стоп: пауза и возврат туда, откуда пустили воспроизведение.
+    pub fn stop(self) {
+        let was = self.playing.get_untracked();
+        self.playing.set(false);
+        if was {
+            let t = *PLAY_FROM.lock().unwrap();
+            self.seek_live(t);
+        }
+    }
+
+    /// Позиция без команды и без перестройки таймлайна (протяжка курсора).
+    pub fn seek_live(self, t: f64) {
+        let t = {
+            let mut e = ed();
+            let t = e.project.snap(t.clamp(0.0, e.project.duration().max(0.0)));
+            e.playhead = t;
+            t
+        };
+        self.ph.set(t);
     }
 
     /// Шаг позиции на `frames` кадров.
@@ -558,7 +588,12 @@ pub fn root(st: St) -> impl Widget {
                         return KeyReply::Handled;
                     }
                     Key::Home => {
-                        st.exec("playhead.set", json!({"at": 0}));
+                        st.seek_live(0.0);
+                        return KeyReply::Handled;
+                    }
+                    Key::End => {
+                        let d = ed().project.duration();
+                        st.seek_live(d);
                         return KeyReply::Handled;
                     }
                     _ => {}
@@ -769,6 +804,7 @@ fn dock(st: St) -> impl Widget {
 fn statusbar(st: St) -> impl Widget {
     DecoratedBox::new().class("statusbar").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
+        let _ = st.ph.get();
         let (left, right) = {
             let e = ed();
             let s = &e.project.settings;

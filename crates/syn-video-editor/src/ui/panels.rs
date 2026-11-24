@@ -209,9 +209,44 @@ fn preview_frames(p: &crate::doc::Project, t: f64) -> crate::render::compose::Fr
 
 /// Просмотр — кадр композитора (тот же, что при экспорте) в масштабе панели.
 fn viewer(st: St) -> impl Widget {
+    Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(DecoratedBox::new().class("grow").child(viewer_frame(st))).child(transport(st))
+}
+
+/// Управление воспроизведением под кадром: в начало, кадр назад, пуск/пауза,
+/// стоп (пауза и возврат туда, откуда пустили), кадр вперёд, в конец, время.
+fn transport(st: St) -> impl Widget {
+    let btn = move |icon: &'static str, tip: &'static str, f: fn(St)| ToolButton::new(icon).tooltip(tip).on_click(move || f(st));
+    DecoratedBox::new().class("transport").child(
+        Row::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                let _ = st.rev.get();
+                let t = st.ph.get();
+                let d = ed().project.duration();
+                vec![Box::new(Text::new(format!("{} / {}", tc(t), tc(d))).class("transport-time"))]
+            })))
+            .child(btn("\u{E045}", "В начало (Home)", |st| st.seek_live(0.0)))
+            .child(btn("\u{E020}", "Кадр назад (←)", |st| st.step(-1.0)))
+            .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                let on = st.playing.get();
+                vec![Box::new(ToolButton::new(if on { icons::PAUSE } else { icons::PLAY }).tooltip(if on { "Пауза (Пробел)" } else { "Воспроизвести (Пробел)" }).on_click(move || st.toggle_play()).class("transport-play"))]
+            }))
+            .child(btn("\u{E047}", "Стоп", |st| st.stop()))
+            .child(btn("\u{E01F}", "Кадр вперёд (→)", |st| st.step(1.0)))
+            .child(btn("\u{E044}", "В конец (End)", |st| {
+                let d = ed().project.duration();
+                st.seek_live(d);
+            }))
+            .child(DecoratedBox::new().class("grow")),
+    )
+}
+
+fn viewer_frame(st: St) -> impl Widget {
     let area = use_signal(syngui::prelude::Size::new(640.0, 360.0));
     EventHook::new().fill().on_resize(move |s| area.set(s)).child(DecoratedBox::new().class("viewer").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
+        let _ = st.ph.get();
         let a = area.get();
         let (p, t) = {
             let e = ed();
