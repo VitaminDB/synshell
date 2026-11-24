@@ -8,6 +8,7 @@ mod panels;
 mod thumbs;
 mod wave;
 pub mod timeline;
+mod fontpick;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -131,6 +132,9 @@ pub struct St {
     pub menu_at: RwSignal<timeline::MenuAt>,
     /// Дорожка, которую переименовывают (поле в заголовке).
     pub rename_track: RwSignal<Option<u64>>,
+    /// Окно выбора шрифта: для какого титра, строка поиска.
+    pub font_pick: RwSignal<Option<u64>>,
+    pub font_query: RwSignal<String>,
 }
 
 impl St {
@@ -167,6 +171,8 @@ impl St {
             menu_pos: use_signal(Point::zero()),
             menu_at: use_signal(timeline::MenuAt::Field(0, 0.0)),
             rename_track: use_signal(None),
+            font_pick: use_signal(None),
+            font_query: use_signal(String::new()),
         }
     }
 
@@ -713,6 +719,7 @@ pub fn root(st: St) -> impl Widget {
         .child(CommandPalette::new(st.palette_open).placeholder("Команда… (можно в другой раскладке)").commands(palette).on_run(move |id| st.run_menu(id)).build())
         .child(toast(st))
         .child(timeline::menu(st))
+        .child(fontpick::view(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).

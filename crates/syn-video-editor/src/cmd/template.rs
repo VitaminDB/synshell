@@ -8,7 +8,7 @@ use crate::doc::{tc, Clip, Source, TrackKind};
 use crate::editor::Editor;
 use crate::fusion;
 
-pub static COMMANDS: &[&Command] = &[&LIST, &APPLY];
+pub static COMMANDS: &[&Command] = &[&LIST, &APPLY, &FONTS];
 
 static LIST: Command = Command {
     id: "template.list",
@@ -109,4 +109,28 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
     t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None });
     t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("c{id} шаблон {tname}: «{}» {}–{}", body.replace('\n', " / "), tc(start), tc(start + dur)), json!({"id": id})))
+}
+
+static FONTS: Command = Command {
+    id: "font.list",
+    category: "Шаблоны",
+    title: "Шрифты титров",
+    shortcut: "",
+    keywords: "font шрифт гарнитура титр текст",
+    help: "Шрифты из папки «Шрифты» библиотеки: query — часть названия. Имя ставится в стиль титра: style {font: \"<имя>\"}. Системные шрифты тоже работают по имени.",
+    args: &[arg("query", Ty::Str, "часть названия"), arg("limit", Ty::Num, "сколько показать (50)")],
+    danger: false,
+    run: fonts,
+};
+
+fn fonts(_ed: &mut Editor, a: &Args) -> Res {
+    let q = a.str("query")?.unwrap_or_default().to_lowercase();
+    let limit = a.num("limit")?.unwrap_or(50.0) as usize;
+    let all = crate::fonts::families();
+    if all.is_empty() {
+        return Err(format!("шрифтов нет в {}", crate::fonts::dir().display()));
+    }
+    let hits: Vec<&String> = all.iter().filter(|f| f.to_lowercase().contains(&q)).collect();
+    let shown: Vec<&String> = hits.iter().take(limit).copied().collect();
+    Ok(Out::with(format!("Шрифтов: {} из {}\n{}", hits.len(), all.len(), shown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")), json!(shown)))
 }

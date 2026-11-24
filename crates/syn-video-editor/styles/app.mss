@@ -180,3 +180,12 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .tl-head-off { opacity: 0.55; }
 .tl-head-edit { font-size: 12px; height: 24px; }
 .clip-off { opacity: 0.4; }
+.fp-scrim { background-color: #00000088; }
+.fp-card { background-color: var(--bg-panel); border-radius: 12px; border-width: 1px; border-color: var(--border-soft); padding: 14px; }
+.fp-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.fp-count { font-size: 11px; color: var(--text-muted); }
+.fp-row { padding: 8px 12px; border-radius: 8px; }
+.fp-row:hover { background-color: var(--bg-hover, #FFFFFF10); }
+.fp-row-on { background-color: #3B82F633; }
+.fp-sample { font-size: 24px; color: var(--text); }
+.fp-name { font-size: 11px; color: var(--text-muted); }

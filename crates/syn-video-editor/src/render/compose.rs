@@ -273,6 +273,7 @@ fn title(text: &str, st: &Map<String, Value>, lt: f64, dur: f64, alpha: f32, tr:
     let font = (size * k).max(1.0);
     let mut txt = Text::new(text.to_string()).max_lines(4).style("color", color).style("font-size", font).style("font-weight", 700.0f32).style("text-align", StyleValue::String("center".into()));
     if let Some(f) = st.get("font").and_then(Value::as_str) {
+        crate::fonts::ensure(f);
         txt = txt.style("font-family", StyleValue::String(f.to_string()));
     }
     let boxed = st.get("box").and_then(Value::as_bool).unwrap_or(false);

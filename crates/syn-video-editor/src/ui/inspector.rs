@@ -21,7 +21,7 @@ pub fn key() -> String {
         Some(c) => {
             let src = match &c.source {
                 Source::Media { media } => format!("m{media}"),
-                Source::Title { .. } => "title".into(),
+                Source::Title { style, .. } => format!("title:{}", style.get("font").and_then(Value::as_str).unwrap_or("")),
                 Source::Color { .. } => "color".into(),
             };
             let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""))).collect();
@@ -221,6 +221,8 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip) {
         r.range("Размер", num(style, "size", h * 0.075), 12.0, 400.0, 1.0, move |st, x| {
             st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
         });
+        let font = style.get("font").and_then(Value::as_str).unwrap_or("По умолчанию").to_string();
+        r.action("Шрифт", &font, move |st| st.font_pick.set(Some(id)));
         let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff");
         r.add(Property::color("Цвет", Color::from_hex(col)), move |st, v| {
             if let PropertyValue::Color(c) = v {
