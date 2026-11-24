@@ -8038,6 +8038,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-node-editor"
+version = "0.2.0"
+dependencies = [
+ "hound",
+ "rfd",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "synaptix-audio",
+ "synaptix-core",
+ "synaptix-flow",
+ "synaptix-io",
+ "synaptix-kernels-cpu",
+ "synaptixd",
+ "syngui",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "syn-notes"
 version = "0.2.0"
 dependencies = [

@@ -5,6 +5,7 @@ members = [
     "crates/syn-courier-panel",
     "crates/synaptix-graph",
     "crates/synaptix-flow",
+    "crates/syn-node-editor",
     "crates/synshell-tr",
     "crates/syn-wm",
     "crates/syngui-layer",
@@ -90,9 +91,12 @@ syn-courier = { path = "crates/syn-courier", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
 synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix-flow = { path = "crates/synaptix-flow" }
+syn-node-editor = { path = "crates/syn-node-editor" }
 synaptix = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
 synaptix-core = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-bundle = { git = "https://github.com/VitaminDB/synaptix.git" }
+synaptix-io = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
+synaptix-audio = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
 synaptix-vfx = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-kernels-cpu = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-kernels-cuda = { git = "https://github.com/VitaminDB/synaptix.git" }
