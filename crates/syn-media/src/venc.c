@@ -155,8 +155,21 @@ struct venc *venc_open(const char *dev, uint32_t w, uint32_t h, int hevc, uint32
     e->info.stride = of.fmt.pix_mp.plane_fmt[0].bytesperline;
     e->info.in_size = of.fmt.pix_mp.plane_fmt[0].sizeimage;
     // Высота Y-плоскости с выравниванием драйвера: Y + UV (вдвое ниже) = sizeimage.
-    e->info.y_scanlines = e->info.stride ? (uint32_t)((uint64_t)e->info.in_size * 2 / 3 / e->info.stride) : h;
+    // Высота Y-плоскости: драйвер, выравнивающий кадр (Venus: 720 → 736), возвращает её в формате; иначе — из
+    // размера буфера (Y + UV вдвое ниже = sizeimage).
+    if (of.fmt.pix_mp.height > h)
+        e->info.y_scanlines = of.fmt.pix_mp.height;
+    else
+        e->info.y_scanlines = e->info.stride ? (uint32_t)((uint64_t)e->info.in_size * 2 / 3 / e->info.stride) : h;
     if (e->info.y_scanlines < h) e->info.y_scanlines = h;
+    // Видимая часть кадра — w × h (без полей выравнивания): иначе поток кодируется с размером буфера.
+    struct v4l2_selection sel = {.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, .target = V4L2_SEL_TGT_CROP};
+    sel.r.width = w;
+    sel.r.height = h;
+    if (ioctl(fd, VIDIOC_S_SELECTION, &sel) < 0) {
+        sel.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+        ioctl(fd, VIDIOC_S_SELECTION, &sel);
+    }
 
     struct v4l2_streamparm p = {.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE};
     p.parm.output.timeperframe.numerator = 1;

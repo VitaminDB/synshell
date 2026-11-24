@@ -225,9 +225,9 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
             }
             Source::Color { color } => {
                 let col = syngui::mss::MssColor::parse(color).map(|m| Color::from_srgb(m.r, m.g, m.b, m.a as f32 / 255.0)).unwrap_or(Color::from_srgb(0, 0, 0, 1.0));
-                Box::new(Positioned::new(DecoratedBox::new().style("background-color", col).style("opacity", alpha as f32)).at(0.0, 0.0).dimensions(w, h))
+                Box::new(Positioned::new(DecoratedBox::new().style("background-color", col).style("opacity", alpha as f32).style("transform", StyleValue::String(format!("rotate({rot}deg) scale({k})")))).at(x * w, y * h).dimensions(w, h))
             }
-            Source::Title { text, style } => title(text, style, lt, c.duration, alpha as f32, (x, y, k), w, h, scale),
+            Source::Title { text, style } => title(text, style, lt, c.duration, alpha as f32, (x, y, k, rot), w, h, scale),
         };
         // шторка: видна полоса кадра [x0, x1] (доли ширины)
         let layer: Box<dyn Widget> = match fx.as_ref().and_then(|f| f.clip) {
@@ -245,7 +245,7 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
 /// Титр: размер, цвет, положение, подложка; появление и исчезание (`in`/`out`:
 /// fade, slide, pop, none) за `anim` секунд.
 #[allow(clippy::too_many_arguments)]
-fn title(text: &str, st: &Map<String, Value>, lt: f64, dur: f64, alpha: f32, tr: (f32, f32, f32), w: f32, h: f32, scale: f32) -> Box<dyn Widget> {
+fn title(text: &str, st: &Map<String, Value>, lt: f64, dur: f64, alpha: f32, tr: (f32, f32, f32, f32), w: f32, h: f32, scale: f32) -> Box<dyn Widget> {
     let size = num(st, "size", (w.min(h) / scale) as f64 * 0.075) as f32 * scale * tr.2;
     let color = st.get("color").and_then(Value::as_str).and_then(syngui::mss::MssColor::parse).map(|m| Color::from_srgb(m.r, m.g, m.b, m.a as f32 / 255.0)).unwrap_or(Color::from_srgb(255, 255, 255, 1.0));
     let pos = st.get("position").and_then(Value::as_str).unwrap_or("bottom");
@@ -282,6 +282,10 @@ fn title(text: &str, st: &Map<String, Value>, lt: f64, dur: f64, alpha: f32, tr:
     let mut pill = DecoratedBox::new().child(txt).style("padding", font * 0.25);
     if boxed {
         pill = pill.style("background-color", Color::from_srgb(0, 0, 0, 0.55)).style("border-radius", font * 0.25);
+    }
+    // поворот — вокруг самого текста, а не кадра
+    if tr.3 != 0.0 {
+        pill = pill.style("transform", StyleValue::String(format!("rotate({}deg)", tr.3)));
     }
     let main = match pos {
         "top" => MainAxisAlignment::Start,

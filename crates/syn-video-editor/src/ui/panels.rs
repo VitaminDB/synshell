@@ -253,10 +253,22 @@ fn viewer_frame(st: St) -> impl Widget {
             let e = ed();
             (e.project.clone(), e.playhead)
         };
+        let mut p = p;
+        // рамку тянут — кадр с новыми значениями
+        if let Some(d) = st.xf_drag.get() {
+            super::xform::apply_preview(&mut p, &d, t);
+        }
         let k = ((a.width - 16.0) / p.settings.width as f32).min((a.height - 16.0) / p.settings.height as f32).max(0.02);
         let frames = preview_frames(&p, t);
         let frame = crate::render::compose::frame_widget(&p, t, &frames, k);
-        vec![Box::new(Center::new().child(Column::new().children(vec![frame])))]
+        let (fw, fh) = (p.settings.width as f32 * k, p.settings.height as f32 * k);
+        let mut stack = Stack::new().child(Positioned::new(frame).at(0.0, 0.0).dimensions(fw, fh));
+        if !st.playing.get() {
+            for w in super::xform::overlay(st, &p, t, k, fw, fh) {
+                stack = stack.child(w);
+            }
+        }
+        vec![Box::new(Center::new().child(DecoratedBox::new().child(stack).style("width", fw).style("height", fh)))]
     })))
 }
 

@@ -10,6 +10,7 @@ mod wave;
 pub mod timeline;
 mod fontpick;
 mod curves;
+mod xform;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -139,6 +140,8 @@ pub struct St {
     /// Панель «Кривые»: выбранный параметр и перетаскивание ключа или ручки.
     pub curve_param: RwSignal<Option<String>>,
     pub curve_drag: RwSignal<Option<curves::Drag>>,
+    /// Рамка трансформации на просмотре: перетаскивание.
+    pub xf_drag: RwSignal<Option<xform::Drag>>,
 }
 
 impl St {
@@ -179,6 +182,7 @@ impl St {
             font_query: use_signal(String::new()),
             curve_param: use_signal(None),
             curve_drag: use_signal(None),
+            xf_drag: use_signal(None),
         }
     }
 

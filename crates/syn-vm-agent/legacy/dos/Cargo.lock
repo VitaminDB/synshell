@@ -19,6 +19,10 @@ name = "synaptix-asr-wav2vec2"
 version = "0.1.1"
 
 [[patch.unused]]
+name = "synaptix-audio"
+version = "0.1.1"
+
+[[patch.unused]]
 name = "synaptix-bundle"
 version = "0.1.1"
 
@@ -28,6 +32,10 @@ version = "0.1.1"
 
 [[patch.unused]]
 name = "synaptix-gen"
+version = "0.1.1"
+
+[[patch.unused]]
+name = "synaptix-io"
 version = "0.1.1"
 
 [[patch.unused]]
