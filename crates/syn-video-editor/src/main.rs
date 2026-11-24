@@ -31,6 +31,7 @@ fn main() {
     let mut commands = false;
     let mut json = false;
     let mut yes = false;
+    let mut shot: Option<(String, (u32, u32))> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -49,6 +50,15 @@ fn main() {
             "--commands" => commands = true,
             "--json" => json = true,
             "--yes" => yes = true,
+            "--screenshot" => {
+                let out = args.next().unwrap_or_else(|| "shot.png".into());
+                shot = Some((out, (1600, 1000)));
+            }
+            "--size" => {
+                if let (Some(s), Some((w, h))) = (shot.as_mut(), args.next().as_deref().and_then(|v| v.split_once('x')).map(|(w, h)| (w.to_string(), h.to_string()))) {
+                    s.1 = (w.parse().unwrap_or(1600), h.parse().unwrap_or(1000));
+                }
+            }
             s if !s.starts_with('-') && project.is_none() => project = Some(PathBuf::from(s)),
             s => {
                 eprintln!("неизвестный ключ {s}\n{}", usage());
@@ -69,8 +79,8 @@ fn main() {
 
     let headless = !cmds.is_empty() || ai.is_some() || dump;
     if !headless {
-        eprintln!("Окно редактора — следующий шаг этапа 0; пока работает режим без окна:\n{}", usage());
-        std::process::exit(2);
+        gui(project, shot);
+        return;
     }
 
     let mut ed = Editor::new();
@@ -152,4 +162,64 @@ fn main() {
     if failed {
         std::process::exit(1);
     }
+}
+
+/// Окно редактора (или его снимок без экрана: `--screenshot файл.png [--size ШxВ]`).
+fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
+    use syn_video_editor::ui;
+    use syngui::prelude::*;
+    synshell_common::i18n::init(&[]);
+    if let Some(p) = &project {
+        let mut e = ui::ed();
+        match store::load(p) {
+            Ok(pr) => e.replace(pr, Some(p.clone())),
+            Err(err) if p.exists() => eprintln!("{err}"),
+            Err(_) => e.path = Some(p.clone()),
+        }
+    }
+    let (cfg, _) = synshell_common::Config::load();
+    let mss = ui::theme(&cfg);
+    if let Some((out, size)) = shot {
+        let r = syngui::shot::render_png(
+            || {
+                let st = ui::St::new();
+                if let Ok(sel) = std::env::var("SYN_VIDEO_EDITOR_SELECT") {
+                    st.exec("selection.set", serde_json::json!({"ids": [sel]}));
+                }
+                if let Ok(at) = std::env::var("SYN_VIDEO_EDITOR_AT") {
+                    st.exec("playhead.set", serde_json::json!({"at": at}));
+                }
+                st.toast.set(None);
+                Box::new(ui::root(st)) as Box<dyn Widget>
+            },
+            &mss,
+            size,
+            1.0,
+            &out,
+        );
+        match r {
+            Ok((w, h)) => println!("{out}: {w}x{h}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    let st = ui::St::new();
+    st.rev.set(ui::ed().revision);
+    st.theme.set(mss.clone());
+    synshell_common::live::bind(st.theme, mss, ui::theme);
+    App::new()
+        .title("Видеоредактор")
+        .app_id("syn-video-editor")
+        .size(1600, 1000)
+        .min_size(900, 600)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
+        .with_live_styles(st.theme)
+        .with_window_state(st.window)
+        .run(move |_| Box::new(ui::root(st)) as Box<dyn Widget>);
 }

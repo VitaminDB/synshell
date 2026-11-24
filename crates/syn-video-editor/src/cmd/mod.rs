@@ -7,6 +7,7 @@ mod edit;
 mod media;
 mod project;
 mod timeline;
+pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
 

@@ -16,7 +16,7 @@ features_env = "SYNAPTIXD_FEATURES"
 [packages.synshell]
 description = "Окружение рабочего стола synshell: основа и приложения (без нейросетей)"
 description_en = "synshell desktop environment: core and applications (without the neural-network service)"
-depends = ["synshell-core", "synshell-link", "synshell-game", "syn-notes", "syn-vm", "syn-video-player", "syn-audio-player", "syn-audio-recorder", "synpass", "syn-maps", "syn-remote", "syn-systeminfo", "syn-themeeditor", "syn-woman-cycle", "syndroid", "syn-wine-helper", "syncamera", "syn-blocks"]
+depends = ["synshell-core", "synshell-link", "synshell-game", "syn-notes", "syn-vm", "syn-video-player", "syn-video-editor", "syn-audio-player", "syn-audio-recorder", "synpass", "syn-maps", "syn-remote", "syn-systeminfo", "syn-themeeditor", "syn-woman-cycle", "syndroid", "syn-wine-helper", "syncamera", "syn-blocks"]
 optdepends = [
   "synshell-ai: ассистент (нужна служба нейросетей synaptix)",
   "synshell-mobile: оболочка и службы телефона",
@@ -381,6 +381,15 @@ description = "Пульт synshell: управление техникой чер
 description_en = "synshell remote control: IR blaster and smart TVs"
 depends = ["synshell-core"]
 apps = ["syn-remote"]
+groups = ["synshell-apps"]
+
+[packages.syn-video-editor]
+description = "ИИ-видеоредактор synshell: монтаж силами агента, титры, эффекты, шаблоны, нейрофильтры"
+description_en = "synshell AI video editor: editing by an AI agent, titles, effects, templates, neural filters"
+depends = ["synshell-core", "ffmpeg"]
+optdepends = ["synshell-ai: встроенный ИИ-агент (служба нейросетей synaptix)"]
+optdepends_en = ["synshell-ai: built-in AI agent (synaptix neural-network service)"]
+apps = ["syn-video-editor"]
 groups = ["synshell-apps"]
 
 [packages.syn-systeminfo]

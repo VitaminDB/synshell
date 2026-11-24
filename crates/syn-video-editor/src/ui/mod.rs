@@ -1,0 +1,509 @@
+//! Окно как в hexspire: заголовок с меню и палитрой команд, панель
+//! инструментов, док-панели, строка состояния. Любое действие окна —
+//! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
+
+mod panels;
+mod timeline;
+
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+use serde_json::{json, Value};
+use syngui::containers::Positioned;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
+use syngui::prelude::*;
+use syngui::widgets::overlay::MenuItem;
+use syngui::widgets::*;
+use synshell_common::config::Rgba;
+use synshell_common::Config;
+
+use crate::agent::Shared;
+use crate::cmd;
+use crate::editor::Editor;
+
+pub mod icons {
+    pub const FOLDER_OPEN: &str = "\u{E2C8}";
+    pub const SAVE: &str = "\u{E161}";
+    pub const UNDO: &str = "\u{E166}";
+    pub const REDO: &str = "\u{E15A}";
+    pub const SEARCH: &str = "\u{E8B6}";
+    pub const CUT: &str = "\u{E14E}";
+    pub const TITLE: &str = "\u{E264}";
+    pub const PLAY: &str = "\u{E037}";
+    pub const AI: &str = "\u{E65F}";
+    pub const MOVIE: &str = "\u{E02C}";
+    pub const AUDIO: &str = "\u{E405}";
+    pub const IMAGE: &str = "\u{E3F4}";
+    pub const ADD: &str = "\u{E145}";
+    pub const SEND: &str = "\u{E163}";
+    pub const STOP: &str = "\u{E047}";
+    pub const FULLSCREEN: &str = "\u{E5D0}";
+    pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
+    pub const ZOOM_IN: &str = "\u{E8FF}";
+    pub const ZOOM_OUT: &str = "\u{E900}";
+}
+
+static EDITOR: OnceLock<Shared> = OnceLock::new();
+
+pub fn shared() -> &'static Shared {
+    EDITOR.get_or_init(|| Arc::new(Mutex::new(Editor::new())))
+}
+
+pub fn ed() -> MutexGuard<'static, Editor> {
+    shared().lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Строка панели ИИ.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AiLine {
+    User(String),
+    Text(String),
+    Tool(String),
+    Result(String),
+    Error(String),
+}
+
+#[derive(Clone, Copy)]
+pub struct St {
+    /// Номер правки редактора: панели перечитывают документ по нему.
+    pub rev: RwSignal<u64>,
+    pub window: RwSignal<syngui::window::WindowState>,
+    pub theme: RwSignal<String>,
+    pub palette_open: RwSignal<bool>,
+    pub dock: DockState,
+    /// Пикселей на секунду таймлайна.
+    pub zoom: RwSignal<f32>,
+    pub toast: RwSignal<Option<String>>,
+    pub ai_log: RwSignal<Vec<AiLine>>,
+    pub ai_busy: RwSignal<bool>,
+    pub view: RwSignal<String>,
+}
+
+impl St {
+    pub fn new() -> Self {
+        Self {
+            rev: use_signal(0),
+            window: use_signal(syngui::window::WindowState::default()),
+            theme: use_signal(String::new()),
+            palette_open: use_signal(false),
+            dock: DockState::new(layout("edit")),
+            zoom: use_signal(60.0),
+            toast: use_signal(None),
+            ai_log: use_signal(Vec::new()),
+            ai_busy: use_signal(false),
+            view: use_signal("edit".to_string()),
+        }
+    }
+
+    /// Выполнить команду; ошибка — во всплывающее сообщение.
+    pub fn exec(self, id: &str, args: Value) -> Option<cmd::Out> {
+        let r = {
+            let mut e = ed();
+            let r = cmd::run(&mut e, id, &args);
+            self.rev.set(e.revision);
+            r
+        };
+        match r {
+            Ok(o) => {
+                if !o.text.is_empty() {
+                    self.toast.set(Some(o.text.lines().next().unwrap_or_default().to_string()));
+                }
+                Some(o)
+            }
+            Err(e) => {
+                self.toast.set(Some(e));
+                None
+            }
+        }
+    }
+
+    /// Команда из меню, палитры или клавиш: без аргументов — сразу; с
+    /// обязательными аргументами — просьба к агенту в панели ИИ.
+    pub fn run_menu(self, id: &str) {
+        match id {
+            "view.palette" => return self.palette_open.set(true),
+            "view.fullscreen" => return syngui::signal::toggle_fullscreen(),
+            "view.ai" => return self.dock.open("ai", Some("inspector")),
+            v if v.starts_with("view.layout.") => return self.set_view(&v["view.layout.".len()..]),
+            _ => {}
+        }
+        let Some(c) = cmd::find(id) else { return };
+        if c.args.iter().any(|a| a.required) {
+            self.dock.open("ai", Some("inspector"));
+            self.toast.set(Some(format!("«{}»: скажите агенту, что именно (панель ИИ)", c.title)));
+            return;
+        }
+        let args = if id == "project.save" && ed().path.is_none() { json!({"path": default_path()}) } else { json!({}) };
+        self.exec(id, args);
+    }
+
+    pub fn set_view(self, key: &str) {
+        self.view.set(key.to_string());
+        self.dock.set_spec(layout(key));
+    }
+
+    /// Ход агента в фоне; события — в панель ИИ, правки — в окно.
+    pub fn ask_ai(self, text: String) {
+        if self.ai_busy.get_untracked() || text.trim().is_empty() {
+            return;
+        }
+        self.ai_busy.set(true);
+        self.ai_log.update(|l| l.push(AiLine::User(text.clone())));
+        std::thread::spawn(move || {
+            use syn_assist::agent::AgentEvent;
+            static AGENT: OnceLock<syn_assist::agent::Agent> = OnceLock::new();
+            static CHAT: OnceLock<Mutex<syn_assist::chat::Chat>> = OnceLock::new();
+            let agent = AGENT.get_or_init(|| crate::agent::agent(shared()));
+            let mut chat = CHAT.get_or_init(|| Mutex::new(syn_assist::chat::Chat::new())).lock().unwrap_or_else(|e| e.into_inner());
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            let push = move |line: AiLine| {
+                syngui::async_runtime::run_on_main_thread(move || {
+                    self.ai_log.update(|l| match (&line, l.last_mut()) {
+                        (AiLine::Text(t), Some(AiLine::Text(prev))) => prev.push_str(t),
+                        _ => l.push(line),
+                    });
+                    self.rev.set(ed().revision);
+                });
+            };
+            let r = crate::agent::run_turn(agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), &cancel, &mut |ev| match ev {
+                AgentEvent::Text(t) => push(AiLine::Text(t)),
+                AgentEvent::ToolStart { summary, .. } => push(AiLine::Tool(summary)),
+                AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
+                _ => {}
+            });
+            if let Err(e) = r {
+                push(AiLine::Error(e));
+            }
+            syngui::async_runtime::run_on_main_thread(move || {
+                self.ai_busy.set(false);
+                self.rev.set(ed().revision);
+            });
+        });
+    }
+}
+
+fn default_path() -> String {
+    let dir = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default().join("Videos");
+    let name = ed().project.name.replace('/', "_");
+    dir.join(format!("{name}.syn")).display().to_string()
+}
+
+/// Раскладки видов (позже — сценарии Rhai `library/layouts`, как в hexspire).
+pub const VIEWS: &[(&str, &str)] = &[("edit", "Монтаж"), ("ai", "ИИ-монтаж")];
+
+pub fn layout(key: &str) -> DockSpec {
+    let left = DockSpec::tabs(["media", "effects"]);
+    let right = DockSpec::tabs(["inspector", "ai"]);
+    match key {
+        "ai" => DockSpec::row(
+            DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline"]), 0.58),
+            DockSpec::tabs(["ai", "inspector"]),
+            0.68,
+        ),
+        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline"]), 0.58),
+    }
+}
+
+pub fn panel_title(id: &str) -> String {
+    match id {
+        "media" => "Медиатека",
+        "effects" => "Эффекты",
+        "viewer" => "Просмотр",
+        "timeline" => "Таймлайн",
+        "inspector" => "Инспектор",
+        "ai" => "ИИ",
+        other => other,
+    }
+    .to_string()
+}
+
+// ── тема: стили hexspire на палитре synshell ─────────────────────────────
+
+pub fn theme(cfg: &Config) -> String {
+    use synshell_common::style::AppStyle;
+    let a = &cfg.appearance;
+    let p = a.palette();
+    let dark = a.is_dark();
+    let black = Rgba::rgb(0, 0, 0);
+    let white = Rgba::rgb(255, 255, 255);
+    let shell = if dark { p.bg.mix(black, 0.25) } else { p.bg };
+    let panel = if dark { p.bg.mix(p.surface, 0.35) } else { p.surface };
+    let panel2 = if dark { p.surface } else { p.surface_alt };
+    let field = if dark { p.surface.mix(white, 0.04) } else { p.surface_alt.mix(p.bg, 0.3) };
+    let hover = if dark { white.with_alpha(0.06) } else { black.with_alpha(0.05) };
+    let active = if dark { white.with_alpha(0.09) } else { black.with_alpha(0.08) };
+    let sub = p.muted.mix(p.bg, 0.35);
+    AppStyle::new(cfg, "syn-video-editor")
+        .vars(&[
+            ("bg-window", "#00000000".into()),
+            ("bg-shell", shell.hex()),
+            ("bg-panel", panel.hex()),
+            ("bg-panel-2", panel2.hex()),
+            ("bg-field", field.hex()),
+            ("bg-hex", shell.mix(panel, 0.4).hex()),
+            ("text", p.fg.hex()),
+            ("text-muted", p.muted.hex()),
+            ("text-subtle", sub.hex()),
+            ("primary", p.accent.hex()),
+            ("primary-hover", p.accent.mix(white, 0.15).hex()),
+            ("primary-soft", p.accent.with_alpha(0.16).hex()),
+            ("on-primary", p.accent_fg.hex()),
+            ("success", p.success.hex()),
+            ("success-soft", p.success.with_alpha(0.14).hex()),
+            ("warning", p.warning.hex()),
+            ("warning-soft", p.warning.with_alpha(0.14).hex()),
+            ("error", p.danger.hex()),
+            ("modified", p.warning.hex()),
+            ("border", p.border.hex()),
+            ("border-soft", p.border.mix(shell, 0.4).hex()),
+            ("surface-hover", hover.hex()),
+            ("surface-active", active.hex()),
+            ("hover", hover.hex()),
+            ("radius-shell", "14px".into()),
+            ("radius-card", "12px".into()),
+            ("radius-field", "9px".into()),
+            ("radius-pill", "999px".into()),
+            ("clip-video", p.accent.mix(shell, 0.45).hex()),
+            ("clip-audio", p.success.mix(shell, 0.5).hex()),
+            ("clip-title", Rgba::rgb(0x9b, 0x6b, 0xf2).mix(shell, 0.4).hex()),
+            ("clip-color", p.warning.mix(shell, 0.5).hex()),
+        ])
+        .base(concat!(
+            include_str!("../../styles/base/reset.mss"),
+            "\n",
+            include_str!("../../styles/base/layout.mss"),
+            "\n",
+            include_str!("../../styles/base/controls.mss"),
+            "\n",
+            include_str!("../../styles/components/shell.mss"),
+            "\n",
+            include_str!("../../styles/components/toolbar.mss"),
+            "\n",
+            include_str!("../../styles/components/side_panel.mss"),
+            "\n",
+            include_str!("../../styles/components/dock.mss"),
+            "\n",
+            include_str!("../../styles/components/statusbar.mss"),
+            "\n",
+            include_str!("../../styles/app.mss"),
+        ))
+        .build()
+}
+
+// ── шелл окна ───────────────────────────────────────────────────────────
+
+pub fn root(st: St) -> impl Widget {
+    let shell = DecoratedBox::new().class("window-backdrop").child(
+        DecoratedBox::new().clip(true).class("shell").child(
+            Column::new()
+                .gap(0.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(titlebar(st))
+                .child(toolbar(st))
+                .child(DecoratedBox::new().class("grow").class("dock-area-pad").child(dock(st)))
+                .child(statusbar(st)),
+        ),
+    );
+    let hotkeys = EventHook::new()
+        .on_key_down(move |key, mods| {
+            if key == Key::F11 {
+                syngui::signal::toggle_fullscreen();
+                return KeyReply::Handled;
+            }
+            if key == Key::Escape && st.window.get_untracked().fullscreen {
+                syngui::signal::set_fullscreen(false);
+                return KeyReply::Handled;
+            }
+            if !mods.ctrl && !mods.alt {
+                return KeyReply::Ignore;
+            }
+            match by_chord(key, mods) {
+                Some(id) => {
+                    st.run_menu(id);
+                    KeyReply::Handled
+                }
+                None => KeyReply::Ignore,
+            }
+        })
+        .child(WindowResizeRegion::new().inset(10.0).enabled(!st.window.get_untracked().fullscreen).child(shell));
+    Stack::new()
+        .clip(false)
+        .child(hotkeys)
+        .child(CommandPalette::new(st.palette_open).placeholder("Команда… (можно в другой раскладке)").commands(palette).on_run(move |id| st.run_menu(id)).build())
+        .child(toast(st))
+}
+
+/// Пункты меню вида и окна (не команды документа).
+const VIEW_ITEMS: &[(&str, &str, &str)] = &[("view.palette", "Палитра команд", "Ctrl+Shift+P"), ("view.ai", "Панель ИИ", "Ctrl+Shift+A"), ("view.fullscreen", "Во весь экран", "F11")];
+
+fn by_chord(key: Key, mods: Modifiers) -> Option<&'static str> {
+    let name = format!("{key:?}");
+    let name = name.strip_prefix("Key").unwrap_or(&name).to_string();
+    let mut chord = String::new();
+    if mods.ctrl {
+        chord.push_str("Ctrl+");
+    }
+    if mods.shift {
+        chord.push_str("Shift+");
+    }
+    if mods.alt {
+        chord.push_str("Alt+");
+    }
+    chord.push_str(&name.to_uppercase());
+    let eq = |s: &str| s.eq_ignore_ascii_case(&chord);
+    if let Some(v) = VIEW_ITEMS.iter().find(|v| eq(v.2)) {
+        return Some(v.0);
+    }
+    cmd::all().into_iter().find(|c| eq(c.shortcut)).map(|c| c.id)
+}
+
+fn palette() -> Vec<PaletteCommand> {
+    let mut v: Vec<PaletteCommand> = cmd::all().into_iter().map(|c| PaletteCommand::new(c.id, c.title).category(c.category).shortcut(c.shortcut).keywords(c.keywords).description(c.help)).collect();
+    for (id, t, k) in VIEW_ITEMS {
+        v.push(PaletteCommand::new(*id, *t).category("Вид").shortcut(*k));
+    }
+    for (k, t) in VIEWS {
+        v.push(PaletteCommand::new(format!("view.layout.{k}"), format!("Вид: {t}")).category("Вид").keywords("layout раскладка вид"));
+    }
+    v
+}
+
+fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
+    let mut out: Vec<(&'static str, Vec<MenuItem>)> = Vec::new();
+    for c in cmd::all() {
+        let item = MenuItem::new(c.id, c.title).shortcut(c.shortcut);
+        match out.iter_mut().find(|(t, _)| *t == c.category) {
+            Some((_, items)) => items.push(item),
+            None => out.push((c.category, vec![item])),
+        }
+    }
+    let mut view: Vec<MenuItem> = VIEW_ITEMS.iter().map(|(id, t, k)| MenuItem::new(*id, *t).shortcut(*k)).collect();
+    view.push(MenuItem::separator());
+    view.extend(VIEWS.iter().map(|(k, t)| MenuItem::new(format!("view.layout.{k}"), format!("Вид: {t}"))));
+    out.push(("Вид", view));
+    out
+}
+
+fn titlebar(st: St) -> impl Widget {
+    let mut menu = MenuBar::new().on_select(move |id| st.run_menu(id));
+    for (title, items) in menus() {
+        menu = menu.menu(title, move || items.clone());
+    }
+    let controls = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let w = st.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    WindowDragRegion::new().child(
+        DecoratedBox::new().class("titlebar").child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("logo-mark").child(Icon::new(icons::MOVIE).class("logo-icon")))
+                        .child(Text::new("Видеоредактор").class("logo-text")),
+                )
+                .child(menu.build())
+                .child(DecoratedBox::new().class("grow"))
+                .child(
+                    GestureDetector::new().on_click(move || st.palette_open.set(true)).child(
+                        DecoratedBox::new().class("palette-pill").child(
+                            Row::new()
+                                .gap(8.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(Icon::new(icons::SEARCH).class("palette-pill-icon"))
+                                .child(DecoratedBox::new().class("grow").child(Text::new("Команды, медиа, эффекты…").class("palette-pill-text")))
+                                .child(DecoratedBox::new().class("kbd").child(Text::new("Ctrl+Shift+P").class("kbd-text"))),
+                        ),
+                    ),
+                )
+                .child(DecoratedBox::new().class("grow"))
+                .child(DecoratedBox::new().class("window-controls").child(controls)),
+        ),
+    )
+}
+
+fn sep() -> impl Widget {
+    DecoratedBox::new().class("toolbar-sep")
+}
+
+fn toolbar(st: St) -> impl Widget {
+    let cmd_btn = move |icon: &'static str, tip: &'static str, id: &'static str| ToolButton::new(icon).tooltip(tip).on_click(move || st.run_menu(id));
+    DecoratedBox::new().class("toolbar").child(
+        Row::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(cmd_btn(icons::FOLDER_OPEN, "Открыть… (Ctrl+O)", "project.open"))
+            .child(cmd_btn(icons::SAVE, "Сохранить (Ctrl+S)", "project.save"))
+            .child(sep())
+            .child(move || {
+                let _ = st.rev.get();
+                let (u, r) = {
+                    let e = ed();
+                    (e.undo_label().map(str::to_string), e.redo_label().map(str::to_string))
+                };
+                Row::new()
+                    .gap(4.0)
+                    .child(ToolButton::new(icons::UNDO).tooltip(u.as_ref().map(|l| format!("Отменить: {l} (Ctrl+Z)")).unwrap_or_else(|| "Отменить (Ctrl+Z)".into())).disabled(u.is_none()).on_click(move || st.run_menu("edit.undo")))
+                    .child(ToolButton::new(icons::REDO).tooltip(r.as_ref().map(|l| format!("Повторить: {l} (Ctrl+Shift+Z)")).unwrap_or_else(|| "Повторить (Ctrl+Shift+Z)".into())).disabled(r.is_none()).on_click(move || st.run_menu("edit.redo")))
+            })
+            .child(sep())
+            .child(ToolButton::new(icons::CUT).tooltip("Разрезать в позиции (S)").on_click(move || {
+                st.exec("clip.split", json!({}));
+            }))
+            .child(ToolButton::new(icons::TITLE).tooltip("Титр в позиции (Ctrl+T)").on_click(move || {
+                st.exec("title.add", json!({"text": "Заголовок"}));
+            }))
+            .child(sep())
+            .child(ToolButton::new(icons::ZOOM_OUT).tooltip("Мельче").on_click(move || st.zoom.update(|z| *z = (*z / 1.5).max(4.0))))
+            .child(ToolButton::new(icons::ZOOM_IN).tooltip("Крупнее").on_click(move || st.zoom.update(|z| *z = (*z * 1.5).min(800.0))))
+            .child(DecoratedBox::new().class("grow"))
+            .child(
+                GestureDetector::new().on_click(move || st.dock.open("ai", Some("inspector"))).child(
+                    DecoratedBox::new().class("tool-pill").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::AI).class("tool-pill-icon")).child(Text::new("ИИ-монтаж").class("tool-pill-text"))),
+                ),
+            )
+            .child(move || {
+                let cur = st.view.get();
+                Dropdown::new().items(VIEWS.iter().map(|(k, t)| DropdownItem::new(*k, *t)).collect()).selected(cur).on_change(move |k: &str| st.set_view(k)).class("view-select")
+            })
+            .child(move || {
+                let fs = st.window.get().fullscreen;
+                ToolButton::new(if fs { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }).tooltip(if fs { "Выйти из полноэкранного режима (F11)" } else { "Во весь экран (F11)" }).on_click(syngui::signal::toggle_fullscreen)
+            }),
+    )
+}
+
+fn dock(st: St) -> impl Widget {
+    DockArea::new(st.dock).inset(8.0, 0.0, 8.0, 0.0).content(move |panel| panels::content(st, panel)).title(|panel| panel_title(panel)).build()
+}
+
+fn statusbar(st: St) -> impl Widget {
+    DecoratedBox::new().class("statusbar").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.rev.get();
+        let (left, right) = {
+            let e = ed();
+            let s = &e.project.settings;
+            let file = e.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "не сохранён".into());
+            (format!("{}{} — {}", e.project.name, if e.dirty { " ●" } else { "" }, file), format!("{}{} / {}  ·  {}×{}  ·  {} fps", if st.ai_busy.get() { "ИИ работает…  ·  " } else { "" }, crate::doc::tc(e.playhead), crate::doc::tc(e.project.duration()), s.width, s.height, s.fps))
+        };
+        vec![Box::new(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(left).max_lines(1).elide(Elide::End).class("status-text")).child(DecoratedBox::new().class("grow")).child(Text::new(right).class("status-text")))]
+    }))
+}
+
+fn toast(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let Some(t) = st.toast.get() else { return vec![] };
+        let shown = t.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(4));
+            syngui::async_runtime::run_on_main_thread(move || {
+                if st.toast.get_untracked().as_deref() == Some(shown.as_str()) {
+                    st.toast.set(None);
+                }
+            });
+        });
+        vec![Box::new(Positioned::new(DecoratedBox::new().class("toast").child(Text::new(t).max_lines(3).class("toast-text"))).at(24.0, 24.0))]
+    })
+}

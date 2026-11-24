@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2fb8ff"/>
+      <stop offset="0.55" stop-color="#4f6bff"/>
+      <stop offset="1" stop-color="#7a3cf0"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff6c2"/>
+      <stop offset="1" stop-color="#ffc83d"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
+  <!-- экран просмотра -->
+  <rect x="22" y="24" width="62" height="38" rx="8" fill="#0f1640" fill-opacity="0.45"/>
+  <path d="M46 34 L61 43 L46 52 Z" fill="#ffffff"/>
+  <!-- дорожки таймлайна -->
+  <rect x="22" y="72" width="34" height="11" rx="4" fill="#ffffff"/>
+  <rect x="60" y="72" width="46" height="11" rx="4" fill="#ffffff" fill-opacity="0.75"/>
+  <rect x="22" y="88" width="22" height="11" rx="4" fill="#ffffff" fill-opacity="0.55"/>
+  <rect x="48" y="88" width="40" height="11" rx="4" fill="#9ff0c8"/>
+  <!-- позиция воспроизведения -->
+  <rect x="66" y="66" width="4" height="40" rx="2" fill="#ff5a6e"/>
+  <rect x="62" y="64" width="12" height="6" rx="3" fill="#ff5a6e"/>
+  <!-- искра ИИ -->
+  <path d="M98 18 C99.6 27 102 29.4 111 31 C102 32.6 99.6 35 98 44 C96.4 35 94 32.6 85 31 C94 29.4 96.4 27 98 18 Z" fill="url(#spark)"/>
+  <path d="M108 46 C108.7 50 109.8 51 113.5 51.7 C109.8 52.4 108.7 53.4 108 57.4 C107.3 53.4 106.2 52.4 102.5 51.7 C106.2 51 107.3 50 108 46 Z" fill="#ffffff" fill-opacity="0.9"/>
+</svg>
