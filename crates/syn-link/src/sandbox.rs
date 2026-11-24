@@ -143,8 +143,15 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
     }
 
     // Свой D-Bus сеанса.
+    // Без экрана живого сеанса: службы, которые он поднимает по требованию (порталы выбора
+    // файлов и др.), иначе открывают окна на живом столе. Экран песочницы — ниже, когда
+    // поднимется synwm (dbus-update-activation-environment).
     let mut dbus = Command::new("dbus-daemon")
         .args(["--session", "--nofork", "--print-address=1", "--print-pid=1"])
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env_remove("SYNSHELL_SOCKET")
+        .env_remove("SYNDESKTOP_SOCKET")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -165,6 +172,8 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         .env("XDG_STATE_HOME", dir.join("state"))
         .env("SYNSHELL_FORM_FACTOR", &ff)
         .env("SYNKEYBOARD_SOCKET", kb_socket(&name))
+        // своя шина: оболочка регистрирует бэкенд портала (выбор файлов внутри песочницы)
+        .env("SYNSHELL_OWN_BUS", "1")
         .env_remove("SYNSHELL_SOCKET")
         .env_remove("SYNDESKTOP_SOCKET")
         .env_remove("DISPLAY")
@@ -211,6 +220,15 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         }
         bail!("{}", t!("synwm песочницы не поднялся за 30 с"));
     };
+    // Окружение песочницы — для служб, которые её D-Bus запускает по требованию.
+    let mut vars = vec![format!("WAYLAND_DISPLAY={wayland}"), format!("SYNSHELL_CONFIG_DIR={}", dir.join("config").display()), format!("XDG_STATE_HOME={}", dir.join("state").display())];
+    if let Some(d) = &display {
+        vars.push(format!("DISPLAY={d}"));
+    }
+    let upd = Command::new("dbus-update-activation-environment").env("DBUS_SESSION_BUS_ADDRESS", &addr).args(&vars).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if !upd.is_ok_and(|s| s.success()) {
+        tracing::warn!("dbus-update-activation-environment не сработал: службы песочницы могут открыть окна на живом столе");
+    }
     let s = Sandbox {
         name: name.clone(),
         socket,

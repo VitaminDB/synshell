@@ -4,7 +4,7 @@
 //! обработчик, работающий без окна.
 
 mod edit;
-mod media;
+pub mod media;
 mod project;
 mod timeline;
 pub use timeline::EFFECTS;

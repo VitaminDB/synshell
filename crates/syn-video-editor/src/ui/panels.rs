@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 use syngui::prelude::*;
 use syngui::widgets::*;
 
-use super::{ed, icons, timeline, AiLine, St};
+use super::{ed, icons, timeline, AiLine, Pick, St};
+use syngui::widgets::overlay::MenuItem;
 use crate::doc::{tc, MediaKind, Source, TrackKind};
 
 pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
@@ -29,7 +30,15 @@ fn empty(text: &str) -> Box<dyn Widget> {
 // ── медиатека ───────────────────────────────────────────────────────────
 
 fn media(st: St) -> impl Widget {
-    ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+    let header = Row::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .class("panel-head")
+        .child(Button::new("Импорт…").on_click(move || st.dialog(Pick::ImportFiles)).class("head-btn"))
+        .child(Button::new("Папка…").on_click(move || st.dialog(Pick::ImportFolder)).class("head-btn"))
+        .child(DecoratedBox::new().class("grow"))
+        .child(Text::new("или перетащите файлы").class("panel-hint"));
+    let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
         let items: Vec<(u64, MediaKind, String, String)> = ed()
             .project
@@ -50,7 +59,16 @@ fn media(st: St) -> impl Widget {
             })
             .collect();
         if items.is_empty() {
-            return vec![empty("Медиатека пуста.\nПопросите агента: «импортируй ролики из ~/Videos/…»")];
+            return vec![Box::new(
+                Column::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .class("media-empty")
+                    .child(Icon::new(icons::MOVIE).class("media-empty-icon"))
+                    .child(Text::new("Медиатека пуста").class("row-title"))
+                    .child(Button::new("Импорт медиа…").on_click(move || st.dialog(Pick::ImportFiles)).class("primary-btn"))
+                    .child(Text::new("Перетащите сюда файлы или папку, нажмите Ctrl+I\nили попросите агента: «импортируй ролики из ~/Videos/…»").max_lines(3).class("panel-empty")),
+            )];
         }
         let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
         for (id, kind, name, info) in items {
@@ -67,12 +85,49 @@ fn media(st: St) -> impl Widget {
                 .child(ToolButton::new(icons::ADD).tooltip("На таймлайн (в конец дорожки)").on_click(move || {
                     st.exec("clip.add", json!({"media": id}));
                 }));
-            col = col.child(GestureDetector::new().on_double_click(move || {
-                st.exec("clip.add", json!({"media": id}));
-            }).child(DecoratedBox::new().class("list-row").child(row)));
+            let row_menu = vec![
+                MenuItem::new("add", "На таймлайн (в конец)"),
+                MenuItem::new("add_here", "На таймлайн в позицию"),
+                MenuItem::separator(),
+                MenuItem::new("import", "Импорт медиа…"),
+                MenuItem::new("import_folder", "Импорт папки…"),
+                MenuItem::separator(),
+                MenuItem::new("remove", "Убрать из медиатеки"),
+            ];
+            col = col.child(
+                ContextMenu::new()
+                    .items(row_menu)
+                    .on_select(move |a: &str| match a {
+                        "add" => {
+                            st.exec("clip.add", json!({"media": id}));
+                        }
+                        "add_here" => {
+                            let at = ed().playhead;
+                            st.exec("clip.add", json!({"media": id, "at": at}));
+                        }
+                        "import" => st.dialog(Pick::ImportFiles),
+                        "import_folder" => st.dialog(Pick::ImportFolder),
+                        "remove" => {
+                            st.exec("media.remove", json!({"id": id}));
+                        }
+                        _ => {}
+                    })
+                    .child(GestureDetector::new().on_double_click(move || {
+                        st.exec("clip.add", json!({"media": id}));
+                    }).child(DecoratedBox::new().class("list-row").child(row))),
+            );
         }
         vec![Box::new(col)]
-    }))
+    }));
+    let panel_menu = vec![MenuItem::new("import", "Импорт медиа…"), MenuItem::new("import_folder", "Импорт папки…")];
+    ContextMenu::new()
+        .items(panel_menu)
+        .on_select(move |a: &str| match a {
+            "import" => st.dialog(Pick::ImportFiles),
+            "import_folder" => st.dialog(Pick::ImportFolder),
+            _ => {}
+        })
+        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(DecoratedBox::new().class("grow").child(list)))
 }
 
 // ── эффекты ─────────────────────────────────────────────────────────────

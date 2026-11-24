@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use serde_json::{json, Value};
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
+use syngui::DragData;
 use syngui::widgets::overlay::MenuItem;
 use syngui::widgets::*;
 use synshell_common::config::Rgba;
@@ -49,6 +50,15 @@ pub fn shared() -> &'static Shared {
 
 pub fn ed() -> MutexGuard<'static, Editor> {
     shared().lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Какой диалог выбора файлов открыть.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Pick {
+    ImportFiles,
+    ImportFolder,
+    Open,
+    SaveAs,
 }
 
 /// Строка панели ИИ.
@@ -123,6 +133,12 @@ impl St {
             "view.fullscreen" => return syngui::signal::toggle_fullscreen(),
             "view.ai" => return self.dock.open("ai", Some("inspector")),
             v if v.starts_with("view.layout.") => return self.set_view(&v["view.layout.".len()..]),
+            // свои диалоги вместо аргументов
+            "media.import" => return self.dialog(Pick::ImportFiles),
+            "media.import_folder" => return self.dialog(Pick::ImportFolder),
+            "project.open" => return self.dialog(Pick::Open),
+            "project.save_as" => return self.dialog(Pick::SaveAs),
+            "project.save" if ed().path.is_none() => return self.dialog(Pick::SaveAs),
             _ => {}
         }
         let Some(c) = cmd::find(id) else { return };
@@ -133,6 +149,61 @@ impl St {
         }
         let args = if id == "project.save" && ed().path.is_none() { json!({"path": default_path()}) } else { json!({}) };
         self.exec(id, args);
+    }
+
+    /// Выбор файлов через портал — в своём потоке, окно не замирает.
+    pub fn dialog(self, kind: Pick) {
+        static OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if OPEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let start = ed().path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf())).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Videos")));
+        let name = format!("{}.syn", ed().project.name.replace('/', "_"));
+        tracing::info!("диалог {kind:?}");
+        std::thread::spawn(move || {
+            let mut d = rfd::FileDialog::new();
+            if let Some(dir) = start.filter(|d| d.is_dir()) {
+                d = d.set_directory(dir);
+            }
+            let picked: Vec<std::path::PathBuf> = match kind {
+                Pick::ImportFiles => {
+                    let mut exts: Vec<&str> = Vec::new();
+                    exts.extend(cmd::media::VIDEO);
+                    exts.extend(cmd::media::AUDIO);
+                    exts.extend(cmd::media::IMAGE);
+                    d.set_title("Импорт медиа").add_filter("Медиафайлы", &exts).add_filter("Все файлы", &["*"]).pick_files().unwrap_or_default()
+                }
+                Pick::ImportFolder => d.set_title("Импорт папки с медиа").pick_folder().into_iter().collect(),
+                Pick::Open => d.set_title("Открыть проект").add_filter("Проект видеоредактора", &["syn"]).pick_file().into_iter().collect(),
+                Pick::SaveAs => d.set_title("Сохранить проект").set_file_name(name).add_filter("Проект видеоредактора", &["syn"]).save_file().into_iter().collect(),
+            };
+            tracing::info!("диалог {kind:?}: выбрано {}", picked.len());
+            OPEN.store(false, std::sync::atomic::Ordering::SeqCst);
+            if picked.is_empty() {
+                return;
+            }
+            syngui::async_runtime::run_on_main_thread(move || {
+                let paths: Vec<String> = picked.iter().map(|p| p.display().to_string()).collect();
+                match kind {
+                    Pick::ImportFiles | Pick::ImportFolder => self.import(paths),
+                    Pick::Open => {
+                        self.exec("project.open", json!({"path": paths[0]}));
+                    }
+                    Pick::SaveAs => {
+                        self.exec("project.save", json!({"path": paths[0]}));
+                    }
+                }
+            });
+        });
+    }
+
+    /// Импорт файлов и папок (диалог, перетаскивание).
+    pub fn import(self, paths: Vec<String>) {
+        if paths.is_empty() {
+            return;
+        }
+        self.exec("media.import", json!({"paths": paths}));
+        self.dock.activate("media");
     }
 
     pub fn set_view(self, key: &str) {
@@ -334,6 +405,9 @@ pub fn root(st: St) -> impl Widget {
 /// Пункты меню вида и окна (не команды документа).
 const VIEW_ITEMS: &[(&str, &str, &str)] = &[("view.palette", "Палитра команд", "Ctrl+Shift+P"), ("view.ai", "Панель ИИ", "Ctrl+Shift+A"), ("view.fullscreen", "Во весь экран", "F11")];
 
+/// Действия окна без команды документа: (id, раздел меню, заголовок, клавиши).
+const UI_ITEMS: &[(&str, &str, &str, &str)] = &[("media.import_folder", "Медиа", "Импорт папки…", "Ctrl+Shift+I"), ("project.save_as", "Проект", "Сохранить как…", "Ctrl+Shift+S")];
+
 fn by_chord(key: Key, mods: Modifiers) -> Option<&'static str> {
     let name = format!("{key:?}");
     let name = name.strip_prefix("Key").unwrap_or(&name).to_string();
@@ -352,6 +426,9 @@ fn by_chord(key: Key, mods: Modifiers) -> Option<&'static str> {
     if let Some(v) = VIEW_ITEMS.iter().find(|v| eq(v.2)) {
         return Some(v.0);
     }
+    if let Some(v) = UI_ITEMS.iter().find(|v| eq(v.3)) {
+        return Some(v.0);
+    }
     cmd::all().into_iter().find(|c| eq(c.shortcut)).map(|c| c.id)
 }
 
@@ -359,6 +436,9 @@ fn palette() -> Vec<PaletteCommand> {
     let mut v: Vec<PaletteCommand> = cmd::all().into_iter().map(|c| PaletteCommand::new(c.id, c.title).category(c.category).shortcut(c.shortcut).keywords(c.keywords).description(c.help)).collect();
     for (id, t, k) in VIEW_ITEMS {
         v.push(PaletteCommand::new(*id, *t).category("Вид").shortcut(*k));
+    }
+    for (id, cat, t, k) in UI_ITEMS {
+        v.push(PaletteCommand::new(*id, *t).category(*cat).shortcut(*k));
     }
     for (k, t) in VIEWS {
         v.push(PaletteCommand::new(format!("view.layout.{k}"), format!("Вид: {t}")).category("Вид").keywords("layout раскладка вид"));
@@ -373,6 +453,11 @@ fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
         match out.iter_mut().find(|(t, _)| *t == c.category) {
             Some((_, items)) => items.push(item),
             None => out.push((c.category, vec![item])),
+        }
+    }
+    for (id, cat, t, k) in UI_ITEMS {
+        if let Some((_, items)) = out.iter_mut().find(|(c, _)| c == cat) {
+            items.push(MenuItem::new(*id, *t).shortcut(*k));
         }
     }
     let mut view: Vec<MenuItem> = VIEW_ITEMS.iter().map(|(id, t, k)| MenuItem::new(*id, *t).shortcut(*k)).collect();
@@ -475,7 +560,19 @@ fn toolbar(st: St) -> impl Widget {
 }
 
 fn dock(st: St) -> impl Widget {
-    DockArea::new(st.dock).inset(8.0, 0.0, 8.0, 0.0).content(move |panel| panels::content(st, panel)).title(|panel| panel_title(panel)).build()
+    // файлы из проводника — в медиатеку, проект .syn — открыть
+    DropArea::new()
+        .accept_types(vec![DragData::TYPE_FILE.to_string()])
+        .on_drop(move |d: DragData| {
+            let paths: Vec<String> = d.payload.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+            match paths.iter().find(|p| p.ends_with(".syn")) {
+                Some(p) => {
+                    st.exec("project.open", json!({"path": p}));
+                }
+                None => st.import(paths),
+            }
+        })
+        .child(DockArea::new(st.dock).inset(8.0, 0.0, 8.0, 0.0).content(move |panel| panels::content(st, panel)).title(|panel| panel_title(panel)).build())
 }
 
 fn statusbar(st: St) -> impl Widget {

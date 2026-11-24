@@ -8,9 +8,9 @@ use crate::editor::Editor;
 
 pub static COMMANDS: &[&Command] = &[&IMPORT, &LIST, &REMOVE];
 
-const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "heic"];
-const AUDIO: &[&str] = &["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif"];
-const VIDEO: &[&str] = &["mp4", "mkv", "mov", "webm", "avi", "m4v", "mts", "m2ts", "ts", "mpg", "mpeg", "wmv", "flv", "3gp", "mxf"];
+pub const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "heic"];
+pub const AUDIO: &[&str] = &["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif"];
+pub const VIDEO: &[&str] = &["mp4", "mkv", "mov", "webm", "avi", "m4v", "mts", "m2ts", "ts", "mpg", "mpeg", "wmv", "flv", "3gp", "mxf"];
 
 static IMPORT: Command = Command {
     id: "media.import",
