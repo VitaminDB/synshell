@@ -1,0 +1,35 @@
+[package]
+name = "syn-video-editor"
+description = "ИИ-видеоредактор synshell: монтаж силами агента, графы synaptix-flow, моушн-графика, шаблоны Fusion и LUT, нейрофильтры"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "syn_video_editor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "syn-video-editor"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n", "style"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "ffmpeg"] }
+syn-assist.workspace = true
+synaptixd.workspace = true
+synaptix-bundle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.syngui]
+app_id = "syn-video-editor"
+title = "Видеоредактор"
