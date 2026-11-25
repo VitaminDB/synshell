@@ -2344,6 +2344,8 @@
 "Так его видят другие сеансы (SendMessage)" = "É assim que outras sessões a veem (SendMessage)"
 "Рабочая папка" = "Pasta de trabalho"
 "Где Claude работает по умолчанию; /new ПАПКА — сменить на время" = "Onde o Claude trabalha por padrão; /new PASTA — trocar temporariamente"
+"Каталог настроек Claude" = "Pasta de configurações do Claude"
+"CLAUDE_CONFIG_DIR: чьей учётной записью работает курьер; пусто — ~/.claude" = "CLAUDE_CONFIG_DIR: com qual conta o mensageiro trabalha; vazio — ~/.claude"
 "opus, sonnet, haiku или полное имя; пусто — как в Claude Code" = "opus, sonnet, haiku ou nome completo; vazio — como no Claude Code"
 "Разрешения" = "Permissões"
 "Как у ваших сеансов — тогда они принимают сообщения друг друга" = "Igual às suas sessões — assim elas aceitam mensagens umas das outras"

@@ -2344,6 +2344,8 @@
 "Так его видят другие сеансы (SendMessage)" = "Diğer oturumlar onu bu adla görür (SendMessage)"
 "Рабочая папка" = "Çalışma klasörü"
 "Где Claude работает по умолчанию; /new ПАПКА — сменить на время" = "Claude’un varsayılan olarak çalıştığı yer; /new KLASÖR — geçici olarak değiştir"
+"Каталог настроек Claude" = "Claude ayar klasörü"
+"CLAUDE_CONFIG_DIR: чьей учётной записью работает курьер; пусто — ~/.claude" = "CLAUDE_CONFIG_DIR: kuryenin kullandığı hesap; boş — ~/.claude"
 "opus, sonnet, haiku или полное имя; пусто — как в Claude Code" = "opus, sonnet, haiku veya tam ad; boş — Claude Code’daki gibi"
 "Разрешения" = "İzinler"
 "Как у ваших сеансов — тогда они принимают сообщения друг друга" = "Oturumlarınızdaki gibi — o zaman birbirlerinin mesajlarını kabul ederler"

@@ -181,6 +181,7 @@ pub fn courier() -> W {
         let name = use_signal(c.name.clone());
         let cwd = use_signal(c.cwd.clone());
         let model = use_signal(c.model.clone());
+        let config_dir = use_signal(c.config_dir.clone());
         vec![group(
             "Claude Code",
             vec![
@@ -188,6 +189,7 @@ pub fn courier() -> W {
                 row(t!("Имя сеанса"), t!("Так его видят другие сеансы (SendMessage)"), TextField::new().text(c.name.clone()).on_change(move |t| name.set(t.trim().to_string())).class("grow")),
                 row(t!("Рабочая папка"), t!("Где Claude работает по умолчанию; /new ПАПКА — сменить на время"), TextField::new().text(c.cwd.clone()).on_change(move |t| cwd.set(t.trim().to_string())).class("grow")),
                 row(t!("Модель"), t!("opus, sonnet, haiku или полное имя; пусто — как в Claude Code"), TextField::new().text(c.model.clone()).placeholder("opus").on_change(move |t| model.set(t.trim().to_string())).class("grow")),
+                row(t!("Каталог настроек Claude"), t!("CLAUDE_CONFIG_DIR: чьей учётной записью работает курьер; пусто — ~/.claude"), TextField::new().text(c.config_dir.clone()).placeholder("~/.claude-2").on_change(move |t| config_dir.set(t.trim().to_string())).class("grow")),
                 row(
                     t!("Разрешения"),
                     t!("Как у ваших сеансов — тогда они принимают сообщения друг друга"),
@@ -203,13 +205,14 @@ pub fn courier() -> W {
                     },
                 ),
                 boxed(Row::new().gap(8.0).class("setting-row").child(DecoratedBox::new().class("grow")).child(primary_button(&t!("Сохранить"), move || {
-                    let (n, d, m) = (name.get_untracked(), cwd.get_untracked(), model.get_untracked());
+                    let (n, d, m, cd) = (name.get_untracked(), cwd.get_untracked(), model.get_untracked(), config_dir.get_untracked());
                     change(s, |c| {
                         if !n.is_empty() {
                             c.claude.name = n;
                         }
                         c.claude.cwd = if d.is_empty() { "~".into() } else { d };
                         c.claude.model = m;
+                        c.claude.config_dir = cd;
                     });
                 }))),
             ],
