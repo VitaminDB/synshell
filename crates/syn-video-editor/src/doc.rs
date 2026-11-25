@@ -94,6 +94,9 @@ pub struct Media {
     /// Расшифровка речи (media.transcribe).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript: Option<Transcript>,
+    /// Индекс медиатеки (media.index): сцены, дикторы, бит.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<crate::index::MediaIndex>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

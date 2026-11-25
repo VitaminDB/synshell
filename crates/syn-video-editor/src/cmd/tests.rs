@@ -6,7 +6,7 @@ use crate::doc::{Media, MediaKind};
 fn ed_with_media(dur: f64) -> Editor {
     let mut ed = Editor::new();
     let id = ed.project.alloc();
-    ed.project.media.push(Media { id, path: "/x/a.mp4".into(), kind: MediaKind::Video, duration: dur, width: 1920, height: 1080, fps: 30.0, has_audio: true, transcript: None });
+    ed.project.media.push(Media { id, path: "/x/a.mp4".into(), kind: MediaKind::Video, duration: dur, width: 1920, height: 1080, fps: 30.0, has_audio: true, transcript: None, index: None });
     ed
 }
 
@@ -236,7 +236,7 @@ fn detach_audio() {
     // видео без звука не создаёт аудиоклип
     let mut ed3 = Editor::new();
     let mid = ed3.project.alloc();
-    ed3.project.media.push(Media { id: mid, path: "/x/mute.mp4".into(), kind: MediaKind::Video, duration: 5.0, width: 1920, height: 1080, fps: 30.0, has_audio: false, transcript: None });
+    ed3.project.media.push(Media { id: mid, path: "/x/mute.mp4".into(), kind: MediaKind::Video, duration: 5.0, width: 1920, height: 1080, fps: 30.0, has_audio: false, transcript: None, index: None });
     run(&mut ed3, "clip.add", &json!({"media": mid})).unwrap();
     assert_eq!(ed3.project.tracks[0].clips.len(), 1);
     assert!(ed3.project.tracks[1].clips.is_empty());

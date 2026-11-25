@@ -10,6 +10,7 @@ pub mod editor;
 pub mod fonts;
 pub mod framegraph;
 pub mod fusion;
+pub mod index;
 pub mod layout;
 pub mod lottie;
 pub mod motion;

@@ -56,7 +56,7 @@ fn sample(off: &mut syngui::offscreen::Offscreen, letter: &str, color: &str, out
 }
 
 fn media(id: u64, path: &Path) -> Media {
-    Media { id, path: path.to_path_buf(), kind: MediaKind::Image, duration: 0.0, width: W, height: H, fps: 0.0, has_audio: false, transcript: None }
+    Media { id, path: path.to_path_buf(), kind: MediaKind::Image, duration: 0.0, width: W, height: H, fps: 0.0, has_audio: false, transcript: None, index: None }
 }
 
 /// Проект кадра `i` ленты вида `key` и время кадра.

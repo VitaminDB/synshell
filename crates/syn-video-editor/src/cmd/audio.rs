@@ -13,7 +13,7 @@ use crate::editor::Editor;
 pub static COMMANDS: &[&Cmd] = &[&TRANSCRIBE, &TRANSCRIPT, &SILENCES, &CUT_SILENCE, &CUT_RANGES, &SUBTITLES];
 
 /// Звук файла: моно f32, 16 кГц.
-fn pcm16k(path: &str) -> Result<Vec<f32>, String> {
+pub(crate) fn pcm16k(path: &str) -> Result<Vec<f32>, String> {
     let out = Command::new("ffmpeg").args(["-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"]).output().map_err(|e| format!("ffmpeg: {e}"))?;
     if !out.status.success() {
         return Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out.stderr).trim()));

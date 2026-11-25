@@ -234,7 +234,7 @@ static CHECK: Command = Command {
 
 /// Модель со зрением: явно заданная; модель агента, если видит картинки; уже
 /// загруженная со зрением (без лишней загрузки); иначе первая со зрением.
-fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> Result<String, String> {
+pub(crate) fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> Result<String, String> {
     if let Some(m) = want.filter(|m| !m.trim().is_empty()) {
         return Ok(m);
     }

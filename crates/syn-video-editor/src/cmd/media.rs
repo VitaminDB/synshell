@@ -90,7 +90,7 @@ pub fn probe(path: &Path) -> Result<Media, String> {
         return Err(format!("{}: файл не найден", path.display()));
     }
     let s = path.to_string_lossy();
-    let mut m = Media { id: 0, path: path.to_path_buf(), kind: MediaKind::Video, duration: 0.0, width: 0, height: 0, fps: 0.0, has_audio: false, transcript: None };
+    let mut m = Media { id: 0, path: path.to_path_buf(), kind: MediaKind::Video, duration: 0.0, width: 0, height: 0, fps: 0.0, has_audio: false, transcript: None, index: None };
     match kind_by_ext(path) {
         Some(MediaKind::Lottie) => {
             m.kind = MediaKind::Lottie;
