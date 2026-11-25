@@ -969,3 +969,45 @@ fn subtitles_from_transcript() {
     assert!(ph.iter().all(|p| p.2.chars().count() <= 12 || !p.2.contains(' ')), "{ph:?}");
     run(&mut ed, "media.vfx", &json!({"id": mid, "kind": "upscale", "scale": 3})).unwrap_err();
 }
+
+/// D4: прогон рецепта → редактируемый проект (раскладка угадывается по графу).
+#[test]
+fn recipe_report_to_project() {
+    let dir = std::env::temp_dir().join(format!("sve-d4-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut files = Vec::new();
+    for i in 0..3 {
+        let f = dir.join(format!("shot{i}.mp4"));
+        let ok = std::process::Command::new("ffmpeg").args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24", "-t", "1", "-pix_fmt", "yuv420p"]).arg(&f).status().is_ok_and(|s| s.success());
+        if !ok {
+            eprintln!("ffmpeg нет — пропуск");
+            return;
+        }
+        files.push(f);
+    }
+    let g: synaptix_graph::Graph = serde_json::from_str(include_str!("../../../synaptix-graph/recipes/story-video.json")).unwrap();
+    let (v, a, n) = crate::recipe::plan(&g);
+    assert_eq!((v.as_deref(), n.as_deref()), (Some("shots"), Some("plan")));
+    assert!(a.is_empty());
+    let mut r = synaptix_graph::Report { files: vec![dir.join("film.mp4")], dir: dir.clone(), ..Default::default() };
+    r.nodes.insert("shots".into(), synaptix_graph::Output { files: files.clone(), ..Default::default() });
+    r.nodes.insert("plan".into(), synaptix_graph::Output { text: "A fox walks into the forest\nThe fox finds a lantern\nThe lantern lights the night".into(), ..Default::default() });
+    let ed = crate::recipe::build(&g, &r, "story-video").unwrap();
+    let p = &ed.project;
+    assert_eq!((p.settings.width, p.settings.height), (320, 180));
+    let v1 = p.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Video).unwrap();
+    assert_eq!(v1.clips.len(), 3);
+    assert_eq!(v1.clips[1].name, "The fox finds a lantern");
+    assert!((v1.clips[2].start - 2.0).abs() < 0.05, "встык: {}", v1.clips[2].start);
+    // явная раскладка рецепта: звук отдельной дорожкой (ролики без звука)
+    let wav = dir.join("song.wav");
+    std::process::Command::new("ffmpeg").args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"]).arg(&wav).status().unwrap();
+    let mut g2 = g.clone();
+    g2.timeline = Some(synaptix_graph::Timeline { video: "shots".into(), audio: vec!["song".into()], names: String::new() });
+    r.nodes.insert("song".into(), synaptix_graph::Output { files: vec![wav], ..Default::default() });
+    let ed = crate::recipe::build(&g2, &r, "x").unwrap();
+    let a1 = ed.project.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Audio).unwrap();
+    assert_eq!(a1.clips.len(), 1);
+    assert!(ed.project.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Video).unwrap().clips[0].name.is_empty(), "имён нет — names не задан");
+    let _ = std::fs::remove_dir_all(&dir);
+}

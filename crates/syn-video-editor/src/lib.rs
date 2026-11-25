@@ -13,6 +13,7 @@ pub mod fusion;
 pub mod layout;
 pub mod lottie;
 pub mod motion;
+pub mod recipe;
 pub mod render;
 pub mod store;
 pub mod ui;

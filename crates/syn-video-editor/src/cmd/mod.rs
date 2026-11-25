@@ -13,6 +13,7 @@ mod keys;
 mod lut;
 mod graph;
 mod blocks;
+mod recipe;
 pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
@@ -135,6 +136,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(lut::COMMANDS);
     v.extend(graph::COMMANDS);
     v.extend(blocks::COMMANDS);
+    v.extend(recipe::COMMANDS);
     v.extend(edit::COMMANDS);
     v
 }

@@ -44,6 +44,21 @@ pub struct Graph {
     /// Узлы-результаты; пусто — последний узел.
     #[serde(default)]
     pub output: Vec<String>,
+    /// Как разложить прогон в проект видеоредактора: `video` — узел с
+    /// роликами по порядку, `audio` — узлы звука, `names` — узел текста,
+    /// строки которого становятся именами клипов. Нет — угадывается по графу.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<Timeline>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Timeline {
+    #[serde(default)]
+    pub video: String,
+    #[serde(default)]
+    pub audio: Vec<String>,
+    #[serde(default)]
+    pub names: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -69,7 +84,7 @@ pub struct Node {
 }
 
 /// Результат узла.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct Output {
     pub text: String,
     pub files: Vec<PathBuf>,
@@ -94,6 +109,10 @@ pub struct Report {
     pub steps: Vec<String>,
     /// Каталог прогона (все промежуточные файлы).
     pub dir: PathBuf,
+    /// Результаты каждого узла рецепта по id: файлы и текст (у пакета —
+    /// списки по порядку элементов). Нужны, чтобы собрать из прогона
+    /// редактируемый проект, а не только склейку.
+    pub nodes: BTreeMap<String, Output>,
 }
 
 /// Ссылки `{{x}}` / `{{x.y}}` в строке.

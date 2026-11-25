@@ -40,7 +40,29 @@ pub fn run_cancellable(graph: &Graph, params: &Map<String, Value>, dir: &Path, c
     let ops: HashMap<String, String> = graph.nodes.iter().map(|n| (n.id.clone(), n.op.clone())).collect();
     let heads: HashMap<u64, String> = flow.nodes.iter().filter_map(|n| ops.get(&n.label).map(|op| (n.id, format!("{} ({op})", n.label)))).collect();
     let mut current: HashMap<u64, String> = HashMap::new();
+    let labels: HashMap<u64, String> = flow.nodes.iter().filter(|n| ops.contains_key(&n.label)).map(|n| (n.id, n.label.clone())).collect();
+    let mut nodes: std::collections::BTreeMap<String, crate::Output> = std::collections::BTreeMap::new();
     let r = synaptixd::flow::run(&flow, dir, cancel, &mut |e| match e {
+        Event::Finished { id, ref outputs, ref summary, .. } => {
+            if let Some(label) = labels.get(&id) {
+                let o = nodes.entry(label.clone()).or_default();
+                for v in outputs.values() {
+                    for f in v.files() {
+                        if !o.files.contains(&f) {
+                            o.files.push(f);
+                        }
+                    }
+                    let t = v.text();
+                    if !t.is_empty() && v.files().is_empty() {
+                        if !o.text.is_empty() {
+                            o.text.push('\n');
+                        }
+                        o.text.push_str(&t);
+                    }
+                }
+                o.label = summary.clone();
+            }
+        }
         Event::Started { id, item, .. } => {
             if let Some(h) = heads.get(&id) {
                 let h = match item {
@@ -67,5 +89,5 @@ pub fn run_cancellable(graph: &Graph, params: &Map<String, Value>, dir: &Path, c
             format!("{label} ({}):{rest}", ops.get(label).map(String::as_str).unwrap_or(""))
         })
         .collect();
-    Ok(Report { files: r.files, text: r.text, steps, dir: dir.to_path_buf() })
+    Ok(Report { files: r.files, text: r.text, steps, dir: dir.to_path_buf(), nodes })
 }
