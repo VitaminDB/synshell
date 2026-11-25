@@ -40,45 +40,59 @@ pub const BUILTINS: &[(&str, &str, &str, i32)] = &[
     ("edit", "Монтаж", "Классический монтаж: медиатека и эффекты слева, просмотр в центре, инспектор справа, таймлайн снизу", 10),
     ("motion", "Моушн", "Моушн-графика: дерево слоёв слева, просмотр и инспектор сверху, таймлайн и кривые рядом снизу", 20),
     ("graph", "Граф", "Узловой граф эффектов в центре, просмотр и инспектор справа", 30),
+    ("templates", "Шаблоны", "Галерея шаблонов, LUT и эффектов широко слева, просмотр и инспектор справа — подбирать оформление", 35),
     ("ai", "ИИ-монтаж", "Широкая панель ИИ-агента справа для монтажа и правок текстом", 40),
 ];
 
 pub const DEFAULT_VIEW: &str = "edit";
 
-/// Встроенная раскладка для ключа вида.
+/// Сценарии встроенных видов (`library/layouts/<ключ>.rhai`).
+pub const BUILTIN_SCRIPTS: &[(&str, &str)] = &[
+    ("edit", include_str!("../library/layouts/edit.rhai")),
+    ("motion", include_str!("../library/layouts/motion.rhai")),
+    ("graph", include_str!("../library/layouts/graph.rhai")),
+    ("templates", include_str!("../library/layouts/templates.rhai")),
+    ("ai", include_str!("../library/layouts/ai.rhai")),
+];
+
+/// Встроенная раскладка для ключа вида (сценарий Rhai; неизвестный ключ — «Монтаж»).
 pub fn builtin_spec(key: &str) -> DockSpec {
-    let left = DockSpec::tabs(["media", "templates", "effects", "luts"]);
-    let right = DockSpec::tabs(["inspector", "ai"]);
-    match key {
-        "motion" => DockSpec::column(
-            DockSpec::row(
-                DockSpec::row(DockSpec::tabs(["layers", "templates", "effects", "luts", "media"]), DockSpec::tabs(["viewer"]).named("viewer"), 0.26),
-                right,
-                0.74,
-            ),
-            DockSpec::row(DockSpec::tabs(["timeline"]), DockSpec::tabs(["curves"]), 0.56),
-            0.56,
-        ),
-        "graph" => DockSpec::column(
-            DockSpec::row(
-                DockSpec::tabs(["media", "templates", "effects", "luts"]),
-                DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7),
-                0.2,
-            ),
-            DockSpec::tabs(["timeline", "curves"]),
-            0.7,
-        ),
-        "ai" => DockSpec::row(
-            DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline", "curves"]), 0.58),
-            DockSpec::tabs(["ai", "inspector"]),
-            0.68,
-        ),
-        _ => DockSpec::column(
-            DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer", "graph"]).named("viewer"), 0.26), right, 0.74),
-            DockSpec::tabs(["timeline", "curves"]),
-            0.58,
-        ),
+    let code = |k: &str| BUILTIN_SCRIPTS.iter().find(|b| b.0 == k).map(|b| b.1);
+    code(key)
+        .or_else(|| code(DEFAULT_VIEW))
+        .and_then(|c| crate::script::eval_layout(c).map_err(|e| tracing::warn!("вид {key}: {e}")).ok())
+        .map(|v| v.3)
+        .unwrap_or_else(|| DockSpec::tabs(["viewer", "timeline", "media", "inspector"]))
+}
+
+/// Файл пресета: сценарий `.rhai` (новые) или прежний `.toml`.
+fn preset_file(dir: &Path, key: &str) -> PathBuf {
+    dir.join(format!("{key}.rhai"))
+}
+
+/// Прочитать пресет из файла любого формата.
+fn read_preset(p: &Path) -> Option<(String, String, i32, DockSpec)> {
+    let text = std::fs::read_to_string(p).ok()?;
+    if p.extension().is_some_and(|x| x == "rhai") {
+        match crate::script::eval_layout(&text) {
+            Ok((n, d, o, spec)) => to_spec(to_node(&spec)).map(|s| (n, d, o, s)),
+            Err(e) => {
+                tracing::warn!("вид {}: {e}", p.display());
+                None
+            }
+        }
+    } else {
+        decode_preset(&text)
     }
+}
+
+/// Записать пресет сценарием и убрать прежний TOML того же ключа.
+fn write_preset(dir: &Path, key: &str, spec: &DockSpec, name: &str, description: &str, order: i32) -> Result<PathBuf, String> {
+    let path = preset_file(dir, key);
+    let clean = to_spec(to_node(spec)).unwrap_or_else(|| spec.clone());
+    write_atomic(&path, &crate::script::layout_code(&clean, name, description, order))?;
+    let _ = std::fs::remove_file(dir.join(format!("{key}.toml")));
+    Ok(path)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -185,7 +199,8 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    let tmp = path.with_extension(format!("toml.tmp.{}", std::process::id()));
+    let ext = path.extension().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_extension(format!("{ext}.tmp.{}", std::process::id()));
     std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -290,14 +305,19 @@ fn list_in(dir: &Path) -> Vec<Preset> {
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
             let p = e.path();
-            if p.extension().is_none_or(|x| x != "toml") {
+            let ext = p.extension().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+            if ext != "toml" && ext != "rhai" {
                 continue;
             }
             let key = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             if key.is_empty() {
                 continue;
             }
-            let Some((name, description, order, spec)) = std::fs::read_to_string(&p).ok().and_then(|t| decode_preset(&t)) else { continue };
+            // сценарий важнее прежнего TOML того же ключа
+            if ext == "toml" && p.with_extension("rhai").exists() {
+                continue;
+            }
+            let Some((name, description, order, spec)) = read_preset(&p) else { continue };
             let builtin = BUILTINS.iter().any(|b| b.0 == key);
             let default_order = BUILTINS.iter().find(|b| b.0 == key).map(|b| b.3).unwrap_or(100);
             let name = if name.trim().is_empty() { key.clone() } else { name };
@@ -329,7 +349,7 @@ fn new_key(name: &str, dir: &Path) -> String {
     let base: String = name.trim().chars().map(|c| if c.is_alphanumeric() { c.to_lowercase().next().unwrap_or(c) } else { '-' }).collect();
     let base = base.trim_matches('-').to_string();
     let base = if base.is_empty() { "вид".to_string() } else { base };
-    let taken = |k: &str| dir.join(format!("{k}.toml")).exists() || BUILTINS.iter().any(|b| b.0 == k);
+    let taken = |k: &str| dir.join(format!("{k}.toml")).exists() || dir.join(format!("{k}.rhai")).exists() || BUILTINS.iter().any(|b| b.0 == k);
     let mut k = base.clone();
     let mut i = 2;
     while taken(&k) {
@@ -351,8 +371,7 @@ fn save_new_in(dir: &Path, spec: &DockSpec, name: &str, description: &str) -> Re
     }
     let key = new_key(name, dir);
     let order = list_in(dir).iter().map(|t| t.order).max().unwrap_or(40) + 10;
-    let path = dir.join(format!("{key}.toml"));
-    write_atomic(&path, &encode_preset(spec, name, description.trim(), order))?;
+    let path = write_preset(dir, &key, spec, name, description.trim(), order)?;
     Ok(Preset {
         key,
         name: name.to_string(),
@@ -372,8 +391,7 @@ pub fn overwrite(key: &str, spec: &DockSpec) -> Result<(), String> {
 
 fn overwrite_in(dir: &Path, key: &str, spec: &DockSpec) -> Result<(), String> {
     let cur = list_in(dir).into_iter().find(|p| p.key == key).ok_or_else(|| format!("пресет «{key}» не найден"))?;
-    let path = cur.path.unwrap_or_else(|| dir.join(format!("{key}.toml")));
-    write_atomic(&path, &encode_preset(spec, &cur.name, &cur.description, cur.order))
+    write_preset(dir, key, spec, &cur.name, &cur.description, cur.order).map(|_| ())
 }
 
 /// Переименовать пресет (и обновить описание).
@@ -387,8 +405,7 @@ fn rename_in(dir: &Path, key: &str, name: &str, description: &str) -> Result<(),
         return Err("укажите название пресета".into());
     }
     let cur = list_in(dir).into_iter().find(|p| p.key == key).ok_or_else(|| format!("пресет «{key}» не найден"))?;
-    let path = cur.path.unwrap_or_else(|| dir.join(format!("{key}.toml")));
-    write_atomic(&path, &encode_preset(&cur.spec, name, description.trim(), cur.order))
+    write_preset(dir, key, &cur.spec, name, description.trim(), cur.order).map(|_| ())
 }
 
 /// Дублировать пресет (встроенный или пользовательский).
@@ -400,8 +417,7 @@ fn duplicate_in(dir: &Path, key: &str) -> Result<Preset, String> {
     let cur = list_in(dir).into_iter().find(|p| p.key == key).ok_or_else(|| format!("пресет «{key}» не найден"))?;
     let name = format!("{} (копия)", cur.name);
     let k = new_key(&name, dir);
-    let path = dir.join(format!("{k}.toml"));
-    write_atomic(&path, &encode_preset(&cur.spec, &name, &cur.description, cur.order + 1))?;
+    let path = write_preset(dir, &k, &cur.spec, &name, &cur.description, cur.order + 1)?;
     Ok(Preset {
         key: k,
         name,
@@ -414,6 +430,27 @@ fn duplicate_in(dir: &Path, key: &str) -> Result<Preset, String> {
     })
 }
 
+/// Файл сценария вида для правки: свой — как есть (прежний TOML переводится
+/// в сценарий), встроенный — создаётся переопределение с его сценарием.
+pub fn script_file(key: &str) -> Result<PathBuf, String> {
+    script_file_in(&presets_dir(), key)
+}
+
+fn script_file_in(dir: &Path, key: &str) -> Result<PathBuf, String> {
+    let cur = list_in(dir).into_iter().find(|p| p.key == key).ok_or_else(|| format!("пресет «{key}» не найден"))?;
+    if let Some(p) = cur.path.as_ref().filter(|p| p.extension().is_some_and(|x| x == "rhai")) {
+        return Ok(p.clone());
+    }
+    if cur.path.is_none() {
+        if let Some(code) = BUILTIN_SCRIPTS.iter().find(|b| b.0 == key).map(|b| b.1) {
+            let path = preset_file(dir, key);
+            write_atomic(&path, code)?;
+            return Ok(path);
+        }
+    }
+    write_preset(dir, key, &cur.spec, &cur.name, &cur.description, cur.order)
+}
+
 /// Удалить пользовательский пресет (или сбросить переопределение встроенного).
 pub fn delete(key: &str) -> Result<(), String> {
     delete_in(&presets_dir(), key)
@@ -424,7 +461,10 @@ fn delete_in(dir: &Path, key: &str) -> Result<(), String> {
     let Some(path) = cur.path else {
         return Err("встроенный пресет нельзя удалить".into());
     };
-    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // прежний TOML того же ключа тоже
+    let _ = std::fs::remove_file(dir.join(format!("{key}.toml")));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -506,6 +546,24 @@ mod tests {
         let edit_rst = list_in(&presets).into_iter().find(|p| p.key == "edit").unwrap();
         assert!(edit_rst.builtin && !edit_rst.modified);
         assert_eq!(edit_rst.spec, builtin_spec("edit"));
+
+        // сценарий вида: встроенный → переопределение тем же сценарием
+        let f = script_file_in(&presets, "motion").unwrap();
+        assert!(f.extension().unwrap() == "rhai");
+        let m = list_in(&presets).into_iter().find(|p| p.key == "motion").unwrap();
+        assert!(m.modified && m.spec == builtin_spec("motion"));
+        std::fs::write(&f, "//! name: Моушн свой\nrow(tabs([\"viewer\"]), tabs([\"timeline\"]), 0.6)").unwrap();
+        let m = list_in(&presets).into_iter().find(|p| p.key == "motion").unwrap();
+        assert_eq!(m.name, "Моушн свой");
+        assert_eq!(m.spec, DockSpec::row(DockSpec::tabs(["viewer"]), DockSpec::tabs(["timeline"]), 0.6));
+        // прежний TOML читается и переводится в сценарий
+        std::fs::write(presets.join("old.toml"), encode_preset(&updated, "Старый", "", 70)).unwrap();
+        assert_eq!(list_in(&presets).into_iter().find(|p| p.key == "old").unwrap().spec, updated);
+        let f = script_file_in(&presets, "old").unwrap();
+        assert!(f.exists() && !presets.join("old.toml").exists());
+        assert_eq!(list_in(&presets).into_iter().find(|p| p.key == "old").unwrap().name, "Старый");
+        delete_in(&presets, "motion").unwrap();
+        delete_in(&presets, "old").unwrap();
 
         // удалить пользовательские
         delete_in(&presets, &created.key).unwrap();

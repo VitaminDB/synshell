@@ -88,6 +88,22 @@ impl Editor {
         self.group_saved = false;
     }
 
+    /// Открыта ли группа отмены (ход агента, сценарий).
+    pub fn in_group(&self) -> bool {
+        self.group.is_some()
+    }
+
+    /// Закрыть группу, вернув проект к её началу (шаг отмены группы убирается).
+    pub fn abort_group(&mut self) {
+        if self.group.is_some() && self.group_saved {
+            if let Some(step) = self.undo.pop() {
+                self.project = step.before;
+                self.after_history();
+            }
+        }
+        self.end_group();
+    }
+
     /// Проект до начала открытой группы (для разницы «до/после»).
     pub fn group_before(&self) -> Option<&Project> {
         (self.group.is_some() && self.group_saved).then(|| self.undo.last().map(|s| &s.before)).flatten()

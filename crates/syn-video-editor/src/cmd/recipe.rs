@@ -50,6 +50,9 @@ fn run(ed: &mut Editor, a: &Args) -> Res {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let run_dir = std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))).unwrap_or_else(std::env::temp_dir).join("syn-video-editor/recipes").join(format!("{}-{stamp}", synaptix_graph::recipes::slug(&g.name)));
     let report = synaptix_graph::run(&g, &params, &run_dir, &mut |s| syn_assist::tools::progress(0, 0, s))?;
+    // отчёт прогона рядом с файлами: что дал каждый узел (разбор, если раскладка вышла не той)
+    let rep = json!({"recipe": g.name, "params": params, "steps": report.steps, "nodes": report.nodes});
+    let _ = std::fs::write(run_dir.join("report.json"), serde_json::to_string_pretty(&rep).unwrap_or_default());
     let built = crate::recipe::build(&g, &report, &g.name)?;
     let path = crate::recipe::project_path(&run_dir, &g.name);
     if let Some(d) = path.parent() {

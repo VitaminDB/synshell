@@ -313,6 +313,10 @@ fn label(t: f64) -> String {
 }
 
 fn clip_name(p: &Project, c: &crate::doc::Clip) -> String {
+    // своё имя клипа (сцена рецепта, переименованный) важнее имени файла
+    if !c.name.trim().is_empty() && !matches!(c.source, Source::Title { .. }) {
+        return c.name.trim().to_string();
+    }
     match &c.source {
         Source::Media { media } => p.media(*media).map(|m| m.name()).unwrap_or_default(),
         Source::Title { text, .. } => format!("T  {text}"),

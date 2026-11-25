@@ -65,7 +65,7 @@ pub fn view(st: St) -> impl Widget {
 
 fn form_card(st: St, rename_key: Option<String>) -> impl Widget {
     let is_rename = rename_key.is_some();
-    let title = if is_rename { "Переименовать пресет вида" } else { "Сохранить вид как пресет" };
+    let title = if is_rename { "Переименовать пресет вида" } else { "Сохранить вид шаблоном" };
     let submit = {
         let rk = rename_key.clone();
         move || {
@@ -159,11 +159,12 @@ fn manage_card(st: St) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Text::new("Пресеты видов").class("fp-title"))
         .child(DecoratedBox::new().class("grow"))
-        .child(Button::new("+ Сохранить текущий…").class("primary-btn").on_click(move || open_save(st)))
+        .child(Button::new("+ Сохранить вид шаблоном…").class("primary-btn").on_click(move || open_save(st)))
         .child(Button::new("Сбросить раскладку").class("head-btn").on_click(move || {
             st.reset_layout();
             bump(st);
         }))
+        .child(Button::new("Обновить").class("head-btn").on_click(move || bump(st)))
         .child(Button::new("Папка").class("head-btn").on_click(move || {
             let _ = std::fs::create_dir_all(&dir_open);
             let _ = std::process::Command::new("xdg-open").arg(&dir_open).spawn();
@@ -171,10 +172,10 @@ fn manage_card(st: St) -> impl Widget {
         .child(ToolButton::new("\u{E5CD}").tooltip("Закрыть (Esc)").on_click(move || close(st)));
 
     let note = Text::new(format!(
-        "Текущая раскладка панелей сохраняется автоматически. Пресеты хранятся в {}.",
+        "Текущая раскладка сохраняется автоматически. Виды — сценарии Rhai (tabs, row, column) в {}: «Сценарий…» открывает файл, после правки — «Обновить» и «Применить».",
         dir.display()
     ))
-    .max_lines(2)
+    .max_lines(3)
     .class("lp-desc");
 
     let list = Reactive::new(move || -> Vec<Box<dyn Widget>> {
@@ -197,6 +198,7 @@ fn manage_card(st: St) -> impl Widget {
             let can_delete = p.path.is_some();
             let del_label = if p.builtin { "Сбросить" } else { "Удалить" };
 
+            let k_code = p.key.clone();
             let mut btns = Row::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -208,6 +210,13 @@ fn manage_card(st: St) -> impl Widget {
                             close(st);
                         }),
                 )
+                .child(Button::new("Сценарий…").class("head-btn").on_click(move || match layout::script_file(&k_code) {
+                    Ok(f) => {
+                        let _ = std::process::Command::new("xdg-open").arg(&f).spawn();
+                        bump(st);
+                    }
+                    Err(e) => st.toast.set(Some(format!("Ошибка: {e}"))),
+                }))
                 .child(Button::new("Записать текущий").class("head-btn").on_click(move || {
                     let Some(spec) = st.dock.spec() else { return };
                     match layout::overwrite(&k_over, &spec) {
@@ -282,6 +291,6 @@ fn manage_card(st: St) -> impl Widget {
                 .child(note)
                 .child(DecoratedBox::new().class("grow").child(ScrollView::new().vertical().child(list))),
         )
-        .style("width", 660.0f32)
-        .style("height", 560.0f32)
+        .style("width", 760.0f32)
+        .style("height", 600.0f32)
 }

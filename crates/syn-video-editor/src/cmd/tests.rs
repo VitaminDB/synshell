@@ -1030,3 +1030,33 @@ fn diff_summary_lists_changes() {
     assert!(d.contains("длительность"), "{d}");
     assert!(crate::doc::diff_summary(&before, &before).is_empty());
 }
+
+#[test]
+fn script_run_batch_one_undo_and_rollback() {
+    let mut ed = ed_with_media(10.0);
+    for _ in 0..3 {
+        run(&mut ed, "clip.add", &json!({"media": "m3"})).unwrap();
+    }
+    let before = ed.project.clone();
+    let steps = ed.undo_len();
+    let code = r#"
+        let n = 0;
+        for t in project().tracks { for c in t.clips { cmd("clip.set", #{id: c.id, name: "сцена"}); n += 1; } }
+        print(`клипов ${n}`);
+        n
+    "#;
+    let o = run(&mut ed, "script.run", &json!({"code": code})).unwrap();
+    assert!(o.text.contains("клипов 6") && o.text.contains("команд 6"), "{}", o.text);
+    assert!(ed.project.tracks.iter().flat_map(|t| &t.clips).all(|c| c.name == "сцена"));
+    assert_eq!(ed.undo_len(), steps + 1);
+    ed.undo();
+    assert_eq!(ed.project, before);
+    // ошибка в середине — правки сценария откатываются, шага нет
+    let bad = r#"for t in project().tracks { for c in t.clips { cmd("clip.set", #{id: c.id, name: "x"}); } } cmd("clip.set", #{id: 999, name: "y"});"#;
+    let e = run(&mut ed, "script.run", &json!({"code": bad})).unwrap_err();
+    assert!(e.contains("ошибка сценария"), "{e}");
+    assert_eq!(ed.project, before);
+    assert_eq!(ed.undo_len(), steps);
+    // необратимое и вложенный сценарий — нельзя
+    assert!(run(&mut ed, "script.run", &json!({"code": "cmd(\"script.run\", #{code: \"1\"})"})).is_err());
+}

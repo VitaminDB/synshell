@@ -874,7 +874,7 @@ fn palette() -> Vec<PaletteCommand> {
     for p in crate::layout::list() {
         v.push(PaletteCommand::new(format!("view.layout.{}", p.key), format!("Вид: {}", p.name)).category("Вид").keywords("layout preset раскладка пресет вид"));
     }
-    v.push(PaletteCommand::new("view.layout.save", "Сохранить вид как пресет…").category("Вид").keywords("layout preset save сохранить раскладку пресет вид"));
+    v.push(PaletteCommand::new("view.layout.save", "Сохранить вид шаблоном…").category("Вид").keywords("layout preset save сохранить раскладку пресет вид шаблон сценарий rhai"));
     v.push(PaletteCommand::new("view.layout.manage", "Управление пресетами видов…").category("Вид").keywords("layout preset manage управление пресеты раскладка"));
     v.push(PaletteCommand::new("view.layout.reset", "Сбросить раскладку панелей").category("Вид").keywords("layout reset сбросить раскладку панели"));
     v.push(PaletteCommand::new("view.zoom_fit", "Просмотр: Вписать кадр").category("Вид").keywords("zoom fit вписать просмотр масштаб"));
@@ -893,7 +893,7 @@ fn view_menu() -> Vec<MenuItem> {
     view.push(MenuItem::separator());
     view.extend(crate::layout::list().into_iter().map(|p| MenuItem::new(format!("view.layout.{}", p.key), format!("Вид: {}", p.name))));
     view.push(MenuItem::separator());
-    view.push(MenuItem::new("view.layout.save", "Сохранить вид как пресет…"));
+    view.push(MenuItem::new("view.layout.save", "Сохранить вид шаблоном…"));
     view.push(MenuItem::new("view.layout.manage", "Управление пресетами видов…"));
     view.push(MenuItem::new("view.layout.reset", "Сбросить раскладку панелей"));
     view.push(MenuItem::separator());

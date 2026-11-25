@@ -700,6 +700,9 @@ impl Project {
                     Source::Shape { kind, .. } => format!("фигура {}", shape_title(kind)),
                 };
                 let mut extra = Vec::new();
+                if !c.name.trim().is_empty() {
+                    extra.push(format!("имя «{}»", c.name.trim()));
+                }
                 if c.offset > 0.0 {
                     extra.push(format!("из источника с {}", tc(c.offset)));
                 }
