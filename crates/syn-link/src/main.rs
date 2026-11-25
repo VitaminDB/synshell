@@ -128,7 +128,7 @@ fn run_session() -> Result<()> {
         }
     }
     use std::os::unix::process::CommandExt;
-    Err(std::process::Command::new(std::env::current_exe()?).arg("daemon").exec().into())
+    Err(std::process::Command::new(self_exe()).arg("daemon").exec().into())
 }
 
 /// Демон юнита переживает сеанс — выйти, когда композитор сеанса

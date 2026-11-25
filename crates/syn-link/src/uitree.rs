@@ -215,7 +215,7 @@ fn wine_helper() -> Option<std::path::PathBuf> {
     if sys.exists() {
         return Some(sys);
     }
-    let exe = std::env::current_exe().ok()?;
+    let exe = crate::self_exe();
     let dev = exe.parent()?.parent()?.join("x86_64-pc-windows-gnu").join(exe.parent()?.file_name()?).join("syn-wine-inspect.exe");
     dev.exists().then_some(dev)
 }

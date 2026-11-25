@@ -316,7 +316,7 @@ impl Server {
             return crate::uitree::local_tree(pid, x11);
         }
         let exe = if crate::sandbox::device_name(device).is_some() {
-            std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "synlink".into())
+            crate::self_exe().to_string_lossy().into_owned()
         } else {
             "synlink".into()
         };
