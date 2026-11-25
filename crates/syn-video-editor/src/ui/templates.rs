@@ -617,6 +617,8 @@ pub fn view(st: St) -> impl Widget {
     };
     let mut top_list: Vec<(String, usize)> = counts.into_iter().collect();
     top_list.sort_by(|a, b| priority(&a.0).cmp(&priority(&b.0)).then_with(|| a.0.cmp(&b.0)));
+    // D5: графы сценария (рецепты ассистента) — свой раздел галереи
+    top_list.push(("Графы".into(), 0));
 
     let search_bar = Row::new()
         .gap(6.0)
@@ -663,7 +665,7 @@ pub fn view(st: St) -> impl Widget {
     let cats_bar = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let cur_top = top_cat.get();
         let cur_sub = sub_cat.get();
-        let mut chips = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut chips = Flex::new().wrap().gap(4.0);
         let mk_chip = move |label: String, key: String, active: bool| {
             let cls = if active { "cv-chip cv-chip-on" } else { "cv-chip" };
             GestureDetector::new()
@@ -714,6 +716,9 @@ pub fn view(st: St) -> impl Widget {
         let sub = sub_cat.get();
         let limit = page_limit.get();
         let tile_size = st.tile_size.get().clamp(100.0, 280.0);
+        if top == "Графы" {
+            return vec![graphs_view(st, &q, tile_size)];
+        }
         let all = catalog();
         if all.is_empty() {
             return vec![Box::new(
@@ -928,5 +933,76 @@ fn tpl_tile(st: St, entry: &TemplateEntry) -> Box<dyn Widget> {
                 _ => {}
             })
             .child(drag),
+    )
+}
+
+// ── D5: шаблоны графов сценария (рецепты) ───────────────────────────────
+
+/// Плитки рецептов: схема узлов, описание; двойной щелчок — открыть графом.
+fn graphs_view(st: St, query: &str, tile: f32) -> Box<dyn Widget> {
+    let q = query.trim().to_lowercase();
+    let all: Vec<synaptix_graph::Graph> = synaptix_graph::recipes::list(&crate::recipe::dir()).into_iter().filter(|g| q.is_empty() || format!("{} {}", g.name, g.description).to_lowercase().contains(&q)).collect();
+    let mut grid = Grid::new(16).min_column_width(tile.max(200.0)).gap(8.0);
+    for g in &all {
+        grid = grid.child(graph_tile(st, g.clone()));
+    }
+    Box::new(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("panel-list")
+            .child(Text::new(format!("Графов сценария: {} · 2×клик — открыть в «Графе», правый щелчок — прогнать в проект", all.len())).max_lines(2).class("panel-hint"))
+            .child(grid),
+    )
+}
+
+/// Схема рецепта: цепочка узлов «id·op» стрелками.
+fn graph_chain(g: &synaptix_graph::Graph) -> String {
+    g.nodes.iter().map(|n| format!("{}{}", n.op, if n.each.is_some() { "×" } else { "" })).collect::<Vec<_>>().join(" → ")
+}
+
+/// Открыть рецепт графом в панели «Граф» (общий редактор узлов, ноды ядра).
+pub fn open_graph(st: St, g: &synaptix_graph::Graph) {
+    let Some(ws) = super::graph::workspace() else {
+        st.toast.set(Some("Редактор узлов не подключён".into()));
+        return;
+    };
+    let params: serde_json::Map<String, serde_json::Value> = g.params.iter().filter_map(|(k, p)| p.default.clone().map(|d| (k.clone(), d))).collect();
+    let t = synaptix_graph::synthos::to_template(g, &params).and_then(|v| serde_json::from_value::<syn_node_editor::model::Template>(v).map_err(|e| e.to_string()));
+    match t {
+        Ok(t) => {
+            super::framegraph_ui::current().set(None);
+            ws.open_template(&t);
+            st.open_panel("graph");
+            st.dock.activate("graph");
+        }
+        Err(e) => st.toast.set(Some(format!("{}: {e}", g.name))),
+    }
+}
+
+fn graph_tile(st: St, g: synaptix_graph::Graph) -> Box<dyn Widget> {
+    let chain = graph_chain(&g);
+    let params = synaptix_graph::recipes::params_line(&g);
+    let (g_dbl, g_menu) = (g.clone(), g.clone());
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb graph-thumb").child(Center::new().child(Text::new(chain).max_lines(4).class("graph-chain")))))
+        .child(Text::new(g.name.clone()).max_lines(1).elide(Elide::End).class("row-title"))
+        .child(Text::new(g.description.clone()).max_lines(2).elide(Elide::End).class("row-sub"))
+        .child(Text::new(params).max_lines(1).elide(Elide::End).class("row-sub"));
+    let menu = vec![MenuItem::new("open", "Открыть как граф"), MenuItem::new("run", "Прогнать в проект…")];
+    Box::new(
+        ContextMenu::new()
+            .items(menu)
+            .on_select(move |id: &str| match id {
+                "open" => open_graph(st, &g_menu),
+                "run" => {
+                    st.open_panel("ai");
+                    st.ask_ai(format!("Прогони рецепт «{}» в редактируемый проект (recipe.run). Если не хватает обязательных параметров ({}) — сначала спроси меня.", g_menu.name, synaptix_graph::recipes::params_line(&g_menu)));
+                }
+                _ => {}
+            })
+            .child(GestureDetector::new().on_double_click(move || open_graph(st, &g_dbl)).child(DecoratedBox::new().class("tile").child(body))),
     )
 }

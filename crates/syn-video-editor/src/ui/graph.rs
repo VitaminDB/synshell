@@ -20,6 +20,12 @@ use syn_node_editor::EditorWorkspace;
 use super::{ed, St};
 
 static ST: OnceLock<St> = OnceLock::new();
+static WS: OnceLock<EditorWorkspace> = OnceLock::new();
+
+/// Рабочее место графов (вне дерева виджетов — для обработчиков щелчков).
+pub fn workspace() -> Option<EditorWorkspace> {
+    WS.get().copied()
+}
 
 struct Host;
 
@@ -164,6 +170,7 @@ pub fn mount(st: St) {
     let _ = ST.set(st);
     super::framegraph_ui::init();
     let ws = EditorWorkspace::new_or_restore();
+    let _ = WS.set(ws);
     if ws.active.get_untracked().is_none() {
         ws.new_untitled();
     }
