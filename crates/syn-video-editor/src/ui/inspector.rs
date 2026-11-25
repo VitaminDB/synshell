@@ -212,6 +212,7 @@ pub(super) fn effect_title(kind: &str) -> &'static str {
         "audio_fade_in" => "Нарастание звука",
         "audio_fade_out" => "Затухание звука",
         "lut" => "LUT",
+        "grade" => "Цветокоррекция",
         "color" => "Цвет",
         "blur" => "Размытие",
         "sharpen" => "Резкость",
@@ -649,6 +650,9 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
                         st.exec("effect.set", json!({"id": eid, "params": {"tint": col.to_hex()}}));
                     }
                 });
+            }
+            "grade" => {
+                r.action("Колёса и кривые", "Открыть панель «Цвет»", move |st| st.open_panel("color"));
             }
             "lut" => {
                 let path = ef.params.get("path").and_then(Value::as_str).unwrap_or("");

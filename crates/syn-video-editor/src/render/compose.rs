@@ -354,7 +354,10 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
                 // вписать кадр (contain) в кадр проекта
                 let fk = (w / f.width as f32).min(h / f.height as f32) * k;
                 let (iw, ih) = (f.width as f32 * fk, f.height as f32 * fk);
-                let img = Image::from_rgba_shared(format!("clip{}:{:.4}", c.id, f.pts), f.width, f.height, f.rgba.clone()).fit(ImageFit::Fill).placeholder(false);
+                // адрес буфера в ключе: обработанный кадр (коррекция, LUT, граф) — новая текстура,
+                // иначе после правки коррекции просмотр показывал прежнюю из кэша
+                let ptr = Arc::as_ptr(&f.rgba) as usize;
+                let img = Image::from_rgba_shared(format!("clip{}:{:.4}:{ptr:x}", c.id, f.pts), f.width, f.height, f.rgba.clone()).fit(ImageFit::Fill).placeholder(false);
                 let mut db = DecoratedBox::new().child(img);
                 if let Some(ef) = gpu_fx {
                     db = db.layer_effect(ef);
@@ -1041,12 +1044,15 @@ pub struct FrameSource {
     upscale: HashMap<u64, Option<super::neural::Upscale>>,
     /// Что не удалось (нет CUDA, моделей) — для отчёта экспорта.
     pub notes: Vec<String>,
+    /// Сравнение «до/после» в просмотре: коррекция и LUT — только правее
+    /// этой доли ширины кадра (экспорт не трогает).
+    pub compare: Option<f32>,
 }
 
 impl FrameSource {
     /// Кадры вписываются в `max_w × max_h` (размер проекта или панели).
     pub fn new(max_w: u32, max_h: u32) -> Self {
-        Self { readers: HashMap::new(), stills: HashMap::new(), fusion_last: HashMap::new(), lottie_last: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new() }
+        Self { readers: HashMap::new(), stills: HashMap::new(), fusion_last: HashMap::new(), lottie_last: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new(), compare: None }
     }
 
     /// Граф кадра клипа (D1) на кадре источника; нейроувеличение — общим слотом клипа.
@@ -1221,11 +1227,21 @@ impl FrameSource {
                 out.insert(c.id, f);
                 continue;
             }
+            let from_x = self.compare.map(|k| ((f.width as f32 * k.clamp(0.0, 1.0)) as usize).min(f.width as usize)).unwrap_or(0);
+            // первичная коррекция (колёса, кривые) — до LUT
+            if let Some(e) = effect(c, "grade") {
+                let g = super::grade::Grade::from_params(&e.params);
+                if !g.is_identity() {
+                    let mut px = (*f.rgba).clone();
+                    super::grade::apply(&g.tables(), &mut px, f.width as usize, from_x);
+                    f.rgba = Arc::new(px);
+                }
+            }
             if let Some(e) = effect(c, "lut") {
                 if let Some(lp) = e.params.get("path").and_then(Value::as_str) {
                     if let Ok(lut) = super::lut::load(lp) {
                         let mut px = (*f.rgba).clone();
-                        lut.apply(&mut px, num(&e.params, "strength", 1.0) as f32);
+                        lut.apply_from(&mut px, f.width as usize, from_x, num(&e.params, "strength", 1.0) as f32);
                         f.rgba = Arc::new(px);
                     }
                 }

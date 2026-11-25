@@ -4,6 +4,7 @@
 
 pub mod compose;
 pub mod export;
+pub mod grade;
 pub mod lut;
 pub mod neural;
 pub mod preview;

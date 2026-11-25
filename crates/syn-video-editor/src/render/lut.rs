@@ -96,9 +96,14 @@ impl Lut {
 
     /// Применить к RGBA на месте (`strength` 0–1 — смешение с исходным).
     pub fn apply(&self, rgba: &mut [u8], strength: f32) {
+        self.apply_from(rgba, 1024, 0, strength)
+    }
+
+    /// То же со столбца `from_x` строки шириной `width` (сравнение «до/после»).
+    pub fn apply_from(&self, rgba: &mut [u8], width: usize, from_x: usize, strength: f32) {
         let s = strength.clamp(0.0, 1.0);
-        rgba.par_chunks_mut(4 * 1024).for_each(|chunk| {
-            for px in chunk.chunks_exact_mut(4) {
+        rgba.par_chunks_mut(4 * width.max(1)).for_each(|chunk| {
+            for px in chunk.chunks_exact_mut(4).skip(from_x) {
                 let c = [px[0] as f32 / 255.0, px[1] as f32 / 255.0, px[2] as f32 / 255.0];
                 let m = self.map(c);
                 for i in 0..3 {

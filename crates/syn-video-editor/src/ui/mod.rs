@@ -16,6 +16,7 @@ mod framegraph_ui;
 pub mod socket;
 mod coverage_ui;
 mod curves;
+mod color;
 mod xform;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -153,6 +154,10 @@ pub struct St {
     /// Панель «Кривые»: выбранный параметр и перетаскивание ключа или ручки.
     pub curve_param: RwSignal<Option<String>>,
     pub curve_drag: RwSignal<Option<curves::Drag>>,
+    /// Панель «Цвет»: канал кривой (0 — яркость, 1–3 — R/G/B), сравнение «до/после», размер холста кривой.
+    pub color_channel: RwSignal<usize>,
+    pub color_compare: RwSignal<bool>,
+    pub color_curve_size: RwSignal<syngui::prelude::Size>,
     /// Рамка трансформации на просмотре: перетаскивание.
     pub xf_drag: RwSignal<Option<xform::Drag>>,
     /// Поколение списка пресетов видов (перестраивает переключатель и окно управления).
@@ -222,6 +227,9 @@ impl St {
             font_query: use_signal(String::new()),
             curve_param: use_signal(None),
             curve_drag: use_signal(None),
+            color_channel: use_signal(0),
+            color_compare: use_signal(false),
+            color_curve_size: use_signal(syngui::prelude::Size::new(480.0, 220.0)),
             xf_drag: use_signal(None),
             layout_rev: use_signal(0),
             layout_modal: use_signal(None),
@@ -526,7 +534,7 @@ impl St {
             "media" | "templates" | "effects" | "luts" | "layers" => Some("media"),
             "viewer" | "graph" => Some("viewer"),
             "inspector" | "ai" => Some("inspector"),
-            "timeline" | "curves" => Some("timeline"),
+            "timeline" | "curves" | "color" => Some("timeline"),
             _ => None,
         };
         self.dock.open(id, near);

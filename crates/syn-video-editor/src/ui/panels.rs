@@ -25,6 +25,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "ai" => Box::new(ai(st)),
         "graph" => super::graph::panel(),
         "curves" => Box::new(super::curves::view(st)),
+        "color" => Box::new(super::color::view(st)),
         _ => Box::new(DecoratedBox::new()),
     }
 }
@@ -301,6 +302,7 @@ fn fx_title(kind: &str) -> &'static str {
         "audio_fade_in" => "Нарастание звука",
         "audio_fade_out" => "Затухание звука",
         "lut" => "LUT",
+        "grade" => "Цветокоррекция",
         "color" => "Цвет",
         "blur" => "Размытие",
         "sharpen" => "Резкость",
@@ -514,10 +516,13 @@ fn viewer_bg_label(mode: u8) -> &'static str {
 
 /// Кадры для просмотра: читатели клипов живут между кадрами (воспроизведение
 /// декодирует подряд), размер — до 1280 по большей стороне.
-fn preview_frames(p: &crate::doc::Project, t: f64) -> crate::render::compose::Frames {
+fn preview_frames(p: &crate::doc::Project, t: f64, compare: bool) -> crate::render::compose::Frames {
     static SRC: Mutex<Option<crate::render::compose::FrameSource>> = Mutex::new(None);
     let mut s = SRC.lock().unwrap_or_else(|e| e.into_inner());
-    s.get_or_insert_with(|| crate::render::compose::FrameSource::new(1280, 1280)).frames(p, t)
+    let src = s.get_or_insert_with(|| crate::render::compose::FrameSource::new(1280, 1280));
+    // «до/после» панели «Цвет»: коррекция и LUT — правая половина кадра
+    src.compare = compare.then_some(0.5);
+    src.frames(p, t)
 }
 
 /// Просмотр — кадр композитора (тот же, что при экспорте) с зумом,
@@ -674,7 +679,8 @@ fn viewer_frame(st: St) -> impl Widget {
         let ox = (a.width - fw) / 2.0 + pan.0;
         let oy = (a.height - fh) / 2.0 + pan.1;
 
-        let frames = preview_frames(&p, t);
+        let compare = st.color_compare.get();
+        let frames = preview_frames(&p, t, compare);
         let frame = crate::render::compose::frame_widget(&p, t, &frames, k);
         let show_checker = bg_mode == 3 || p.settings.bg.eq_ignore_ascii_case("transparent") || p.settings.bg.eq_ignore_ascii_case("none");
 
@@ -683,6 +689,13 @@ fn viewer_frame(st: St) -> impl Widget {
             frame_stack = frame_stack.child(Positioned::new(checkerboard(fw, fh)).at(0.0, 0.0).dimensions(fw, fh));
         }
         frame_stack = frame_stack.child(Positioned::new(frame).at(0.0, 0.0).dimensions(fw, fh));
+        if compare {
+            // линия раздела и подписи «до | после»
+            frame_stack = frame_stack
+                .child(Positioned::new(DecoratedBox::new().class("cmp-line")).at(fw / 2.0 - 1.0, 0.0).dimensions(2.0, fh))
+                .child(Positioned::new(DecoratedBox::new().class("cmp-tag").child(Text::new("До").class("cmp-tag-text"))).at(fw / 2.0 - 46.0, 8.0))
+                .child(Positioned::new(DecoratedBox::new().class("cmp-tag").child(Text::new("После").class("cmp-tag-text"))).at(fw / 2.0 + 8.0, 8.0));
+        }
         if !st.playing.get() {
             for w in super::xform::overlay(st, &p, t, k, fw, fh) {
                 frame_stack = frame_stack.child(w);

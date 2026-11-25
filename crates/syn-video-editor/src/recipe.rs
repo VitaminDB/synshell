@@ -73,8 +73,7 @@ pub fn build(g: &Graph, r: &Report, name: &str) -> Result<Editor, String> {
         if let Some(line) = lines.get(i) {
             let cid = ed.project.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Video).and_then(|t| t.clips.last()).map(|c| c.id);
             if let Some(cid) = cid {
-                let short: String = line.chars().take(80).collect();
-                crate::cmd::run(&mut ed, "clip.set", &json!({"id": cid, "name": short}))?;
+                crate::cmd::run(&mut ed, "clip.set", &json!({"id": cid, "name": scene_name(line)}))?;
             }
         }
     }
@@ -94,6 +93,33 @@ pub fn build(g: &Graph, r: &Report, name: &str) -> Result<Editor, String> {
     Ok(ed)
 }
 
+/// Имя клипа из строки сценария: без «Сцена 1:» / «Scene 1 —», до 80 знаков по слову.
+pub fn scene_name(line: &str) -> String {
+    let mut l = line.trim();
+    let lower = l.to_lowercase();
+    for p in ["сцена", "scene", "shot", "кадр"] {
+        if lower.starts_with(p) {
+            let rest = &l[p.len()..];
+            let after = rest.trim_start_matches(|c: char| c.is_ascii_digit() || c.is_whitespace() || c == '#');
+            if after.len() < rest.len() {
+                if let Some(a) = after.strip_prefix([':', '.', '—', '-', ')']) {
+                    l = a.trim_start();
+                }
+            }
+            break;
+        }
+    }
+    if l.chars().count() <= 80 {
+        return l.to_string();
+    }
+    let cut: String = l.chars().take(80).collect();
+    let cut = match cut.rfind(' ') {
+        Some(i) if i > 40 => &cut[..i],
+        _ => cut.as_str(),
+    };
+    format!("{}…", cut.trim_end_matches([',', ';', ' ']))
+}
+
 /// Каталог рецептов (как у ассистента).
 pub fn dir() -> PathBuf {
     syn_assist::pipeline::resolve(&synshell_common::Config::load().0.assistant.recipes_dir)
@@ -104,4 +130,17 @@ pub fn project_path(run_dir: &Path, name: &str) -> PathBuf {
     let base = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| run_dir.to_path_buf()).join("Videos").join("syn-video-editor");
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     base.join(format!("{}-{stamp}.syn", synaptix_graph::recipes::slug(name)))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn scene_names() {
+        assert_eq!(super::scene_name("Сцена 1: рыжий кот смотрит"), "рыжий кот смотрит");
+        assert_eq!(super::scene_name("Scene 2 — a cat"), "a cat");
+        assert_eq!(super::scene_name("Сценарий ночи"), "Сценарий ночи");
+        let long = "Сцена 2: рыжий кот тянет передней лапой старый ржавый фонарик, открывает его и крутит кнопку";
+        let n = super::scene_name(long);
+        assert!(n.ends_with('…') && n.chars().count() <= 81 && n.starts_with("рыжий"), "{n}");
+    }
 }

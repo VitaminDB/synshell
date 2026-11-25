@@ -230,3 +230,12 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .tpl-cats { padding: 6px 8px; border-bottom-width: 1px; border-color: var(--border-soft); }
 .tpl-sub-select { height: 26px; font-size: 11px; }
 .tpl-more { padding: 10px 0 14px 0; }
+
+/* Панель «Цвет» (F2) */
+.color-panel { padding: 8px; flex-grow: 1; }
+.cg-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.cg-label { font-size: 11px; color: var(--text-muted); }
+.cg-value { font-size: 12px; color: var(--text); }
+.cmp-line { background-color: rgba(255, 255, 255, 0.85); }
+.cmp-tag { background-color: rgba(0, 0, 0, 0.6); border-radius: 4px; padding: 2px 6px; }
+.cmp-tag-text { font-size: 11px; color: #ffffff; }

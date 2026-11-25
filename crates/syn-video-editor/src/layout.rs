@@ -25,6 +25,7 @@ pub const PANELS: &[(&str, &str)] = &[
     ("ai", "ИИ"),
     ("graph", "Граф"),
     ("curves", "Кривые"),
+    ("color", "Цвет"),
 ];
 
 pub fn panel_title(id: &str) -> String {
@@ -41,6 +42,7 @@ pub const BUILTINS: &[(&str, &str, &str, i32)] = &[
     ("motion", "Моушн", "Моушн-графика: дерево слоёв слева, просмотр и инспектор сверху, таймлайн и кривые рядом снизу", 20),
     ("graph", "Граф", "Узловой граф эффектов в центре, просмотр и инспектор справа", 30),
     ("templates", "Шаблоны", "Галерея шаблонов, LUT и эффектов широко слева, просмотр и инспектор справа — подбирать оформление", 35),
+    ("color", "Цвет", "Цветокоррекция: большой просмотр с «до/после», колёса и кривые снизу, LUT слева, инспектор справа", 38),
     ("ai", "ИИ-монтаж", "Широкая панель ИИ-агента справа для монтажа и правок текстом", 40),
 ];
 
@@ -52,6 +54,7 @@ pub const BUILTIN_SCRIPTS: &[(&str, &str)] = &[
     ("motion", include_str!("../library/layouts/motion.rhai")),
     ("graph", include_str!("../library/layouts/graph.rhai")),
     ("templates", include_str!("../library/layouts/templates.rhai")),
+    ("color", include_str!("../library/layouts/color.rhai")),
     ("ai", include_str!("../library/layouts/ai.rhai")),
 ];
 
