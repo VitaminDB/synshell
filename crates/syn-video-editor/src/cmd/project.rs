@@ -5,7 +5,7 @@ use crate::doc::{expand, Project};
 use crate::editor::Editor;
 use crate::store;
 
-pub static COMMANDS: &[&Command] = &[&NEW, &OPEN, &SAVE, &SETTINGS, &DUMP, &EXPORT, &FRAME];
+pub static COMMANDS: &[&Command] = &[&NEW, &OPEN, &SAVE, &SETTINGS, &DUMP, &EXPORT, &FRAME, &CHECK];
 
 static NEW: Command = Command {
     id: "project.new",
@@ -218,4 +218,53 @@ fn frame(ed: &mut Editor, a: &Args) -> Res {
     let width = a.num("width")?.unwrap_or(960.0).round().max(16.0) as u32;
     let r = crate::render::run_child(&ed.project, &["frame".into(), t.to_string(), path.display().to_string(), width.to_string()], |_, _| {})?;
     Ok(Out::with(format!("Кадр {} → {r}", crate::doc::tc(t)), json!({"path": path})))
+}
+
+static CHECK: Command = Command {
+    id: "frame.check",
+    category: "Проект",
+    title: "Проверить кадр глазами",
+    shortcut: "",
+    keywords: "проверить кадр посмотреть зрение vision самопроверка титр обрезан читается цвет",
+    help: "Самопроверка по кадру: кадр таймлайна в момент at (тот же композитор, что экспорт) показывается модели со зрением, ответ — что она видит. question — что проверить (по умолчанию: читаются ли титры, не обрезан ли текст или объект, нет ли пустого/чёрного кадра, пересвета, странного цвета). Использовать после монтажа титров, кадрирования, цветокоррекции: проверить 1–3 ключевых момента и исправить найденное.",
+    args: &[req("at", Ty::Time, "момент"), arg("question", Ty::Str, "что проверить на кадре"), arg("width", Ty::Num, "ширина кадра для модели (768)"), arg("model", Ty::Str, "модель со зрением (по умолчанию — найдётся сама)")],
+    danger: false,
+    run: check,
+};
+
+/// Модель со зрением: явно заданная; модель агента, если видит картинки; уже
+/// загруженная со зрением (без лишней загрузки); иначе первая со зрением.
+fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> Result<String, String> {
+    if let Some(m) = want.filter(|m| !m.trim().is_empty()) {
+        return Ok(m);
+    }
+    if c.llm_info("").map(|i| i.media).unwrap_or(false) {
+        return Ok(String::new());
+    }
+    let list = c.list().map_err(|e| format!("служба нейросетей: {e}"))?;
+    let llms: Vec<&synaptixd::ModelEntry> = list.iter().filter(|m| m.kind == synaptixd::ModelKind::Llm).collect();
+    let (mut order, rest): (Vec<&synaptixd::ModelEntry>, Vec<&synaptixd::ModelEntry>) = llms.into_iter().partition(|m| m.state == synaptixd::LoadState::Loaded);
+    order.extend(rest);
+    for m in order {
+        if c.llm_info(&m.id).map(|i| i.media).unwrap_or(false) {
+            return Ok(m.id.clone());
+        }
+    }
+    Err("нет языковой модели со зрением (картинки) — загрузите модель со зрением (например, Qwen3.6) или укажите model".into())
+}
+
+fn check(ed: &mut Editor, a: &Args) -> Res {
+    let t = a.need_time("at")?;
+    let q = a.str("question")?.filter(|q| !q.trim().is_empty()).unwrap_or_else(|| "Это кадр смонтированного видео. Кратко и по делу: что на кадре; читаются ли титры и текст целиком (не обрезаны ли краями, не сливаются ли с фоном); не обрезан ли главный объект; нет ли пустого или чёрного кадра, пересвета, странного цвета. Перечисли найденные проблемы или скажи, что их нет.".into());
+    let width = a.num("width")?.unwrap_or(768.0).round().clamp(128.0, 1920.0) as u32;
+    let path = std::env::temp_dir().join(format!("syn-video-editor-check-{}-{}.png", std::process::id(), (t * 1000.0).round() as i64));
+    crate::render::run_child(&ed.project, &["frame".into(), t.to_string(), path.display().to_string(), width.to_string()], |_, _| {})?;
+    syn_assist::tools::progress(0, 0, "смотрю кадр");
+    let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
+    let model = vision_model(&mut c, a.str("model")?)?;
+    let mut m = synaptixd::Message::user(format!("[file 1: кадр {}]\n{}\n{q}", crate::doc::tc(t), synaptixd::MEDIA_MARK));
+    m.media = vec![synaptixd::Media { kind: synaptixd::MediaKind::Image, path: path.display().to_string() }];
+    let r = c.generate(&model, vec![m], 700, Some(0.2), |_| {}).map_err(|e| format!("модель зрения: {e}"))?;
+    let text = r.text.trim().to_string();
+    Ok(Out::with(format!("Кадр {} ({}): {text}", crate::doc::tc(t), path.display()), json!({"path": path, "model": model, "answer": text})))
 }
