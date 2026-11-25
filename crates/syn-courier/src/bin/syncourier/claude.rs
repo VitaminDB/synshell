@@ -75,6 +75,15 @@ pub fn resolve_program(name: &str) -> std::path::PathBuf {
     std::env::split_paths(&path).chain(extra).map(|d| d.join(name)).find(|p| p.is_file()).unwrap_or_else(|| name.into())
 }
 
+/// Команда `claude` по настройкам: программа и каталог настроек (`CLAUDE_CONFIG_DIR`).
+pub fn command(cfg: &ClaudeConfig) -> Command {
+    let mut cmd = Command::new(resolve_program(&cfg.program));
+    if !cfg.config_dir.trim().is_empty() {
+        cmd.env("CLAUDE_CONFIG_DIR", syn_courier::expand_home(cfg.config_dir.trim()));
+    }
+    cmd
+}
+
 /// Строка ввода `stream-json`: сообщение пользователя.
 pub fn user_line(text: &str) -> String {
     let mut s = serde_json::json!({ "type": "user", "message": { "role": "user", "content": text } }).to_string();
@@ -170,7 +179,7 @@ impl Session {
             st.gen += 1;
             (st.cfg.clone(), st.cwd_override.clone().unwrap_or_else(|| st.cfg.cwd.clone()), st.session_id.clone(), st.gen)
         };
-        let mut cmd = Command::new(resolve_program(&cfg.program));
+        let mut cmd = command(&cfg);
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
         cmd.args(["--name", &cfg.name]);
         cmd.args(["--append-system-prompt", ROLE]);

@@ -133,6 +133,9 @@ pub struct ClaudeConfig {
     pub permission_mode: String,
     /// Программа `claude`.
     pub program: String,
+    /// Каталог настроек Claude Code (`CLAUDE_CONFIG_DIR`, например `~/.claude-2`): какой учётной записью
+    /// работают сеанс курьера и список сеансов. Пусто — как в окружении службы (обычно `~/.claude`).
+    pub config_dir: String,
 }
 
 impl Default for ClaudeConfig {
@@ -144,6 +147,7 @@ impl Default for ClaudeConfig {
             model: String::new(),
             permission_mode: "bypassPermissions".into(),
             program: "claude".into(),
+            config_dir: String::new(),
         }
     }
 }

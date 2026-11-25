@@ -301,7 +301,7 @@ async fn api_call(hub: &Arc<Hub>, method: &str, api: &str, body: &serde_json::Va
     match (method, api) {
         ("GET", "state") => {
             let st = hub.snapshot();
-            let agents = crate::router::agents(&hub.config().claude.program).await.unwrap_or_default();
+            let agents = crate::router::agents(&hub.config().claude).await.unwrap_or_default();
             Ok(serde_json::json!({
                 "claude": {
                     "name": st.claude.name,

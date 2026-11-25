@@ -33,8 +33,8 @@ pub async fn handle(hub: Arc<Hub>, ev: serde_json::Value) {
         }
         _ => return,
     };
-    let program = hub.config().claude.program;
-    let name = session_name(&program, &session).await.unwrap_or_else(|| {
+    let claude_cfg = hub.config().claude;
+    let name = session_name(&claude_cfg, &session).await.unwrap_or_else(|| {
         std::path::Path::new(&get("cwd")).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Claude".into())
     });
     // События — только от выбранных сеансов (настройка «Только от сеансов»).
@@ -76,8 +76,8 @@ pub fn turn_used_courier(path: &str) -> bool {
 }
 
 /// Имя сеанса по его номеру.
-async fn session_name(program: &str, id: &str) -> Option<String> {
-    let out = tokio::process::Command::new(crate::claude::resolve_program(program)).args(["agents", "--json"]).output().await.ok()?;
+async fn session_name(cfg: &syn_courier::ClaudeConfig, id: &str) -> Option<String> {
+    let out = crate::claude::command(cfg).args(["agents", "--json"]).output().await.ok()?;
     let v: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).ok()?;
     v.iter().find(|a| a.get("sessionId").and_then(|s| s.as_str()) == Some(id)).and_then(|a| a.get("name")?.as_str().map(str::to_string))
 }

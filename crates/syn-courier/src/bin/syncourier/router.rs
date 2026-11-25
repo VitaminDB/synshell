@@ -37,8 +37,8 @@ pub fn parse_agents(json: &str) -> Vec<Agent> {
         .collect()
 }
 
-pub async fn agents(program: &str) -> Result<Vec<Agent>, String> {
-    let out = tokio::process::Command::new(crate::claude::resolve_program(program)).args(["agents", "--json"]).output().await.map_err(|e| e.to_string())?;
+pub async fn agents(cfg: &syn_courier::ClaudeConfig) -> Result<Vec<Agent>, String> {
+    let out = crate::claude::command(cfg).args(["agents", "--json"]).output().await.map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
@@ -68,7 +68,7 @@ pub async fn handle(hub: &Arc<Hub>, m: Incoming) {
         }
         None => (String::new(), String::new()),
     };
-    let program = hub.config().claude.program;
+    let claude_cfg = hub.config().claude;
     match cmd.as_str() {
         "" => ask_claude(hub, text).await,
         "help" | "start" | "помощь" => hub.say(HELP).await,
@@ -103,7 +103,7 @@ pub async fn handle(hub: &Arc<Hub>, m: Incoming) {
             ));
             hub.say(&lines.join("\n")).await;
         }
-        "sessions" | "agents" => match agents(&program).await {
+        "sessions" | "agents" => match agents(&claude_cfg).await {
             Ok(list) if list.is_empty() => hub.say("Живых сеансов Claude нет.").await,
             Ok(list) => {
                 let mut lines = vec!["*Сеансы Claude*".to_string()];
@@ -128,7 +128,7 @@ pub async fn handle(hub: &Arc<Hub>, m: Incoming) {
                 return;
             }
             // Имя проверить заранее: опечатка — подсказка, а не ход Claude впустую.
-            if let Ok(list) = agents(&program).await {
+            if let Ok(list) = agents(&claude_cfg).await {
                 if !list.iter().any(|a| a.name == name) {
                     let near: Vec<String> = list.iter().filter(|a| a.name.contains(name)).map(|a| a.name.clone()).collect();
                     let hint = if near.is_empty() { "Список: /sessions".to_string() } else { format!("Может быть: {}", near.join(", ")) };
