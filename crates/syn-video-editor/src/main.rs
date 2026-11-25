@@ -17,7 +17,8 @@ fn usage() -> &'static str {
      syn-video-editor [-p ПРОЕКТ.syn] --cmd ID 'JSON' [--cmd …]\n\
      syn-video-editor [-p ПРОЕКТ.syn] --ai \"задача словами\" [--yes]\n\
      syn-video-editor [-p ПРОЕКТ.syn] --dump\n\
-     syn-video-editor --commands [--json]"
+     syn-video-editor --commands [--json]\n\
+     syn-video-editor --remote ID 'JSON' | --remote-state | --remote-ai \"задача\"   (в запущенное окно, сокет)"
 }
 
 fn main() {
@@ -26,6 +27,44 @@ fn main() {
     if raw.first().map(String::as_str) == Some("--preview-strips") {
         match syn_video_editor::render::preview::render_all() {
             Ok(s) => println!("{s}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    // клиент сокета запущенного окна (E5)
+    if let Some(first) = raw.first().map(String::as_str).filter(|f| f.starts_with("--remote")) {
+        let req = match first {
+            "--remote" => {
+                let id = raw.get(1).cloned().unwrap_or_default();
+                let args: serde_json::Value = raw.get(2).map(|a| serde_json::from_str(a).unwrap_or_else(|e| {
+                    eprintln!("JSON: {e}");
+                    std::process::exit(2);
+                })).unwrap_or(serde_json::Value::Null);
+                serde_json::json!({"cmd": id, "args": args})
+            }
+            "--remote-state" => serde_json::json!({"op": "state"}),
+            "--remote-ai" => serde_json::json!({"ai": raw.get(1).cloned().unwrap_or_default()}),
+            _ => {
+                eprintln!("{}", usage());
+                std::process::exit(2);
+            }
+        };
+        match syn_video_editor::ui::socket::request(&req) {
+            Ok(v) if v["ok"].as_bool() == Some(true) => {
+                if let Some(t) = v["text"].as_str().filter(|t| !t.is_empty()) {
+                    println!("{t}");
+                }
+                if !v["data"].is_null() && raw.iter().any(|a| a == "--json") {
+                    println!("{}", serde_json::to_string_pretty(&v["data"]).unwrap_or_default());
+                }
+            }
+            Ok(v) => {
+                eprintln!("{}", v["error"].as_str().unwrap_or("ошибка"));
+                std::process::exit(1);
+            }
             Err(e) => {
                 eprintln!("{e}");
                 std::process::exit(1);
@@ -270,6 +309,7 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         })
         .run(move |_| {
             ui::graph::mount(st);
+            ui::socket::start(st);
             syn_video_editor::layout::autosave(st.dock, st.view);
             ui::autosave(st);
             Box::new(ui::root(st)) as Box<dyn Widget>

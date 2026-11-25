@@ -13,6 +13,7 @@ mod fontpick;
 mod layouts_ui;
 mod luts;
 mod framegraph_ui;
+pub mod socket;
 mod coverage_ui;
 mod curves;
 mod xform;
