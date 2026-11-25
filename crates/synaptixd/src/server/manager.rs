@@ -578,7 +578,8 @@ impl Manager {
                 return Ok(info.clone());
             }
             let window = synaptix::facade::arch::config_max_seq(&path).unwrap_or(2048).max(2048);
-            return Ok(runners::llm_info_at(&path, window, false));
+            // Зрение — по config.json и бандлу, без загрузки модели.
+            return Ok(runners::llm_info_at(&path, window, synaptix::facade::arch::config_supports_media(&path)));
         }
         let info = self.run(id, |m| m.llm_info())?;
         self.llm_infos.lock().unwrap().insert(id.to_string(), info.clone());
