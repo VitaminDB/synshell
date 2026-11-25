@@ -50,7 +50,7 @@ synlink sandbox stop [N] | list
 synlink pair УСТР | pair accept|reject УСТР   спаривание
 synlink unpair УСТР | disconnect УСТР
 synlink shot УСТР [-o ФАЙЛ] [--max N] [--output ВЫВОД]   снимок экрана (PNG)
-synlink tap УСТР X Y | hold УСТР X Y [МС] | swipe УСТР X1 Y1 X2 Y2 [МС] | pinch УСТР X Y ОТ ДО [МС]
+synlink tap УСТР X Y [right|double|hover] | hold УСТР X Y [МС] | swipe УСТР X1 Y1 X2 Y2 [МС] | pinch УСТР X Y ОТ ДО [МС]
 synlink scroll УСТР X Y ШАГИ           колесо (вниз — положительные)
 synlink type УСТР ТЕКСТ | key УСТР СОЧЕТАНИЕ | action УСТР ДЕЙСТВИЕ
 synlink windows УСТР | outputs УСТР | wm УСТР JSON
@@ -536,7 +536,16 @@ fn cli(args: &[String]) -> Result<()> {
             let s = gestures::screen(&device, None)?;
             let (x, y) = (num(args.get(2), "X")?, num(args.get(3), "Y")?);
             if cmd == "tap" {
-                gestures::tap(&device, &s, x, y)?;
+                match args.get(4).map(String::as_str) {
+                    Some("right") => gestures::right_click(&device, &s, x, y)?,
+                    Some("hover") => gestures::hover(&device, &s, x, y)?,
+                    Some("double") => {
+                        gestures::tap(&device, &s, x, y)?;
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                        gestures::tap(&device, &s, x, y)?;
+                    }
+                    _ => gestures::tap(&device, &s, x, y)?,
+                }
             } else {
                 gestures::hold(&device, &s, x, y, args.get(4).and_then(|m| m.parse().ok()).unwrap_or(700))?;
             }
