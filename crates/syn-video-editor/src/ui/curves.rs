@@ -44,7 +44,25 @@ pub fn label(c: &Clip, path: &str) -> String {
     match path {
         "style.size" => return "Размер титра".into(),
         "style.color" => return "Цвет титра".into(),
+        "style.fill" => return "Заливка".into(),
+        "style.stroke" => return "Обводка".into(),
+        "style.width" => return "Ширина фигуры".into(),
+        "style.height" => return "Высота фигуры".into(),
+        "style.radius" => return "Скругление".into(),
+        "style.stroke_width" => return "Толщина обводки".into(),
         _ => {}
+    }
+    if let Some(pkey) = path.strip_prefix("style.p:") {
+        if let crate::doc::Source::Title { style, .. } = &c.source {
+            if let Some(tp) = style.get("template").and_then(serde_json::Value::as_str) {
+                if let Ok(comp) = crate::fusion::load_cached(std::path::Path::new(tp)) {
+                    if let Some(lbl) = comp.param_label(pkey) {
+                        return lbl;
+                    }
+                }
+            }
+        }
+        return pkey.into();
     }
     let Some((head, name)) = path.split_once('.') else { return path.into() };
     let kind = head.strip_prefix('e').and_then(|s| s.parse::<u64>().ok()).and_then(|id| c.effects.iter().find(|e| e.id == id)).map(|e| e.kind.as_str()).unwrap_or("");

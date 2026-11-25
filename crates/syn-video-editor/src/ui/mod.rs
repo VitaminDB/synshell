@@ -5,10 +5,13 @@
 pub mod graph;
 pub(super) mod inspector;
 mod panels;
+pub(super) mod templates;
 mod thumbs;
 mod wave;
 pub mod timeline;
 mod fontpick;
+mod layouts_ui;
+mod coverage_ui;
 mod curves;
 mod xform;
 
@@ -35,6 +38,7 @@ pub mod icons {
     pub const SEARCH: &str = "\u{E8B6}";
     pub const CUT: &str = "\u{E14E}";
     pub const TITLE: &str = "\u{E264}";
+    pub const SHAPE: &str = "\u{E574}";
     pub const PLAY: &str = "\u{E037}";
     pub const PAUSE: &str = "\u{E034}";
     pub const AI: &str = "\u{E65F}";
@@ -134,35 +138,58 @@ pub struct St {
     pub menu_at: RwSignal<timeline::MenuAt>,
     /// Дорожка, которую переименовывают (поле в заголовке).
     pub rename_track: RwSignal<Option<u64>>,
-    /// Окно выбора шрифта: для какого титра, строка поиска.
-    pub font_pick: RwSignal<Option<u64>>,
+    /// Окно выбора шрифта: `(clip_id, опц. ключ параметра шаблона)`, строка поиска.
+    pub font_pick: RwSignal<Option<(u64, Option<String>)>>,
     pub font_query: RwSignal<String>,
     /// Панель «Кривые»: выбранный параметр и перетаскивание ключа или ручки.
     pub curve_param: RwSignal<Option<String>>,
     pub curve_drag: RwSignal<Option<curves::Drag>>,
     /// Рамка трансформации на просмотре: перетаскивание.
     pub xf_drag: RwSignal<Option<xform::Drag>>,
+    /// Поколение списка пресетов видов (перестраивает переключатель и окно управления).
+    pub layout_rev: RwSignal<u64>,
+    /// Модальное окно сохранения и управления пресетами видов.
+    pub layout_modal: RwSignal<Option<layouts_ui::Mode>>,
+    pub layout_name: RwSignal<String>,
+    pub layout_desc: RwSignal<String>,
+    /// Окно отчёта покрытия шаблонов Fusion (C2).
+    pub coverage_report: RwSignal<Option<crate::fusion::report::CoverageReport>>,
+    /// Масштаб окна «Просмотр»: `None` — вписать, `Some(k)` — доля от 100% (0.1–8.0).
+    pub viewer_zoom: RwSignal<Option<f32>>,
+    /// Сдвиг (панорамирование) кадра в «Просмотре», пикс. панели от центра.
+    pub viewer_pan: RwSignal<(f32, f32)>,
+    /// Поле за кадром в «Просмотре»: 0 — тёмное (#1c1e26), 1 — серое, 2 — светлое, 3 — шахматка прозрачности.
+    pub viewer_bg: RwSignal<u8>,
+    /// Выбранный верхний раздел в панели «Шаблоны» (пусто — все, `"Переходы"` — переходы Fusion).
+    pub tpl_cat: RwSignal<String>,
 }
 
 impl St {
     pub fn new() -> Self {
-        let st = Self::make();
+        let (view, spec) = crate::layout::load_current();
+        let st = Self::make(view, spec);
         thumbs::bind(st.thumbs);
         st
     }
 
-    fn make() -> Self {
+    pub fn new_ephemeral(view: &str) -> Self {
+        let st = Self::make(view.to_string(), crate::layout::builtin_spec(view));
+        thumbs::bind(st.thumbs);
+        st
+    }
+
+    fn make(view: String, spec: DockSpec) -> Self {
         Self {
             rev: use_signal(0),
             window: use_signal(syngui::window::WindowState::default()),
             theme: use_signal(String::new()),
             palette_open: use_signal(false),
-            dock: DockState::new(layout("edit")),
+            dock: DockState::new(spec),
             zoom: use_signal(60.0),
             toast: use_signal(None),
             ai_log: use_signal(Vec::new()),
             ai_busy: use_signal(false),
-            view: use_signal("edit".to_string()),
+            view: use_signal(view),
             playing: use_signal(false),
             thumbs: use_signal(0),
             exporting: use_signal(None),
@@ -183,6 +210,15 @@ impl St {
             curve_param: use_signal(None),
             curve_drag: use_signal(None),
             xf_drag: use_signal(None),
+            layout_rev: use_signal(0),
+            layout_modal: use_signal(None),
+            layout_name: use_signal(String::new()),
+            layout_desc: use_signal(String::new()),
+            coverage_report: use_signal(None),
+            viewer_zoom: use_signal(None),
+            viewer_pan: use_signal((0.0, 0.0)),
+            viewer_bg: use_signal(0),
+            tpl_cat: use_signal(String::new()),
         }
     }
 
@@ -216,8 +252,25 @@ impl St {
         match id {
             "view.palette" => return self.palette_open.set(true),
             "view.fullscreen" => return syngui::signal::toggle_fullscreen(),
-            "view.ai" => return self.dock.open("ai", Some("inspector")),
+            "view.ai" => return self.open_panel("ai"),
+            "view.layout.save" => return layouts_ui::open_save(self),
+            "view.layout.manage" => return layouts_ui::open_manage(self),
+            "view.layout.reset" => return self.reset_layout(),
+            "view.zoom_fit" => return self.viewer_fit(),
+            "view.zoom_100" => {
+                self.viewer_zoom.set(Some(1.0));
+                self.viewer_pan.set((0.0, 0.0));
+                return;
+            }
+            "view.zoom_in" => return self.viewer_zoom_step(1.25),
+            "view.zoom_out" => return self.viewer_zoom_step(1.0 / 1.25),
+            "view.viewer_bg" => {
+                self.viewer_bg.update(|b| *b = (*b + 1) % 4);
+                return;
+            }
+            "template.coverage" => return coverage_ui::open(self),
             v if v.starts_with("view.layout.") => return self.set_view(&v["view.layout.".len()..]),
+            v if v.starts_with("view.panel.") => return self.open_panel(&v["view.panel.".len()..]),
             // свои диалоги вместо аргументов
             "media.import" => return self.dialog(Pick::ImportFiles),
             "media.import_folder" => return self.dialog(Pick::ImportFolder),
@@ -423,8 +476,45 @@ impl St {
     }
 
     pub fn set_view(self, key: &str) {
-        self.view.set(key.to_string());
-        self.dock.set_spec(layout(key));
+        let (view_key, title, spec) = match crate::layout::find(key) {
+            Some(p) => (p.key, p.name, p.spec),
+            None => (key.to_string(), key.to_string(), crate::layout::builtin_spec(key)),
+        };
+        self.view.set(view_key);
+        self.dock.set_spec(spec);
+        self.toast.set(Some(format!("Вид: {title}")));
+    }
+
+    pub fn reset_layout(self) {
+        let cur = self.view.get_untracked();
+        let key = if crate::layout::BUILTINS.iter().any(|b| b.0 == cur) { cur } else { crate::layout::DEFAULT_VIEW.to_string() };
+        let spec = crate::layout::builtin_spec(&key);
+        self.view.set(key.clone());
+        self.dock.set_spec(spec.clone());
+        crate::layout::save_current(&spec, &key);
+        self.toast.set(Some("Раскладка панелей сброшена".into()));
+    }
+
+    pub fn viewer_fit(self) {
+        self.viewer_zoom.set(None);
+        self.viewer_pan.set((0.0, 0.0));
+    }
+
+    pub fn viewer_zoom_step(self, factor: f32) {
+        let cur = self.viewer_zoom.get_untracked().unwrap_or_else(panels::viewer_fit_k);
+        let next = (cur * factor).clamp(0.1, 8.0);
+        self.viewer_zoom.set(Some(next));
+    }
+
+    pub fn open_panel(self, id: &str) {
+        let near = match id {
+            "media" | "templates" | "effects" | "layers" => Some("media"),
+            "viewer" | "graph" => Some("viewer"),
+            "inspector" | "ai" => Some("inspector"),
+            "timeline" | "curves" => Some("timeline"),
+            _ => None,
+        };
+        self.dock.open(id, near);
     }
 
     /// Ход агента в фоне; события — в панель ИИ, правки — в окно.
@@ -473,37 +563,7 @@ fn default_path() -> String {
     dir.join(format!("{name}.syn")).display().to_string()
 }
 
-/// Раскладки видов (позже — сценарии Rhai `library/layouts`, как в hexspire).
-pub const VIEWS: &[(&str, &str)] = &[("edit", "Монтаж"), ("graph", "Граф"), ("ai", "ИИ-монтаж")];
-
-pub fn layout(key: &str) -> DockSpec {
-    let left = DockSpec::tabs(["media", "effects"]);
-    let right = DockSpec::tabs(["inspector", "ai"]);
-    match key {
-        "graph" => DockSpec::column(DockSpec::row(DockSpec::tabs(["media", "effects"]), DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7), 0.2), DockSpec::tabs(["timeline", "curves"]), 0.7),
-        "ai" => DockSpec::row(
-            DockSpec::column(DockSpec::row(left, DockSpec::tabs(["viewer"]).named("viewer"), 0.32), DockSpec::tabs(["timeline", "curves"]), 0.58),
-            DockSpec::tabs(["ai", "inspector"]),
-            0.68,
-        ),
-        _ => DockSpec::column(DockSpec::row(DockSpec::row(left, DockSpec::tabs(["viewer", "graph"]).named("viewer"), 0.26), right, 0.74), DockSpec::tabs(["timeline", "curves"]), 0.58),
-    }
-}
-
-pub fn panel_title(id: &str) -> String {
-    match id {
-        "media" => "Медиатека",
-        "effects" => "Эффекты",
-        "viewer" => "Просмотр",
-        "timeline" => "Таймлайн",
-        "inspector" => "Инспектор",
-        "ai" => "ИИ",
-        "graph" => "Граф",
-        "curves" => "Кривые",
-        other => other,
-    }
-    .to_string()
-}
+pub use crate::layout::{builtin_spec as layout, panel_title};
 
 // ── тема: стили hexspire на палитре synshell ─────────────────────────────
 
@@ -554,6 +614,7 @@ pub fn theme(cfg: &Config) -> String {
             ("clip-video", p.accent.mix(shell, 0.45).hex()),
             ("clip-audio", p.success.mix(shell, 0.5).hex()),
             ("clip-title", Rgba::rgb(0x9b, 0x6b, 0xf2).mix(shell, 0.4).hex()),
+            ("clip-shape", Rgba::rgb(0x14, 0xb8, 0xa6).mix(shell, 0.42).hex()),
             ("clip-color", p.warning.mix(shell, 0.5).hex()),
             // редактор узлов (syn-node-editor) — в цветах темы
             ("ne-canvas-bg", shell.mix(panel, 0.35).hex()),
@@ -731,13 +792,19 @@ pub fn root(st: St) -> impl Widget {
         .child(toast(st))
         .child(timeline::menu(st))
         .child(fontpick::view(st))
+        .child(layouts_ui::view(st))
+        .child(coverage_ui::view(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).
 const VIEW_ITEMS: &[(&str, &str, &str)] = &[("view.palette", "Палитра команд", "Ctrl+Shift+P"), ("view.ai", "Панель ИИ", "Ctrl+Shift+A"), ("view.fullscreen", "Во весь экран", "F11")];
 
 /// Действия окна без команды документа: (id, раздел меню, заголовок, клавиши).
-const UI_ITEMS: &[(&str, &str, &str, &str)] = &[("media.import_folder", "Медиа", "Импорт папки…", "Ctrl+Shift+I"), ("project.save_as", "Проект", "Сохранить как…", "Ctrl+Shift+S")];
+const UI_ITEMS: &[(&str, &str, &str, &str)] = &[
+    ("media.import_folder", "Медиа", "Импорт папки…", "Ctrl+Shift+I"),
+    ("project.save_as", "Проект", "Сохранить как…", "Ctrl+Shift+S"),
+    ("view.panel.templates", "Шаблоны", "Галерея шаблонов", ""),
+];
 
 fn by_chord(key: Key, mods: Modifiers) -> Option<&'static str> {
     let name = format!("{key:?}");
@@ -771,10 +838,34 @@ fn palette() -> Vec<PaletteCommand> {
     for (id, cat, t, k) in UI_ITEMS {
         v.push(PaletteCommand::new(*id, *t).category(*cat).shortcut(*k));
     }
-    for (k, t) in VIEWS {
-        v.push(PaletteCommand::new(format!("view.layout.{k}"), format!("Вид: {t}")).category("Вид").keywords("layout раскладка вид"));
+    for p in crate::layout::list() {
+        v.push(PaletteCommand::new(format!("view.layout.{}", p.key), format!("Вид: {}", p.name)).category("Вид").keywords("layout preset раскладка пресет вид"));
+    }
+    v.push(PaletteCommand::new("view.layout.save", "Сохранить вид как пресет…").category("Вид").keywords("layout preset save сохранить раскладку пресет вид"));
+    v.push(PaletteCommand::new("view.layout.manage", "Управление пресетами видов…").category("Вид").keywords("layout preset manage управление пресеты раскладка"));
+    v.push(PaletteCommand::new("view.layout.reset", "Сбросить раскладку панелей").category("Вид").keywords("layout reset сбросить раскладку панели"));
+    v.push(PaletteCommand::new("view.zoom_fit", "Просмотр: Вписать кадр").category("Вид").keywords("zoom fit вписать просмотр масштаб"));
+    v.push(PaletteCommand::new("view.zoom_100", "Просмотр: Масштаб 100%").category("Вид").keywords("zoom 100 просмотр масштаб"));
+    v.push(PaletteCommand::new("view.zoom_in", "Просмотр: Увеличить").category("Вид").keywords("zoom in увеличить приблизить просмотр"));
+    v.push(PaletteCommand::new("view.zoom_out", "Просмотр: Уменьшить").category("Вид").keywords("zoom out уменьшить отдалить просмотр"));
+    v.push(PaletteCommand::new("view.viewer_bg", "Просмотр: Переключить фон поля / шахматку").category("Вид").keywords("background checkerboard фон поле шахматка границы просмотр"));
+    for (id, title) in crate::layout::PANELS {
+        v.push(PaletteCommand::new(format!("view.panel.{id}"), format!("Панель: {title}")).category("Вид").keywords("panel окно панель открыть"));
     }
     v
+}
+
+fn view_menu() -> Vec<MenuItem> {
+    let mut view: Vec<MenuItem> = VIEW_ITEMS.iter().map(|(id, t, k)| MenuItem::new(*id, *t).shortcut(*k)).collect();
+    view.push(MenuItem::separator());
+    view.extend(crate::layout::list().into_iter().map(|p| MenuItem::new(format!("view.layout.{}", p.key), format!("Вид: {}", p.name))));
+    view.push(MenuItem::separator());
+    view.push(MenuItem::new("view.layout.save", "Сохранить вид как пресет…"));
+    view.push(MenuItem::new("view.layout.manage", "Управление пресетами видов…"));
+    view.push(MenuItem::new("view.layout.reset", "Сбросить раскладку панелей"));
+    view.push(MenuItem::separator());
+    view.extend(crate::layout::PANELS.iter().map(|(id, t)| MenuItem::new(format!("view.panel.{id}"), format!("Панель: {t}"))));
+    view
 }
 
 fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
@@ -791,10 +882,6 @@ fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
             items.push(MenuItem::new(*id, *t).shortcut(*k));
         }
     }
-    let mut view: Vec<MenuItem> = VIEW_ITEMS.iter().map(|(id, t, k)| MenuItem::new(*id, *t).shortcut(*k)).collect();
-    view.push(MenuItem::separator());
-    view.extend(VIEWS.iter().map(|(k, t)| MenuItem::new(format!("view.layout.{k}"), format!("Вид: {t}"))));
-    out.push(("Вид", view));
     out
 }
 
@@ -803,6 +890,7 @@ fn titlebar(st: St) -> impl Widget {
     for (title, items) in menus() {
         menu = menu.menu(title, move || items.clone());
     }
+    menu = menu.menu("Вид", view_menu);
     let controls = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let w = st.window.get();
         vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
@@ -878,6 +966,9 @@ fn toolbar(st: St) -> impl Widget {
             .child(ToolButton::new(icons::TITLE).tooltip("Титр в позиции (Ctrl+T)").on_click(move || {
                 st.exec("title.add", json!({"text": "Заголовок"}));
             }))
+            .child(ToolButton::new(icons::SHAPE).tooltip("Фигура в позиции").on_click(move || {
+                st.exec("shape.add", json!({"kind": "rect"}));
+            }))
             .child(sep())
             .child(ToolButton::new(icons::ZOOM_OUT).tooltip("Мельче").on_click(move || st.zoom.update(|z| *z = (*z / 1.5).max(4.0))))
             .child(ToolButton::new(icons::ZOOM_IN).tooltip("Крупнее").on_click(move || st.zoom.update(|z| *z = (*z * 1.5).min(800.0))))
@@ -888,8 +979,34 @@ fn toolbar(st: St) -> impl Widget {
                 ),
             )
             .child(move || {
+                let _ = st.layout_rev.get();
                 let cur = st.view.get();
-                Dropdown::new().items(VIEWS.iter().map(|(k, t)| DropdownItem::new(*k, *t)).collect()).selected(cur).on_change(move |k: &str| st.set_view(k)).class("view-select")
+                let presets = crate::layout::list();
+                let known = presets.iter().any(|p| p.key == cur);
+                let mut items: Vec<DropdownItem> = presets.into_iter().map(|p| DropdownItem::new(p.key, p.name)).collect();
+                items.push(DropdownItem::new("__save", "Сохранить вид…"));
+                items.push(DropdownItem::new("__manage", "Пресеты видов…"));
+                items.push(DropdownItem::new("__reset", "Сбросить раскладку"));
+                Dropdown::new()
+                    .items(items)
+                    .selected(if known { cur } else { String::new() })
+                    .placeholder("Вид")
+                    .on_change(move |k: &str| match k {
+                        "__save" => {
+                            st.layout_rev.update(|v| *v = v.wrapping_add(1));
+                            layouts_ui::open_save(st);
+                        }
+                        "__manage" => {
+                            st.layout_rev.update(|v| *v = v.wrapping_add(1));
+                            layouts_ui::open_manage(st);
+                        }
+                        "__reset" => {
+                            st.layout_rev.update(|v| *v = v.wrapping_add(1));
+                            st.reset_layout();
+                        }
+                        k => st.set_view(k),
+                    })
+                    .class("view-select")
             })
             .child(move || {
                 let fs = st.window.get().fullscreen;

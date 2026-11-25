@@ -138,8 +138,41 @@ fn silences_cmd(ed: &mut Editor, a: &Args) -> Res {
 }
 
 /// Вырезать из клипа куски времени источника `cuts` (отсортированы), сдвинуть
-/// остальное влево (ripple на дорожке клипа). Возвращает id частей и сколько вырезано, с.
+/// остальное влево (ripple на дорожке клипа). Если у клипа есть связанный звук
+/// (или видео), режет и сдвигает оба синхронно, сохраняя связи частей.
 pub fn cut_source(p: &mut Project, id: Id, cuts: &[(f64, f64)]) -> Result<(Vec<Id>, f64), String> {
+    let peer = p.linked_peer(id);
+    let (parts, removed) = cut_source_one(p, id, cuts)?;
+    if let Some(pid) = peer {
+        if let Ok((p_parts, _)) = cut_source_one(p, pid, cuts) {
+            if p_parts.len() == parts.len() {
+                for (&a, &b) in parts.iter().zip(p_parts.iter()) {
+                    if let Some(c) = p.clip_mut(a) {
+                        c.link = Some(b);
+                    }
+                    if let Some(c) = p.clip_mut(b) {
+                        c.link = Some(a);
+                    }
+                }
+            } else {
+                for &cid in parts.iter().chain(p_parts.iter()) {
+                    if let Some(c) = p.clip_mut(cid) {
+                        c.link = None;
+                    }
+                }
+            }
+        } else {
+            for &cid in &parts {
+                if let Some(c) = p.clip_mut(cid) {
+                    c.link = None;
+                }
+            }
+        }
+    }
+    Ok((parts, removed))
+}
+
+fn cut_source_one(p: &mut Project, id: Id, cuts: &[(f64, f64)]) -> Result<(Vec<Id>, f64), String> {
     let (ti, ci) = p.find_clip(id).ok_or_else(|| format!("нет клипа c{id}"))?;
     let c = p.tracks[ti].clips[ci].clone();
     let src0 = c.offset;
@@ -174,6 +207,8 @@ pub fn cut_source(p: &mut Project, id: Id, cuts: &[(f64, f64)]) -> Result<(Vec<I
         let mut n = c.clone();
         if !first {
             n.id = p.alloc();
+            n.transition = None;
+            n.link = None;
             for ef in &mut n.effects {
                 ef.id = p.alloc();
             }

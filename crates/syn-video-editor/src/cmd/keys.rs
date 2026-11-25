@@ -8,7 +8,7 @@ use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{tc, Clip, Effect, Id, Key, Source};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&SET, &MOVE, &REMOVE, &CLEAR, &LIST];
+pub static COMMANDS: &[&Command] = &[&SET, &MOVE, &REMOVE, &CLEAR, &LIST, &MOTION_LIST, &MOTION_APPLY];
 
 
 /// Значение по умолчанию параметра эффекта `kind` или поля титра.
@@ -21,9 +21,23 @@ pub fn default_value(kind: &str, name: &str, p: &crate::doc::Project) -> Option<
         ("blur", "radius") => n(6.0),
         ("sharpen" | "vignette", "amount") => n(0.5),
         ("lut", "strength") => n(1.0),
+        ("mask", "x" | "y" | "radius" | "feather") => n(0.0),
+        ("mask", "width" | "height") => n(0.6),
+        ("glass", "blur") => n(18.0),
+        ("glass", "tint_opacity") => n(0.18),
+        ("glass", "border_opacity") => n(0.48),
+        ("glass", "highlight") => n(0.30),
+        ("glass", "shadow") => n(0.28),
+        ("glass", "saturation") => n(1.20),
+        ("glass", "brightness") => n(0.04),
         ("style", "size") => n(p.settings.width.min(p.settings.height) as f64 * 0.075),
         ("style", "color") => Some(json!("#ffffff")),
         ("style", "anim") => n(0.4),
+        ("style", "fill") => Some(json!("#3b82f6")),
+        ("style", "stroke") => Some(json!("#ffffff")),
+        ("style", "width" | "height") => n(0.28),
+        ("style", "radius") => n(0.08),
+        ("style", "stroke_width") => n(0.0),
         _ => None,
     }
 }
@@ -31,12 +45,14 @@ pub fn default_value(kind: &str, name: &str, p: &crate::doc::Project) -> Option<
 /// Параметры, которые можно анимировать: эффект → поля.
 const ANIMATABLE: &[(&str, &[&str])] = &[
     ("transform", &["x", "y", "scale", "rotation", "opacity"]),
+    ("mask", &["x", "y", "width", "height", "radius", "feather"]),
+    ("glass", &["blur", "tint_opacity", "border_opacity", "highlight", "shadow", "saturation", "brightness"]),
     ("color", &["brightness", "contrast", "saturation", "temperature"]),
     ("blur", &["radius"]),
     ("sharpen", &["amount"]),
     ("vignette", &["amount"]),
     ("lut", &["strength"]),
-    ("style", &["size", "color"]),
+    ("style", &["size", "color", "fill", "stroke", "width", "height", "radius", "stroke_width"]),
 ];
 
 /// Куда ставить ключ: путь уже есть (`e<id>.<поле>`, `style.<поле>`) или
@@ -51,14 +67,38 @@ enum Target {
 fn resolve(p: &crate::doc::Project, cid: Id, param: &str) -> Result<Target, String> {
     let (head, name) = param.split_once('.').ok_or_else(|| format!("параметр «{param}»: нужно вид.поле, например transform.scale"))?;
     let c = p.clip(cid).ok_or_else(|| format!("нет клипа c{cid}"))?;
-    if head == "style" || head == "title" {
-        if !matches!(c.source, Source::Title { .. }) {
-            return Err(format!("c{cid} не титр — у него нет style.{name}"));
+    if head == "tpl" || head == "template" {
+        let Source::Title { style, .. } = &c.source else {
+            return Err(format!("c{cid} не шаблон Fusion"));
+        };
+        if style.get("template").and_then(Value::as_str).is_none_or(str::is_empty) {
+            return Err(format!("у c{cid} нет шаблона Fusion"));
         }
-        if !matches!(name, "size" | "color") {
-            return Err(format!("у титра анимируются size и color, а не {name}"));
+        let key = name.strip_prefix(crate::fusion::STYLE_PREFIX).unwrap_or(name);
+        return Ok(Target::Path(format!("style.{}{key}", crate::fusion::STYLE_PREFIX), "template".into()));
+    }
+    if head == "style" || head == "title" || head == "shape" {
+        match &c.source {
+            Source::Title { style, .. } => {
+                if name.starts_with(crate::fusion::STYLE_PREFIX) {
+                    if style.get("template").and_then(Value::as_str).is_none_or(str::is_empty) {
+                        return Err(format!("у c{cid} нет шаблона Fusion для {name}"));
+                    }
+                    return Ok(Target::Path(format!("style.{name}"), "template".into()));
+                }
+                if !matches!(name, "size" | "color") {
+                    return Err(format!("у титра анимируются size и color, а не {name}"));
+                }
+                return Ok(Target::Path(format!("style.{name}"), "style".into()));
+            }
+            Source::Shape { .. } => {
+                if !matches!(name, "fill" | "stroke" | "width" | "height" | "radius" | "stroke_width") {
+                    return Err(format!("у фигуры анимируются fill, stroke, width, height, radius, stroke_width, а не {name}"));
+                }
+                return Ok(Target::Path(format!("style.{name}"), "style".into()));
+            }
+            _ => return Err(format!("c{cid} не титр и не фигура — у него нет style.{name}")),
         }
-        return Ok(Target::Path(format!("style.{name}"), "style".into()));
     }
     if let Some(id) = head.strip_prefix('e').and_then(|s| s.parse::<Id>().ok()) {
         let e = c.effects.iter().find(|e| e.id == id).ok_or_else(|| format!("у c{cid} нет эффекта e{id}"))?;
@@ -111,7 +151,20 @@ fn set(ed: &mut Editor, a: &Args) -> Res {
     };
     let v = match a.value("value").filter(|v| !v.is_null()) {
         Some(v) => v,
-        None => cur.or_else(|| default_value(&kind, &name, &ed.project)).ok_or_else(|| format!("{param}: укажите value"))?,
+        None => cur
+            .or_else(|| {
+                if kind == "template" {
+                    if let Source::Title { style, .. } = &c.source {
+                        if let Some(tp) = style.get("template").and_then(Value::as_str) {
+                            if let Ok(comp) = crate::fusion::load_cached(std::path::Path::new(tp)) {
+                                return comp.param_default(&name);
+                            }
+                        }
+                    }
+                }
+                default_value(&kind, &name, &ed.project)
+            })
+            .ok_or_else(|| format!("{param}: укажите value"))?,
     };
     if !(v.is_number() || v.as_str().is_some_and(|s| s.starts_with('#'))) {
         return Err(format!("value — число или цвет #rrggbb, а не {v}"));
@@ -155,6 +208,10 @@ fn existing(c: &Clip, param: &str) -> Option<String> {
         return Some(param.to_string());
     }
     let (head, name) = param.split_once('.')?;
+    if head == "tpl" || head == "template" {
+        let key = name.strip_prefix(crate::fusion::STYLE_PREFIX).unwrap_or(name);
+        return Some(format!("style.{}{key}", crate::fusion::STYLE_PREFIX));
+    }
     if head == "style" || head == "title" {
         return Some(format!("style.{name}"));
     }
@@ -184,8 +241,11 @@ fn remove(ed: &mut Editor, a: &Args) -> Res {
 fn set_base(c: &mut Clip, path: &str, v: Value) {
     let Some((head, name)) = path.split_once('.') else { return };
     if head == "style" {
-        if let Source::Title { style, .. } = &mut c.source {
-            style.insert(name.into(), v);
+        match &mut c.source {
+            Source::Title { style, .. } | Source::Shape { style, .. } => {
+                style.insert(name.into(), v);
+            }
+            _ => {}
         }
     } else if let Some(id) = head.strip_prefix('e').and_then(|s| s.parse::<Id>().ok()) {
         if let Some(e) = c.effects.iter_mut().find(|e| e.id == id) {
@@ -295,4 +355,57 @@ fn move_key(ed: &mut Editor, a: &Args) -> Res {
     }
     keys.sort_by(|a, b| a.t.total_cmp(&b.t));
     Ok(Out::text(format!("Ключ {path}: {} → {}", tc(c.start + from), tc(c.start + to))))
+}
+
+static MOTION_LIST: Command = Command {
+    id: "motion.list",
+    category: "Анимация",
+    title: "Пресеты движения",
+    shortcut: "",
+    keywords: "motion preset пресет движение анимация вход выход зум панорама",
+    help: "Список пресетов движения (вход, движение по клипу, выход): id, название, описание. Применять через motion.apply.",
+    args: &[arg("query", Ty::Str, "поиск по названию или разделу")],
+    danger: false,
+    run: motion_list,
+};
+
+fn motion_list(_ed: &mut Editor, a: &Args) -> Res {
+    let q = a.str("query")?.unwrap_or_default().to_lowercase();
+    let hits: Vec<_> = crate::motion::PRESETS
+        .iter()
+        .filter(|p| q.is_empty() || format!("{} {} {} {}", p.id, p.title, p.category, p.desc).to_lowercase().contains(&q))
+        .collect();
+    let lines: Vec<String> = hits.iter().map(|p| format!("{} [{}] — {}: {}", p.id, p.category, p.title, p.desc)).collect();
+    let data: Vec<_> = hits.iter().map(|p| json!({"id": p.id, "title": p.title, "category": p.category, "desc": p.desc})).collect();
+    Ok(Out::with(lines.join("\n"), json!(data)))
+}
+
+static MOTION_APPLY: Command = Command {
+    id: "motion.apply",
+    category: "Анимация",
+    title: "Пресет движения",
+    shortcut: "",
+    keywords: "motion preset apply движение выезд подъем выпрыгивание отскок наезд отъезд панорама пульсация покачивание уход",
+    help: "Применить пресет движения к клипам (создаёт ключевые кадры эффекта transform; без ids — выделенные). Пресеты: slide_in_left, slide_in_right, slide_in_up, pop_in, bounce_in, spin_in (вход), ken_burns_in, ken_burns_out, pan_left, pan_right, float, pulse (движение по клипу), zoom_out_exit, slide_out_down (выход). Вход и выход сочетаются на одном клипе.",
+    args: &[req("preset", Ty::Str, "id пресета (motion.list)"), arg("ids", Ty::Ids, "клипы (c…), по умолчанию выделенные"), arg("duration", Ty::Time, "длительность анимации, с")],
+    danger: false,
+    run: motion_apply,
+};
+
+fn motion_apply(ed: &mut Editor, a: &Args) -> Res {
+    let name = a.need_str("preset")?;
+    let preset = crate::motion::find(&name).ok_or_else(|| format!("нет пресета «{name}»; есть: {}", crate::motion::PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")))?;
+    let ids = a.ids("ids")?.unwrap_or_else(|| ed.selection.clone());
+    if ids.is_empty() {
+        return Err("не к чему применить: выделите клипы или передайте ids".into());
+    }
+    let dur = a.time("duration")?;
+    for id in &ids {
+        ed.project.find_clip(*id).ok_or_else(|| format!("нет клипа c{id}"))?;
+    }
+    ed.begin(&format!("Движение: {}", preset.title));
+    for id in &ids {
+        crate::motion::apply(&mut ed.project, *id, preset, dur)?;
+    }
+    Ok(Out::text(format!("Движение «{}» → {}", preset.title, ids.iter().map(|i| format!("c{i}")).collect::<Vec<_>>().join(", "))))
 }

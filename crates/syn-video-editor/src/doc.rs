@@ -34,15 +34,22 @@ pub struct Settings {
     pub fps: f64,
     #[serde(default = "default_rate")]
     pub sample_rate: u32,
+    /// Цвет фона кадра (`#rrggbb` или `transparent`).
+    #[serde(default = "default_bg")]
+    pub bg: String,
 }
 
 fn default_rate() -> u32 {
     48_000
 }
 
+fn default_bg() -> String {
+    "#000000".into()
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Self { width: 1920, height: 1080, fps: 30.0, sample_rate: 48_000 }
+        Self { width: 1920, height: 1080, fps: 30.0, sample_rate: 48_000, bg: default_bg() }
     }
 }
 
@@ -139,6 +146,34 @@ pub struct Track {
     pub clips: Vec<Clip>,
 }
 
+/// Виды векторных фигур: (код, подпись).
+pub const SHAPE_KINDS: &[(&str, &str)] = &[
+    ("rect", "Прямоугольник"),
+    ("ellipse", "Круг / овал"),
+    ("triangle", "Треугольник"),
+    ("star", "Звезда"),
+    ("line", "Линия"),
+    ("arrow", "Стрелка"),
+];
+
+/// Режимы наложения слоя: (код, подпись).
+pub const BLEND_MODES: &[(&str, &str)] = &[
+    ("normal", "Обычный"),
+    ("multiply", "Умножение"),
+    ("screen", "Экран"),
+    ("overlay", "Перекрытие"),
+    ("add", "Сложение"),
+    ("darken", "Затемнение"),
+    ("lighten", "Осветление"),
+    ("soft_light", "Мягкий свет"),
+    ("hard_light", "Жёсткий свет"),
+    ("difference", "Разница"),
+];
+
+pub fn shape_title(kind: &str) -> &'static str {
+    SHAPE_KINDS.iter().find(|(k, _)| *k == kind).map(|(_, l)| *l).unwrap_or("Фигура")
+}
+
 /// Откуда берётся содержимое клипа.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -152,6 +187,12 @@ pub enum Source {
     },
     /// Заливка цветом (`#rrggbb`).
     Color { color: String },
+    /// Векторная фигура (`rect`, `ellipse`, `triangle`, `star`, `line`, `arrow`) и стиль.
+    Shape {
+        kind: String,
+        #[serde(default, skip_serializing_if = "Map::is_empty")]
+        style: Map<String, Value>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -177,9 +218,22 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<Transition>,
     /// Ключевые кадры: путь параметра (`e<эффект>.<параметр>`, `style.<поле>`
-    /// титра) → ключи по времени клипа.
+    /// титра или фигуры) → ключи по времени клипа.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub keys: std::collections::BTreeMap<String, Vec<Key>>,
+    /// Режим наложения слоя (`normal`, `multiply`, `screen`, `overlay`, `add`, …).
+    #[serde(default, skip_serializing_if = "is_normal_blend")]
+    pub blend: String,
+    /// Родительский клип: потомок наследует его сдвиг, масштаб, поворот и прозрачность.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// Связанный клип (видео ↔ его звук на аудиодорожке): правки идут синхронно, пока связь не разорвана.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Id>,
+}
+
+fn is_normal_blend(s: &String) -> bool {
+    s.is_empty() || s == "normal"
 }
 
 fn one() -> f64 {
@@ -202,7 +256,7 @@ impl Clip {
         let (head, name) = path.split_once('.')?;
         if head == "style" {
             return match &self.source {
-                Source::Title { style, .. } => style.get(name).cloned(),
+                Source::Title { style, .. } | Source::Shape { style, .. } => style.get(name).cloned(),
                 _ => None,
             };
         }
@@ -267,8 +321,11 @@ impl Clip {
             let v = interp(keys, lt);
             let Some((head, name)) = path.split_once('.') else { continue };
             if head == "style" {
-                if let Source::Title { style, .. } = &mut c.source {
-                    style.insert(name.to_string(), v);
+                match &mut c.source {
+                    Source::Title { style, .. } | Source::Shape { style, .. } => {
+                        style.insert(name.to_string(), v);
+                    }
+                    _ => {}
                 }
             } else if let Some(id) = head.strip_prefix('e').and_then(|s| s.parse::<Id>().ok()) {
                 if let Some(e) = c.effects.iter_mut().find(|e| e.id == id) {
@@ -419,11 +476,46 @@ pub fn interp(keys: &[Key], t: f64) -> Value {
 }
 
 /// Переход: вид (dissolve, dip_black, slide_left, slide_right, slide_up, slide_down,
-/// wipe_left, wipe_right, zoom, blur) и длительность, с.
+/// wipe_left, wipe_right, zoom, blur или `fusion` с шаблоном `.setting`) и длительность, с.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Transition {
     pub kind: String,
     pub duration: f64,
+    /// Путь к `.setting` шаблону Fusion (когда `kind == "fusion"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// Переопределения параметров MacroOperator перехода (`p:*`).
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub params: Map<String, Value>,
+}
+
+impl Transition {
+    pub fn builtin(kind: impl Into<String>, duration: f64) -> Self {
+        Self { kind: kind.into(), duration, template: None, params: Map::new() }
+    }
+
+    pub fn fusion(template: impl Into<String>, duration: f64) -> Self {
+        Self { kind: "fusion".into(), duration, template: Some(template.into()), params: Map::new() }
+    }
+
+    pub fn is_fusion(&self) -> bool {
+        self.kind == "fusion" && self.template.as_deref().is_some_and(|s| !s.is_empty())
+    }
+
+    /// Короткое имя перехода для плашки на таймлайне и инспектора.
+    pub fn title(&self) -> String {
+        if let Some(p) = self.template.as_deref().filter(|s| self.kind == "fusion" && !s.is_empty()) {
+            return std::path::Path::new(p)
+                .file_stem()
+                .map(|s| s.to_string_lossy().replace('_', " "))
+                .unwrap_or_else(|| "Fusion".into());
+        }
+        crate::render::compose::TRANSITIONS
+            .iter()
+            .find(|(k, _)| *k == self.kind)
+            .map(|(_, l)| (*l).to_string())
+            .unwrap_or_else(|| self.kind.clone())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -481,6 +573,62 @@ impl Project {
         self.find_clip(id).map(move |(t, c)| &mut self.tracks[t].clips[c])
     }
 
+    /// Является ли `ancestor` предком `node` (или самим `node`) по цепочке `parent`.
+    pub fn is_ancestor(&self, ancestor: Id, mut node: Id) -> bool {
+        for _ in 0..32 {
+            if node == ancestor {
+                return true;
+            }
+            match self.clip(node).and_then(|c| c.parent) {
+                Some(p) => node = p,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Отвязать потомков удалённого клипа.
+    pub fn clear_parent(&mut self, removed: Id) {
+        for t in &mut self.tracks {
+            for c in &mut t.clips {
+                if c.parent == Some(removed) {
+                    c.parent = None;
+                }
+            }
+        }
+    }
+
+    /// Связанный парный клип (видео ↔ звук), если он существует в проекте.
+    pub fn linked_peer(&self, id: Id) -> Option<Id> {
+        let peer = self.clip(id)?.link?;
+        (peer != id && self.clip(peer).is_some()).then_some(peer)
+    }
+
+    /// Разорвать связь `id` с парным клипом с обеих сторон.
+    pub fn unlink(&mut self, id: Id) {
+        if let Some(peer) = self.clip(id).and_then(|c| c.link) {
+            if let Some(p) = self.clip_mut(peer) {
+                if p.link == Some(id) {
+                    p.link = None;
+                }
+            }
+        }
+        if let Some(c) = self.clip_mut(id) {
+            c.link = None;
+        }
+    }
+
+    /// Убрать ссылки `link` на удалённый клип.
+    pub fn clear_link(&mut self, removed: Id) {
+        for t in &mut self.tracks {
+            for c in &mut t.clips {
+                if c.link == Some(removed) {
+                    c.link = None;
+                }
+            }
+        }
+    }
+
     /// Длительность всего таймлайна, с.
     pub fn duration(&self) -> f64 {
         self.tracks.iter().flat_map(|t| t.clips.iter().map(Clip::end)).fold(0.0, f64::max)
@@ -536,6 +684,7 @@ impl Project {
                     Source::Media { media } => format!("m{} {}", media, self.media(*media).map(|m| m.name()).unwrap_or_default()),
                     Source::Title { text, .. } => format!("титр «{text}»"),
                     Source::Color { color } => format!("цвет {color}"),
+                    Source::Shape { kind, .. } => format!("фигура {}", shape_title(kind)),
                 };
                 let mut extra = Vec::new();
                 if c.offset > 0.0 {
@@ -546,6 +695,15 @@ impl Project {
                 }
                 if (c.volume - 1.0).abs() > 1e-9 {
                     extra.push(format!("громкость {}", c.volume));
+                }
+                if !c.blend.is_empty() && c.blend != "normal" {
+                    extra.push(format!("наложение {}", c.blend));
+                }
+                if let Some(pid) = c.parent {
+                    extra.push(format!("родитель c{pid}"));
+                }
+                if let Some(lid) = c.link {
+                    extra.push(format!("связан с c{lid}"));
                 }
                 for e in &c.effects {
                     extra.push(format!("эффект e{} {}{}", e.id, e.kind, if e.params.is_empty() { String::new() } else { format!(" {}", Value::Object(e.params.clone())) }));

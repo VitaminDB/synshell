@@ -219,11 +219,9 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
     if let Some((out, size)) = shot {
         let r = syngui::shot::render_png(
             || {
-                let st = ui::St::new();
+                let view = std::env::var("SYN_VIDEO_EDITOR_VIEW").unwrap_or_else(|_| syn_video_editor::layout::DEFAULT_VIEW.to_string());
+                let st = ui::St::new_ephemeral(&view);
                 ui::graph::mount(st);
-                if let Ok(v) = std::env::var("SYN_VIDEO_EDITOR_VIEW") {
-                    st.set_view(&v);
-                }
                 if let Ok(sel) = std::env::var("SYN_VIDEO_EDITOR_SELECT") {
                     st.exec("selection.set", serde_json::json!({"ids": [sel]}));
                 }
@@ -263,8 +261,15 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(st.theme)
         .with_window_state(st.window)
+        .on_close_request(move || {
+            if let Some(spec) = st.dock.spec() {
+                syn_video_editor::layout::save_current(&spec, &st.view.get_untracked());
+            }
+            true
+        })
         .run(move |_| {
             ui::graph::mount(st);
+            syn_video_editor::layout::autosave(st.dock, st.view);
             ui::autosave(st);
             Box::new(ui::root(st)) as Box<dyn Widget>
         });

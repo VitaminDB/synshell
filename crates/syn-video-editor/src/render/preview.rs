@@ -35,7 +35,7 @@ fn base(w: u32, h: u32, fps: f64) -> Project {
 }
 
 fn clip(id: u64, source: Source, start: f64, duration: f64) -> Clip {
-    Clip { id, source, start, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default() }
+    Clip { id, source, start, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None }
 }
 
 fn title_style() -> Map<String, Value> {
@@ -67,9 +67,27 @@ fn scene(key: &str, i: usize, a: &Path, b: &Path) -> (Project, f64) {
     let (kind, name) = key.split_once(':').unwrap_or(("effect", key));
     if kind == "transition" {
         let mut cb = clip(21, Source::Media { media: 2 }, 1.0, 1.0);
-        cb.transition = Some(Transition { kind: name.into(), duration: 1.0 });
+        cb.transition = Some(Transition::builtin(name, 1.0));
         p.tracks.push(Track { id: 1, kind: TrackKind::Video, name: "V1".into(), muted: false, hidden: false, clips: vec![clip(20, Source::Media { media: 1 }, 0.0, 1.0), cb] });
         return (p, 0.5 + f * 0.999);
+    }
+    if kind == "motion" {
+        let c = clip(20, Source::Media { media: 1 }, 0.0, 2.0);
+        p.tracks.push(Track { id: 1, kind: TrackKind::Video, name: "V1".into(), muted: false, hidden: false, clips: vec![c] });
+        if let Some(pr) = crate::motion::find(name) {
+            let d = match pr.slot {
+                crate::motion::Slot::Full => None,
+                crate::motion::Slot::In | crate::motion::Slot::Out => Some(1.6),
+            };
+            let _ = crate::motion::apply(&mut p, 20, pr, d);
+            let t = match pr.slot {
+                crate::motion::Slot::In => f * 1.6,
+                crate::motion::Slot::Full => f * 1.999,
+                crate::motion::Slot::Out => 0.4 + f * 1.599,
+            };
+            return (p, t);
+        }
+        return (p, 1.0);
     }
     let mut c = clip(20, Source::Media { media: 1 }, 0.0, 2.0);
     let mut params = Map::new();
@@ -97,6 +115,32 @@ fn scene(key: &str, i: usize, a: &Path, b: &Path) -> (Project, f64) {
             params.insert("scale".into(), json!(0.55 + 0.6 * f));
             params.insert("rotation".into(), json!(-12.0 + 24.0 * f));
         }
+        "mask" => {
+            params.insert("shape".into(), json!("ellipse"));
+            params.insert("width".into(), json!(0.25 + 0.65 * f));
+            params.insert("height".into(), json!(0.25 + 0.65 * f));
+            params.insert("feather".into(), json!(0.08));
+        }
+        "glass" => {
+            // превью: скруглённая стеклянная плашка поверх кадра-образца
+            p.tracks.push(Track { id: 1, kind: TrackKind::Video, name: "V1".into(), muted: false, hidden: false, clips: vec![c] });
+            let mut sh_style = Map::new();
+            sh_style.insert("width".into(), json!(0.72));
+            sh_style.insert("height".into(), json!(0.48));
+            sh_style.insert("radius".into(), json!(0.22));
+            sh_style.insert("fill".into(), json!("#ffffff"));
+            sh_style.insert("stroke".into(), json!("#ffffff"));
+            sh_style.insert("stroke_width".into(), json!(2.0));
+            let mut card = clip(22, Source::Shape { kind: "rect".into(), style: sh_style }, 0.0, 2.0);
+            let mut gp = Map::new();
+            gp.insert("blur".into(), json!(2.0 + f * 22.0));
+            gp.insert("tint_opacity".into(), json!(0.20));
+            gp.insert("border_opacity".into(), json!(0.55));
+            gp.insert("highlight".into(), json!(0.35));
+            card.effects.push(Effect { id: 30, kind: "glass".into(), params: gp });
+            p.tracks.push(Track { id: 2, kind: TrackKind::Video, name: "V2".into(), muted: false, hidden: false, clips: vec![card] });
+            return (p, 1.0);
+        }
         _ => {}
     }
     c.effects.push(Effect { id: 30, kind: name.into(), params });
@@ -106,7 +150,8 @@ fn scene(key: &str, i: usize, a: &Path, b: &Path) -> (Project, f64) {
 
 /// Все виды для панели: (ключ, подпись).
 pub fn kinds() -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = compose::TRANSITIONS.iter().map(|(k, t)| (format!("transition:{k}"), t.to_string())).collect();
+    let mut v: Vec<(String, String)> = crate::motion::PRESETS.iter().map(|p| (format!("motion:{}", p.id), p.title.to_string())).collect();
+    v.extend(compose::TRANSITIONS.iter().map(|(k, t)| (format!("transition:{k}"), t.to_string())));
     for (k, _) in crate::cmd::EFFECTS {
         v.push((format!("effect:{k}"), k.to_string()));
     }

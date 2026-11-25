@@ -22,15 +22,57 @@ pub fn key() -> String {
         Some(c) => {
             let src = match &c.source {
                 Source::Media { media } => format!("m{media}"),
-                Source::Title { style, .. } => format!("title:{}", style.get("font").and_then(Value::as_str).unwrap_or("")),
+                Source::Title { style, .. } => {
+                    if let Some(tpl) = style.get("template").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        // Перестраиваем сетку шаблона при смене списков/шрифтов/наличия правок,
+                        // но не во время протяжки числовых ползунков (числа здесь не включаем).
+                        let has_ov = style.keys().any(|k| k.starts_with(crate::fusion::STYLE_PREFIX));
+                        let mut meta: Vec<String> = style
+                            .iter()
+                            .filter(|(k, v)| k.starts_with(crate::fusion::STYLE_PREFIX) && (k.ends_with(".Type") || k.ends_with(".Font") || k.ends_with(".Style") || v.is_boolean()))
+                            .map(|(k, v)| format!("{k}={v}"))
+                            .collect();
+                        meta.sort();
+                        format!("tpl:{tpl}:{has_ov}:{}:{}", style.get("font").and_then(Value::as_str).unwrap_or(""), meta.join(";"))
+                    } else {
+                        format!(
+                            "title:{}:{}:{}:{}",
+                            style.get("font").and_then(Value::as_str).unwrap_or(""),
+                            style.get("by").and_then(Value::as_str).unwrap_or("all"),
+                            style.get("in").and_then(Value::as_str).unwrap_or("fade"),
+                            style.get("out").and_then(Value::as_str).unwrap_or("fade"),
+                        )
+                    }
+                }
                 Source::Color { .. } => "color".into(),
+                Source::Shape { kind, .. } => format!("shape:{kind}"),
             };
-            let fx: Vec<String> = c.effects.iter().map(|e| format!("{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""))).collect();
+            let fx: Vec<String> = c
+                .effects
+                .iter()
+                .map(|e| format!("{}{}{}{}", e.id, e.kind, e.params.get("path").and_then(Value::as_str).unwrap_or(""), e.params.get("shape").and_then(Value::as_str).unwrap_or("")))
+                .collect();
             // с ключами — значения зависят от позиции: перестройка по ней (кадр)
             let anim = if c.keys.is_empty() { String::new() } else { format!(":k{}:{:.0}", c.keys.values().map(Vec::len).sum::<usize>(), (e.playhead - c.start).clamp(0.0, c.duration) * p.settings.fps) };
-            format!("c{}:{src}:{}:{}:{:.4}:{:.4}{anim}", c.id, fx.join(","), c.transition.as_ref().map(|t| t.kind.as_str()).unwrap_or("-"), c.start, c.duration)
+            let par = c.parent.map(|i| i.to_string()).unwrap_or_default();
+            let lnk = p.linked_peer(c.id).map(|i| format!("{i}:{:.2}", p.clip(i).map(|x| x.volume).unwrap_or(0.0))).unwrap_or_default();
+            let tr_key = match &c.transition {
+                Some(t) => {
+                    let has_ov = !t.params.is_empty();
+                    let mut meta: Vec<String> = t
+                        .params
+                        .iter()
+                        .filter(|(k, v)| k.ends_with(".Type") || k.ends_with(".Font") || k.ends_with(".Style") || v.is_boolean())
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect();
+                    meta.sort();
+                    format!("{}:{}:{has_ov}:{}", t.kind, t.template.as_deref().unwrap_or(""), meta.join(";"))
+                }
+                None => "-".into(),
+            };
+            format!("c{}:{src}:{}:{tr_key}:{:.4}:{:.4}:{}:{par}:{lnk}{anim}", c.id, fx.join(","), c.start, c.duration, c.blend)
         }
-        None => format!("p:{}x{}@{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.media.len(), p.tracks.len(), p.duration()),
+        None => format!("p:{}x{}@{}:{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.settings.bg, p.media.len(), p.tracks.len(), p.duration()),
     }
 }
 
@@ -125,6 +167,16 @@ pub(super) fn effect_params(kind: &str) -> &'static [Param] {
         "sharpen" => &[("amount", "Сила", 0.0, 2.0, 0.01, 0.5)],
         "vignette" => &[("amount", "Сила", 0.0, 1.0, 0.01, 0.5)],
         "transform" => &[("x", "Сдвиг X", -1.0, 1.0, 0.005, 0.0), ("y", "Сдвиг Y", -1.0, 1.0, 0.005, 0.0), ("scale", "Масштаб", 0.1, 4.0, 0.01, 1.0), ("rotation", "Поворот, °", -180.0, 180.0, 0.5, 0.0), ("opacity", "Непрозрачность", 0.0, 1.0, 0.01, 1.0)],
+        "mask" => &[("x", "Центр X", -1.0, 1.0, 0.01, 0.0), ("y", "Центр Y", -1.0, 1.0, 0.01, 0.0), ("width", "Ширина", 0.05, 1.5, 0.01, 0.6), ("height", "Высота", 0.05, 1.5, 0.01, 0.6), ("radius", "Скругление", 0.0, 0.5, 0.01, 0.0), ("feather", "Мягкость края", 0.0, 0.3, 0.005, 0.0)],
+        "glass" => &[
+            ("blur", "Размытие фона, пикс.", 0.0, 60.0, 0.5, 18.0),
+            ("tint_opacity", "Тонировка", 0.0, 1.0, 0.01, 0.18),
+            ("border_opacity", "Кромка", 0.0, 1.0, 0.01, 0.48),
+            ("highlight", "Блик", 0.0, 1.0, 0.01, 0.30),
+            ("shadow", "Тень", 0.0, 1.0, 0.01, 0.28),
+            ("saturation", "Насыщенность фона", 0.0, 2.0, 0.02, 1.20),
+            ("brightness", "Светлота фона", -0.5, 0.5, 0.01, 0.04),
+        ],
         _ => &[],
     }
 }
@@ -141,6 +193,8 @@ pub(super) fn effect_title(kind: &str) -> &'static str {
         "sharpen" => "Резкость",
         "vignette" => "Виньетка",
         "transform" => "Положение и масштаб",
+        "mask" => "Маска",
+        "glass" => "Матовое стекло",
         "upscale" => "Нейроувеличение",
         "interpolate" => "Плавность RIFE",
         _ => "Эффект",
@@ -177,12 +231,11 @@ pub fn view(st: St) -> impl Widget {
         }
         let handlers = r.on;
         let marks = r.marks;
-        let h = r.props.len() as f32 * ROW_H + 2.0;
         let grid = PropertyGrid::new()
             .properties(r.props)
             .label_width(150.0)
             .row_height(ROW_H)
-            .height(h)
+            .auto_height(true)
             .on_change(move |i, v| {
                 if let Some(Some(f)) = handlers.get(i) {
                     f(st, v);
@@ -220,8 +273,26 @@ fn project(r: &mut Rows, p: &crate::doc::Project) {
             st.exec("project.settings", json!({"width": w.parse::<u32>().unwrap_or(1920), "height": h.parse::<u32>().unwrap_or(1080)}));
         }
     });
+    r.range("Ширина, пикс.", p.settings.width as f64, 16.0, 7680.0, 2.0, |st, w| {
+        st.exec("project.settings", json!({"width": w.round() as u32}));
+    });
+    r.range("Высота, пикс.", p.settings.height as f64, 16.0, 7680.0, 2.0, |st, h| {
+        st.exec("project.settings", json!({"height": h.round() as u32}));
+    });
     r.choice("Частота", &[("24", "24 fps"), ("25", "25 fps"), ("30", "30 fps"), ("50", "50 fps"), ("60", "60 fps")], &format!("{}", p.settings.fps), |st, k| {
         st.exec("project.settings", json!({"fps": k.parse::<f64>().unwrap_or(30.0)}));
+    });
+    let bg_is_trans = p.settings.bg.eq_ignore_ascii_case("transparent") || p.settings.bg.eq_ignore_ascii_case("none");
+    let bg_hex = if bg_is_trans || p.settings.bg.is_empty() { "#000000" } else { p.settings.bg.as_str() };
+    r.add(Property::color("Фон кадра", Color::from_hex(bg_hex)), |st, v| {
+        if let PropertyValue::Color(col) = v {
+            st.exec("project.settings", json!({"bg": col.to_hex()}));
+        }
+    });
+    r.add(Property::boolean("Прозрачный фон", bg_is_trans), |st, v| {
+        if let PropertyValue::Bool(on) = v {
+            st.exec("project.settings", json!({"bg": if on { "transparent" } else { "#000000" }}));
+        }
     });
     r.info("Длительность", tc(p.duration()));
     r.info("Медиа", p.media.len().to_string());
@@ -247,6 +318,7 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
         Source::Media { media } => p.media(*media).map(|m| format!("m{media} {}", m.name())).unwrap_or_default(),
         Source::Title { .. } => "титр".into(),
         Source::Color { color } => format!("цвет {color}"),
+        Source::Shape { kind, .. } => format!("фигура: {}", crate::doc::shape_title(kind)),
     };
     r.info("Источник", src);
     r.info("Время", format!("{} — {} ({})", tc(c.start), tc(c.end()), tc(c.duration)));
@@ -255,72 +327,169 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
             st.exec("clip.set", json!({"id": id, "name": s}));
         }
     });
-    if c.media().is_some() {
+    let is_video = p.find_clip(id).is_some_and(|(ti, _)| p.tracks[ti].kind == crate::doc::TrackKind::Video);
+    if is_video {
+        let cur_blend = if c.blend.is_empty() { "normal" } else { c.blend.as_str() };
+        r.choice("Наложение", crate::doc::BLEND_MODES, cur_blend, move |st, b| {
+            st.exec("clip.set", json!({"id": id, "blend": b}));
+        });
+        let mut parents: Vec<(String, String)> = vec![("0".into(), "Нет".into())];
+        for tr in &p.tracks {
+            if tr.kind != crate::doc::TrackKind::Video {
+                continue;
+            }
+            for o in &tr.clips {
+                if o.id == id || p.is_ancestor(id, o.id) {
+                    continue;
+                }
+                let lbl = if !o.name.is_empty() {
+                    format!("c{} {}", o.id, o.name)
+                } else {
+                    match &o.source {
+                        Source::Media { media } => format!("c{} {}", o.id, p.media(*media).map(|m| m.name()).unwrap_or_default()),
+                        Source::Title { text, .. } => format!("c{} «{}»", o.id, text.lines().next().unwrap_or("")),
+                        Source::Color { color } => format!("c{} {color}", o.id),
+                        Source::Shape { kind, .. } => format!("c{} {}", o.id, crate::doc::shape_title(kind)),
+                    }
+                };
+                parents.push((o.id.to_string(), lbl));
+            }
+        }
+        let pref: Vec<(&str, &str)> = parents.iter().map(|(k, t)| (k.as_str(), t.as_str())).collect();
+        let cur_par = c.parent.map(|i| i.to_string()).unwrap_or_else(|| "0".into());
+        r.choice("Родитель", &pref, &cur_par, move |st, k| {
+            st.exec("clip.set", json!({"id": id, "parent": k}));
+        });
+    }
+    if let Some(mid) = c.media() {
+        let linked = p.linked_peer(id);
         r.range("Скорость", c.speed, 0.1, 4.0, 0.05, move |st, x| {
             st.exec("clip.set", json!({"id": id, "speed": x}));
         });
-        r.range("Громкость", c.volume, 0.0, 2.0, 0.01, move |st, x| {
-            st.exec("clip.set", json!({"id": id, "volume": x}));
+        let (vol_target, vol_val) = if is_video {
+            match linked.and_then(|lid| p.clip(lid)) {
+                Some(ac) => (ac.id, ac.volume),
+                None => (id, c.volume),
+            }
+        } else {
+            (id, c.volume)
+        };
+        r.range("Громкость", vol_val, 0.0, 2.0, 0.01, move |st, x| {
+            st.exec("clip.set", json!({"id": vol_target, "volume": x}));
         });
+        if linked.is_some() {
+            r.action(if is_video { "Звук" } else { "Связь с видео" }, "Отвязать", move |st| {
+                st.exec("clip.detach_audio", json!({"ids": [id]}));
+            });
+        } else if is_video && p.media(mid).is_some_and(|m| m.kind == crate::doc::MediaKind::Video && m.has_audio) && c.volume > 0.0 {
+            r.action("Звук", "Отделить на дорожку", move |st| {
+                st.exec("clip.detach_audio", json!({"ids": [id]}));
+            });
+        }
     }
     if let Source::Title { text, style } = &c.source {
-        r.header("Титр");
-        // переносы строк — «\n» в поле
-        r.add(Property::text("Текст", text.replace('\n', "\\n")), move |st, v| {
-            if let PropertyValue::Text(s) = v {
-                st.exec("clip.set", json!({"id": id, "text": s.replace("\\n", "\n")}));
+        if let Some(tpl_path) = style.get("template").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            if let Ok(comp) = crate::fusion::load_cached(std::path::Path::new(tpl_path)) {
+                template_inspector(r, id, &comp, text, style, base, lt, fps);
+            } else {
+                plain_title_inspector(r, id, p, text, style, base, lt, fps);
             }
+        } else {
+            plain_title_inspector(r, id, p, text, style, base, lt, fps);
+        }
+    }
+    if let Source::Shape { kind, style } = &c.source {
+        let is_line = matches!(kind.as_str(), "line" | "arrow");
+        r.header("Фигура");
+        r.choice("Вид", crate::doc::SHAPE_KINDS, kind, move |st, k| {
+            st.exec("clip.set", json!({"id": id, "shape": k}));
         });
-        let h = p.settings.width.min(p.settings.height) as f64;
-        r.range("Размер", num(style, "size", h * 0.075), 12.0, 400.0, 1.0, move |st, x| {
-            set_or_key(st, id, "style.size", json!(x), || {
-                st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
+        r.range("Ширина", num(style, "width", if is_line { 0.45 } else { 0.28 }), 0.02, 1.5, 0.01, move |st, x| {
+            set_or_key(st, id, "style.width", json!(x), || {
+                st.exec("clip.set", json!({"id": id, "style": {"width": x}}));
             });
         });
-        r.key_mark(base, lt, fps, "style.size".into());
-        let font = style.get("font").and_then(Value::as_str).unwrap_or("По умолчанию").to_string();
-        r.action("Шрифт", &font, move |st| st.font_pick.set(Some(id)));
-        let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff");
-        r.add(Property::color("Цвет", Color::from_hex(col)), move |st, v| {
+        r.key_mark(base, lt, fps, "style.width".into());
+        r.range("Высота", num(style, "height", if kind == "line" { 0.06 } else if kind == "arrow" { 0.14 } else { 0.28 }), 0.02, 1.5, 0.01, move |st, x| {
+            set_or_key(st, id, "style.height", json!(x), || {
+                st.exec("clip.set", json!({"id": id, "style": {"height": x}}));
+            });
+        });
+        r.key_mark(base, lt, fps, "style.height".into());
+        if !is_line {
+            let fill = style.get("fill").and_then(Value::as_str).unwrap_or("#3b82f6");
+            r.add(Property::color("Заливка", Color::from_hex(fill)), move |st, v| {
+                if let PropertyValue::Color(c) = v {
+                    let hex = c.to_hex();
+                    set_or_key(st, id, "style.fill", json!(hex), || {
+                        st.exec("clip.set", json!({"id": id, "style": {"fill": hex}}));
+                    });
+                }
+            });
+            r.key_mark(base, lt, fps, "style.fill".into());
+        }
+        let stroke = style.get("stroke").and_then(Value::as_str).filter(|s| *s != "none").unwrap_or("#ffffff");
+        r.add(Property::color(if is_line { "Цвет" } else { "Обводка" }, Color::from_hex(stroke)), move |st, v| {
             if let PropertyValue::Color(c) = v {
                 let hex = c.to_hex();
-                set_or_key(st, id, "style.color", json!(hex), || {
-                    st.exec("clip.set", json!({"id": id, "style": {"color": hex}}));
+                set_or_key(st, id, "style.stroke", json!(hex), || {
+                    st.exec("clip.set", json!({"id": id, "style": {"stroke": hex}}));
                 });
             }
         });
-        r.key_mark(base, lt, fps, "style.color".into());
-        let pos = style.get("position").and_then(Value::as_str).unwrap_or("bottom");
-        r.choice("Положение", &[("top", "Сверху"), ("center", "По центру"), ("bottom", "Снизу")], pos, move |st, k| {
-            st.exec("clip.set", json!({"id": id, "style": {"position": k}}));
+        r.key_mark(base, lt, fps, "style.stroke".into());
+        r.range(if is_line { "Толщина, пикс." } else { "Обводка, пикс." }, num(style, "stroke_width", if is_line { 10.0 } else { 0.0 }), 0.0, 80.0, 1.0, move |st, x| {
+            set_or_key(st, id, "style.stroke_width", json!(x), || {
+                st.exec("clip.set", json!({"id": id, "style": {"stroke_width": x}}));
+            });
         });
-        let anims = [("fade", "Проявление"), ("slide", "Подъём"), ("pop", "Выпрыгивание"), ("none", "Без анимации")];
-        for (k, label) in [("in", "Появление"), ("out", "Исчезание")] {
-            let cur = style.get(k).and_then(Value::as_str).unwrap_or("fade");
-            r.choice(label, &anims, cur, move |st, x| {
-                st.exec("clip.set", json!({"id": id, "style": {k: x}}));
+        r.key_mark(base, lt, fps, "style.stroke_width".into());
+        if kind == "rect" {
+            r.range("Скругление", num(style, "radius", 0.08), 0.0, 0.5, 0.01, move |st, x| {
+                set_or_key(st, id, "style.radius", json!(x), || {
+                    st.exec("clip.set", json!({"id": id, "style": {"radius": x}}));
+                });
+            });
+            r.key_mark(base, lt, fps, "style.radius".into());
+        }
+        if kind == "star" {
+            r.range("Лучи", num(style, "points", 5.0), 3.0, 12.0, 1.0, move |st, x| {
+                st.exec("clip.set", json!({"id": id, "style": {"points": x}}));
             });
         }
-        r.range("Длит. анимации, с", num(style, "anim", 0.4), 0.0, 2.0, 0.05, move |st, x| {
-            st.exec("clip.set", json!({"id": id, "style": {"anim": x}}));
-        });
-        r.add(Property::boolean("Подложка", style.get("box").and_then(Value::as_bool).unwrap_or(false)), move |st, v| {
-            if let PropertyValue::Bool(on) = v {
-                st.exec("clip.set", json!({"id": id, "style": {"box": on}}));
-            }
-        });
     }
     if let Some(t) = &c.transition {
         r.header("Переход в начале");
         let dur = t.duration;
-        let kinds: Vec<(&str, &str)> = crate::render::compose::TRANSITIONS.to_vec();
-        r.choice("Вид", &kinds, &t.kind, move |st, k| {
-            st.exec("transition.set", json!({"id": id, "kind": k, "duration": dur}));
-        });
-        let kind = t.kind.clone();
-        r.range("Длительность, с", t.duration, 0.1, 3.0, 0.05, move |st, x| {
-            st.exec("transition.set", json!({"id": id, "kind": kind, "duration": x}));
-        });
+        if t.is_fusion() {
+            let fusion_label = format!("Fusion: {}", t.title());
+            let mut kinds: Vec<(&str, &str)> = vec![("fusion", fusion_label.as_str())];
+            kinds.extend(crate::render::compose::TRANSITIONS.iter().copied());
+            r.choice("Вид", &kinds, "fusion", move |st, k| {
+                if k != "fusion" {
+                    st.exec("transition.set", json!({"id": id, "kind": k, "duration": dur}));
+                }
+            });
+            r.range("Длительность, с", t.duration, 0.1, 4.0, 0.05, move |st, x| {
+                st.exec("transition.set", json!({"id": id, "kind": "fusion", "duration": x}));
+            });
+            r.action("Шаблон", "Выбрать другой…", move |st| super::templates::open_transitions(st));
+            if let Some(tpl) = t.template.as_deref() {
+                if let Ok(comp) = crate::fusion::load_cached(std::path::Path::new(tpl)) {
+                    transition_fusion_params(r, id, &comp, &t.params);
+                }
+            }
+        } else {
+            let kinds: Vec<(&str, &str)> = crate::render::compose::TRANSITIONS.to_vec();
+            r.choice("Вид", &kinds, &t.kind, move |st, k| {
+                st.exec("transition.set", json!({"id": id, "kind": k, "duration": dur}));
+            });
+            let kind = t.kind.clone();
+            r.range("Длительность, с", t.duration, 0.1, 3.0, 0.05, move |st, x| {
+                st.exec("transition.set", json!({"id": id, "kind": kind, "duration": x}));
+            });
+            r.action("Fusion", "Выбрать из галереи…", move |st| super::templates::open_transitions(st));
+        }
         r.action("", "Убрать переход", move |st| {
             st.exec("transition.remove", json!({"id": id}));
         });
@@ -343,6 +512,26 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
             }
         }
         match ef.kind.as_str() {
+            "mask" => {
+                let sh = ef.params.get("shape").and_then(Value::as_str).unwrap_or("rect");
+                r.choice("Форма", &[("rect", "Прямоугольник"), ("ellipse", "Овал / круг")], sh, move |st, k| {
+                    st.exec("effect.set", json!({"id": eid, "params": {"shape": k}}));
+                });
+                let inv = ef.params.get("invert").and_then(Value::as_bool).unwrap_or(false);
+                r.add(Property::boolean("Инвертировать", inv), move |st, v| {
+                    if let PropertyValue::Bool(on) = v {
+                        st.exec("effect.set", json!({"id": eid, "params": {"invert": on}}));
+                    }
+                });
+            }
+            "glass" => {
+                let tint = ef.params.get("tint").and_then(Value::as_str).unwrap_or("#ffffff");
+                r.add(Property::color("Оттенок", Color::from_hex(tint)), move |st, v| {
+                    if let PropertyValue::Color(col) = v {
+                        st.exec("effect.set", json!({"id": eid, "params": {"tint": col.to_hex()}}));
+                    }
+                });
+            }
             "lut" => {
                 let path = ef.params.get("path").and_then(Value::as_str).unwrap_or("");
                 let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Выбрать…".into());
@@ -363,6 +552,307 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
         r.action("", "Убрать эффект", move |st| {
             st.exec("effect.remove", json!({"id": eid}));
         });
+    }
+}
+
+/// Параметры обычного титра (без Fusion-шаблона).
+fn plain_title_inspector(
+    r: &mut Rows,
+    id: u64,
+    p: &crate::doc::Project,
+    text: &str,
+    style: &Map<String, Value>,
+    base: &crate::doc::Clip,
+    lt: f64,
+    fps: f64,
+) {
+    r.header("Титр");
+    r.add(Property::multiline("Текст", text.to_string()), move |st, v| {
+        if let PropertyValue::Multiline(s) = v {
+            st.exec("clip.set", json!({"id": id, "text": s}));
+        }
+    });
+    let h = p.settings.width.min(p.settings.height) as f64;
+    r.range("Размер", num(style, "size", h * 0.075), 12.0, 400.0, 1.0, move |st, x| {
+        set_or_key(st, id, "style.size", json!(x), || {
+            st.exec("clip.set", json!({"id": id, "style": {"size": x}}));
+        });
+    });
+    r.key_mark(base, lt, fps, "style.size".into());
+    let font = style.get("font").and_then(Value::as_str).unwrap_or("По умолчанию").to_string();
+    r.action("Шрифт", &font, move |st| st.font_pick.set(Some((id, None))));
+    let col = style.get("color").and_then(Value::as_str).unwrap_or("#ffffff");
+    r.add(Property::color("Цвет", Color::from_hex(col)), move |st, v| {
+        if let PropertyValue::Color(c) = v {
+            let hex = c.to_hex();
+            set_or_key(st, id, "style.color", json!(hex), || {
+                st.exec("clip.set", json!({"id": id, "style": {"color": hex}}));
+            });
+        }
+    });
+    r.key_mark(base, lt, fps, "style.color".into());
+    let pos = style.get("position").and_then(Value::as_str).unwrap_or("bottom");
+    r.choice("Положение", &[("top", "Сверху"), ("center", "По центру"), ("bottom", "Снизу")], pos, move |st, k| {
+        st.exec("clip.set", json!({"id": id, "style": {"position": k}}));
+    });
+    let cur_by = style.get("by").and_then(Value::as_str).unwrap_or("all");
+    let cur_in = style.get("in").and_then(Value::as_str).unwrap_or("fade");
+    let cur_out = style.get("out").and_then(Value::as_str).unwrap_or("fade");
+    r.choice("Анимация по", crate::render::compose::TITLE_UNITS, cur_by, move |st, x| {
+        st.exec("clip.set", json!({"id": id, "style": {"by": x}}));
+    });
+    for (k, label, cur) in [("in", "Появление", cur_in), ("out", "Исчезание", cur_out)] {
+        r.choice(label, crate::render::compose::TITLE_ANIMS, cur, move |st, x| {
+            st.exec("clip.set", json!({"id": id, "style": {k: x}}));
+        });
+    }
+    r.range("Длит. анимации, с", num(style, "anim", 0.4), 0.0, 4.0, 0.05, move |st, x| {
+        st.exec("clip.set", json!({"id": id, "style": {"anim": x}}));
+    });
+    let eff_unit = crate::render::compose::title_unit(cur_by, cur_in, cur_out);
+    if eff_unit != "all" && (cur_in != "none" || cur_out != "none") {
+        r.range("Разбег", num(style, "stagger", 0.65), 0.0, 1.0, 0.05, move |st, x| {
+            st.exec("clip.set", json!({"id": id, "style": {"stagger": x}}));
+        });
+    }
+    if cur_in != "none" || cur_out != "none" {
+        let cur_ease = style.get("ease").and_then(Value::as_str).unwrap_or("out");
+        r.choice("Сглаживание", crate::doc::EASES, cur_ease, move |st, x| {
+            st.exec("clip.set", json!({"id": id, "style": {"ease": x}}));
+        });
+    }
+    r.add(Property::boolean("Подложка", style.get("box").and_then(Value::as_bool).unwrap_or(false)), move |st, v| {
+        if let PropertyValue::Bool(on) = v {
+            st.exec("clip.set", json!({"id": id, "style": {"box": on}}));
+        }
+    });
+}
+
+/// Параметры шаблона Fusion (`MacroOperator.Inputs`, C3).
+fn template_inspector(
+    r: &mut Rows,
+    id: u64,
+    comp: &crate::fusion::Comp,
+    text: &str,
+    style: &Map<String, Value>,
+    base: &crate::doc::Clip,
+    lt: f64,
+    fps: f64,
+) {
+    use crate::fusion::ParamKind;
+
+    r.header(&format!("Шаблон: {}", comp.name.replace('_', " ")));
+    let unsup = comp.unsupported_tools();
+    if !unsup.is_empty() {
+        r.info("Не поддержано", unsup.join(", "));
+    }
+    let has_overrides = style.keys().any(|k| k.starts_with(crate::fusion::STYLE_PREFIX))
+        || base.keys.keys().any(|k| k.starts_with("style.p:"));
+    if has_overrides {
+        r.action("Параметры", "Сбросить", move |st| {
+            st.exec("template.set", json!({"id": id, "reset": true}));
+        });
+    }
+
+    let params = comp.visible_template_params(style);
+    if params.is_empty() {
+        r.add(Property::multiline("Текст", text.to_string()), move |st, v| {
+            if let PropertyValue::Multiline(s) = v {
+                st.exec("clip.set", json!({"id": id, "text": s}));
+            }
+        });
+        let font = style.get("font").and_then(Value::as_str).unwrap_or("По умолчанию").to_string();
+        r.action("Шрифт", &font, move |st| st.font_pick.set(Some((id, None))));
+        return;
+    }
+
+    let text_order = comp.text_tool_names();
+    let fallback_lines: Vec<&str> = if text.is_empty() { Vec::new() } else { text.split('\n').collect() };
+    let mut last_group = String::new();
+
+    for tp in params {
+        if tp.group != last_group {
+            r.header(&tp.group);
+            last_group = tp.group.clone();
+        }
+        let sk = tp.style_key();
+        let pkey = tp.key.clone();
+        match tp.kind {
+            ParamKind::Text { default } => {
+                let fallback = text_order
+                    .iter()
+                    .position(|n| n == &tp.source_op)
+                    .and_then(|i| fallback_lines.get(i).copied())
+                    .unwrap_or(default.as_str());
+                let cur = style.get(&sk).and_then(Value::as_str).unwrap_or(fallback).to_string();
+                r.add(Property::multiline(&tp.label, cur), move |st, v| {
+                    if let PropertyValue::Multiline(s) = v {
+                        st.exec("template.set", json!({"id": id, "param": pkey, "value": s}));
+                    }
+                });
+            }
+            ParamKind::Font { default } => {
+                let cur = style
+                    .get(&sk)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| style.get("font").and_then(Value::as_str).filter(|s| !s.is_empty()))
+                    .unwrap_or(if default.is_empty() { "По умолчанию" } else { default.as_str() })
+                    .to_string();
+                r.action(&tp.label, &cur, move |st| st.font_pick.set(Some((id, Some(pkey.clone())))));
+            }
+            ParamKind::Choice { default, items } => {
+                let cur = style.get(&sk).and_then(Value::as_str).unwrap_or(&default);
+                let pairs: Vec<(&str, &str)> = items.iter().map(|i| (i.value.as_str(), i.label.as_str())).collect();
+                r.choice(&tp.label, &pairs, cur, move |st, v| {
+                    st.exec("template.set", json!({"id": id, "param": pkey, "value": v}));
+                });
+            }
+            ParamKind::Bool { default } => {
+                let cur = style
+                    .get(&sk)
+                    .and_then(|v| v.as_bool().or_else(|| v.as_f64().map(|n| n > 0.5)))
+                    .unwrap_or(default);
+                r.add(Property::boolean(&tp.label, cur), move |st, v| {
+                    if let PropertyValue::Bool(on) = v {
+                        st.exec("template.set", json!({"id": id, "param": pkey, "value": on}));
+                    }
+                });
+            }
+            ParamKind::Color { default, .. } | ParamKind::GradStop { default, .. } => {
+                let cur = style.get(&sk).and_then(Value::as_str).unwrap_or(&default);
+                let kpath = format!("style.{sk}");
+                let kp = kpath.clone();
+                r.add(Property::color(&tp.label, Color::from_hex(cur)), move |st, v| {
+                    if let PropertyValue::Color(col) = v {
+                        let hex = col.to_hex();
+                        set_or_key(st, id, &kp, json!(hex), || {
+                            st.exec("template.set", json!({"id": id, "param": pkey, "value": hex}));
+                        });
+                    }
+                });
+                r.key_mark(base, lt, fps, kpath);
+            }
+            ParamKind::Number { default, min, max, step } => {
+                let cur = style.get(&sk).and_then(Value::as_f64).unwrap_or(default);
+                let kpath = format!("style.{sk}");
+                let kp = kpath.clone();
+                r.range(&tp.label, cur, min, max, step, move |st, x| {
+                    set_or_key(st, id, &kp, json!(x), || {
+                        st.exec("template.set", json!({"id": id, "param": pkey, "value": x}));
+                    });
+                });
+                r.key_mark(base, lt, fps, kpath);
+            }
+            ParamKind::Point { default, min, max, step } => {
+                let sx = tp.style_key_sub("x");
+                let sy = tp.style_key_sub("y");
+                let cx = style.get(&sx).and_then(Value::as_f64).unwrap_or(default.0);
+                let cy = style.get(&sy).and_then(Value::as_f64).unwrap_or(default.1);
+                let kpx = format!("style.{sx}");
+                let kpy = format!("style.{sy}");
+                let pkey_x = format!("{}.x", tp.key);
+                let pkey_y = format!("{}.y", tp.key);
+                let kpx_c = kpx.clone();
+                r.range(&format!("{} X", tp.label), cx, min, max, step, move |st, x| {
+                    set_or_key(st, id, &kpx_c, json!(x), || {
+                        st.exec("template.set", json!({"id": id, "param": pkey_x, "value": x}));
+                    });
+                });
+                r.key_mark(base, lt, fps, kpx);
+                let kpy_c = kpy.clone();
+                r.range(&format!("{} Y", tp.label), cy, min, max, step, move |st, y| {
+                    set_or_key(st, id, &kpy_c, json!(y), || {
+                        st.exec("template.set", json!({"id": id, "param": pkey_y, "value": y}));
+                    });
+                });
+                r.key_mark(base, lt, fps, kpy);
+            }
+        }
+    }
+}
+
+/// Вынесенные параметры MacroOperator перехода Fusion (`Transition.params`).
+fn transition_fusion_params(r: &mut Rows, id: u64, comp: &crate::fusion::Comp, params_map: &Map<String, Value>) {
+    use crate::fusion::ParamKind;
+
+    let unsup = comp.unsupported_tools();
+    if !unsup.is_empty() {
+        r.info("Не поддержано", unsup.join(", "));
+    }
+    if !params_map.is_empty() {
+        r.action("Параметры", "Сбросить", move |st| {
+            st.exec("transition.set", json!({"id": id, "kind": "fusion", "reset": true}));
+        });
+    }
+    let params = comp.visible_template_params(params_map);
+    for tp in params {
+        let sk = tp.style_key();
+        let pkey = tp.key.clone();
+        match tp.kind {
+            ParamKind::Text { default } => {
+                let cur = params_map.get(&sk).and_then(Value::as_str).unwrap_or(&default).to_string();
+                r.add(Property::multiline(&tp.label, cur), move |st, v| {
+                    if let PropertyValue::Multiline(s) = v {
+                        st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): s}}));
+                    }
+                });
+            }
+            ParamKind::Font { default } => {
+                let cur = params_map.get(&sk).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(&default).to_string();
+                r.add(Property::text(&tp.label, cur), move |st, v| {
+                    if let PropertyValue::Text(s) = v {
+                        st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): s}}));
+                    }
+                });
+            }
+            ParamKind::Choice { default, items } => {
+                let cur = params_map.get(&sk).and_then(Value::as_str).unwrap_or(&default);
+                let pairs: Vec<(&str, &str)> = items.iter().map(|i| (i.value.as_str(), i.label.as_str())).collect();
+                r.choice(&tp.label, &pairs, cur, move |st, v| {
+                    st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): v}}));
+                });
+            }
+            ParamKind::Bool { default } => {
+                let cur = params_map
+                    .get(&sk)
+                    .and_then(|v| v.as_bool().or_else(|| v.as_f64().map(|n| n > 0.5)))
+                    .unwrap_or(default);
+                r.add(Property::boolean(&tp.label, cur), move |st, v| {
+                    if let PropertyValue::Bool(on) = v {
+                        st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): on}}));
+                    }
+                });
+            }
+            ParamKind::Color { default, .. } | ParamKind::GradStop { default, .. } => {
+                let cur = params_map.get(&sk).and_then(Value::as_str).unwrap_or(&default);
+                r.add(Property::color(&tp.label, Color::from_hex(cur)), move |st, v| {
+                    if let PropertyValue::Color(col) = v {
+                        st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): col.to_hex()}}));
+                    }
+                });
+            }
+            ParamKind::Number { default, min, max, step } => {
+                let cur = params_map.get(&sk).and_then(Value::as_f64).unwrap_or(default);
+                r.range(&tp.label, cur, min, max, step, move |st, x| {
+                    st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey.clone(): x}}));
+                });
+            }
+            ParamKind::Point { default, min, max, step } => {
+                let sx = tp.style_key_sub("x");
+                let sy = tp.style_key_sub("y");
+                let cx = params_map.get(&sx).and_then(Value::as_f64).unwrap_or(default.0);
+                let cy = params_map.get(&sy).and_then(Value::as_f64).unwrap_or(default.1);
+                let pkey_x = format!("{}.x", tp.key);
+                let pkey_y = format!("{}.y", tp.key);
+                r.range(&format!("{} X", tp.label), cx, min, max, step, move |st, x| {
+                    st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey_x.clone(): x}}));
+                });
+                r.range(&format!("{} Y", tp.label), cy, min, max, step, move |st, y| {
+                    st.exec("transition.set", json!({"id": id, "kind": "fusion", "params": {pkey_y.clone(): y}}));
+                });
+            }
+        }
     }
 }
 

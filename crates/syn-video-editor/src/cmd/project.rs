@@ -14,7 +14,13 @@ static NEW: Command = Command {
     shortcut: "Ctrl+N",
     keywords: "new создать проект",
     help: "Создать пустой проект (дорожки V1 и A1). Несохранённые изменения текущего теряются.",
-    args: &[arg("name", Ty::Str, "название"), arg("width", Ty::Num, "ширина кадра, пикс."), arg("height", Ty::Num, "высота кадра, пикс."), arg("fps", Ty::Num, "кадров в секунду")],
+    args: &[
+        arg("name", Ty::Str, "название"),
+        arg("width", Ty::Num, "ширина кадра, пикс."),
+        arg("height", Ty::Num, "высота кадра, пикс."),
+        arg("fps", Ty::Num, "кадров в секунду"),
+        arg("bg", Ty::Str, "цвет фона кадра (#rrggbb или transparent)"),
+    ],
     danger: false,
     run: new,
 };
@@ -79,9 +85,15 @@ static SETTINGS: Command = Command {
     category: "Проект",
     title: "Параметры проекта…",
     shortcut: "",
-    keywords: "settings размер кадра fps частота разрешение 4k 60",
-    help: "Размер кадра и частота проекта (например, 3840x2160 и 60 fps для экспорта в 4K 60).",
-    args: &[arg("name", Ty::Str, "название"), arg("width", Ty::Num, "ширина кадра"), arg("height", Ty::Num, "высота кадра"), arg("fps", Ty::Num, "кадров в секунду")],
+    keywords: "settings размер кадра fps частота разрешение 4k 60 ширина высота фон цвет",
+    help: "Размер кадра (произвольные чётные width и height 16–16384), частота и цвет фона кадра (bg: #rrggbb или transparent).",
+    args: &[
+        arg("name", Ty::Str, "название"),
+        arg("width", Ty::Num, "ширина кадра, пикс."),
+        arg("height", Ty::Num, "высота кадра, пикс."),
+        arg("fps", Ty::Num, "кадров в секунду"),
+        arg("bg", Ty::Str, "цвет фона кадра (#rrggbb или transparent)"),
+    ],
     danger: false,
     run: settings,
 };
@@ -93,7 +105,7 @@ fn settings(ed: &mut Editor, a: &Args) -> Res {
     }
     apply_settings(&mut ed.project, a)?;
     let s = &ed.project.settings;
-    Ok(Out::text(format!("Проект: {}x{} @ {} fps", s.width, s.height, s.fps)))
+    Ok(Out::text(format!("Проект: {}x{} @ {} fps, фон {}", s.width, s.height, s.fps, s.bg)))
 }
 
 fn apply_settings(p: &mut Project, a: &Args) -> Result<(), String> {
@@ -108,6 +120,16 @@ fn apply_settings(p: &mut Project, a: &Args) -> Result<(), String> {
             return Err(format!("частота {f} вне 1–480"));
         }
         p.settings.fps = f;
+    }
+    if let Some(bg) = a.str("bg")? {
+        let b = bg.trim();
+        if b.eq_ignore_ascii_case("transparent") || b.eq_ignore_ascii_case("none") {
+            p.settings.bg = "transparent".into();
+        } else if syngui::mss::MssColor::parse(b).is_some() {
+            p.settings.bg = b.to_string();
+        } else {
+            return Err(format!("цвет фона «{b}»: укажите #rrggbb или transparent"));
+        }
     }
     Ok(())
 }

@@ -15,7 +15,9 @@ use crate::doc::{tc, MediaKind};
 pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
     match panel {
         "media" => Box::new(media(st)),
+        "templates" => Box::new(super::templates::view(st)),
         "effects" => Box::new(effects(st)),
+        "layers" => Box::new(layers(st)),
         "viewer" => Box::new(viewer(st)),
         "timeline" => Box::new(timeline::view(st)),
         "inspector" => Box::new(super::inspector::view(st)),
@@ -95,6 +97,193 @@ fn media(st: St) -> impl Widget {
         .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(DecoratedBox::new().class("grow").child(list)))
 }
 
+// ── слои (вид «Моушн») ─────────────────────────────────────────────────
+
+struct LayerRow {
+    cid: u64,
+    tid: u64,
+    track_name: String,
+    hidden: bool,
+    depth: usize,
+    badge: &'static str,
+    label: String,
+    blend: String,
+    keys: usize,
+    has_mask: bool,
+    selected: bool,
+}
+
+/// Видеослои сверху вниз с вложенностью «родитель → потомок».
+fn collect_layers() -> Vec<LayerRow> {
+    let e = ed();
+    let p = &e.project;
+    let mut flat: Vec<(u64, u64, String, bool, Option<u64>, &'static str, String, String, usize, bool)> = Vec::new();
+    for tr in p.tracks.iter().rev().filter(|t| t.kind == crate::doc::TrackKind::Video) {
+        for c in &tr.clips {
+            let (badge, title) = match &c.source {
+                crate::doc::Source::Title { text, .. } => ("T", text.lines().next().unwrap_or("Титр").to_string()),
+                crate::doc::Source::Shape { kind, .. } => ("◆", crate::doc::shape_title(kind).to_string()),
+                crate::doc::Source::Color { color } => ("■", color.clone()),
+                crate::doc::Source::Media { media } => {
+                    let m = p.media(*media);
+                    let b = if m.is_some_and(|x| x.kind == MediaKind::Image) { "🖼" } else { "▶" };
+                    (b, m.map(|x| x.name()).unwrap_or_else(|| format!("m{media}")))
+                }
+            };
+            let label = if c.name.is_empty() { format!("c{} {title}", c.id) } else { format!("c{} {}", c.id, c.name) };
+            let keys = c.keys.values().map(Vec::len).sum();
+            let has_mask = c.effects.iter().any(|ef| ef.kind == "mask");
+            flat.push((c.id, tr.id, tr.name.clone(), tr.hidden, c.parent, badge, label, c.blend.clone(), keys, has_mask));
+        }
+    }
+    let ids: std::collections::HashSet<u64> = flat.iter().map(|x| x.0).collect();
+    let mut out = Vec::with_capacity(flat.len());
+    let mut visited = std::collections::HashSet::new();
+    fn visit(
+        parent: Option<u64>,
+        depth: usize,
+        flat: &[(u64, u64, String, bool, Option<u64>, &'static str, String, String, usize, bool)],
+        ids: &std::collections::HashSet<u64>,
+        sel: &[u64],
+        visited: &mut std::collections::HashSet<u64>,
+        out: &mut Vec<LayerRow>,
+    ) {
+        for item in flat {
+            let eff_parent = item.4.filter(|pid| ids.contains(pid));
+            if eff_parent != parent || !visited.insert(item.0) {
+                continue;
+            }
+            out.push(LayerRow {
+                cid: item.0,
+                tid: item.1,
+                track_name: item.2.clone(),
+                hidden: item.3,
+                depth,
+                badge: item.5,
+                label: item.6.clone(),
+                blend: item.7.clone(),
+                keys: item.8,
+                has_mask: item.9,
+                selected: sel.contains(&item.0),
+            });
+            if depth < 8 {
+                visit(Some(item.0), depth + 1, flat, ids, sel, visited, out);
+            }
+        }
+    }
+    visit(None, 0, &flat, &ids, &e.selection, &mut visited, &mut out);
+    // на случай нестандартных связей — добрать не попавшие
+    for item in &flat {
+        if visited.insert(item.0) {
+            out.push(LayerRow {
+                cid: item.0,
+                tid: item.1,
+                track_name: item.2.clone(),
+                hidden: item.3,
+                depth: 0,
+                badge: item.5,
+                label: item.6.clone(),
+                blend: item.7.clone(),
+                keys: item.8,
+                has_mask: item.9,
+                selected: e.selection.contains(&item.0),
+            });
+        }
+    }
+    out
+}
+
+fn layers(st: St) -> impl Widget {
+    let add_btn = move |label: &'static str, f: fn(St)| Button::new(label).on_click(move || f(st)).class("head-btn");
+    let header = Row::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .class("panel-head")
+        .child(add_btn("+ Титр", |st| {
+            if let Some(o) = st.exec("title.add", json!({"text": "Заголовок"})) {
+                if let Some(id) = o.data.get("id").and_then(|v| v.as_u64()) {
+                    st.exec("selection.set", json!({"ids": [id]}));
+                }
+            }
+        }))
+        .child(add_btn("+ Фигура", |st| {
+            if let Some(o) = st.exec("shape.add", json!({"kind": "rect"})) {
+                if let Some(id) = o.data.get("id").and_then(|v| v.as_u64()) {
+                    st.exec("selection.set", json!({"ids": [id]}));
+                }
+            }
+        }))
+        .child(add_btn("+ Звезда", |st| {
+            if let Some(o) = st.exec("shape.add", json!({"kind": "star"})) {
+                if let Some(id) = o.data.get("id").and_then(|v| v.as_u64()) {
+                    st.exec("selection.set", json!({"ids": [id]}));
+                }
+            }
+        }))
+        .child(add_btn("+ Маска", |st| {
+            let sel = ed().selection.clone();
+            if sel.is_empty() {
+                st.toast.set(Some("Сначала выберите слой".into()));
+            } else {
+                st.exec("effect.add", json!({"ids": sel, "kind": "mask"}));
+            }
+        }));
+    let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.rev.get();
+        let items = collect_layers();
+        if items.is_empty() {
+            return vec![Box::new(
+                Column::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .class("media-empty")
+                    .child(Text::new("Нет видеослоёв").class("row-title"))
+                    .child(Text::new("Добавьте титр, фигуру или перетащите видео на таймлайн").max_lines(2).class("panel-empty")),
+            )];
+        }
+        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
+        for item in items {
+            let cid = item.cid;
+            let tid = item.tid;
+            let hidden = item.hidden;
+            let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            if item.depth > 0 {
+                row = row.child(DecoratedBox::new().style("width", (item.depth * 14) as f32)).child(Text::new("↳").class("row-sub"));
+            }
+            row = row
+                .child(Text::new(item.badge).class("layer-kind"))
+                .child(DecoratedBox::new().class("grow").child(Text::new(item.label).max_lines(1).elide(Elide::End).class("row-title")));
+            if item.has_mask {
+                row = row.child(Text::new("◯").class("layer-badge"));
+            }
+            if !item.blend.is_empty() && item.blend != "normal" {
+                row = row.child(Text::new(item.blend).class("layer-badge"));
+            }
+            if item.keys > 0 {
+                row = row.child(Text::new(format!("◈{}", item.keys)).class("layer-key"));
+            }
+            row = row
+                .child(Text::new(item.track_name).class("row-sub"))
+                .child(
+                    ToolButton::new(if hidden { icons::HIDDEN } else { icons::VISIBLE })
+                        .tooltip(if hidden { "Показать дорожку" } else { "Скрыть дорожку" })
+                        .on_click(move || {
+                            st.exec("track.set", json!({"id": tid, "hidden": !hidden}));
+                        }),
+                );
+            let cls = format!("layer-row{}{}", if item.selected { " layer-row-on" } else { "" }, if hidden { " layer-row-off" } else { "" });
+            let item_w = GestureDetector::new()
+                .on_click(move || {
+                    st.exec("selection.set", json!({"ids": [cid]}));
+                })
+                .child(DecoratedBox::new().class(cls).child(row));
+            col = col.child(item_w);
+        }
+        vec![Box::new(col)]
+    }));
+    Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(DecoratedBox::new().class("grow").child(list))
+}
+
 // ── эффекты и переходы ──────────────────────────────────────────────────
 
 /// Подпись эффекта для людей.
@@ -110,14 +299,16 @@ fn fx_title(kind: &str) -> &'static str {
         "sharpen" => "Резкость",
         "vignette" => "Виньетка",
         "transform" => "Положение и масштаб",
+        "mask" => "Маска",
+        "glass" => "Матовое стекло",
         "upscale" => "Нейроувеличение",
         "interpolate" => "Плавность RIFE",
         _ => "Эффект",
     }
 }
 
-/// Плитки переходов и эффектов: превью — лента того же композитора, ведение
-/// курсора — промотка; щелчок — применить к выделенному клипу.
+/// Плитки движений, переходов и эффектов: превью — лента того же композитора,
+/// ведение курсора — промотка; щелчок — применить к выделенному клипу.
 fn effects(st: St) -> impl Widget {
     super::thumbs::ensure_fx_strips();
     ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
@@ -126,14 +317,14 @@ fn effects(st: St) -> impl Widget {
         let size = st.tile_size.get();
         let has_sel = !ed().selection.is_empty();
         let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel-list");
-        col = col.child(Text::new(if has_sel { "Щелчок — применить к выделенному клипу; переход — к его началу" } else { "Выделите клип на таймлайне, затем щёлкните переход или эффект" }).max_lines(2).class("panel-hint"));
-        for (section, prefix) in [("ПЕРЕХОДЫ", "transition:"), ("ЭФФЕКТЫ", "effect:")] {
+        col = col.child(Text::new(if has_sel { "Щелчок — применить к выделенному клипу; ведите курсор по плитке для превью" } else { "Выделите клип на таймлайне, затем щёлкните движение, переход или эффект" }).max_lines(2).class("panel-hint"));
+        for (section, prefix, kind) in [("ДВИЖЕНИЕ", "motion:", FxKind::Motion), ("ПЕРЕХОДЫ", "transition:", FxKind::Transition), ("ЭФФЕКТЫ", "effect:", FxKind::Effect)] {
             col = col.child(Text::new(section).class("section-title"));
             let mut grid = Grid::new(16).min_column_width(size).gap(8.0);
             for (key, label) in crate::render::preview::kinds().into_iter().filter(|(k, _)| k.starts_with(prefix)) {
                 let name = key[prefix.len()..].to_string();
-                let title = if prefix == "effect:" { fx_title(&name).to_string() } else { label };
-                grid = grid.child(fx_tile(st, key, name, title, prefix == "transition:"));
+                let title = if kind == FxKind::Effect { fx_title(&name).to_string() } else { label };
+                grid = grid.child(fx_tile(st, key, name, title, kind));
             }
             col = col.child(grid);
         }
@@ -141,7 +332,14 @@ fn effects(st: St) -> impl Widget {
     }))
 }
 
-fn fx_tile(st: St, key: String, name: String, title: String, transition: bool) -> Box<dyn Widget> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FxKind {
+    Motion,
+    Transition,
+    Effect,
+}
+
+fn fx_tile(st: St, key: String, name: String, title: String, kind: FxKind) -> Box<dyn Widget> {
     let hover = use_signal(None::<f32>);
     let width = use_signal(150.0f32);
     let path = crate::render::preview::strip_path(&key);
@@ -153,13 +351,19 @@ fn fx_tile(st: St, key: String, name: String, title: String, transition: bool) -
         match super::thumbs::strip_file(&path) {
             Some(strip) if !strip.is_empty() => {
                 let n = strip.len();
-                // без наведения — середина (переход наполовину, эффект в силе)
-                let i = frac.map(|f| ((f * n as f32) as usize).min(n - 1)).unwrap_or(n / 2);
+                // без наведения — показательный кадр в разгаре движения/перехода/эффекта
+                let idle = if kind == FxKind::Motion { n / 3 } else { n / 2 };
+                let i = frac.map(|f| ((f * n as f32) as usize).min(n - 1)).unwrap_or(idle);
                 let f = &strip[i];
                 stack = stack.child(Image::from_rgba_shared(format!("fx:{key2}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false));
             }
             _ => {
-                stack = stack.child(Center::new().child(Icon::new(if transition { "\u{E8D4}" } else { "\u{E3A1}" }).class("tile-icon")));
+                let glyph = match kind {
+                    FxKind::Motion => "\u{E922}",
+                    FxKind::Transition => "\u{E8D4}",
+                    FxKind::Effect => "\u{E3A1}",
+                };
+                stack = stack.child(Center::new().child(Icon::new(glyph).class("tile-icon")));
             }
         }
         if let Some(f) = frac {
@@ -184,21 +388,74 @@ fn fx_tile(st: St, key: String, name: String, title: String, transition: bool) -
             st.toast.set(Some("Сначала выделите клип на таймлайне".into()));
             return;
         }
-        if transition {
-            for id in sel {
-                st.exec("transition.set", json!({"id": id, "kind": name}));
+        // при выделенной связанной паре [видео, звук] движения и видеопереходы вешаем на видеоклип
+        let video_sel = || {
+            let e = ed();
+            let v: Vec<u64> = sel
+                .iter()
+                .copied()
+                .filter(|id| e.project.find_clip(*id).is_some_and(|(ti, _)| e.project.tracks[ti].kind == crate::doc::TrackKind::Video))
+                .collect();
+            if v.is_empty() { sel.clone() } else { v }
+        };
+        match kind {
+            FxKind::Motion => {
+                st.exec("motion.apply", json!({"preset": name, "ids": video_sel()}));
             }
-        } else if name == "lut" {
-            st.dock.open("ai", Some("inspector"));
-            st.toast.set(Some("LUT: скажите агенту, какой файл .cube".into()));
-        } else {
-            st.exec("effect.add", json!({"ids": sel, "kind": name}));
+            FxKind::Transition => {
+                for id in video_sel() {
+                    st.exec("transition.set", json!({"id": id, "kind": name}));
+                }
+            }
+            FxKind::Effect if name == "lut" => {
+                st.dock.open("ai", Some("inspector"));
+                st.toast.set(Some("LUT: скажите агенту, какой файл .cube".into()));
+            }
+            FxKind::Effect => {
+                st.exec("effect.add", json!({"ids": sel, "kind": name}));
+            }
         }
     };
     Box::new(GestureDetector::new().on_click(apply).child(DecoratedBox::new().class("tile").child(body)))
 }
 
 // ── просмотр ────────────────────────────────────────────────────────────
+
+static VIEWER_FIT_K: Mutex<f32> = Mutex::new(0.5);
+static VIEWER_PT: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
+static VIEWER_AREA: Mutex<(f32, f32)> = Mutex::new((640.0, 360.0));
+static VIEWER_PAN0: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
+static VIEWER_PINCH_Z0: Mutex<Option<f32>> = Mutex::new(None);
+
+pub fn viewer_fit_k() -> f32 {
+    *VIEWER_FIT_K.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn zoom_viewer_at(st: St, next_k: f32, anchor: Option<(f32, f32)>) {
+    let next_k = next_k.clamp(0.1, 8.0);
+    let old_opt = st.viewer_zoom.get_untracked();
+    let old_k = old_opt.unwrap_or_else(viewer_fit_k).max(0.02);
+    if let Some((mx, my)) = anchor {
+        let (aw, ah) = *VIEWER_AREA.lock().unwrap_or_else(|e| e.into_inner());
+        let (px, py) = if old_opt.is_some() { st.viewer_pan.get_untracked() } else { (0.0, 0.0) };
+        let cx = aw / 2.0 + px;
+        let cy = ah / 2.0 + py;
+        let ratio = next_k / old_k;
+        let nx = mx - aw / 2.0 - (mx - cx) * ratio;
+        let ny = my - ah / 2.0 - (my - cy) * ratio;
+        st.viewer_pan.set((nx, ny));
+    }
+    st.viewer_zoom.set(Some(next_k));
+}
+
+fn viewer_bg_label(mode: u8) -> &'static str {
+    match mode {
+        1 => "Поле просмотра: серое (нажмите для смены)",
+        2 => "Поле просмотра: светлое (нажмите для смены)",
+        3 => "Поле просмотра: шахматка прозрачности (нажмите для смены)",
+        _ => "Поле просмотра: тёмное (нажмите для смены)",
+    }
+}
 
 /// Кадры для просмотра: читатели клипов живут между кадрами (воспроизведение
 /// декодирует подряд), размер — до 1280 по большей стороне.
@@ -208,13 +465,13 @@ fn preview_frames(p: &crate::doc::Project, t: f64) -> crate::render::compose::Fr
     s.get_or_insert_with(|| crate::render::compose::FrameSource::new(1280, 1280)).frames(p, t)
 }
 
-/// Просмотр — кадр композитора (тот же, что при экспорте) в масштабе панели.
+/// Просмотр — кадр композитора (тот же, что при экспорте) с зумом,
+/// панорамированием и видимыми границами кадра проекта.
 fn viewer(st: St) -> impl Widget {
     Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(DecoratedBox::new().class("grow").child(viewer_frame(st))).child(transport(st))
 }
 
-/// Управление воспроизведением под кадром: в начало, кадр назад, пуск/пауза,
-/// стоп (пауза и возврат туда, откуда пустили), кадр вперёд, в конец, время.
+/// Управление воспроизведением и масштабом под кадром.
 fn transport(st: St) -> impl Widget {
     let btn = move |icon: &'static str, tip: &'static str, f: fn(St)| ToolButton::new(icon).tooltip(tip).on_click(move || f(st));
     DecoratedBox::new().class("transport").child(
@@ -224,8 +481,17 @@ fn transport(st: St) -> impl Widget {
             .child(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
                 let _ = st.rev.get();
                 let t = st.ph.get();
-                let d = ed().project.duration();
-                vec![Box::new(Text::new(format!("{} / {}", tc(t), tc(d))).class("transport-time"))]
+                let (d, w, h) = {
+                    let e = ed();
+                    (e.project.duration(), e.project.settings.width, e.project.settings.height)
+                };
+                vec![Box::new(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Text::new(format!("{} / {}", tc(t), tc(d))).class("transport-time"))
+                        .child(Text::new(format!("{w}×{h}")).class("transport-res")),
+                )]
             })))
             .child(btn("\u{E045}", "В начало (Home)", |st| st.seek_live(0.0)))
             .child(btn("\u{E020}", "Кадр назад (←)", |st| st.step(-1.0)))
@@ -239,16 +505,102 @@ fn transport(st: St) -> impl Widget {
                 let d = ed().project.duration();
                 st.seek_live(d);
             }))
-            .child(DecoratedBox::new().class("grow")),
+            .child(
+                DecoratedBox::new().class("grow").child(
+                    Row::new()
+                        .gap(2.0)
+                        .main_axis_alignment(MainAxisAlignment::End)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                            let mode = st.viewer_bg.get();
+                            vec![Box::new(
+                                ToolButton::new(if mode == 3 { "\u{E3EC}" } else { "\u{E3A9}" })
+                                    .tooltip(viewer_bg_label(mode))
+                                    .on_click(move || st.viewer_bg.update(|b| *b = (*b + 1) % 4)),
+                            )]
+                        }))
+                        .child(ToolButton::new(icons::ZOOM_OUT).tooltip("Уменьшить просмотр (колесо вниз)").on_click(move || st.viewer_zoom_step(1.0 / 1.25)))
+                        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                            let z = st.viewer_zoom.get();
+                            let presets: &[(&str, &str, Option<f32>)] = &[
+                                ("fit", "Вписать", None),
+                                ("25", "25%", Some(0.25)),
+                                ("50", "50%", Some(0.50)),
+                                ("75", "75%", Some(0.75)),
+                                ("100", "100%", Some(1.00)),
+                                ("150", "150%", Some(1.50)),
+                                ("200", "200%", Some(2.00)),
+                                ("400", "400%", Some(4.00)),
+                            ];
+                            let mut items: Vec<DropdownItem> = presets.iter().map(|(k, l, _)| DropdownItem::new(*k, *l)).collect();
+                            let sel = match z {
+                                None => "fit".to_string(),
+                                Some(v) => {
+                                    let pct = (v * 100.0).round() as i32;
+                                    match presets.iter().find(|(_, _, pv)| pv.is_some_and(|x| ((x * 100.0).round() as i32) == pct)) {
+                                        Some((k, _, _)) => (*k).to_string(),
+                                        None => {
+                                            let key = format!("custom:{pct}");
+                                            items.insert(0, DropdownItem::new(key.clone(), format!("{pct}%")));
+                                            key
+                                        }
+                                    }
+                                }
+                            };
+                            vec![Box::new(
+                                Dropdown::new()
+                                    .items(items)
+                                    .selected(sel)
+                                    .on_change(move |k: &str| match k {
+                                        "fit" => st.viewer_fit(),
+                                        s => {
+                                            if let Ok(pct) = s.trim_start_matches("custom:").parse::<f32>() {
+                                                st.viewer_zoom.set(Some((pct / 100.0).clamp(0.1, 8.0)));
+                                                st.viewer_pan.set((0.0, 0.0));
+                                            }
+                                        }
+                                    })
+                                    .class("viewer-zoom-select"),
+                            )]
+                        }))
+                        .child(ToolButton::new(icons::ZOOM_IN).tooltip("Увеличить просмотр (колесо вверх)").on_click(move || st.viewer_zoom_step(1.25)))
+                        .child(ToolButton::new(icons::FULLSCREEN).tooltip("Вписать кадр").on_click(move || st.viewer_fit())),
+                ),
+            ),
     )
+}
+
+fn checkerboard(w: f32, h: f32) -> Box<dyn Widget> {
+    let canvas = Canvas::new(move |cx, _| {
+        let cell = 12.0f32;
+        let light = Color::from_srgb(74, 78, 90, 1.0);
+        let dark = Color::from_srgb(48, 52, 62, 1.0);
+        cx.set_color(dark);
+        cx.fill_rect(0.0, 0.0, w, h);
+        cx.set_color(light);
+        let cols = (w / cell).ceil() as i32;
+        let rows = (h / cell).ceil() as i32;
+        for r in 0..rows {
+            for c in 0..cols {
+                if (r + c) % 2 == 0 {
+                    cx.fill_rect(c as f32 * cell, r as f32 * cell, cell, cell);
+                }
+            }
+        }
+    })
+    .size(w, h);
+    Box::new(canvas)
 }
 
 fn viewer_frame(st: St) -> impl Widget {
     let area = use_signal(syngui::prelude::Size::new(640.0, 360.0));
-    EventHook::new().fill().on_resize(move |s| area.set(s)).child(DecoratedBox::new().class("viewer").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+    let body = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
         let _ = st.ph.get();
         let a = area.get();
+        let zoom_opt = st.viewer_zoom.get();
+        let pan = if zoom_opt.is_some() { st.viewer_pan.get() } else { (0.0, 0.0) };
+        let bg_mode = st.viewer_bg.get();
         let (p, t) = {
             let e = ed();
             (e.project.clone(), e.playhead)
@@ -258,18 +610,95 @@ fn viewer_frame(st: St) -> impl Widget {
         if let Some(d) = st.xf_drag.get() {
             super::xform::apply_preview(&mut p, &d, t);
         }
-        let k = ((a.width - 16.0) / p.settings.width as f32).min((a.height - 16.0) / p.settings.height as f32).max(0.02);
+        let pw = p.settings.width.max(2) as f32;
+        let ph = p.settings.height.max(2) as f32;
+        let fit_k = ((a.width - 28.0).max(32.0) / pw).min((a.height - 28.0).max(32.0) / ph).max(0.02);
+        *VIEWER_FIT_K.lock().unwrap_or_else(|e| e.into_inner()) = fit_k;
+        let k = zoom_opt.unwrap_or(fit_k).clamp(0.05, 8.0);
+        let (fw, fh) = ((pw * k).max(4.0), (ph * k).max(4.0));
+        let ox = (a.width - fw) / 2.0 + pan.0;
+        let oy = (a.height - fh) / 2.0 + pan.1;
+
         let frames = preview_frames(&p, t);
         let frame = crate::render::compose::frame_widget(&p, t, &frames, k);
-        let (fw, fh) = (p.settings.width as f32 * k, p.settings.height as f32 * k);
-        let mut stack = Stack::new().child(Positioned::new(frame).at(0.0, 0.0).dimensions(fw, fh));
+        let show_checker = bg_mode == 3 || p.settings.bg.eq_ignore_ascii_case("transparent") || p.settings.bg.eq_ignore_ascii_case("none");
+
+        let mut frame_stack = Stack::new();
+        if show_checker {
+            frame_stack = frame_stack.child(Positioned::new(checkerboard(fw, fh)).at(0.0, 0.0).dimensions(fw, fh));
+        }
+        frame_stack = frame_stack.child(Positioned::new(frame).at(0.0, 0.0).dimensions(fw, fh));
         if !st.playing.get() {
             for w in super::xform::overlay(st, &p, t, k, fw, fh) {
-                stack = stack.child(w);
+                frame_stack = frame_stack.child(w);
             }
         }
-        vec![Box::new(Center::new().child(DecoratedBox::new().child(stack).style("width", fw).style("height", fh)))]
-    })))
+
+        // Чёткая рамка границы кадра проекта поверх поля (чтобы чёрный кадр был виден)
+        let border_col = if bg_mode == 2 { Color::from_srgb(0, 0, 0, 0.35) } else { Color::from_srgb(255, 255, 255, 0.32) };
+        let frame_wrap = DecoratedBox::new()
+            .class("viewer-frame-box")
+            .style("border-color", border_col)
+            .child(DecoratedBox::new().style("width", fw).style("height", fh).child(frame_stack));
+
+        let pasteboard_bg = match bg_mode {
+            1 => Color::from_srgb(56, 60, 72, 1.0),
+            2 => Color::from_srgb(200, 205, 216, 1.0),
+            _ => Color::from_srgb(28, 30, 38, 1.0),
+        };
+        // Перетаскивание по пустому полю панорамирует увеличенный кадр; двойной клик — «Вписать»
+        let backdrop = GestureDetector::new()
+            .on_double_click(move || st.viewer_fit())
+            .on_pan_start(move |_| {
+                *VIEWER_PAN0.lock().unwrap_or_else(|e| e.into_inner()) = st.viewer_pan.get_untracked();
+            })
+            .on_pan_update(move |u: syngui::widgets::PanUpdate| {
+                if st.viewer_zoom.get_untracked().is_some() {
+                    let (x0, y0) = *VIEWER_PAN0.lock().unwrap_or_else(|e| e.into_inner());
+                    st.viewer_pan.set((x0 + u.total.x, y0 + u.total.y));
+                }
+            })
+            .child(DecoratedBox::new().style("background-color", pasteboard_bg).style("width", a.width).style("height", a.height));
+
+        let viewport = Stack::new()
+            .clip(true)
+            .child(Positioned::new(backdrop).at(0.0, 0.0).dimensions(a.width, a.height))
+            .child(Positioned::new(frame_wrap).at(ox - 1.0, oy - 1.0).dimensions(fw + 2.0, fh + 2.0));
+        vec![Box::new(viewport)]
+    });
+
+    let pinch = GestureDetector::new()
+        .on_pinch(move |u: syngui::widgets::PinchUpdate| {
+            let mut z0 = VIEWER_PINCH_Z0.lock().unwrap_or_else(|e| e.into_inner());
+            let base = *z0.get_or_insert_with(|| st.viewer_zoom.get_untracked().unwrap_or_else(viewer_fit_k));
+            let pt = *VIEWER_PT.lock().unwrap_or_else(|e| e.into_inner());
+            zoom_viewer_at(st, base * u.scale, Some(pt));
+        })
+        .on_pinch_end(move || *VIEWER_PINCH_Z0.lock().unwrap_or_else(|e| e.into_inner()) = None)
+        .child(DecoratedBox::new().class("viewer").child(body));
+
+    EventHook::new()
+        .fill()
+        .on_resize(move |s| {
+            *VIEWER_AREA.lock().unwrap_or_else(|e| e.into_inner()) = (s.width, s.height);
+            area.set(s);
+        })
+        .on_hover_at(move |p| {
+            if let Some((pt, _)) = p {
+                *VIEWER_PT.lock().unwrap_or_else(|e| e.into_inner()) = (pt.x, pt.y);
+            }
+        })
+        .on_wheel(move |_dx, dy, _pos| {
+            if dy == 0.0 {
+                return false;
+            }
+            let cur = st.viewer_zoom.get_untracked().unwrap_or_else(viewer_fit_k);
+            let factor = 1.12f32.powf(dy / 40.0);
+            let pt = *VIEWER_PT.lock().unwrap_or_else(|e| e.into_inner());
+            zoom_viewer_at(st, cur * factor, Some(pt));
+            true
+        })
+        .child(pinch)
 }
 
 // ── ИИ ──────────────────────────────────────────────────────────────────

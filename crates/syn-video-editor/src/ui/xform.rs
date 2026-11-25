@@ -69,6 +69,8 @@ impl Geo {
 
 /// Точка мыши над кадром (пикс. просмотра).
 static PT: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
+/// Начальное панорамирование просмотра при Alt+перетаскивании или перетаскивании пустого места в зуме.
+static PAN_VIEW0: Mutex<Option<(f32, f32)>> = Mutex::new(None);
 
 fn num(m: &Map<String, Value>, k: &str, d: f64) -> f64 {
     m.get(k).and_then(Value::as_f64).unwrap_or(d)
@@ -81,12 +83,12 @@ fn xf(c: &Clip) -> Xf {
     }
 }
 
-/// Рамка клипа `c` (значения на момент) в кадре проекта.
-fn geo(p: &Project, c: &Clip) -> Option<Geo> {
+/// Рамка клипа `c` (значения на момент `t`) в кадре проекта с учётом родителя.
+fn geo(p: &Project, c: &Clip, t: f64) -> Option<Geo> {
     let (w, h) = (p.settings.width as f32, p.settings.height as f32);
-    let t = xf(c);
-    let (cx, cy) = (w / 2.0 + t.x as f32 * w, h / 2.0 + t.y as f32 * h);
-    let k = t.k as f32;
+    let wt = crate::render::compose::world_transform(p, c, t);
+    let (cx, cy) = (w / 2.0 + wt.x * w, h / 2.0 + wt.y * h);
+    let k = wt.scale;
     let (bw, bh, cy) = match &c.source {
         Source::Media { media } => {
             let m = p.media(*media)?;
@@ -95,22 +97,32 @@ fn geo(p: &Project, c: &Clip) -> Option<Geo> {
             (mw * fk, mh * fk, cy)
         }
         Source::Color { .. } => (w * k, h * k, cy),
+        Source::Shape { kind, style } => {
+            let is_line = matches!(kind.as_str(), "line" | "arrow");
+            let wf = num(style, "width", if is_line { 0.45 } else { 0.28 }).clamp(0.01, 2.0) as f32;
+            let hf = num(style, "height", if kind == "line" { 0.06 } else if kind == "arrow" { 0.14 } else { 0.28 }).clamp(0.01, 2.0) as f32;
+            ((wf * w * k).max(8.0), (hf * h * k).max(8.0), cy)
+        }
         Source::Title { text, style } => {
-            // размер текста — по кеглю и числу знаков (точный обмер — в композиторе)
-            let size = num(style, "size", (w.min(h) * 0.075) as f64) as f32 * k;
-            let lines: Vec<&str> = text.lines().collect();
-            let chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f32;
-            let (tw, th) = ((chars * size * 0.56 + size * 0.5).min(w), lines.len().max(1) as f32 * size * 1.25 + size * 0.5);
-            let margin = h * 0.07;
-            let base = match style.get("position").and_then(Value::as_str).unwrap_or("bottom") {
-                "top" => margin + th / 2.0,
-                "center" | "middle" => h / 2.0,
-                _ => h - margin - th / 2.0,
-            };
-            (tw, th, base + t.y as f32 * h)
+            if style.get("template").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) {
+                (w * k, h * k, cy)
+            } else {
+                // размер текста — по кеглю и числу знаков (точный обмер — в композиторе)
+                let size = num(style, "size", (w.min(h) * 0.075) as f64) as f32 * k;
+                let lines: Vec<&str> = text.lines().collect();
+                let chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f32;
+                let (tw, th) = ((chars * size * 0.56 + size * 0.5).min(w), lines.len().max(1) as f32 * size * 1.25 + size * 0.5);
+                let margin = h * 0.07;
+                let base = match style.get("position").and_then(Value::as_str).unwrap_or("bottom") {
+                    "top" => margin + th / 2.0,
+                    "center" | "middle" => h / 2.0,
+                    _ => h - margin - th / 2.0,
+                };
+                (tw, th, base + wt.y * h)
+            }
         }
     };
-    Some(Geo { cx, cy, w: bw, h: bh, rot: t.rot as f32 })
+    Some(Geo { cx, cy, w: bw, h: bh, rot: wt.rot })
 }
 
 /// Видимые слои в момент `t` сверху вниз: (клип на момент, исходный клип).
@@ -125,18 +137,30 @@ fn visible(p: &Project, t: f64) -> Vec<(Clip, u64)> {
     v
 }
 
-/// Трансформация после перетаскивания.
-fn dragged(d: &Drag, g0: &Geo, w: f32, h: f32) -> Xf {
-    let mut t = d.base;
+/// Трансформация после перетаскивания (с учётом поворота/масштаба родителя).
+fn dragged(p: &Project, c: &Clip, d: &Drag, g0: &Geo, t: f64) -> Xf {
+    let (w, h) = (p.settings.width as f32, p.settings.height as f32);
+    let (par_k, par_rot) = match c.parent.and_then(|pid| p.clip(pid)) {
+        Some(pc) => {
+            let par = crate::render::compose::world_transform(p, &pc.at((t - pc.start).clamp(0.0, pc.duration)), t);
+            (par.scale.max(0.01), par.rot)
+        }
+        None => (1.0, 0.0),
+    };
+    let mut xf = d.base;
     match d.grab {
         Grab::Move => {
-            t.x = d.base.x + ((d.cur.0 - d.from.0) / w) as f64;
-            t.y = d.base.y + ((d.cur.1 - d.from.1) / h) as f64;
+            let (dx, dy) = (d.cur.0 - d.from.0, d.cur.1 - d.from.1);
+            let (s, cs) = (-par_rot).to_radians().sin_cos();
+            let lx = (dx * cs - dy * s) / par_k;
+            let ly = (dx * s + dy * cs) / par_k;
+            xf.x = d.base.x + (lx / w) as f64;
+            xf.y = d.base.y + (ly / h) as f64;
         }
         Grab::Scale => {
             let r0 = (d.from.0 - g0.cx).hypot(d.from.1 - g0.cy).max(1.0);
             let r1 = (d.cur.0 - g0.cx).hypot(d.cur.1 - g0.cy);
-            t.k = (d.base.k * (r1 / r0) as f64).clamp(0.05, 10.0);
+            xf.k = (d.base.k * (r1 / r0) as f64).clamp(0.05, 10.0);
         }
         Grab::Rotate => {
             let a0 = (d.from.1 - g0.cy).atan2(d.from.0 - g0.cx);
@@ -147,14 +171,14 @@ fn dragged(d: &Drag, g0: &Geo, w: f32, h: f32) -> Xf {
             if (r - snap).abs() < 2.0 {
                 r = snap;
             }
-            t.rot = ((r + 180.0).rem_euclid(360.0)) - 180.0;
+            xf.rot = ((r + 180.0).rem_euclid(360.0)) - 180.0;
         }
     }
-    t.x = (t.x * 1000.0).round() / 1000.0;
-    t.y = (t.y * 1000.0).round() / 1000.0;
-    t.k = (t.k * 1000.0).round() / 1000.0;
-    t.rot = (t.rot * 10.0).round() / 10.0;
-    t
+    xf.x = (xf.x * 1000.0).round() / 1000.0;
+    xf.y = (xf.y * 1000.0).round() / 1000.0;
+    xf.k = (xf.k * 1000.0).round() / 1000.0;
+    xf.rot = (xf.rot * 10.0).round() / 10.0;
+    xf
 }
 
 /// Подставить трансформацию в клип проекта (предпросмотр): ключи этих
@@ -162,8 +186,8 @@ fn dragged(d: &Drag, g0: &Geo, w: f32, h: f32) -> Xf {
 pub fn apply_preview(p: &mut Project, d: &Drag, t: f64) {
     let Some(c) = p.clip(d.cid).cloned() else { return };
     let ce = c.at(t - c.start).into_owned();
-    let Some(g0) = geo(p, &ce) else { return };
-    let x = dragged(d, &g0, p.settings.width as f32, p.settings.height as f32);
+    let Some(g0) = geo(p, &ce, t) else { return };
+    let x = dragged(p, &ce, d, &g0, t);
     let id = p.alloc();
     let cm = p.clip_mut(d.cid).unwrap();
     let eid = match cm.effects.iter().find(|e| e.kind == "transform") {
@@ -191,7 +215,7 @@ pub fn overlay(st: St, p: &Project, t: f64, k: f32, fw: f32, fh: f32) -> Vec<Box
     let target = sel.and_then(|id| layers.iter().find(|(_, src)| *src == id)).map(|(c, _)| c.clone());
     let (pw, ph) = (p.settings.width as f32, p.settings.height as f32);
     if let Some(c) = &target {
-        if let Some(g) = geo(p, c) {
+        if let Some(g) = geo(p, c, t) {
             // путь движения: центр по времени клипа, если сдвиг анимирован
             let base = p.clip(c.id).cloned();
             let mut path: Vec<(f32, f32)> = Vec::new();
@@ -203,7 +227,7 @@ pub fn overlay(st: St, p: &Project, t: f64, k: f32, fw: f32, fh: f32) -> Vec<Box
                     if b.keys.contains_key(&kx) || b.keys.contains_key(&ky) {
                         for i in 0..=120 {
                             let lt = b.duration * i as f64 / 120.0;
-                            if let Some(gg) = geo(p, &b.at(lt)) {
+                            if let Some(gg) = geo(p, &b.at(lt), b.start + lt) {
                                 path.push((gg.cx * k, gg.cy * k));
                             }
                         }
@@ -211,7 +235,7 @@ pub fn overlay(st: St, p: &Project, t: f64, k: f32, fw: f32, fh: f32) -> Vec<Box
                         kt.sort_by(f64::total_cmp);
                         kt.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
                         for lt in kt {
-                            if let Some(gg) = geo(p, &b.at(lt)) {
+                            if let Some(gg) = geo(p, &b.at(lt), b.start + lt) {
                                 dots.push((gg.cx * k, gg.cy * k));
                             }
                         }
@@ -268,7 +292,7 @@ pub fn overlay(st: St, p: &Project, t: f64, k: f32, fw: f32, fh: f32) -> Vec<Box
         .on_click(move || {
             let (x, y) = *PT.lock().unwrap();
             let (x, y) = (x / k, y / k);
-            let hit = layers2.iter().find(|(c, _)| geo(&pc, c).is_some_and(|g| g.contains(x, y))).map(|(_, id)| *id);
+            let hit = layers2.iter().find(|(c, _)| geo(&pc, c, t).is_some_and(|g| g.contains(x, y))).map(|(_, id)| *id);
             match hit {
                 Some(id) => {
                     st.exec("selection.set", json!({"ids": [id]}));
@@ -281,37 +305,61 @@ pub fn overlay(st: St, p: &Project, t: f64, k: f32, fw: f32, fh: f32) -> Vec<Box
         .on_pan_start({
             let pc = p.clone();
             move |_| {
-                let Some(c) = &tgt else { return };
-                let Some(g) = geo(&pc, c) else { return };
-                let (x, y) = *PT.lock().unwrap();
-                let (px, py) = (x / k, y / k);
-                let near = |a: (f32, f32)| (a.0 * k - x).hypot(a.1 * k - y) <= 10.0;
-                let top = g.at(0.0, -0.5);
-                let (s, cs) = g.rot.to_radians().sin_cos();
-                let d = 26.0 / k;
-                let rot_h = (top.0 + d * s, top.1 - d * cs);
-                let grab = if near(rot_h) {
-                    Some(Grab::Rotate)
-                } else if [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)].iter().any(|(u, v)| near(g.at(*u, *v))) {
-                    Some(Grab::Scale)
-                } else if g.contains(px, py) {
-                    Some(Grab::Move)
+                *PAN_VIEW0.lock().unwrap() = None;
+                let alt = syngui::input::current_modifiers().alt;
+                if alt && st.viewer_zoom.get_untracked().is_some() {
+                    *PAN_VIEW0.lock().unwrap() = Some(st.viewer_pan.get_untracked());
+                    return;
+                }
+                let grab = if let Some(c) = &tgt {
+                    if let Some(g) = geo(&pc, c, t) {
+                        let (x, y) = *PT.lock().unwrap();
+                        let (px, py) = (x / k, y / k);
+                        let near = |a: (f32, f32)| (a.0 * k - x).hypot(a.1 * k - y) <= 10.0;
+                        let top = g.at(0.0, -0.5);
+                        let (s, cs) = g.rot.to_radians().sin_cos();
+                        let d = 26.0 / k;
+                        let rot_h = (top.0 + d * s, top.1 - d * cs);
+                        let g_kind = if near(rot_h) {
+                            Some(Grab::Rotate)
+                        } else if [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)].iter().any(|(u, v)| near(g.at(*u, *v))) {
+                            Some(Grab::Scale)
+                        } else if g.contains(px, py) {
+                            Some(Grab::Move)
+                        } else {
+                            None
+                        };
+                        g_kind.map(|gk| (c.id, gk, xf(c), (px, py)))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };
-                if let Some(grab) = grab {
-                    st.xf_drag.set(Some(Drag { cid: c.id, grab, base: xf(c), from: (px, py), cur: (px, py) }));
+                if let Some((cid, gk, base, pt)) = grab {
+                    st.xf_drag.set(Some(Drag { cid, grab: gk, base, from: pt, cur: pt }));
+                } else if st.viewer_zoom.get_untracked().is_some() {
+                    *PAN_VIEW0.lock().unwrap() = Some(st.viewer_pan.get_untracked());
                 }
             }
         })
-        .on_pan_update(move |_| {
+        .on_pan_update(move |u: syngui::widgets::PanUpdate| {
+            if let Some((x0, y0)) = *PAN_VIEW0.lock().unwrap() {
+                st.viewer_pan.set((x0 + u.total.x, y0 + u.total.y));
+                return;
+            }
             if let Some(mut d) = st.xf_drag.get_untracked() {
                 let (x, y) = *PT.lock().unwrap();
                 d.cur = (x / k, y / k);
                 st.xf_drag.set(Some(d));
             }
         })
-        .on_pan_end(move |_| finish(st))
+        .on_pan_end(move |_| {
+            if PAN_VIEW0.lock().unwrap().take().is_some() {
+                return;
+            }
+            finish(st);
+        })
         .child(DecoratedBox::new().style("width", fw).style("height", fh));
     let surface = EventHook::new()
         .on_hover_at(move |p| {
@@ -335,8 +383,8 @@ fn finish(st: St) {
     };
     let Some(c) = p.clip(d.cid).cloned() else { return };
     let ce = c.at(t - c.start).into_owned();
-    let Some(g0) = geo(&p, &ce) else { return };
-    let x = dragged(&d, &g0, p.settings.width as f32, p.settings.height as f32);
+    let Some(g0) = geo(&p, &ce, t) else { return };
+    let x = dragged(&p, &ce, &d, &g0, t);
     if x == d.base {
         return;
     }

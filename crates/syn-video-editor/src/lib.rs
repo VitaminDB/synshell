@@ -8,6 +8,8 @@ pub mod doc;
 pub mod editor;
 pub mod fonts;
 pub mod fusion;
+pub mod layout;
+pub mod motion;
 pub mod render;
 pub mod store;
 pub mod ui;

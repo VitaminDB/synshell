@@ -184,10 +184,25 @@ pub fn edit_point(p: &Project, t: f64, forward: bool) -> Option<f64> {
     }
 }
 
-/// Клипы, которые едут вместе с `id`: всё выделение, если клип в нём.
+/// Клипы, которые едут вместе с `id`: всё выделение, если в нём есть клипы
+/// помимо `id` и его связанной пары (одиночный клип или одна связанная пара
+/// переносятся через `clip.move`, чтобы можно было менять дорожку).
 fn group(e: &crate::editor::Editor, id: u64) -> Vec<u64> {
-    if e.selection.len() > 1 && e.selection.contains(&id) {
-        e.selection.clone()
+    let peer = e.project.linked_peer(id);
+    let only_pair = e.selection.iter().all(|&s| s == id || Some(s) == peer);
+    if !only_pair && e.selection.contains(&id) {
+        let mut out = Vec::with_capacity(e.selection.len() * 2);
+        for &s in &e.selection {
+            if !out.contains(&s) {
+                out.push(s);
+            }
+            if let Some(lp) = e.project.linked_peer(s) {
+                if !out.contains(&lp) {
+                    out.push(lp);
+                }
+            }
+        }
+        out
     } else {
         vec![id]
     }
@@ -302,6 +317,7 @@ fn clip_name(p: &Project, c: &crate::doc::Clip) -> String {
         Source::Media { media } => p.media(*media).map(|m| m.name()).unwrap_or_default(),
         Source::Title { text, .. } => format!("T  {text}"),
         Source::Color { color } => color.clone(),
+        Source::Shape { kind, .. } => format!("◆  {}", crate::doc::shape_title(kind)),
     }
 }
 
@@ -369,15 +385,25 @@ pub fn view(st: St) -> impl Widget {
                     }
                     Source::Title { .. } => "clip clip-title",
                     Source::Color { .. } => "clip clip-color",
+                    Source::Shape { .. } => "clip clip-shape",
                 };
                 let name = clip_name(p, c);
                 let selected = e.selection.contains(&c.id);
                 let mut marks = String::new();
+                if let Some(pid) = c.parent {
+                    marks.push_str(&format!("  ↳c{pid}"));
+                }
+                if p.linked_peer(c.id).is_some() {
+                    marks.push_str("  ⇄");
+                }
+                if !c.blend.is_empty() && c.blend != "normal" {
+                    marks.push_str(&format!("  [{}]", c.blend));
+                }
                 if !c.effects.is_empty() {
                     marks.push_str(&format!("  ✦{}", c.effects.len()));
                 }
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
-                let body = DecoratedBox::new().clip(true).child(clip_content(p, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" }).class(if (tr.hidden && tr.kind == TrackKind::Video) || (tr.muted && tr.kind == TrackKind::Audio) { "clip-off" } else { "" });
+                let body = DecoratedBox::new().clip(true).child(clip_content(p, tr.kind, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" }).class(if (tr.hidden && tr.kind == TrackKind::Video) || (tr.muted && tr.kind == TrackKind::Audio) { "clip-off" } else { "" });
                 // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
                 let cid = c.id;
                 let body = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || select_click(st, cid)).child(body);
@@ -416,7 +442,7 @@ pub fn view(st: St) -> impl Widget {
                 let cid = c.id;
                 let x0 = ((c.start - t.duration / 2.0) as f32 * zoom).max(0.0);
                 let tw = (t.duration as f32 * zoom).max(10.0);
-                let label = crate::render::compose::TRANSITIONS.iter().find(|(k, _)| *k == t.kind).map(|(_, l)| *l).unwrap_or("Переход");
+                let label = t.title();
                 let marker = GestureDetector::new()
                     .on_click(move || {
                         st.exec("selection.set", json!({"ids": [cid]}));
@@ -493,9 +519,14 @@ pub fn view(st: St) -> impl Widget {
             // на телефоне — долгое нажатие
             .on_long_press(move |pt: Point| open_menu(st, pt))
             .child(DecoratedBox::new().child(field).style("width", width).style("height", height));
-        // бросок медиа из медиатеки или клипа: время и дорожка — по точке
+        // бросок медиа из медиатеки, шаблона из галереи или клипа: время и дорожка — по точке
         let surface = DropArea::new()
-            .accept_types(vec![super::panels::DRAG_MEDIA.to_string(), DRAG_CLIP.to_string()])
+            .accept_types(vec![
+                super::panels::DRAG_MEDIA.to_string(),
+                super::templates::DRAG_TEMPLATE.to_string(),
+                super::templates::DRAG_TRANSITION.to_string(),
+                DRAG_CLIP.to_string(),
+            ])
             // над дорожками вместо призрака — клип нужной длины в месте броска
             .hide_ghost()
             .on_drag_over(move |info: syngui::widgets::overlay::DropInfo| hint(st, &info.data, info.local_position.x, info.local_position.y))
@@ -543,18 +574,32 @@ pub fn view(st: St) -> impl Widget {
     Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar(st)).child(DecoratedBox::new().class("grow").child(field_view))
 }
 
-/// Щелчок по клипу: выделить; с Ctrl/Shift — добавить или убрать из выделения.
+/// Щелчок по клипу: выделить (со связанным звуком/видео, если не зажат Alt);
+/// с Ctrl/Shift — добавить или убрать из выделения.
 fn select_click(st: St, cid: u64) {
     let m = syngui::input::current_modifiers();
+    let peer = if m.alt { None } else { ed().project.linked_peer(cid) };
     let ids = if m.ctrl || m.shift {
         let mut s = ed().selection.clone();
         match s.iter().position(|x| *x == cid) {
             Some(i) => {
                 s.remove(i);
+                if let Some(pid) = peer {
+                    s.retain(|x| *x != pid);
+                }
             }
-            None => s.push(cid),
+            None => {
+                s.push(cid);
+                if let Some(pid) = peer {
+                    if !s.contains(&pid) {
+                        s.push(pid);
+                    }
+                }
+            }
         }
         s
+    } else if let Some(pid) = peer {
+        vec![cid, pid]
     } else {
         vec![cid]
     };
@@ -648,6 +693,16 @@ fn overlay(st: St) -> impl Widget {
                         out.push(Box::new(Positioned::new(DecoratedBox::new().class("tl-snap")).at(t as f32 * zoom, 0.0).dimensions(1.0, line_h)));
                     }
                     out.push(Box::new(Positioned::new(DecoratedBox::new().class("clip clip-trim").child(Text::new(format!("{} — {}", crate::doc::tc(a), crate::doc::tc(b))).max_lines(1).class("clip-text"))).at(a as f32 * zoom + 1.0, y + 3.0).dimensions(((b - a) as f32 * zoom).max(3.0), h - 6.0)));
+                    // если есть связанный звук/видео — показать его синхронную обрезку
+                    if let Some(pid) = p.linked_peer(cid) {
+                        if let (Some(pc), Some((pti, _))) = (p.clip(pid), p.find_clip(pid)) {
+                            if let Some((_, py, ph)) = lay.iter().copied().find(|(r, _, _)| *r == RowKind::Track(pti)) {
+                                let pa = (pc.start + (a - c.start)).max(0.0);
+                                let pb = (pc.end() + (b - c.end())).max(pa + 0.01);
+                                out.push(Box::new(Positioned::new(DecoratedBox::new().class("clip clip-trim")).at(pa as f32 * zoom + 1.0, py + 3.0).dimensions(((pb - pa) as f32 * zoom).max(3.0), ph - 6.0)));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -744,37 +799,120 @@ struct Dragged {
     /// Вся группа (выделение) — больше одного клипа: едут вместе.
     group: Vec<u64>,
     snap: Option<f64>,
+    /// Видео из медиатеки со звуком — при броске займёт ещё и звуковую дорожку.
+    with_audio: bool,
 }
 
 fn dragged(st: St, data: &DragData, x: f32) -> Option<Dragged> {
-    let id = data.payload.trim().parse::<u64>().ok()?;
     let zoom = st.zoom.get_untracked();
     let e = ed();
     let p = &e.project;
+    if data.drag_type == super::templates::DRAG_TEMPLATE {
+        let path = std::path::Path::new(data.payload.trim());
+        let name = path.file_stem().map(|s| s.to_string_lossy().replace('_', " ")).unwrap_or_else(|| "Шаблон".into());
+        let d = super::templates::template_duration(path, p.settings.fps);
+        let (s, snap) = Snapper::new(st, &e, &[]).span((x / zoom).max(0.0) as f64, d);
+        return Some(Dragged {
+            kind: TrackKind::Video,
+            start: p.snap(s.max(0.0)),
+            dur: d,
+            label: format!("T  {name}"),
+            clip: None,
+            group: Vec::new(),
+            snap,
+            with_audio: false,
+        });
+    }
+    let id = data.payload.trim().parse::<u64>().ok()?;
     if data.drag_type == super::panels::DRAG_MEDIA {
         let m = p.media(id)?;
         let kind = if m.kind == crate::doc::MediaKind::Audio { TrackKind::Audio } else { TrackKind::Video };
+        let with_audio = m.kind == crate::doc::MediaKind::Video && m.has_audio;
         let d = if m.duration > 0.0 { m.duration } else { 5.0 };
         let (s, snap) = Snapper::new(st, &e, &[]).span((x / zoom).max(0.0) as f64, d);
-        Some(Dragged { kind, start: p.snap(s.max(0.0)), dur: d, label: m.name(), clip: None, group: Vec::new(), snap })
+        Some(Dragged { kind, start: p.snap(s.max(0.0)), dur: d, label: m.name(), clip: None, group: Vec::new(), snap, with_audio })
     } else if data.drag_type == DRAG_CLIP {
         let c = p.clip(id)?;
         let (ti, _) = p.find_clip(id)?;
         let (gid, gx) = *GRAB.lock().unwrap();
         let x = if gid == id { x - gx } else { x };
         let group = group(&e, id);
-        let (mut s, snap) = Snapper::new(st, &e, &group).span((x / zoom).max(0.0) as f64, c.duration);
+        let mut snap_except = group.clone();
+        if let Some(pid) = p.linked_peer(id) {
+            if !snap_except.contains(&pid) {
+                snap_except.push(pid);
+            }
+        }
+        let (mut s, snap) = Snapper::new(st, &e, &snap_except).span((x / zoom).max(0.0) as f64, c.duration);
         // группа не уходит левее нуля
         let lead = group.iter().filter_map(|g| p.clip(*g)).map(|g| c.start - g.start).fold(0.0, f64::max);
         s = s.max(lead);
-        Some(Dragged { kind: p.tracks[ti].kind, start: p.snap(s.max(0.0)), dur: c.duration, label: clip_name(p, c), clip: Some(id), group, snap })
+        Some(Dragged { kind: p.tracks[ti].kind, start: p.snap(s.max(0.0)), dur: c.duration, label: clip_name(p, c), clip: Some(id), group, snap, with_audio: false })
     } else {
         None
     }
 }
 
+/// Ближайшая склейка клипов встык на видеодорожке для перетаскиваемого перехода Fusion:
+/// `(clip_id, row_y, row_h, cut_time, max_dur)`.
+fn nearest_cut(p: &Project, x_sec: f64, y: f32) -> Option<(u64, f32, f32, f64, f64)> {
+    let lay = rows(p);
+    let hover_ti = match row_under(&lay, y) {
+        Some((RowKind::Track(ti), _, _)) => Some(ti),
+        _ => None,
+    };
+    let mut best: Option<(f64, u64, f32, f32, f64, f64)> = None;
+    for (row, ry, rh) in &lay {
+        let RowKind::Track(ti) = *row else { continue };
+        let tr = &p.tracks[ti];
+        if tr.kind != TrackKind::Video {
+            continue;
+        }
+        let penalty = if hover_ti == Some(ti) { 0.0 } else { 10.0 };
+        for w in tr.clips.windows(2) {
+            if (w[0].end() - w[1].start).abs() < 1e-3 {
+                let cut_t = w[1].start;
+                let max_d = w[0].duration.min(w[1].duration);
+                let score = (cut_t - x_sec).abs() + penalty;
+                if best.is_none_or(|(bs, ..)| score < bs) {
+                    best = Some((score, w[1].id, *ry, *rh, cut_t, max_d));
+                }
+            }
+        }
+    }
+    best.map(|(_, cid, ry, rh, cut_t, max_d)| (cid, ry, rh, cut_t, max_d))
+}
+
 /// Превью броска: клип на той дорожке, куда он действительно встанет.
 fn hint(st: St, data: &DragData, x: f32, y: f32) {
+    if data.drag_type == super::templates::DRAG_TRANSITION {
+        let zoom = st.zoom.get_untracked();
+        let next = {
+            let e = ed();
+            let p = &e.project;
+            nearest_cut(p, (x / zoom).max(0.0) as f64, y).map(|(_, ry, rh, cut_t, max_d)| {
+                let path = std::path::Path::new(data.payload.trim());
+                let name = path.file_stem().map(|s| s.to_string_lossy().replace('_', " ")).unwrap_or_else(|| "Переход".into());
+                let d = 0.8f64.min(max_d).max(1.0 / p.settings.fps.max(1.0));
+                let x0 = ((cut_t - d / 2.0).max(0.0)) as f32 * zoom;
+                let w = (d as f32 * zoom).max(20.0);
+                Hint {
+                    x: x0,
+                    y: ry + rh * 0.5 - 12.0,
+                    w,
+                    h: 24.0,
+                    label: format!("◇ {name}"),
+                    new_track: false,
+                    snap: Some(cut_t as f32 * zoom),
+                    more: Vec::new(),
+                }
+            })
+        };
+        if st.drop_hint.get_untracked() != next {
+            st.drop_hint.set(next);
+        }
+        return;
+    }
     let Some(dr) = dragged(st, data, x) else { return };
     let (kind, s, d, label, except) = (dr.kind, dr.start, dr.dur, dr.label.clone(), dr.clip);
     let zoom = st.zoom.get_untracked();
@@ -816,7 +954,33 @@ fn hint(st: St, data: &DragData, x: f32, y: f32) {
                 (ry, rh, true)
             }
         };
-        Hint { x: s as f32 * zoom + 1.0, y: ry + 2.0, w: (d as f32 * zoom).max(8.0), h: rh - 4.0, label, new_track, snap, more: Vec::new() }
+        let mut more = Vec::new();
+        if dr.with_audio {
+            // превью звуковой дорожки для переносимого видео со звуком
+            let (ay, ah) = match resolve(p, TrackKind::Audio, 0.0, s, d, None) {
+                Dest::Track(tid) => {
+                    let ti = p.tracks.iter().position(|t| t.id == tid).unwrap_or(0);
+                    let (_, ay, ah) = lay.iter().copied().find(|(r, _, _)| *r == RowKind::Track(ti)).unwrap_or((RowKind::NewAudio, RULER, NEW_ROW));
+                    (ay, ah)
+                }
+                Dest::New(_) => {
+                    let (_, ay, ah) = lay.iter().copied().find(|(r, _, _)| *r == RowKind::NewAudio).unwrap();
+                    (ay, ah)
+                }
+            };
+            more.push([s as f32 * zoom + 1.0, ay + 2.0, (d as f32 * zoom).max(8.0), ah - 4.0]);
+        } else if let Some(cid) = except {
+            // превью связанного парного клипа (видео ↔ звук)
+            if let Some(pid) = p.linked_peer(cid) {
+                if let (Some(c), Some(pc), Some((pti, _))) = (p.clip(cid), p.clip(pid), p.find_clip(pid)) {
+                    if let Some((_, py, ph)) = lay.iter().copied().find(|(r, _, _)| *r == RowKind::Track(pti)) {
+                        let dt = s - c.start;
+                        more.push([((pc.start + dt).max(0.0)) as f32 * zoom + 1.0, py + 2.0, (pc.duration as f32 * zoom).max(8.0), ph - 4.0]);
+                    }
+                }
+            }
+        }
+        Hint { x: s as f32 * zoom + 1.0, y: ry + 2.0, w: (d as f32 * zoom).max(8.0), h: rh - 4.0, label, new_track, snap, more }
     };
     if st.drop_hint.get_untracked().as_ref() != Some(&next) {
         st.drop_hint.set(Some(next));
@@ -825,6 +989,23 @@ fn hint(st: St, data: &DragData, x: f32, y: f32) {
 
 /// Бросок на таймлайн: медиа — новый клип, клип — перенос; дорожка — по `resolve`.
 fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
+    if data.drag_type == super::templates::DRAG_TRANSITION {
+        let zoom = st.zoom.get_untracked();
+        let hit = {
+            let e = ed();
+            nearest_cut(&e.project, (x / zoom).max(0.0) as f64, y)
+        };
+        let Some((cid, _, _, cut_t, _)) = hit else {
+            st.toast.set(Some("Перетащите переход на склейку двух клипов встык на видеодорожке".into()));
+            return;
+        };
+        if st.exec("transition.set", json!({"id": cid, "kind": "fusion", "template": data.payload.trim()})).is_some() {
+            st.exec("selection.set", json!({"ids": [cid]}));
+            st.seek_live(cut_t);
+            st.dock.activate("inspector");
+        }
+        return;
+    }
     let Some(dr) = dragged(st, data, x) else { return };
     let (kind, s, d, except) = (dr.kind, dr.start, dr.dur, dr.clip);
     // группа едет по времени, каждый клип на своей дорожке
@@ -848,12 +1029,27 @@ fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
             None => return,
         },
     };
+    if data.drag_type == super::templates::DRAG_TEMPLATE {
+        let path = std::path::Path::new(data.payload.trim());
+        let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        if let Some(o) = st.exec("template.apply", json!({"name": name, "path": data.payload.trim(), "at": s, "duration": d, "track": tid})) {
+            if let Some(cid) = o.data.get("id").and_then(|v| v.as_u64()) {
+                st.exec("selection.set", json!({"ids": [cid]}));
+                st.dock.activate("inspector");
+            }
+        }
+        return;
+    }
     let Ok(id) = data.payload.trim().parse::<u64>() else { return };
     if data.drag_type == super::panels::DRAG_MEDIA {
         st.exec("clip.add", json!({"media": id, "at": s, "track": tid}));
     } else {
         st.exec("clip.move", json!({"id": id, "at": s, "track": tid}));
-        st.exec("selection.set", json!({"ids": [id]}));
+        let sel = match ed().project.linked_peer(id) {
+            Some(pid) => vec![id, pid],
+            None => vec![id],
+        };
+        st.exec("selection.set", json!({"ids": sel}));
     }
 }
 
@@ -885,50 +1081,45 @@ fn playhead(st: St, height: f32) -> impl Widget {
     })
 }
 
-/// Содержимое блока клипа: раскадровка (видео, картинка) или волна (звук),
-/// подпись поверх.
-fn clip_content(p: &Project, c: &crate::doc::Clip, label: String, w: f32, h: f32, zoom: f32) -> Box<dyn Widget> {
+/// Содержимое блока клипа: раскадровка (видеодорожка) или волна (звуковая
+/// дорожка — в том числе звук, вынесенный из видеофайла), подпись поверх.
+fn clip_content(p: &Project, track_kind: TrackKind, c: &crate::doc::Clip, label: String, w: f32, h: f32, zoom: f32) -> Box<dyn Widget> {
     let mut stack = Stack::new().fit(StackFit::Expand);
     if let Some(m) = c.media().and_then(|id| p.media(id)) {
-        match m.kind {
-            crate::doc::MediaKind::Video | crate::doc::MediaKind::Image => {
-                if let Some(strip) = super::thumbs::strip(&m.path).filter(|s| !s.is_empty()) {
-                    // кадр по высоте блока, по времени источника в его левом крае
-                    let f0 = &strip[0];
-                    let tw = (h * f0.width as f32 / f0.height.max(1) as f32).max(12.0);
-                    let n = ((w / tw).ceil() as usize).clamp(1, 400);
-                    let mut row = Row::new().gap(0.0);
-                    for i in 0..n {
-                        let src = c.offset + (i as f64 * tw as f64 / zoom as f64) * c.speed;
-                        let k = if m.duration > 0.0 { ((src / m.duration) * strip.len() as f64) as usize } else { 0 }.min(strip.len() - 1);
-                        let f = &strip[k];
-                        row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}", m.id), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));
+        if track_kind == TrackKind::Audio || m.kind == crate::doc::MediaKind::Audio {
+            if let Some(pk) = super::wave::peaks(&m.path).filter(|v| !v.is_empty()) {
+                let (offset, speed) = (c.offset, c.speed);
+                let canvas = Canvas::new(move |cx, _| {
+                    cx.set_color(Color::from_srgb(255, 255, 255, 0.55));
+                    cx.set_stroke_width(1.0);
+                    let mid = h / 2.0;
+                    let mut x = 0.0f32;
+                    while x < w {
+                        // пик на отрезке источника под этими двумя пикселями
+                        let a = ((offset + (x / zoom) as f64 * speed) * super::wave::RATE) as usize;
+                        let b = ((offset + ((x + 2.0) / zoom) as f64 * speed) * super::wave::RATE) as usize;
+                        let v = pk.get(a..b.max(a + 1).min(pk.len())).map(|s| s.iter().copied().fold(0.0, f32::max)).unwrap_or(0.0);
+                        let half = (v * (h / 2.0 - 2.0)).max(0.5);
+                        cx.draw_line(x, mid - half, x, mid + half);
+                        x += 2.0;
                     }
-                    stack = stack.child(row);
-                }
+                })
+                .size(w, h);
+                stack = stack.child(canvas);
             }
-            crate::doc::MediaKind::Audio => {
-                if let Some(pk) = super::wave::peaks(&m.path).filter(|v| !v.is_empty()) {
-                    let (offset, speed) = (c.offset, c.speed);
-                    let canvas = Canvas::new(move |cx, _| {
-                        cx.set_color(Color::from_srgb(255, 255, 255, 0.55));
-                        cx.set_stroke_width(1.0);
-                        let mid = h / 2.0;
-                        let mut x = 0.0f32;
-                        while x < w {
-                            // пик на отрезке источника под этими двумя пикселями
-                            let a = ((offset + (x / zoom) as f64 * speed) * super::wave::RATE) as usize;
-                            let b = ((offset + ((x + 2.0) / zoom) as f64 * speed) * super::wave::RATE) as usize;
-                            let v = pk.get(a..b.max(a + 1).min(pk.len())).map(|s| s.iter().copied().fold(0.0, f32::max)).unwrap_or(0.0);
-                            let half = (v * (h / 2.0 - 2.0)).max(0.5);
-                            cx.draw_line(x, mid - half, x, mid + half);
-                            x += 2.0;
-                        }
-                    })
-                    .size(w, h);
-                    stack = stack.child(canvas);
-                }
+        } else if let Some(strip) = super::thumbs::strip(&m.path).filter(|s| !s.is_empty()) {
+            // кадр по высоте блока, по времени источника в его левом крае
+            let f0 = &strip[0];
+            let tw = (h * f0.width as f32 / f0.height.max(1) as f32).max(12.0);
+            let n = ((w / tw).ceil() as usize).clamp(1, 400);
+            let mut row = Row::new().gap(0.0);
+            for i in 0..n {
+                let src = c.offset + (i as f64 * tw as f64 / zoom as f64) * c.speed;
+                let k = if m.duration > 0.0 { ((src / m.duration) * strip.len() as f64) as usize } else { 0 }.min(strip.len() - 1);
+                let f = &strip[k];
+                row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}", m.id), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));
             }
+            stack = stack.child(row);
         }
     }
     stack = stack.child(Column::new().cross_axis_alignment(CrossAxisAlignment::Start).child(DecoratedBox::new().class("clip-label").child(Text::new(label).max_lines(1).elide(Elide::End).class("clip-text"))));
@@ -953,7 +1144,12 @@ fn finish_tr(st: St) {
         let e = ed();
         let Some(c) = e.project.clip(cid) else { return };
         let Some(t) = &c.transition else { return };
-        json!({"id": cid, "kind": t.kind, "duration": tr_duration(&e.project, c, t.duration, (dx / zoom) as f64)})
+        let new_d = tr_duration(&e.project, c, t.duration, (dx / zoom) as f64);
+        if let Some(tpl) = &t.template {
+            json!({"id": cid, "kind": t.kind, "template": tpl, "duration": new_d})
+        } else {
+            json!({"id": cid, "kind": t.kind, "duration": new_d})
+        }
     };
     st.exec("transition.set", args);
     st.exec("selection.set", json!({"ids": [cid]}));
@@ -978,7 +1174,11 @@ fn open_menu(st: St, at_window: Point) {
     match hit {
         Some((id, selected)) => {
             if !selected {
-                st.exec("selection.set", json!({"ids": [id]}));
+                let sel = match ed().project.linked_peer(id) {
+                    Some(pid) => vec![id, pid],
+                    None => vec![id],
+                };
+                st.exec("selection.set", json!({"ids": sel}));
             }
             st.menu_at.set(MenuAt::Field(id, t));
         }
@@ -1000,9 +1200,11 @@ fn menu_items(st: St) -> Vec<MenuItem> {
     let p = &e.project;
     let paste = MenuItem::new("paste", "Вставить сюда").shortcut("Ctrl+V").disabled(e.clipboard.is_empty());
     let Some(c) = (cid != 0).then(|| p.clip(cid)).flatten() else {
+        let shapes: Vec<MenuItem> = crate::doc::SHAPE_KINDS.iter().map(|(k, l)| MenuItem::new(format!("shape:{k}"), *l)).collect();
         return vec![
             paste,
             MenuItem::new("title", "Титр здесь").icon(icons::TITLE),
+            MenuItem::new("shape", "Фигура здесь").icon(icons::SHAPE).children(shapes),
             MenuItem::new("split_all", "Разрезать всё здесь").icon(icons::CUT),
         ];
     };
@@ -1010,7 +1212,9 @@ fn menu_items(st: St) -> Vec<MenuItem> {
     let many = if n > 1 { format!(" ({n})") } else { String::new() };
     let media = c.media().and_then(|m| p.media(m));
     let is_audio_track = p.find_clip(cid).map(|(ti, _)| p.tracks[ti].kind == TrackKind::Audio).unwrap_or(false);
-    let has_sound = media.is_some_and(|m| m.has_audio || m.kind == crate::doc::MediaKind::Audio) && c.volume > 0.0;
+    let linked_peer = p.linked_peer(cid);
+    let has_sound = (media.is_some_and(|m| m.has_audio || m.kind == crate::doc::MediaKind::Audio) && c.volume > 0.0)
+        || linked_peer.and_then(|pid| p.clip(pid)).is_some_and(|pc| pc.volume > 0.0);
     let mut v = vec![
         MenuItem::new("split_here", "Разрезать здесь").icon(icons::CUT),
         MenuItem::new("split_ph", "Разрезать по позиции").shortcut("S"),
@@ -1032,7 +1236,7 @@ fn menu_items(st: St) -> Vec<MenuItem> {
     let kinds: Vec<&str> = if is_audio_track {
         vec!["audio_fade_in", "audio_fade_out"]
     } else {
-        let mut k = vec!["fade_in", "fade_out", "color", "blur", "sharpen", "vignette", "transform"];
+        let mut k = vec!["fade_in", "fade_out", "color", "blur", "sharpen", "vignette", "transform", "mask", "glass"];
         if media.is_some() {
             k.extend(["upscale", "interpolate"]);
         }
@@ -1045,7 +1249,9 @@ fn menu_items(st: St) -> Vec<MenuItem> {
     if media.is_some() {
         v.push(MenuItem::new("speed", "Скорость").children(SPEEDS.iter().map(|s| MenuItem::new(format!("speed:{s}"), format!("{s}×{}", if (c.speed - s).abs() < 1e-6 { "  ✓" } else { "" }))).collect()));
     }
-    if !is_audio_track && media.is_some_and(|m| m.kind == crate::doc::MediaKind::Video && m.has_audio) && c.volume > 0.0 {
+    if linked_peer.is_some() {
+        v.push(MenuItem::new("detach", "Отвязать звук").icon(super::icons::AUDIO));
+    } else if !is_audio_track && media.is_some_and(|m| m.kind == crate::doc::MediaKind::Video && m.has_audio) && c.volume > 0.0 {
         v.push(MenuItem::new("detach", "Отделить звук").icon(super::icons::AUDIO));
     }
     v.push(MenuItem::separator());
@@ -1100,15 +1306,22 @@ fn menu_run(st: St, id: &str) {
             st.exec("transition.remove", json!({"id": cid}));
         }
         _ => {
-            if let Some(k) = id.strip_prefix("tr:") {
+            if let Some(k) = id.strip_prefix("shape:") {
+                st.exec("shape.add", json!({"kind": k, "at": t}));
+            } else if let Some(k) = id.strip_prefix("tr:") {
                 let d = ed().project.clip(cid).and_then(|c| c.transition.as_ref().map(|t| t.duration)).unwrap_or(0.6);
                 st.exec("transition.set", json!({"id": cid, "kind": k, "duration": d}));
             } else if let Some(k) = id.strip_prefix("fx:") {
                 st.exec("effect.add", json!({"ids": ids, "kind": k}));
                 st.dock.activate("inspector");
             } else if let Some(s) = id.strip_prefix("speed:").and_then(|s| s.parse::<f64>().ok()) {
+                let mut seen = Vec::new();
                 for c in &ids {
-                    st.exec("clip.set", json!({"id": c, "speed": s}));
+                    let peer_seen = ed().project.linked_peer(*c).is_some_and(|p| seen.contains(&p));
+                    if !peer_seen {
+                        seen.push(*c);
+                        st.exec("clip.set", json!({"id": c, "speed": s}));
+                    }
                 }
             }
         }
