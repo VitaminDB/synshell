@@ -100,6 +100,8 @@
 /* ── плитки медиатеки ── */
 .tile { padding: 6px; border-radius: 10px; cursor: pointer; }
 .tile:hover { background-color: var(--surface-hover); }
+.tile-on { background-color: var(--accent-subtle, rgba(80,140,255,0.18)); }
+.tile-pending { opacity: 0.45; }
 .tile-thumb { flex-grow: 1; border-radius: 8px; background-color: #000000; overflow: hidden; }
 .head-icon { icon-size: 16px; icon-color: var(--text-subtle); }
 .tile-icon { icon-size: 30px; icon-color: var(--text-subtle); }

@@ -17,6 +17,7 @@ pub const PANELS: &[(&str, &str)] = &[
     ("media", "Медиатека"),
     ("templates", "Шаблоны"),
     ("effects", "Эффекты"),
+    ("luts", "LUT"),
     ("layers", "Слои"),
     ("viewer", "Просмотр"),
     ("timeline", "Таймлайн"),
@@ -46,12 +47,12 @@ pub const DEFAULT_VIEW: &str = "edit";
 
 /// Встроенная раскладка для ключа вида.
 pub fn builtin_spec(key: &str) -> DockSpec {
-    let left = DockSpec::tabs(["media", "templates", "effects"]);
+    let left = DockSpec::tabs(["media", "templates", "effects", "luts"]);
     let right = DockSpec::tabs(["inspector", "ai"]);
     match key {
         "motion" => DockSpec::column(
             DockSpec::row(
-                DockSpec::row(DockSpec::tabs(["layers", "templates", "effects", "media"]), DockSpec::tabs(["viewer"]).named("viewer"), 0.26),
+                DockSpec::row(DockSpec::tabs(["layers", "templates", "effects", "luts", "media"]), DockSpec::tabs(["viewer"]).named("viewer"), 0.26),
                 right,
                 0.74,
             ),
@@ -60,7 +61,7 @@ pub fn builtin_spec(key: &str) -> DockSpec {
         ),
         "graph" => DockSpec::column(
             DockSpec::row(
-                DockSpec::tabs(["media", "templates", "effects"]),
+                DockSpec::tabs(["media", "templates", "effects", "luts"]),
                 DockSpec::row(DockSpec::tabs(["graph"]).named("graph"), DockSpec::tabs(["viewer", "inspector", "ai"]), 0.7),
                 0.2,
             ),

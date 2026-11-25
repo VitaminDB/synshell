@@ -110,6 +110,74 @@ impl Lut {
     }
 }
 
+// ── библиотека LUT (C7) ─────────────────────────────────────────────────
+
+/// Запись библиотеки: тема (верхняя папка), набор (подпапки), имя, путь.
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub theme: String,
+    pub set: String,
+    pub name: String,
+    pub path: std::path::PathBuf,
+    /// Для поиска: всё в нижнем регистре.
+    pub hay: String,
+}
+
+/// Папка LUT: `SYN_VIDEO_EDITOR_LUTS` или `LUT/` библиотеки шаблонов.
+pub fn library_dir() -> std::path::PathBuf {
+    if let Some(p) = std::env::var_os("SYN_VIDEO_EDITOR_LUTS") {
+        return p.into();
+    }
+    crate::fusion::library().join("LUT")
+}
+
+/// Все `.cube` библиотеки (рекурсивно), по теме и имени.
+pub fn scan(root: &std::path::Path) -> Vec<Entry> {
+    fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(d) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cube")) {
+                out.push(p);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(root, &mut files);
+    let mut v: Vec<Entry> = files
+        .into_iter()
+        .map(|p| {
+            let rel = p.parent().and_then(|d| d.strip_prefix(root).ok()).map(|d| d.display().to_string()).unwrap_or_default();
+            let (theme, set) = match rel.split_once('/') {
+                Some((a, b)) => (a.to_string(), b.to_string()),
+                None => (rel.clone(), String::new()),
+            };
+            let name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let hay = format!("{theme} {set} {name}").to_lowercase().replace(['_', '-'], " ");
+            Entry { theme, set, name, path: p, hay }
+        })
+        .collect();
+    v.sort_by(|a, b| (&a.theme, &a.set, &a.name).cmp(&(&b.theme, &b.set, &b.name)));
+    v
+}
+
+/// Каталог библиотеки (один раз за запуск).
+pub fn catalog() -> &'static [Entry] {
+    static CAT: OnceLock<Vec<Entry>> = OnceLock::new();
+    CAT.get_or_init(|| scan(&library_dir()))
+}
+
+/// Поиск: все слова запроса в теме/наборе/имени, тема и набор — точно (пусто — любые).
+pub fn filter<'a>(all: &'a [Entry], query: &str, theme: &str, set: &str) -> Vec<&'a Entry> {
+    let q = query.trim().to_lowercase().replace(['_', '-'], " ");
+    let words: Vec<&str> = q.split_whitespace().collect();
+    all.iter()
+        .filter(|e| (theme.is_empty() || e.theme == theme) && (set.is_empty() || e.set == set) && words.iter().all(|w| e.hay.contains(w)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

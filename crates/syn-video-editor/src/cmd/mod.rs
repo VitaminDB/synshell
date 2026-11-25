@@ -10,6 +10,7 @@ mod template;
 mod project;
 mod timeline;
 mod keys;
+mod lut;
 pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
@@ -129,6 +130,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(template::COMMANDS);
     v.extend(timeline::COMMANDS);
     v.extend(keys::COMMANDS);
+    v.extend(lut::COMMANDS);
     v.extend(edit::COMMANDS);
     v
 }

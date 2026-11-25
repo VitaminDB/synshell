@@ -784,3 +784,43 @@ fn lottie_media_loops_and_applies() {
     let _ = a1;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// C7: библиотека LUT — поиск по темам и наборам, наложение и замена LUT.
+#[test]
+fn lut_library_and_apply() {
+    let dir = std::env::temp_dir().join(format!("sve-c7-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("Кино/Teal Orange")).unwrap();
+    std::fs::create_dir_all(dir.join("Чёрно-белые")).unwrap();
+    let ident = "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+    let invert = "TITLE \"inv\"\nLUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
+    std::fs::write(dir.join("Кино/Teal Orange/Teal_Orange_1.cube"), ident).unwrap();
+    std::fs::write(dir.join("Чёрно-белые/Invert.CUBE"), invert).unwrap();
+    let all = crate::render::lut::scan(&dir);
+    assert_eq!(all.len(), 2);
+    assert_eq!((all[0].theme.as_str(), all[0].set.as_str(), all[0].name.as_str()), ("Кино", "Teal Orange", "Teal_Orange_1"));
+    assert_eq!(crate::render::lut::filter(&all, "teal orange", "", "").len(), 1, "подчёркивания = пробелы");
+    assert_eq!(crate::render::lut::filter(&all, "", "Чёрно-белые", "").len(), 1);
+    assert!(crate::render::lut::filter(&all, "teal", "Чёрно-белые", "").is_empty());
+
+    let mut ed = ed_with_media(10.0);
+    let mid = ed.project.media[0].id;
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 0})).unwrap();
+    let (v, a) = (ed.project.tracks[0].clips[0].id, ed.project.tracks[1].clips[0].id);
+    ed.selection = vec![v, a];
+    let inv = dir.join("Чёрно-белые/Invert.CUBE").display().to_string();
+    run(&mut ed, "lut.apply", &json!({"path": inv, "strength": 0.4})).unwrap();
+    assert!(ed.project.clip(a).unwrap().effects.is_empty(), "звук пропускается");
+    let fx = &ed.project.clip(v).unwrap().effects;
+    assert_eq!(fx.len(), 1);
+    assert_eq!((fx[0].params["path"].as_str().unwrap(), fx[0].params["strength"].as_f64().unwrap()), (inv.as_str(), 0.4));
+    // замена: тот же эффект, сила сохраняется
+    let id_path = dir.join("Кино/Teal Orange/Teal_Orange_1.cube").display().to_string();
+    run(&mut ed, "lut.apply", &json!({"ids": [v], "path": id_path})).unwrap();
+    let fx = &ed.project.clip(v).unwrap().effects;
+    assert_eq!(fx.len(), 1);
+    assert_eq!((fx[0].params["path"].as_str().unwrap(), fx[0].params["strength"].as_f64().unwrap()), (id_path.as_str(), 0.4));
+    run(&mut ed, "lut.apply", &json!({"ids": [v], "path": "/нет/такого.cube"})).unwrap_err();
+    run(&mut ed, "lut.apply", &json!({"ids": [a], "path": inv})).unwrap_err();
+    let _ = std::fs::remove_dir_all(&dir);
+}

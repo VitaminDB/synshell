@@ -17,6 +17,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "media" => Box::new(media(st)),
         "templates" => Box::new(super::templates::view(st)),
         "effects" => Box::new(effects(st)),
+        "luts" => Box::new(super::luts::view(st)),
         "layers" => Box::new(layers(st)),
         "viewer" => Box::new(viewer(st)),
         "timeline" => Box::new(timeline::view(st)),

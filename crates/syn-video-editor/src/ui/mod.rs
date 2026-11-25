@@ -11,6 +11,7 @@ mod wave;
 pub mod timeline;
 mod fontpick;
 mod layouts_ui;
+mod luts;
 mod coverage_ui;
 mod curves;
 mod xform;
@@ -508,7 +509,7 @@ impl St {
 
     pub fn open_panel(self, id: &str) {
         let near = match id {
-            "media" | "templates" | "effects" | "layers" => Some("media"),
+            "media" | "templates" | "effects" | "luts" | "layers" => Some("media"),
             "viewer" | "graph" => Some("viewer"),
             "inspector" | "ai" => Some("inspector"),
             "timeline" | "curves" => Some("timeline"),
