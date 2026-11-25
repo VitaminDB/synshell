@@ -803,8 +803,20 @@ impl Server {
         if self.recs.contains_key(device) {
             bail!("{}", t!("запись {device} уже идёт — сначала action stop", device = device));
         }
-        let mut cmd = Command::new("synlink-view");
-        cmd.args([device, "--record"]);
+        // песочница — без демона и трансляции: кадры прямо у её synwm
+        let sandbox = crate::sandbox::device_name(device);
+        let mut cmd = match &sandbox {
+            Some(name) => {
+                let mut c = Command::new(crate::self_exe());
+                c.args(["sandbox-record", name]);
+                c
+            }
+            None => {
+                let mut c = Command::new("synlink-view");
+                c.args([device, "--record"]);
+                c
+            }
+        };
         if let Some(h) = a.get("height").and_then(Value::as_u64) {
             cmd.args(["--height", &h.to_string()]);
         }
@@ -812,11 +824,14 @@ impl Server {
             cmd.args(["--fps", &f.to_string()]);
         }
         for k in ["codec", "quality"] {
+            if sandbox.is_some() {
+                break;
+            }
             if let Some(v) = a.get(k).and_then(Value::as_str) {
                 cmd.args([format!("--{k}"), v.to_string()]);
             }
         }
-        if a.get("sound").and_then(Value::as_bool).unwrap_or(false) {
+        if a.get("sound").and_then(Value::as_bool).unwrap_or(false) && sandbox.is_none() {
             cmd.arg("--sound");
         }
         if a.get("format").and_then(Value::as_str) == Some("mkv") {

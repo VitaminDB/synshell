@@ -122,7 +122,23 @@ impl WinitBackend {
     }
 
     pub fn render(&mut self, core: &mut Core, output: &Output) {
-        let age = self.backend.buffer_age().unwrap_or(0);
+        // Возраст буфера спрашивается у текущей поверхности окна: после захвата
+        // кадра в текстуру (запись, трансляция, снимок) текущей была не она —
+        // eglQuerySurface отвечал BAD_SURFACE на каждый кадр (журнал песочницы
+        // забивался, и каждый кадр перерисовывался целиком).
+        // `bind` у smithay ленивый (текущей поверхность становится при рисовании),
+        // поэтому делаем её текущей сами.
+        let ctx: *const smithay::backend::egl::EGLContext = self.backend.renderer().egl_context();
+        // SAFETY: рендерер (и его контекст) живёт внутри `self.backend` и здесь не
+        // перемещается и не изменяется; поверхность — окна этого же контекста.
+        let current = unsafe { (*ctx).make_current_with_surface(self.backend.egl_surface()) };
+        let age = match current {
+            Ok(()) => self.backend.buffer_age().unwrap_or(0),
+            Err(e) => {
+                tracing::debug!(?e, "winit: make_current");
+                0
+            }
+        };
         let mut damaged = false;
         let result = {
             let (renderer, mut fb) = match self.backend.bind() {

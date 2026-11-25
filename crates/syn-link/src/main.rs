@@ -31,6 +31,7 @@ mod ocr;
 mod vision;
 mod uitree;
 mod winshot;
+mod sandbox_rec;
 
 use std::io::{Read, Write};
 
@@ -365,6 +366,19 @@ fn cli(args: &[String]) -> Result<()> {
             for e in link::Client::connect()?.subscribe()? {
                 println!("{}", serde_json::to_string(&e?)?);
             }
+        }
+        "sandbox-record" => {
+            // sandbox-record ИМЯ [--out ФАЙЛ] [--fps N] [--height H] [--duration С] [--mkv]
+            let name = args.get(1).context(t!("нужно имя песочницы"))?.clone();
+            let opt = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
+            sandbox_rec::run(sandbox_rec::Opts {
+                name,
+                out: opt("--out").map(Into::into),
+                fps: opt("--fps").and_then(|v| v.parse().ok()).unwrap_or(30),
+                height: opt("--height").and_then(|v| v.parse().ok()),
+                duration: opt("--duration").and_then(|v| v.parse().ok()),
+                mkv: args.iter().any(|a| a == "--mkv"),
+            })?;
         }
         "ui-tree" => {
             let pid: i32 = args.get(1).and_then(|p| p.parse().ok()).context(t!("нужен pid"))?;
