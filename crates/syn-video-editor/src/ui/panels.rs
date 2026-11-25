@@ -764,13 +764,38 @@ fn ai(st: St) -> impl Widget {
                 return vec![empty("Агент монтирует сам: импорт, нарезка, титры, эффекты.\nНапример: «собери ролик на 30 секунд из ~/Videos/Test, в начале титр»")];
             }
             let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("ai-log");
-            for l in log {
+            let last = log.len().saturating_sub(1);
+            for (i, l) in log.into_iter().enumerate() {
                 let (class, text) = match l {
                     AiLine::User(t) => ("ai-user", t),
-                    AiLine::Text(t) => ("ai-text", t),
+                    // ответ агента — Markdown (списки, код, выделение)
+                    AiLine::Text(t) => {
+                        col = col.child(DecoratedBox::new().class("ai-text").child(MarkdownView::new(t).with_copy_code(true).selectable(true).class("ai-text-text")));
+                        continue;
+                    }
                     AiLine::Tool(t) => ("ai-tool", format!("→ {t}")),
                     AiLine::Result(t) => ("ai-result", t),
                     AiLine::Error(t) => ("ai-error", t),
+                    AiLine::Diff { lines, rev, undone } => {
+                        let can = !undone && ed().revision == rev && i == last;
+                        let mut card = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(if undone { "Ход откачен" } else { "Изменения хода" }).class("section-title"));
+                        for t in &lines {
+                            card = card.child(Text::new(t.clone()).max_lines(3).class("ai-result-text"));
+                        }
+                        if can {
+                            card = card.child(Row::new().child(Button::new("Откатить ход").on_click(move || {
+                                if st.exec("edit.undo", json!({})).is_some() {
+                                    st.ai_log.update(|l| {
+                                        if let Some(AiLine::Diff { undone, .. }) = l.get_mut(i) {
+                                            *undone = true;
+                                        }
+                                    });
+                                }
+                            }).class("head-btn")));
+                        }
+                        col = col.child(DecoratedBox::new().class("ai-diff").child(card));
+                        continue;
+                    }
                 };
                 col = col.child(DecoratedBox::new().class(class).child(Text::new(text).selectable(true).class(format!("{class}-text"))));
             }
@@ -779,7 +804,10 @@ fn ai(st: St) -> impl Widget {
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();
             let busy = st.ai_busy.get();
-            vec![Box::new(Row::new().child(DecoratedBox::new().class("grow").child(
+            let stop: Option<Box<dyn Widget>> = busy.then(|| -> Box<dyn Widget> {
+                Box::new(Button::new("Стоп").on_click(|| super::AI_CANCEL.store(true, std::sync::atomic::Ordering::SeqCst)).class("head-btn"))
+            });
+            vec![Box::new(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).children(stop.into_iter().collect::<Vec<Box<dyn Widget>>>()).child(DecoratedBox::new().class("grow").child(
                 TextField::new()
                     .text(draft.get_untracked())
                     .on_change(move |s: &str| draft.set(s.to_string()))

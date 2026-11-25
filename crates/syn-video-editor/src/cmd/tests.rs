@@ -1011,3 +1011,22 @@ fn recipe_report_to_project() {
     assert!(ed.project.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Video).unwrap().clips[0].name.is_empty(), "имён нет — names не задан");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// E4: «до/после» хода — сводка изменений проекта.
+#[test]
+fn diff_summary_lists_changes() {
+    let mut ed = ed_with_media(10.0);
+    let mid = ed.project.media[0].id;
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 0})).unwrap();
+    let before = ed.project.clone();
+    let v = ed.project.tracks[0].clips[0].id;
+    run(&mut ed, "title.add", &json!({"text": "Привет", "at": 1, "duration": 2})).unwrap();
+    run(&mut ed, "effect.add", &json!({"ids": [v], "kind": "blur"})).unwrap();
+    run(&mut ed, "clip.trim", &json!({"id": v, "end": 6})).unwrap();
+    let d = crate::doc::diff_summary(&before, &ed.project).join("\n");
+    assert!(d.contains("+ добавлено: титр ×1"), "{d}");
+    assert!(d.contains("эффекты +1") && d.contains("сдвинуто/обрезано"), "{d}");
+    assert!(d.contains("дорожки: 2 → 3"), "{d}");
+    assert!(d.contains("длительность"), "{d}");
+    assert!(crate::doc::diff_summary(&before, &before).is_empty());
+}

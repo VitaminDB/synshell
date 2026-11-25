@@ -97,7 +97,13 @@ pub enum AiLine {
     Tool(String),
     Result(String),
     Error(String),
+    /// Итог хода: что изменилось; `rev` — номер правки сразу после хода
+    /// (откат возможен, пока после хода ничего не правили); `undone` — откачен.
+    Diff { lines: Vec<String>, rev: u64, undone: bool },
 }
+
+/// Флаг «Стоп» текущего хода агента.
+pub static AI_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 pub struct St {
@@ -526,14 +532,17 @@ impl St {
             return;
         }
         self.ai_busy.set(true);
+        AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
         self.ai_log.update(|l| l.push(AiLine::User(text.clone())));
+        let rev_before = ed().revision;
         std::thread::spawn(move || {
             use syn_assist::agent::AgentEvent;
             static AGENT: OnceLock<syn_assist::agent::Agent> = OnceLock::new();
             static CHAT: OnceLock<Mutex<syn_assist::chat::Chat>> = OnceLock::new();
             let agent = AGENT.get_or_init(|| crate::agent::agent(shared()));
             let mut chat = CHAT.get_or_init(|| Mutex::new(syn_assist::chat::Chat::new())).lock().unwrap_or_else(|e| e.into_inner());
-            let cancel = std::sync::atomic::AtomicBool::new(false);
+            // «Стоп» из панели — флаг хода (агент проверяет его между шагами)
+            let cancel = &AI_CANCEL;
             let push = move |line: AiLine| {
                 syngui::async_runtime::run_on_main_thread(move || {
                     self.ai_log.update(|l| match (&line, l.last_mut()) {
@@ -543,14 +552,28 @@ impl St {
                     self.rev.set(ed().revision);
                 });
             };
-            let r = crate::agent::run_turn(agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), &cancel, &mut |ev| match ev {
+            let r = crate::agent::run_turn(agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
                 AgentEvent::ToolStart { summary, .. } => push(AiLine::Tool(summary)),
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
                 _ => {}
             });
-            if let Err(e) = r {
-                push(AiLine::Error(e));
+            let stopped = AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst);
+            match r {
+                Err(e) => push(AiLine::Error(if stopped { "Остановлено".into() } else { e })),
+                Ok(()) if stopped => push(AiLine::Error("Остановлено".into())),
+                Ok(()) => {}
+            }
+            // до/после: ход агента — один шаг отмены «ИИ: …»
+            let diff = {
+                let e = ed();
+                match e.last_step() {
+                    Some((label, before)) if e.revision != rev_before && label.starts_with("ИИ:") => Some((crate::doc::diff_summary(before, &e.project), e.revision)),
+                    _ => None,
+                }
+            };
+            if let Some((lines, rev)) = diff.filter(|(l, _)| !l.is_empty()) {
+                push(AiLine::Diff { lines, rev, undone: false });
             }
             syngui::async_runtime::run_on_main_thread(move || {
                 self.ai_busy.set(false);

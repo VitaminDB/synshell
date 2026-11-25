@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use syngui::prelude::*;
 use syn_node_editor::eval::{EvalContext, NodeExecutor};
 use syn_node_editor::registry::{self, CategoryInfo, NodeCategory, NodeKindMeta};

@@ -117,6 +117,11 @@ impl Editor {
         self.selection.retain(|id| p.find_clip(*id).is_some());
     }
 
+    /// Последний шаг отмены: подпись и проект до него.
+    pub fn last_step(&self) -> Option<(&str, &Project)> {
+        self.undo.last().map(|s| (s.label.as_str(), &s.before))
+    }
+
     pub fn undo_label(&self) -> Option<&str> {
         self.undo.last().map(|s| s.label.as_str())
     }

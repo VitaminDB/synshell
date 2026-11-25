@@ -777,3 +777,61 @@ pub fn expand(p: &str) -> PathBuf {
     }
     PathBuf::from(p)
 }
+
+/// Что изменилось между проектами — для карточки хода агента («до/после»).
+pub fn diff_summary(before: &Project, after: &Project) -> Vec<String> {
+    use std::collections::HashMap;
+    let clips = |p: &Project| -> HashMap<Id, Clip> { p.tracks.iter().flat_map(|t| t.clips.iter().cloned()).map(|c| (c.id, c)).collect() };
+    let (b, a) = (clips(before), clips(after));
+    let kind = |c: &Clip| match &c.source {
+        Source::Title { .. } => "титр",
+        Source::Shape { .. } => "фигура",
+        Source::Color { .. } => "цвет",
+        Source::Media { .. } => "клип",
+    };
+    let mut out = Vec::new();
+    let added: Vec<&Clip> = a.values().filter(|c| !b.contains_key(&c.id)).collect();
+    let removed: Vec<&Clip> = b.values().filter(|c| !a.contains_key(&c.id)).collect();
+    let changed: Vec<&Clip> = a.values().filter(|c| b.get(&c.id).is_some_and(|o| o != *c)).collect();
+    let by_kind = |v: &[&Clip]| -> String {
+        let mut m: std::collections::BTreeMap<&str, usize> = Default::default();
+        for c in v {
+            *m.entry(kind(c)).or_default() += 1;
+        }
+        m.iter().map(|(k, n)| format!("{k} ×{n}")).collect::<Vec<_>>().join(", ")
+    };
+    if !added.is_empty() {
+        out.push(format!("+ добавлено: {}", by_kind(&added)));
+    }
+    if !removed.is_empty() {
+        out.push(format!("− убрано: {}", by_kind(&removed)));
+    }
+    if !changed.is_empty() {
+        let fx: isize = changed.iter().map(|c| c.effects.len() as isize - b[&c.id].effects.len() as isize).sum();
+        let moved = changed.iter().filter(|c| (c.start - b[&c.id].start).abs() > 1e-6 || (c.duration - b[&c.id].duration).abs() > 1e-6).count();
+        let mut parts = vec![format!("изменено: {}", by_kind(&changed))];
+        if moved > 0 {
+            parts.push(format!("сдвинуто/обрезано {moved}"));
+        }
+        if fx != 0 {
+            parts.push(format!("эффекты {fx:+}"));
+        }
+        out.push(format!("~ {}", parts.join("; ")));
+    }
+    let (mb, ma) = (before.media.len(), after.media.len());
+    if ma != mb {
+        out.push(format!("медиатека: {mb} → {ma}"));
+    }
+    let (tb, ta) = (before.tracks.len(), after.tracks.len());
+    if ta != tb {
+        out.push(format!("дорожки: {tb} → {ta}"));
+    }
+    if before.settings != after.settings {
+        out.push(format!("проект: {}×{} {} fps → {}×{} {} fps", before.settings.width, before.settings.height, before.settings.fps, after.settings.width, after.settings.height, after.settings.fps));
+    }
+    let (db, da) = (before.duration(), after.duration());
+    if (da - db).abs() > 1e-3 {
+        out.push(format!("длительность: {} → {}", tc(db), tc(da)));
+    }
+    out
+}

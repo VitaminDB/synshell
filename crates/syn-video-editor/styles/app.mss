@@ -102,6 +102,7 @@
 .tile:hover { background-color: var(--surface-hover); }
 .tile-on { background-color: var(--accent-subtle, rgba(80,140,255,0.18)); }
 .tile-pending { opacity: 0.45; }
+.ai-diff { padding: 8px 10px; border-radius: 8px; background-color: var(--primary-soft); }
 .graph-thumb { background-color: var(--surface-sunken, #15171c); padding: 8px; }
 .graph-chain { font-size: 11px; color: var(--text-subtle); text-align: center; }
 .tile-thumb { flex-grow: 1; border-radius: 8px; background-color: #000000; overflow: hidden; }
