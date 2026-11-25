@@ -62,26 +62,42 @@ pub fn transcribe_file(path: &std::path::Path, lang: Option<&str>) -> Result<cra
     Ok(crate::doc::Transcript { text: t.text.trim().to_string(), language: t.language.clone(), words })
 }
 
-/// Фразы расшифровки: разрыв по паузе > 0.6 с, концу предложения или длине `max_chars`.
+/// Фразы расшифровки: разрыв по паузе > 0.6 с, концу предложения, запятой у
+/// уже длинной фразы (≥ 55 % `max_chars`) или длине `max_chars` — тогда по
+/// последней запятой внутри, чтобы не рвать мысль посередине.
 pub fn phrases(words: &[TranscriptWord], max_chars: usize) -> Vec<(f64, f64, String)> {
     let mut out = Vec::new();
     let mut cur: Vec<&TranscriptWord> = Vec::new();
-    let flush = |cur: &mut Vec<&TranscriptWord>, out: &mut Vec<(f64, f64, String)>| {
-        if let (Some(f), Some(l)) = (cur.first(), cur.last()) {
-            out.push((f.start, l.end, cur.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")));
+    let emit = |part: &[&TranscriptWord], out: &mut Vec<(f64, f64, String)>| {
+        if let (Some(f), Some(l)) = (part.first(), part.last()) {
+            out.push((f.start, l.end, part.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")));
         }
-        cur.clear();
     };
+    let chars = |ws: &[&TranscriptWord]| ws.iter().map(|w| w.text.chars().count() + 1).sum::<usize>().saturating_sub(1);
+    let soft = |w: &TranscriptWord| w.text.ends_with([',', ';', ':', '—']);
     for w in words {
         if let Some(last) = cur.last() {
-            let len: usize = cur.iter().map(|w| w.text.chars().count() + 1).sum::<usize>() + w.text.chars().count();
-            if w.start - last.end > 0.6 || last.text.ends_with(['.', '!', '?']) || len > max_chars {
-                flush(&mut cur, &mut out);
+            let len = chars(&cur) + 1 + w.text.chars().count();
+            if w.start - last.end > 0.6 || last.text.ends_with(['.', '!', '?', '…']) || (soft(last) && chars(&cur) * 100 >= max_chars * 55) {
+                emit(&cur, &mut out);
+                cur.clear();
+            } else if len > max_chars {
+                // переполнение: разорвать по последней запятой внутри, если она не в самом начале
+                match cur.iter().rposition(|x| soft(x)).filter(|&j| (j + 1) * 3 >= cur.len()) {
+                    Some(j) if j + 1 < cur.len() => {
+                        emit(&cur[..=j], &mut out);
+                        cur.drain(..=j);
+                    }
+                    _ => {
+                        emit(&cur, &mut out);
+                        cur.clear();
+                    }
+                }
             }
         }
         cur.push(w);
     }
-    flush(&mut cur, &mut out);
+    emit(&cur, &mut out);
     out
 }
 
@@ -150,7 +166,10 @@ fn subtitles(ed: &mut Editor, a: &Args) -> Res {
         let s = ((s * fps).round() / fps).max(prev_end);
         // короткую фразу показать хотя бы 0.8 с, не налезая на следующую
         let next = starts.get(i + 1).copied().unwrap_or(f64::MAX);
-        let e = e.max((s + 0.8).min(next));
+        // не дальше начала следующей и конца речи (последняя — не удлиняет проект)
+        let cap = next.min(hi);
+        let (s, e) = if e < s + 0.8 && s + 0.8 > cap { (s.min((cap - 0.8).max(prev_end)), cap.max(e)) } else { (s, e.max((s + 0.8).min(cap))) };
+        let s = ((s * fps).round() / fps).max(prev_end);
         let e = ((e * fps).round() / fps).max(s + 1.0 / fps);
         prev_end = e;
         let id = p.alloc();

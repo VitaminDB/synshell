@@ -1060,3 +1060,12 @@ fn script_run_batch_one_undo_and_rollback() {
     // необратимое и вложенный сценарий — нельзя
     assert!(run(&mut ed, "script.run", &json!({"code": "cmd(\"script.run\", #{code: \"1\"})"})).is_err());
 }
+
+#[test]
+fn phrases_break_at_commas() {
+    use crate::doc::TranscriptWord;
+    let text = "Сначала уберём паузы, потом добавим субтитры и музыку, в конце экспортируем видео.";
+    let words: Vec<TranscriptWord> = text.split(' ').enumerate().map(|(i, w)| TranscriptWord { text: w.into(), start: i as f64 * 0.4, end: i as f64 * 0.4 + 0.3 }).collect();
+    let ph: Vec<String> = crate::cmd::audio::phrases(&words, 42).into_iter().map(|p| p.2).collect();
+    assert_eq!(ph, vec!["Сначала уберём паузы,", "потом добавим субтитры и музыку,", "в конце экспортируем видео."]);
+}
