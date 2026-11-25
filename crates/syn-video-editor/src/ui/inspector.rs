@@ -14,10 +14,33 @@ use syngui::PropertyMark;
 use super::{ed, St};
 use crate::doc::{tc, Source};
 
+/// Несколько клипов в выделении (связанная пара видео+звук — один клип):
+/// все выделенные id, если «клипов» больше одного.
+fn multi(sel: &[crate::doc::Id], p: &crate::doc::Project) -> Option<Vec<crate::doc::Id>> {
+    let ids: Vec<_> = sel.iter().copied().filter(|id| p.clip(*id).is_some()).collect();
+    let mut groups: Vec<crate::doc::Id> = ids.iter().map(|id| p.linked_peer(*id).map_or(*id, |q| q.min(*id))).collect();
+    groups.sort_unstable();
+    groups.dedup();
+    (groups.len() > 1).then_some(ids)
+}
+
+/// Значения поля у клипов: одно общее или «разные».
+fn common<T: PartialEq + Copy>(vals: &[T]) -> Option<T> {
+    let f = *vals.first()?;
+    vals.iter().all(|v| *v == f).then_some(f)
+}
+
 /// Ключ состава инспектора: меняется, только когда сетку надо перестроить.
 pub fn key() -> String {
     let e = ed();
     let p = &e.project;
+    if let Some(ids) = multi(&e.selection, p) {
+        // состав и «одинаковы ли значения» (числа не включаем — протяжка не обрывается)
+        let cl: Vec<&crate::doc::Clip> = ids.iter().filter_map(|i| p.clip(*i)).collect();
+        let sp: Vec<i64> = cl.iter().filter(|c| c.media().is_some()).map(|c| (c.speed * 1000.0).round() as i64).collect();
+        let bl: Vec<&str> = cl.iter().map(|c| c.blend.as_str()).collect();
+        return format!("multi:{ids:?}:{}:{}", common(&sp).is_some(), bl.join(","));
+    }
     match e.selection.first().and_then(|id| p.clip(*id)) {
         Some(c) => {
             let src = match &c.source {
@@ -215,14 +238,15 @@ pub fn view(st: St) -> impl Widget {
     });
     ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.insp_key.get();
-        let (proj, sel) = {
+        let (proj, sel, many) = {
             let e = ed();
-            (e.project.clone(), e.selection.first().copied())
+            (e.project.clone(), e.selection.first().copied(), multi(&e.selection, &e.project))
         };
         let mut r = Rows::default();
         let clip_sel = sel.and_then(|id| proj.clip(id).cloned());
         match &clip_sel {
             None => project(&mut r, &proj),
+            Some(_) if many.is_some() => clips(&mut r, &proj, many.as_deref().unwrap_or_default()),
             Some(c) => {
                 // значения — на момент позиции (ключевые кадры)
                 let lt = (ed().playhead - c.start).clamp(0.0, c.duration);
@@ -297,6 +321,68 @@ fn project(r: &mut Rows, p: &crate::doc::Project) {
     r.info("Длительность", tc(p.duration()));
     r.info("Медиа", p.media.len().to_string());
     r.info("Дорожки", p.tracks.len().to_string());
+}
+
+/// Несколько выделенных клипов: общие поля, правка — всем одной командой.
+fn clips(r: &mut Rows, p: &crate::doc::Project, ids: &[crate::doc::Id]) {
+    let cl: Vec<&crate::doc::Clip> = ids.iter().filter_map(|i| p.clip(*i)).collect();
+    let n = cl.iter().map(|c| p.linked_peer(c.id).map_or(c.id, |q| q.min(c.id))).collect::<std::collections::BTreeSet<_>>().len();
+    r.header(&format!("Выделено клипов: {n}"));
+    let start = cl.iter().map(|c| c.start).fold(f64::INFINITY, f64::min);
+    let end = cl.iter().map(|c| c.end()).fold(0.0, f64::max);
+    r.info("Время", format!("{} — {} ({})", tc(start), tc(end), tc(end - start)));
+    let is_video = |c: &crate::doc::Clip| p.find_clip(c.id).is_some_and(|(ti, _)| p.tracks[ti].kind == crate::doc::TrackKind::Video);
+    let all: Vec<crate::doc::Id> = cl.iter().map(|c| c.id).collect();
+
+    // скорость — у клипов медиа (у связанной пары меняется вместе)
+    let media: Vec<&crate::doc::Clip> = cl.iter().copied().filter(|c| c.media().is_some()).collect();
+    if !media.is_empty() {
+        let sp: Vec<i64> = media.iter().map(|c| (c.speed * 1000.0).round() as i64).collect();
+        let same = common(&sp).is_some();
+        let ids: Vec<crate::doc::Id> = media.iter().map(|c| c.id).collect();
+        r.range(if same { "Скорость" } else { "Скорость (разная)" }, media[0].speed, 0.1, 4.0, 0.05, move |st, x| {
+            st.exec("clip.set", json!({"ids": ids, "speed": x}));
+        });
+        // громкость: у видео со связанным звуком она у звука (clip.set перенаправит)
+        let vol = |c: &crate::doc::Clip| match p.linked_peer(c.id).and_then(|q| p.clip(q)) {
+            Some(a) if is_video(c) => a.volume,
+            _ => c.volume,
+        };
+        let vols: Vec<i64> = media.iter().map(|c| (vol(c) * 1000.0).round() as i64).collect();
+        let same = common(&vols).is_some();
+        let ids: Vec<crate::doc::Id> = media.iter().map(|c| c.id).collect();
+        r.range(if same { "Громкость" } else { "Громкость (разная)" }, vol(media[0]), 0.0, 2.0, 0.01, move |st, x| {
+            st.exec("clip.set", json!({"ids": ids, "volume": x}));
+        });
+    }
+    // наложение — у слоёв видеодорожек
+    let vids: Vec<&crate::doc::Clip> = cl.iter().copied().filter(|c| is_video(c)).collect();
+    if !vids.is_empty() {
+        let bl: Vec<&str> = vids.iter().map(|c| if c.blend.is_empty() { "normal" } else { c.blend.as_str() }).collect();
+        let ids: Vec<crate::doc::Id> = vids.iter().map(|c| c.id).collect();
+        let mut items: Vec<(&str, &str)> = crate::doc::BLEND_MODES.to_vec();
+        let cur = match common(&bl) {
+            Some(b) => b,
+            None => {
+                items.insert(0, ("", "Разные"));
+                ""
+            }
+        };
+        r.choice("Наложение", &items, cur, move |st, b| {
+            if !b.is_empty() {
+                st.exec("clip.set", json!({"ids": ids, "blend": b}));
+            }
+        });
+    }
+    r.header("Действия");
+    let ids = all.clone();
+    r.action("Удалить", "Удалить", move |st| {
+        st.exec("clip.remove", json!({"ids": ids}));
+    });
+    let ids = all;
+    r.action("Удалить со сдвигом", "Удалить", move |st| {
+        st.exec("clip.remove", json!({"ids": ids, "ripple": true}));
+    });
 }
 
 /// Правка параметра: есть ключи — ключ в позиции, иначе постоянное значение.

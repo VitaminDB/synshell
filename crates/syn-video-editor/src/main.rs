@@ -223,7 +223,8 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
                 let st = ui::St::new_ephemeral(&view);
                 ui::graph::mount(st);
                 if let Ok(sel) = std::env::var("SYN_VIDEO_EDITOR_SELECT") {
-                    st.exec("selection.set", serde_json::json!({"ids": [sel]}));
+                    let ids: Vec<&str> = sel.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+                    st.exec("selection.set", serde_json::json!({"ids": ids}));
                 }
                 if let Ok(at) = std::env::var("SYN_VIDEO_EDITOR_AT") {
                     st.exec("playhead.set", serde_json::json!({"at": at}));

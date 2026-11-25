@@ -197,6 +197,22 @@ fn detach_audio() {
     let a2 = ed.project.tracks[1].clips[1].id;
     assert_eq!(ed.project.linked_peer(v2), Some(a2));
     // отвязать звук: разрывает связь, дальше двигаются независимо
+    // несколько клипов сразу: одним шагом отмены, у пары громкость — у звука
+    let undo_before = ed.undo_len();
+    run(&mut ed, "clip.set", &json!({"ids": [v, v2, a, a2], "speed": 2, "volume": 0.25})).unwrap();
+    assert_eq!(ed.undo_len(), undo_before + 1);
+    for id in [v, v2, a, a2] {
+        assert_eq!(ed.project.clip(id).unwrap().speed, 2.0);
+    }
+    assert_eq!((ed.project.clip(v2).unwrap().volume, ed.project.clip(a2).unwrap().volume), (0.0, 0.25));
+    // ошибка у любого — не меняется ни один
+    let snap = serde_json::to_string(&ed.project).unwrap();
+    run(&mut ed, "clip.set", &json!({"ids": [v, 999999], "speed": 1})).unwrap_err();
+    run(&mut ed, "clip.set", &json!({"ids": [v], "id": v, "speed": 1})).unwrap_err();
+    assert_eq!(serde_json::to_string(&ed.project).unwrap(), snap);
+    assert_eq!(ed.undo_len(), undo_before + 1);
+    run(&mut ed, "edit.undo", &json!({})).unwrap();
+    assert_eq!(ed.project.clip(v2).unwrap().speed, 1.5);
     run(&mut ed, "clip.detach_audio", &json!({"ids": [v]})).unwrap();
     assert_eq!(ed.project.linked_peer(v), None);
     assert_eq!(ed.project.linked_peer(a), None);

@@ -63,6 +63,12 @@ impl Editor {
         self.revision += 1;
     }
 
+    /// Число шагов отмены (для тестов).
+    #[cfg(test)]
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
     fn push(&mut self, label: String) {
         self.undo.push(Step { label, before: self.project.clone() });
         if self.undo.len() > HISTORY_LIMIT {

@@ -723,9 +723,10 @@ static CLIP_SET: Command = Command {
     title: "Свойства клипа",
     shortcut: "",
     keywords: "clip speed volume скорость громкость текст имя фигура наложение blend родитель parent",
-    help: "Скорость (speed: 2 — вдвое быстрее, длина клипа меняется), громкость (volume: 0–4), имя, текст титра, вид фигуры (shape), стиль титра или фигуры (style), режим наложения слоя (blend: normal|multiply|screen|overlay|add|darken|lighten|soft_light|hard_light|difference), родительский клип (parent: c… или 0/\"\" чтобы отвязать).",
+    help: "Один клип (id) или несколько сразу (ids: [c1, c2] — одним шагом отмены, при ошибке у любого не меняется ни один). Скорость (speed: 2 — вдвое быстрее, длина клипа меняется), громкость (volume: 0–4), имя, текст титра, вид фигуры (shape), стиль титра или фигуры (style), режим наложения слоя (blend: normal|multiply|screen|overlay|add|darken|lighten|soft_light|hard_light|difference), родительский клип (parent: c… или 0/\"\" чтобы отвязать).",
     args: &[
-        req("id", Ty::Id, "клип (c…)"),
+        arg("id", Ty::Id, "клип (c…)"),
+        arg("ids", Ty::Ids, "несколько клипов сразу (вместо id)"),
         arg("speed", Ty::Num, "скорость"),
         arg("volume", Ty::Num, "громкость"),
         arg("name", Ty::Str, "имя"),
@@ -740,6 +741,31 @@ static CLIP_SET: Command = Command {
 };
 
 fn clip_set(ed: &mut Editor, a: &Args) -> Res {
+    let Some(ids) = a.ids("ids")? else {
+        return clip_set_one(ed, a);
+    };
+    if a.has("id") {
+        return Err("clip.set: укажите id или ids, не оба".into());
+    }
+    if ids.is_empty() {
+        return Err("clip.set: ids пуст".into());
+    }
+    // всё на копии проекта: ошибка у любого клипа — не меняется ни один
+    let mut tmp = Editor::new();
+    tmp.project = ed.project.clone();
+    let mut lines = Vec::new();
+    for id in &ids {
+        let mut v = a.v.clone();
+        v.remove("ids");
+        v.insert("id".into(), Value::from(*id));
+        lines.push(clip_set_one(&mut tmp, &Args { cmd: a.cmd, v })?.text);
+    }
+    ed.begin("Свойства клипа");
+    ed.project = tmp.project;
+    Ok(Out::text(lines.join("\n")))
+}
+
+fn clip_set_one(ed: &mut Editor, a: &Args) -> Res {
     let id = a.need_id("id")?;
     let c = ed.project.clip(id).ok_or_else(|| format!("нет клипа c{id}"))?.clone();
     let speed = a.num("speed")?;
