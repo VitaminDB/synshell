@@ -285,7 +285,7 @@ fn bar(st: St) -> impl Widget {
         Row::new()
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new("S — разрез · Delete — удалить · Ctrl+C/V · Alt+←/→ — сдвиг").max_lines(1).elide(Elide::End).class("tl-bar-hint"))
+            .child(Text::new(if crate::layout::is_phone() { "Касание — выделить · тянуть клип · щипок — масштаб" } else { "S — разрез · Delete — удалить · Ctrl+C/V · Alt+←/→ — сдвиг" }).max_lines(1).elide(Elide::End).class("tl-bar-hint"))
             .child(DecoratedBox::new().class("grow"))
             .child(snap)
             .child(DecoratedBox::new().class("toolbar-sep"))

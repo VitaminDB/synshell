@@ -533,6 +533,7 @@ fn viewer(st: St) -> impl Widget {
 
 /// Управление воспроизведением и масштабом под кадром.
 fn transport(st: St) -> impl Widget {
+    let phone = crate::layout::is_phone();
     let btn = move |icon: &'static str, tip: &'static str, f: fn(St)| ToolButton::new(icon).tooltip(tip).on_click(move || f(st));
     DecoratedBox::new().class("transport").child(
         Row::new()
@@ -545,13 +546,13 @@ fn transport(st: St) -> impl Widget {
                     let e = ed();
                     (e.project.duration(), e.project.settings.width, e.project.settings.height)
                 };
-                vec![Box::new(
-                    Row::new()
-                        .gap(8.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Text::new(format!("{} / {}", tc(t), tc(d))).class("transport-time"))
-                        .child(Text::new(format!("{w}×{h}")).class("transport-res")),
-                )]
+                let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                // телефон: только позиция (длительность и кадр — в строке состояния)
+                row = row.child(Text::new(if phone { tc(t) } else { format!("{} / {}", tc(t), tc(d)) }).max_lines(1).class("transport-time"));
+                if !phone {
+                    row = row.child(Text::new(format!("{w}×{h}")).class("transport-res"));
+                }
+                vec![Box::new(row)]
             })))
             .child(btn("\u{E045}", "В начало (Home)", |st| st.seek_live(0.0)))
             .child(btn("\u{E020}", "Кадр назад (←)", |st| st.step(-1.0)))
@@ -565,8 +566,12 @@ fn transport(st: St) -> impl Widget {
                 let d = ed().project.duration();
                 st.seek_live(d);
             }))
-            .child(
-                DecoratedBox::new().class("grow").child(
+            .child((move || -> Box<dyn Widget> {
+                if phone {
+                    // масштаб просмотра на телефоне — щипком
+                    return Box::new(DecoratedBox::new().class("grow"));
+                }
+                Box::new(DecoratedBox::new().class("grow").child(
                     Row::new()
                         .gap(2.0)
                         .main_axis_alignment(MainAxisAlignment::End)
@@ -625,8 +630,8 @@ fn transport(st: St) -> impl Widget {
                         }))
                         .child(ToolButton::new(icons::ZOOM_IN).tooltip("Увеличить просмотр (колесо вверх)").on_click(move || st.viewer_zoom_step(1.25)))
                         .child(ToolButton::new(icons::FULLSCREEN).tooltip("Вписать кадр").on_click(move || st.viewer_fit())),
-                ),
-            ),
+                ))
+            })()),
     )
 }
 

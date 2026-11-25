@@ -293,8 +293,9 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .title("Видеоредактор")
         .app_id("syn-video-editor")
         .size(1600, 1000)
-        .min_size(900, 600)
+        .min_size(if syn_video_editor::layout::is_phone() { 320 } else { 900 }, if syn_video_editor::layout::is_phone() { 480 } else { 600 })
         .maximized(std::env::var("SYN_VIDEO_EDITOR_MAXIMIZED").map(|v| v != "0").unwrap_or(true))
+        .fullscreen(syn_video_editor::layout::start_fullscreen())
         .frameless()
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
@@ -312,6 +313,7 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
             ui::socket::start(st);
             syn_video_editor::layout::autosave(st.dock, st.view);
             ui::autosave(st);
+            ui::track_fullscreen(st);
             Box::new(ui::root(st)) as Box<dyn Widget>
         });
 }

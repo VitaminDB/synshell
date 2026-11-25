@@ -274,7 +274,7 @@ impl St {
     pub fn run_menu(self, id: &str) {
         match id {
             "view.palette" => return self.palette_open.set(true),
-            "view.fullscreen" => return syngui::signal::toggle_fullscreen(),
+            "view.fullscreen" => return self.set_fullscreen(!self.window.get_untracked().fullscreen),
             "view.ai" => return self.open_panel("ai"),
             "view.layout.save" => return layouts_ui::open_save(self),
             "view.layout.manage" => return layouts_ui::open_manage(self),
@@ -508,9 +508,15 @@ impl St {
         self.toast.set(Some(format!("Вид: {title}")));
     }
 
+    /// Во весь экран или в окно; выбор запоминается (на телефоне по умолчанию — во весь экран).
+    pub fn set_fullscreen(self, on: bool) {
+        // запоминает track_fullscreen — по фактическому состоянию окна
+        syngui::signal::set_fullscreen(on);
+    }
+
     pub fn reset_layout(self) {
         let cur = self.view.get_untracked();
-        let key = if crate::layout::BUILTINS.iter().any(|b| b.0 == cur) { cur } else { crate::layout::DEFAULT_VIEW.to_string() };
+        let key = if crate::layout::BUILTINS.iter().any(|b| b.0 == cur) { cur } else { crate::layout::default_view().to_string() };
         let spec = crate::layout::builtin_spec(&key);
         self.view.set(key.clone());
         self.dock.set_spec(spec.clone());
@@ -713,11 +719,11 @@ pub fn root(st: St) -> impl Widget {
     let hotkeys = EventHook::new()
         .on_key_down(move |key, mods| {
             if key == Key::F11 {
-                syngui::signal::toggle_fullscreen();
+                st.set_fullscreen(!st.window.get_untracked().fullscreen);
                 return KeyReply::Handled;
             }
             if key == Key::Escape && st.window.get_untracked().fullscreen {
-                syngui::signal::set_fullscreen(false);
+                st.set_fullscreen(false);
                 return KeyReply::Handled;
             }
             if !mods.ctrl && !mods.alt && !mods.shift {
@@ -926,7 +932,7 @@ fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
     out
 }
 
-fn titlebar(st: St) -> impl Widget {
+fn titlebar(st: St) -> Box<dyn Widget> {
     let mut menu = MenuBar::new().on_select(move |id| st.run_menu(id));
     for (title, items) in menus() {
         menu = menu.menu(title, move || items.clone());
@@ -936,7 +942,22 @@ fn titlebar(st: St) -> impl Widget {
         let w = st.window.get();
         vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
     });
-    WindowDragRegion::new().child(
+    if crate::layout::is_phone() {
+        // телефон: значок, меню одной кнопкой (палитра команд — всё, что в меню), кнопки окна
+        return Box::new(WindowDragRegion::new().child(
+            DecoratedBox::new().class("titlebar").child(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("logo-mark").child(Icon::new(icons::MOVIE).class("logo-icon")))
+                    .child(Text::new("Видеоредактор").max_lines(1).class("logo-text"))
+                    .child(DecoratedBox::new().class("grow"))
+                    .child(ToolButton::new(icons::SEARCH).tooltip("Команды, медиа, эффекты").on_click(move || st.palette_open.set(true)))
+                    .child(DecoratedBox::new().class("window-controls").child(controls)),
+            ),
+        ));
+    }
+    Box::new(WindowDragRegion::new().child(
         DecoratedBox::new().class("titlebar").child(
             Row::new()
                 .gap(10.0)
@@ -968,7 +989,7 @@ fn titlebar(st: St) -> impl Widget {
                 .child(link_chip("", "github", "GitHub", "Исходники synshell на GitHub", || { let _ = syngui::open_url(GITHUB_URL); }))
                 .child(DecoratedBox::new().class("window-controls").child(controls)),
         ),
-    )
+    ))
 }
 
 fn sep() -> impl Widget {
@@ -976,9 +997,9 @@ fn sep() -> impl Widget {
 }
 
 fn toolbar(st: St) -> impl Widget {
+    let phone = crate::layout::is_phone();
     let cmd_btn = move |icon: &'static str, tip: &'static str, id: &'static str| ToolButton::new(icon).tooltip(tip).on_click(move || st.run_menu(id));
-    DecoratedBox::new().class("toolbar").child(
-        Row::new()
+    let row = Row::new()
             .gap(4.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(cmd_btn(icons::FOLDER_OPEN, "Открыть… (Ctrl+O)", "project.open"))
@@ -1015,9 +1036,13 @@ fn toolbar(st: St) -> impl Widget {
             .child(ToolButton::new(icons::ZOOM_IN).tooltip("Крупнее").on_click(move || st.zoom.update(|z| *z = (*z * 1.5).min(800.0))))
             .child(DecoratedBox::new().class("grow"))
             .child(
-                GestureDetector::new().on_click(move || st.dock.open("ai", Some("inspector"))).child(
-                    DecoratedBox::new().class("tool-pill").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::AI).class("tool-pill-icon")).child(Text::new("ИИ-монтаж").class("tool-pill-text"))),
-                ),
+                GestureDetector::new().on_click(move || st.open_panel("ai")).child({
+                    let mut pill = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::AI).class("tool-pill-icon"));
+                    if !phone {
+                        pill = pill.child(Text::new("ИИ-монтаж").class("tool-pill-text"));
+                    }
+                    DecoratedBox::new().class("tool-pill").child(pill)
+                }),
             )
             .child(move || {
                 let _ = st.layout_rev.get();
@@ -1051,9 +1076,11 @@ fn toolbar(st: St) -> impl Widget {
             })
             .child(move || {
                 let fs = st.window.get().fullscreen;
-                ToolButton::new(if fs { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }).tooltip(if fs { "Выйти из полноэкранного режима (F11)" } else { "Во весь экран (F11)" }).on_click(syngui::signal::toggle_fullscreen)
-            }),
-    )
+                ToolButton::new(if fs { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }).tooltip(if fs { "Выйти из полноэкранного режима (F11)" } else { "Во весь экран (F11)" }).on_click(move || st.set_fullscreen(!st.window.get_untracked().fullscreen))
+            });
+    // телефон: кнопки не помещаются — лента прокручивается пальцем
+    let body: Box<dyn Widget> = if phone { Box::new(ScrollView::new().horizontal().child(row)) } else { Box::new(row) };
+    DecoratedBox::new().class("toolbar").child(body)
 }
 
 fn dock(st: St) -> impl Widget {
@@ -1156,6 +1183,27 @@ fn link_chip(glyph: &'static str, variant: &'static str, label: &'static str, to
 
 /// Автосохранение: через 2 с после правки (проект с файлом — в свой файл,
 /// без файла — в `autosave.syn`); последний проект запоминается для запуска.
+/// Запоминать полноэкранный режим, как бы его ни переключили (кнопка, F11,
+/// композитор): после того как окно приняло режим запуска — до этого
+/// исходное «не во весь экран» затёрло бы выбор.
+pub fn track_fullscreen(st: St) {
+    let want = crate::layout::start_fullscreen();
+    let settled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!want));
+    let last = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(want));
+    syngui::signal::create_detached_effect(move || {
+        let fs = st.window.get().fullscreen;
+        if !settled.load(std::sync::atomic::Ordering::Relaxed) {
+            if fs == want {
+                settled.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            return;
+        }
+        if last.swap(fs, std::sync::atomic::Ordering::Relaxed) != fs {
+            crate::layout::save_fullscreen(fs);
+        }
+    });
+}
+
 pub fn autosave(st: St) {
     std::thread::spawn(move || {
         let mut saved_rev = u64::MAX;

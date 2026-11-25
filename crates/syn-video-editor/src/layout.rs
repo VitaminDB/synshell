@@ -38,6 +38,7 @@ pub fn is_known_panel(id: &str) -> bool {
 
 /// Встроенные пресеты видов: (ключ, название, описание, порядок).
 pub const BUILTINS: &[(&str, &str, &str, i32)] = &[
+    ("phone", "Телефон", "Для телефона: просмотр сверху, таймлайн посередине, остальные панели — вкладками снизу", 5),
     ("edit", "Монтаж", "Классический монтаж: медиатека и эффекты слева, просмотр в центре, инспектор справа, таймлайн снизу", 10),
     ("motion", "Моушн", "Моушн-графика: дерево слоёв слева, просмотр и инспектор сверху, таймлайн и кривые рядом снизу", 20),
     ("graph", "Граф", "Узловой граф эффектов в центре, просмотр и инспектор справа", 30),
@@ -48,8 +49,45 @@ pub const BUILTINS: &[(&str, &str, &str, i32)] = &[
 
 pub const DEFAULT_VIEW: &str = "edit";
 
+/// Телефон (`SYNSHELL_FORM_FACTOR=phone`, Android, iOS): компактный интерфейс.
+pub fn is_phone() -> bool {
+    synshell_common::csd::is_phone()
+}
+
+fn window_file() -> PathBuf {
+    config_dir().join("window.toml")
+}
+
+/// Сохранённый выбор полноэкранного режима (`fullscreen = true|false`).
+pub fn saved_fullscreen() -> Option<bool> {
+    let s = std::fs::read_to_string(window_file()).ok()?;
+    s.lines().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        (k.trim() == "fullscreen").then(|| v.trim() == "true")
+    })
+}
+
+/// Полный экран при запуске: выбор пользователя, иначе — на телефоне.
+pub fn start_fullscreen() -> bool {
+    saved_fullscreen().unwrap_or_else(is_phone)
+}
+
+pub fn save_fullscreen(on: bool) {
+    let _ = write_atomic(&window_file(), &format!("fullscreen = {on}\n"));
+}
+
+/// Вид по умолчанию: на телефоне — «Телефон», иначе «Монтаж».
+pub fn default_view() -> &'static str {
+    if is_phone() {
+        "phone"
+    } else {
+        DEFAULT_VIEW
+    }
+}
+
 /// Сценарии встроенных видов (`library/layouts/<ключ>.rhai`).
 pub const BUILTIN_SCRIPTS: &[(&str, &str)] = &[
+    ("phone", include_str!("../library/layouts/phone.rhai")),
     ("edit", include_str!("../library/layouts/edit.rhai")),
     ("motion", include_str!("../library/layouts/motion.rhai")),
     ("graph", include_str!("../library/layouts/graph.rhai")),
@@ -258,7 +296,7 @@ fn load_current_in(cfg: &Path) -> (String, DockSpec) {
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|t| decode_current(&t))
-        .unwrap_or_else(|| (DEFAULT_VIEW.to_string(), builtin_spec(DEFAULT_VIEW)))
+        .unwrap_or_else(|| (default_view().to_string(), builtin_spec(default_view())))
 }
 
 /// Сохранить текущую раскладку и активный ключ вида.

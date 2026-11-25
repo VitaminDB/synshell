@@ -78,12 +78,17 @@ pub fn view(st: St) -> impl Widget {
         let g = Grade::from_params(&params);
         let cid = c.id;
         let name = if c.name.trim().is_empty() { format!("Клип c{cid}") } else { format!("c{cid} · {}", c.name.trim()) };
+        // узкая панель (телефон): всё столбцом с прокруткой, колёса по ширине
+        let size = st.color_curve_size.get();
+        let narrow = size.width < 700.0;
+        let ws = if narrow { ((size.width - 16.0 - 2.0 * 14.0) / 3.0).clamp(72.0, WHEEL) } else { WHEEL };
 
-        let head = Row::new()
-            .gap(8.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new(name).max_lines(1).class("cg-title"))
-            .child(DecoratedBox::new().class("grow"))
+        let title = Text::new(name).max_lines(1).class("cg-title");
+        let mut head = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        if !narrow {
+            head = head.child(title).child(DecoratedBox::new().class("grow"));
+        }
+        let head = head
             .child(Button::new(if compare { "До | После ✓" } else { "До | После" }).class(if compare { "primary-btn" } else { "head-btn" }).on_click(move || st.color_compare.set(!st.color_compare.get_untracked())))
             .child(Button::new("Сбросить").class("head-btn").on_click(move || {
                 if let Some(eid) = ed().project.clip(cid).and_then(|c| c.effects.iter().find(|e| e.kind == "grade").map(|e| e.id)) {
@@ -94,7 +99,7 @@ pub fn view(st: St) -> impl Widget {
         let mut wheels = Row::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Start);
         for (i, (key, label)) in WHEEL_KEYS.iter().zip(["Тени", "Средние", "Света"]).enumerate() {
             let w = [g.lift, g.gamma, g.gain][i];
-            wheels = wheels.child(wheel(st, cid, key, label, w.x, w.y, w.l));
+            wheels = wheels.child(wheel(st, cid, key, label, w.x, w.y, w.l, ws));
         }
 
         let mut chips = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Кривая:").class("cv-hint"));
@@ -102,9 +107,11 @@ pub fn view(st: St) -> impl Widget {
             let on = i == ch;
             chips = chips.child(GestureDetector::new().cursor(syngui::input::CursorIcon::Pointer).on_click(move || st.color_channel.set(i)).child(DecoratedBox::new().class("cv-chip").class(if on { "cv-chip-on" } else { "" }).child(Text::new(*l).class("cv-chip-text"))));
         }
-        chips = chips.child(Text::new("щелчок — точка, тянуть, 2×щелчок — убрать").class("cv-hint"));
+        if !narrow {
+            chips = chips.child(Text::new("щелчок — точка, тянуть, 2×щелчок — убрать").class("cv-hint"));
+        }
 
-        let curve = curve_view(st, cid, ch, g.curves.clone());
+        let curve = curve_view(st, cid, ch, g.curves.clone(), narrow);
 
         // LUT клипа
         let lut = c.effects.iter().find(|e| e.kind == "lut").cloned();
@@ -128,6 +135,19 @@ pub fn view(st: St) -> impl Widget {
         }
         lut_row = lut_row.child(DecoratedBox::new().class("grow")).child(Button::new("Подобрать LUT…").class("head-btn").on_click(move || st.open_panel("luts")));
 
+        if narrow {
+            let col = Column::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(Text::new(if c.name.trim().is_empty() { format!("Клип c{cid}") } else { format!("c{cid} · {}", c.name.trim()) }).max_lines(1).class("cg-title"))
+                .child(head)
+                .child(wheels)
+                .child(chips)
+                .child(curve)
+                .child(lut_row);
+            return vec![Box::new(ScrollView::new().vertical().child(col))];
+        }
+        let _ = title;
         let left = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(wheels).child(lut_row);
         let right = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(chips).child(curve);
         vec![Box::new(
@@ -151,9 +171,9 @@ pub fn view(st: St) -> impl Widget {
 }
 
 /// Колесо: круг оттенков, точка, ползунок яркости.
-fn wheel(st: St, cid: u64, key: &'static str, label: &'static str, x: f32, y: f32, l: f32) -> impl Widget {
-    let r = WHEEL / 2.0 - 6.0;
-    let (cx0, cy0) = (WHEEL / 2.0, WHEEL / 2.0);
+fn wheel(st: St, cid: u64, key: &'static str, label: &'static str, x: f32, y: f32, l: f32, ws: f32) -> impl Widget {
+    let r = ws / 2.0 - 6.0;
+    let (cx0, cy0) = (ws / 2.0, ws / 2.0);
     let painter = Canvas::new(move |cx, _| {
         // круг оттенков: к краю насыщеннее
         for ri in 0..9 {
@@ -178,7 +198,7 @@ fn wheel(st: St, cid: u64, key: &'static str, label: &'static str, x: f32, y: f3
         cx.set_color(Color::from_srgb(255, 255, 255, 1.0));
         cx.fill_circle(px, py, 5.0);
     })
-    .size(WHEEL, WHEEL);
+    .size(ws, ws);
     let to_wheel = move |(mx, my): (f32, f32)| {
         let (mut wx, mut wy) = ((mx - cx0) / r, -(my - cy0) / r);
         let d = wx.hypot(wy);
@@ -197,21 +217,21 @@ fn wheel(st: St, cid: u64, key: &'static str, label: &'static str, x: f32, y: f3
         .on_double_click(move || set(st, cid, json!({format!("{key}_x"): 0.0, format!("{key}_y"): 0.0})))
         .on_pan_start(move |_| put(pt(key)))
         .on_pan_update(move |_| put(pt(key)))
-        .child(DecoratedBox::new().style("width", WHEEL).style("height", WHEEL));
+        .child(DecoratedBox::new().style("width", ws).style("height", ws));
     let area = EventHook::new()
         .on_hover_at(move |p| {
             if let Some((p, _)) = p {
                 set_pt(key, (p.x, p.y));
             }
         })
-        .child(Stack::new().child(painter).child(Positioned::new(surface).at(0.0, 0.0).dimensions(WHEEL, WHEEL)));
+        .child(Stack::new().child(painter).child(Positioned::new(surface).at(0.0, 0.0).dimensions(ws, ws)));
     let info = format!("{label}  {:+.2}", l);
     Column::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Text::new(info).class("cg-label"))
         .child(area)
-        .child(Slider::new().range(-1.0, 1.0).value(l).width(WHEEL).on_change(move |v| set(st, cid, json!({key: r3(v)}))))
+        .child(Slider::new().range(-1.0, 1.0).value(l).width(ws).on_change(move |v| set(st, cid, json!({key: r3(v)}))))
 }
 
 fn curve_color(ch: usize) -> Color {
@@ -224,12 +244,18 @@ fn curve_color(ch: usize) -> Color {
 }
 
 /// Холст кривой выбранного канала.
-fn curve_view(st: St, cid: u64, ch: usize, curves: [Vec<[f32; 2]>; 4]) -> impl Widget {
+fn curve_view(st: St, cid: u64, ch: usize, curves: [Vec<[f32; 2]>; 4], narrow: bool) -> impl Widget {
     // панель: шапка ~34, колёса 3×(WHEEL+16) слева, чипы ~28, отступы
     let size = st.color_curve_size.get();
-    let w = (size.width - 3.0 * (WHEEL + 14.0) - 16.0 - 24.0).max(140.0);
-    let h = (size.height - 34.0 - 28.0 - 16.0 - 26.0).clamp(90.0, 420.0);
-    let side = w.min(h * 1.8).max(140.0);
+    let (side, h) = if narrow {
+        // столбцом: на всю ширину, высота — как у квадрата, но не выше 220
+        let w = (size.width - 20.0).max(140.0);
+        (w, (w * 0.6).clamp(120.0, 220.0))
+    } else {
+        let w = (size.width - 3.0 * (WHEEL + 14.0) - 16.0 - 24.0).max(140.0);
+        let h = (size.height - 34.0 - 28.0 - 16.0 - 26.0).clamp(90.0, 420.0);
+        (w.min(h * 1.8).max(140.0), h)
+    };
     let (iw, ih) = (side - 2.0 * PAD, h - 2.0 * PAD);
     let to_px = move |p: [f32; 2]| (PAD + p[0] * iw, PAD + (1.0 - p[1]) * ih);
     let from_px = move |(x, y): (f32, f32)| [((x - PAD) / iw).clamp(0.0, 1.0), (1.0 - (y - PAD) / ih).clamp(0.0, 1.0)];
