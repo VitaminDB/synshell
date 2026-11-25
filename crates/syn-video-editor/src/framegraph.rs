@@ -31,6 +31,7 @@ pub const KINDS: &[(&str, &str, &[&str], &str)] = &[
     ("lut", "LUT", &["in"], "path (.cube), strength 0–1"),
     ("glow", "Свечение", &["in"], "size (пикс.), strength 0–2"),
     ("upscale", "Нейроувеличение", &["in"], "model (plksr|span|compact|nanovsr)"),
+    ("block", "Блок", &["in"], "block (имя), values {параметр: значение}; внутри — свой граф"),
     ("merge", "Слияние", &["bg", "fg"], "mode (normal|screen|add|multiply|overlay|darken|lighten|soft_light|hard_light|difference), opacity 0–1"),
 ];
 
@@ -218,7 +219,9 @@ impl FrameGraph {
         let mut lines = Vec::new();
         for n in &self.nodes {
             let ins: Vec<String> = inputs_of(&n.kind).iter().map(|p| format!("{p}←{}", self.input(n.id, p).map(|f| f.to_string()).unwrap_or_else(|| "—".into()))).collect();
-            let params = if n.params.is_empty() { String::new() } else { format!(" {}", Value::Object(n.params.clone())) };
+            // у блока — только имя и вынесенные значения (вложенный граф длинный)
+            let shown: Map<String, Value> = if n.kind == "block" { n.params.iter().filter(|(k, _)| matches!(k.as_str(), "block" | "values")).map(|(k, v)| (k.clone(), v.clone())).collect() } else { n.params.clone() };
+            let params = if shown.is_empty() { String::new() } else { format!(" {}", Value::Object(shown)) };
             lines.push(format!("  {} {} «{}»{}{}", n.id, n.kind, kind_title(&n.kind), if ins.is_empty() { String::new() } else { format!(" [{}]", ins.join(", ")) }, params));
         }
         lines.join("\n")
@@ -228,7 +231,10 @@ impl FrameGraph {
     /// во сколько раз кадр меньше 1080p (радиусы в пикселях 1080p);
     /// `neural` — нейрофильтр ноды (увеличение), `None` — пропустить.
     pub fn eval(&self, w: u32, h: u32, src: &[u8], scale: f32, neural: &mut dyn FnMut(&GNode, &Image) -> Option<Image>) -> Image {
-        let source = Image::from_rgba8(w, h, src);
+        self.eval_image(Image::from_rgba8(w, h, src), scale, neural)
+    }
+
+    pub fn eval_image(&self, source: Image, scale: f32, neural: &mut dyn FnMut(&GNode, &Image) -> Option<Image>) -> Image {
         let Some(out) = self.nodes.iter().find(|n| n.kind == "output") else { return source };
         let mut memo: HashMap<u32, Image> = HashMap::new();
         let r = self.eval_node(out.id, &source, scale, neural, &mut memo, 0);
@@ -248,6 +254,13 @@ impl FrameGraph {
         let res = match n.kind.as_str() {
             "source" => source.clone(),
             "output" => input("in", memo, neural).unwrap_or_else(|| Image::empty(source.width, source.height)),
+            "block" => {
+                let i = input("in", memo, neural).unwrap_or_else(|| Image::empty(source.width, source.height));
+                match crate::blocks::inner(p) {
+                    Some(g) if depth < 8 => g.eval_image(i, scale, neural),
+                    _ => i,
+                }
+            }
             "merge" => {
                 let bg = input("bg", memo, neural).unwrap_or_else(|| Image::empty(source.width, source.height));
                 match input("fg", memo, neural) {

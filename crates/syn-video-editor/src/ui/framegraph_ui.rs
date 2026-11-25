@@ -55,6 +55,7 @@ const SPEC: &[(&str, &str, &[FieldSchema], &[(&str, f32)])] = &[
     ("glow", "vefg_glow", F_GLOW, &[("size", 20.0), ("strength", 0.6)]),
     ("upscale", "vefg_upscale", F_UPSCALE, &[]),
     ("merge", "vefg_merge", F_MERGE, &[("opacity", 1.0)]),
+    ("block", "vefg_block", &[], &[]),
 ];
 
 fn ext(kind: &str) -> Option<NodeKind> {
@@ -87,6 +88,7 @@ pub fn register() {
                 "merge" => "\u{E3A5}",
                 "lut" => "\u{E40A}",
                 "upscale" => "\u{E8FF}",
+                "block" => "\u{E1BD}",
                 _ => "\u{E3A1}",
             },
             title: crate::framegraph::kind_title(kind),
@@ -217,15 +219,17 @@ fn conns_of(g: &FrameGraph) -> Vec<Connection> {
         .collect()
 }
 
-/// Граф из холста (только ноды кадра; прочее игнорируется).
-fn read(ctx: NodeEditorCtx, track: bool) -> FrameGraph {
+/// Граф из холста (только ноды кадра; прочее игнорируется). Параметры,
+/// которых нет на карточке (вложенный граф блока, значения), берутся из
+/// `base` — текущего графа клипа.
+fn read(ctx: NodeEditorCtx, track: bool, base: Option<&FrameGraph>) -> FrameGraph {
     let nodes = if track { ctx.nodes.get() } else { ctx.nodes.get_untracked() };
     let conns = if track { ctx.connections.get() } else { ctx.connections.get_untracked() };
     let mut g = FrameGraph::default();
     for n in &nodes {
         let Some(kind) = graph_kind(n.kind) else { continue };
         let pos = if track { n.pos.get() } else { n.pos.get_untracked() };
-        let mut params = Map::new();
+        let mut params = base.and_then(|b| b.node(n.id.0 as u32)).filter(|b| b.kind == kind).map(|b| b.params.clone()).unwrap_or_default();
         for (name, fv) in n.fields.lock().unwrap().iter() {
             let v = match fv {
                 FieldValue::Float(s) => json!(((if track { s.get() } else { s.get_untracked() }) as f64 * 1000.0).round() / 1000.0),
@@ -312,8 +316,8 @@ pub fn open(st: St, cid: u64) {
         if o.gen != gen {
             return;
         }
-        let g = read(ctx, true);
         let cur = ed().project.clip(cid).and_then(|c| c.graph.clone());
+        let g = read(ctx, true, cur.as_ref());
         match cur {
             Some(c) if same(&c, &g) => {}
             Some(_) => {
@@ -336,7 +340,7 @@ pub fn open(st: St, cid: u64) {
         }
         match ed().project.clip(cid).and_then(|c| c.graph.clone()) {
             Some(g) => {
-                if !same(&g, &read(ctx, false)) {
+                if !same(&g, &read(ctx, false, Some(&g))) {
                     fill(ctx, &g);
                 }
             }

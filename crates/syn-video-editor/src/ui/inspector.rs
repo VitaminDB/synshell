@@ -93,7 +93,7 @@ pub fn key() -> String {
                 }
                 None => "-".into(),
             };
-            let gk = c.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
+            let gk = c.graph.as_ref().map(|g| g.nodes.iter().map(|n| if n.kind == "block" { format!("b{}", n.id) } else { "n".into() }).collect::<String>()).unwrap_or_default();
             format!("c{}:{src}:{}:{tr_key}:{:.4}:{:.4}:{}:{par}:{lnk}{anim}:g{gk}", c.id, fx.join(","), c.start, c.duration, c.blend)
         }
         None => format!("p:{}x{}@{}:{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.settings.bg, p.media.len(), p.tracks.len(), p.duration()),
@@ -415,6 +415,22 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
             None => "Открыть как граф".to_string(),
         };
         r.action("Граф кадра", &label, move |st| super::framegraph_ui::open(st, id));
+        // вынесенные параметры блоков графа
+        for n in base.graph.iter().flat_map(|g| g.nodes.iter()).filter(|n| n.kind == "block") {
+            let title = n.params.get("block").and_then(Value::as_str).unwrap_or("Блок");
+            r.header(&format!("Блок «{title}»"));
+            let vals = n.params.get("values").and_then(Value::as_object).cloned().unwrap_or_default();
+            for e in crate::blocks::exposes(&n.params) {
+                let nid = n.id;
+                let key = e.key.clone();
+                let v = vals.get(&e.key).and_then(Value::as_f64).unwrap_or(e.default);
+                let step = ((e.max - e.min) / 100.0).max(0.001);
+                let step = if step >= 1.0 { 1.0 } else if step >= 0.1 { 0.1 } else if step >= 0.01 { 0.01 } else { 0.001 };
+                r.range(&e.label, v, e.min, e.max, step, move |st, x| {
+                    st.exec("block.set", json!({"id": id, "node": nid, "values": {key.clone(): x}}));
+                });
+            }
+        }
     }
     r.add(Property::text("Имя", c.name.clone()), move |st, v| {
         if let PropertyValue::Text(s) = v {

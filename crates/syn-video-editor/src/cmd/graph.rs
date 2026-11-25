@@ -69,6 +69,24 @@ fn open(ed: &mut Editor, a: &Args) -> Res {
     Ok(Out::with(format!("c{id}: открыт граф кадра{warn}\n{text}"), json!({"id": id})))
 }
 
+/// Граф у клипа есть или создаётся из его эффектов (без шага отмены — его открывает вызывающий).
+pub(super) fn ensure(ed: &mut Editor, id: Id) -> Result<(), String> {
+    let c = ed.project.clip(id).ok_or_else(|| format!("нет клипа c{id}"))?;
+    if c.graph.is_some() {
+        return Ok(());
+    }
+    if ed.project.find_clip(id).is_some_and(|(ti, _)| ed.project.tracks[ti].kind == crate::doc::TrackKind::Audio) {
+        return Err(format!("c{id} — звуковой клип"));
+    }
+    let cm = ed.project.clip_mut(id).unwrap();
+    let g = FrameGraph::chain(&cm.effects);
+    let moved: Vec<Id> = cm.effects.iter().filter(|e| IMAGE_FX.contains(&e.kind.as_str())).map(|e| e.id).collect();
+    cm.effects.retain(|e| !IMAGE_FX.contains(&e.kind.as_str()));
+    cm.keys.retain(|k, _| !moved.iter().any(|m| k.starts_with(&format!("e{m}."))));
+    cm.graph = Some(g);
+    Ok(())
+}
+
 static SHOW: Command = Command {
     id: "graph.show",
     category: "Граф",

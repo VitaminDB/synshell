@@ -65,7 +65,7 @@ fn target() -> Option<(u64, f64, crate::doc::Project)> {
 }
 
 /// Демо-кадр без клипа: небо, кожа, зелень, радуга и шкала серого.
-fn demo() -> RgbaFrame {
+pub(super) fn demo() -> RgbaFrame {
     let mut px = vec![0u8; (TW * TH * 4) as usize];
     for y in 0..TH {
         for x in 0..TW {

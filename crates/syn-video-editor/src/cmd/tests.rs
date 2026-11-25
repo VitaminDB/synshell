@@ -878,3 +878,59 @@ fn frame_graph_open_branch_eval_close() {
     run(&mut ed, "edit.undo", &json!({})).unwrap();
     assert!(ed.project.clip(v).unwrap().graph.is_some());
 }
+
+/// D2: блоки — наложение встроенного, вынесенные параметры влияют на кадр,
+/// сохранение своего блока из графа и его наложение.
+#[test]
+fn blocks_apply_params_save() {
+    let dir = std::env::temp_dir().join(format!("sve-d2-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::env::set_var("SYN_VIDEO_EDITOR_BLOCKS", &dir);
+    let mut ed = ed_with_media(10.0);
+    let mid = ed.project.media[0].id;
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 0})).unwrap();
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 10})).unwrap();
+    let v1 = ed.project.tracks[0].clips[0].id;
+    let v2 = ed.project.tracks[0].clips[1].id;
+    let a1 = ed.project.tracks[1].clips[0].id;
+    assert!(run(&mut ed, "block.list", &json!({})).unwrap().text.contains("Мягкое свечение"));
+    let undo0 = ed.undo_len();
+    run(&mut ed, "block.apply", &json!({"ids": [v1, a1], "name": "резкий", "values": {"contrast": 5}})).unwrap();
+    assert_eq!(ed.undo_len(), undo0 + 1, "один шаг");
+    assert!(ed.project.clip(a1).unwrap().graph.is_none(), "звук пропущен");
+    let g = ed.project.clip(v1).unwrap().graph.clone().unwrap();
+    let b = g.nodes.iter().find(|n| n.kind == "block").unwrap();
+    assert_eq!(b.params["values"]["contrast"].as_f64(), Some(1.0), "значение в пределах");
+    assert_eq!(g.input(g.nodes.iter().find(|n| n.kind == "output").unwrap().id, "in"), Some(b.id));
+    // ч/б: красный пиксель становится серым; без насыщенности — нет
+    let (w, h) = (8u32, 4u32);
+    let src: Vec<u8> = (0..w * h).flat_map(|_| [220u8, 30, 30, 255]).collect();
+    let px = g.eval(w, h, &src, 0.01, &mut |_, _| None).to_rgba8();
+    assert!((px[0] as i32 - px[1] as i32).abs() < 4, "серый: {:?}", &px[..4]);
+    run(&mut ed, "block.set", &json!({"id": v1, "node": b.id, "values": {"nope": 1}})).unwrap_err();
+    run(&mut ed, "block.set", &json!({"id": v1, "node": b.id, "values": {"contrast": 0.0}})).unwrap();
+    let g = ed.project.clip(v1).unwrap().graph.clone().unwrap();
+    assert_eq!(g.node(b.id).unwrap().params["values"]["contrast"].as_f64(), Some(0.0));
+    // свой блок: размытие → слияние (экран) с вынесенным радиусом
+    run(&mut ed, "graph.open", &json!({"id": v2})).unwrap();
+    run(&mut ed, "graph.add", &json!({"id": v2, "kind": "merge", "after": 1, "params": {"mode": "screen", "opacity": 0.5}})).unwrap();
+    let gm = ed.project.clip(v2).unwrap().graph.clone().unwrap();
+    let merge = gm.nodes.iter().find(|n| n.kind == "merge").unwrap().id;
+    run(&mut ed, "graph.add", &json!({"id": v2, "kind": "blur", "params": {"radius": 10}})).unwrap();
+    let blur = ed.project.clip(v2).unwrap().graph.as_ref().unwrap().nodes.iter().find(|n| n.kind == "blur").unwrap().id;
+    run(&mut ed, "graph.link", &json!({"id": v2, "from": 1, "to": blur})).unwrap();
+    run(&mut ed, "graph.link", &json!({"id": v2, "from": blur, "to": merge, "port": "fg"})).unwrap();
+    run(&mut ed, "block.save", &json!({"id": v2, "name": "Мой глоу", "nodes": [blur, merge], "expose": [{"key": "r", "label": "Радиус", "node": blur, "param": "radius", "min": 0, "max": 50}]})).unwrap();
+    let mine = crate::blocks::find("мой глоу").unwrap();
+    assert!(!mine.builtin);
+    assert_eq!(mine.expose[0].default, 10.0);
+    assert_eq!(mine.graph.nodes.len(), 4);
+    mine.graph.validate().unwrap();
+    run(&mut ed, "block.apply", &json!({"ids": [v1], "name": "Мой глоу", "values": {"r": 20}})).unwrap();
+    let g = ed.project.clip(v1).unwrap().graph.clone().unwrap();
+    assert_eq!(g.nodes.iter().filter(|n| n.kind == "block").count(), 2);
+    // несвязные ноды — ошибка
+    run(&mut ed, "block.save", &json!({"id": v2, "name": "x", "nodes": [1]})).unwrap_err();
+    std::env::remove_var("SYN_VIDEO_EDITOR_BLOCKS");
+    let _ = std::fs::remove_dir_all(&dir);
+}

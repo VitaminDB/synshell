@@ -329,8 +329,56 @@ fn effects(st: St) -> impl Widget {
             }
             col = col.child(grid);
         }
+        col = col.child(Text::new("БЛОКИ").class("section-title"));
+        let mut grid = Grid::new(16).min_column_width(size).gap(8.0);
+        for b in crate::blocks::all() {
+            grid = grid.child(block_tile(st, b));
+        }
+        col = col.child(grid);
         vec![Box::new(col)]
     }))
+}
+
+/// Превью блока на демо-кадре (кэш по имени и содержимому).
+fn block_thumb(b: &crate::blocks::Block) -> syngui::video::RgbaFrame {
+    use std::collections::HashMap;
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, syngui::video::RgbaFrame>>> = std::sync::OnceLock::new();
+    let key = format!("{}:{}", b.name, serde_json::to_string(&b.graph).unwrap_or_default());
+    let m = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(f) = m.lock().unwrap().get(&key) {
+        return f.clone();
+    }
+    let base = super::luts::demo();
+    let params = crate::blocks::node_params(b, None);
+    let out = match crate::blocks::inner(&params) {
+        Some(g) => {
+            let im = g.eval(base.width, base.height, &base.rgba, base.height as f32 / 1080.0, &mut |_, _| None);
+            syngui::video::RgbaFrame { width: im.width, height: im.height, pts: 0.0, rgba: std::sync::Arc::new(im.to_rgba8()) }
+        }
+        None => base,
+    };
+    m.lock().unwrap().insert(key, out.clone());
+    out
+}
+
+fn block_tile(st: St, b: crate::blocks::Block) -> Box<dyn Widget> {
+    let f = block_thumb(&b);
+    let name = b.name.clone();
+    let img = Image::from_rgba_shared(format!("block:{}:{:x}", b.name, std::sync::Arc::as_ptr(&f.rgba) as usize), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false);
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb").child(img)))
+        .child(Text::new(b.name.clone()).max_lines(1).elide(Elide::End).class("row-title"))
+        .child(Text::new(if b.builtin { b.description.clone() } else { format!("свой · {}", b.description) }).max_lines(1).elide(Elide::End).class("row-sub"));
+    Box::new(GestureDetector::new().on_click(move || {
+        if ed().selection.is_empty() {
+            st.toast.set(Some("Сначала выделите клип на таймлайне".into()));
+            return;
+        }
+        st.exec("block.apply", json!({"name": name}));
+        st.dock.activate("inspector");
+    }).child(DecoratedBox::new().class("tile").child(body)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

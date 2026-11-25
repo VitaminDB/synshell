@@ -3,6 +3,7 @@
 //! проекта ([`store`]), встроенный агент ([`agent`]).
 
 pub mod agent;
+pub mod blocks;
 pub mod cmd;
 pub mod doc;
 pub mod editor;
