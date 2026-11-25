@@ -117,6 +117,31 @@ pub fn tap(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
     hold(device, s, x, y, 60)
 }
 
+/// Код клавиши-модификатора (evdev): shift, ctrl, alt, super.
+pub fn mod_code(m: &str) -> Option<u32> {
+    match m.trim().to_ascii_lowercase().as_str() {
+        "shift" => Some(42),
+        "ctrl" | "control" => Some(29),
+        "alt" => Some(56),
+        "super" | "meta" | "win" => Some(125),
+        _ => None,
+    }
+}
+
+/// Действие с зажатыми модификаторами (Shift+щелчок, Ctrl+щелчок…).
+pub fn with_mods(device: &str, s: &Screen, mods: &[u32], f: impl FnOnce() -> Result<()>) -> Result<()> {
+    if mods.is_empty() {
+        return f();
+    }
+    send(device, s, mods.iter().map(|c| InputEvent::Key { code: *c, pressed: true }).collect())?;
+    std::thread::sleep(Duration::from_millis(80));
+    let r = f();
+    // окно разбирает щелчок в своём кадре — модификатор держим, пока не разобрало
+    std::thread::sleep(Duration::from_millis(200));
+    send(device, s, mods.iter().rev().map(|c| InputEvent::Key { code: *c, pressed: false }).collect())?;
+    r
+}
+
 pub fn hold(device: &str, s: &Screen, x: f64, y: f64, ms: u64) -> Result<()> {
     let (fx, fy) = s.frac(x, y);
     if s.touch {

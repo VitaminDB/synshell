@@ -80,6 +80,12 @@ fn media(st: St) -> impl Widget {
                     .child(Text::new("Перетащите сюда файлы или папку, нажмите Ctrl+I\nили попросите агента: «импортируй ролики из ~/Videos/…»").max_lines(3).class("panel-empty")),
             )];
         }
+        // выделение: убрать исчезнувшие файлы
+        let ids_now: Vec<u64> = items.iter().map(|i| i.0).collect();
+        if st.media_sel.get_untracked().iter().any(|i| !ids_now.contains(i)) {
+            st.media_sel.update(|v| v.retain(|i| ids_now.contains(i)));
+        }
+        let _ = st.media_sel.get();
         // масонская раскладка: плитки по пропорциям роликов, ширина колонки — ползунком
         let mut grid = Grid::new(16).min_column_width(tile_size).gap(8.0).masonry(true);
         for (id, kind, name, info, path, dur, aspect) in items {
@@ -877,36 +883,201 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
         }).child(AspectRatio::new(aspect.clamp(0.3, 3.0)).child(DecoratedBox::new().class("tile-thumb").child(thumb))))
         .child(Text::new(name).max_lines(1).elide(Elide::End).class("row-title"))
         .child(Text::new(format!("m{id} · {info}")).max_lines(1).elide(Elide::End).class("row-sub"));
-    let menu = vec![
-        MenuItem::new("add", "На таймлайн (в конец)"),
-        MenuItem::new("add_here", "На таймлайн в позицию"),
+    let selected = st.media_sel.get_untracked().contains(&id);
+    let n_sel = st.media_sel.get_untracked().len();
+    let many = if selected && n_sel > 1 { format!(" ({n_sel})") } else { String::new() };
+    let is_video = kind == MediaKind::Video;
+    let has_sound = kind == MediaKind::Audio || ed().project.media(id).is_some_and(|m| m.has_audio);
+    let mut menu = vec![
+        MenuItem::new("add", format!("На таймлайн (в конец){many}")),
+        MenuItem::new("add_here", format!("На таймлайн в позицию{many}")),
+        MenuItem::separator(),
+    ];
+    if has_sound {
+        menu.push(MenuItem::new("transcribe", format!("Расшифровать речь{many}")));
+    }
+    if is_video {
+        menu.push(MenuItem::new("vfx", "Нейрофильтр").children(vec![MenuItem::new("vfx_up", "Увеличить ×2"), MenuItem::new("vfx_rife", "Плавность до 60 fps")]));
+    }
+    menu.extend([
+        MenuItem::new("reveal", "Показать в папке"),
+        MenuItem::new("copy_path", "Копировать путь"),
+        MenuItem::new("props", "Свойства…"),
         MenuItem::separator(),
         MenuItem::new("import", "Импорт медиа…"),
         MenuItem::new("import_folder", "Импорт папки…"),
         MenuItem::separator(),
-        MenuItem::new("remove", "Убрать из медиатеки"),
-    ];
+        MenuItem::new("remove", format!("Убрать из медиатеки{many}")),
+    ]);
+    // меню действует на выделение, если щёлкнули по выделенному; иначе — на этот файл
+    let targets = move || -> Vec<u64> {
+        let sel = st.media_sel.get_untracked();
+        if sel.contains(&id) { sel } else { vec![id] }
+    };
     Box::new(
         ContextMenu::new()
             .items(menu)
-            .on_select(move |a: &str| match a {
-                "add" => {
-                    st.exec("clip.add", json!({"media": id}));
+            .on_select(move |a: &str| {
+                let ids = targets();
+                if !st.media_sel.get_untracked().contains(&id) {
+                    st.media_sel.set(vec![id]);
                 }
-                "add_here" => {
-                    let at = ed().playhead;
-                    st.exec("clip.add", json!({"media": id, "at": at}));
+                match a {
+                    "add" => {
+                        for m in &ids {
+                            st.exec("clip.add", json!({"media": m}));
+                        }
+                    }
+                    "add_here" => {
+                        let mut at = ed().playhead;
+                        for m in &ids {
+                            if let Some(o) = st.exec("clip.add", json!({"media": m, "at": at})) {
+                                let _ = o;
+                                at = ed().project.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| c.media() == Some(*m)).map(|c| c.end()).fold(at, f64::max);
+                            }
+                        }
+                    }
+                    "transcribe" => transcribe_bg(st, ids),
+                    "vfx_up" | "vfx_rife" => {
+                        let names: Vec<String> = ids.iter().map(|m| format!("m{m}")).collect();
+                        let what = if a == "vfx_up" { "kind upscale, scale 2" } else { "kind interpolate, fps 60" };
+                        st.open_panel("ai");
+                        st.ask_ai(format!("Обработай нейрофильтром media.vfx ({what}) файлы медиатеки: {}.", names.join(", ")));
+                    }
+                    "reveal" => {
+                        if let Some(dir) = ed().project.media(id).and_then(|m| m.path.parent().map(|d| d.to_path_buf())) {
+                            let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                        }
+                    }
+                    "copy_path" => {
+                        let paths: Vec<String> = ids.iter().filter_map(|m| ed().project.media(*m).map(|x| x.path.display().to_string())).collect();
+                        syngui::clipboard::copy(&paths.join("\n"));
+                        st.toast.set(Some(format!("Скопировано путей: {}", paths.len())));
+                    }
+                    "props" => st.media_props.set(Some(id)),
+                    "import" => st.dialog(Pick::ImportFiles),
+                    "import_folder" => st.dialog(Pick::ImportFolder),
+                    "remove" => {
+                        for m in &ids {
+                            st.exec("media.remove", json!({"id": m}));
+                        }
+                        st.media_sel.set(Vec::new());
+                    }
+                    _ => {}
                 }
-                "import" => st.dialog(Pick::ImportFiles),
-                "import_folder" => st.dialog(Pick::ImportFolder),
-                "remove" => {
-                    st.exec("media.remove", json!({"id": id}));
-                }
-                _ => {}
             })
-            // тащить на дорожку таймлайна; двойной щелчок — в конец дорожки
-            .child(Draggable::new(DRAG_MEDIA, id.to_string()).label(drag_label.clone()).on_double_click(move || {
+            // щелчок — выделить (Ctrl — добавить/снять, Shift — диапазон); тащить на
+            // дорожку таймлайна; двойной щелчок — в конец дорожки
+            .child(Draggable::new(DRAG_MEDIA, id.to_string()).label(drag_label.clone()).on_click(move || {
+                let m = syngui::input::current_modifiers();
+                st.media_sel.update(|sel| {
+                    if m.ctrl {
+                        if let Some(i) = sel.iter().position(|x| *x == id) {
+                            sel.remove(i);
+                        } else {
+                            sel.push(id);
+                        }
+                    } else if m.shift && !sel.is_empty() {
+                        let order: Vec<u64> = ed().project.media.iter().map(|x| x.id).collect();
+                        let a = order.iter().position(|x| Some(x) == sel.last()).unwrap_or(0);
+                        let b = order.iter().position(|x| *x == id).unwrap_or(0);
+                        let (lo, hi) = (a.min(b), a.max(b));
+                        for x in &order[lo..=hi] {
+                            if !sel.contains(x) {
+                                sel.push(*x);
+                            }
+                        }
+                    } else {
+                        *sel = vec![id];
+                    }
+                });
+            }).on_double_click(move || {
                 st.exec("clip.add", json!({"media": id}));
-            }).child(DecoratedBox::new().class("tile").child(body))),
+            }).child(DecoratedBox::new().class(if selected { "tile tile-on" } else { "tile" }).child(body))),
     )
+}
+
+/// Расшифровка речи файлов в своём потоке (окно не ждёт), затем — в медиатеку.
+fn transcribe_bg(st: St, ids: Vec<u64>) {
+    let todo: Vec<(u64, std::path::PathBuf)> = ids.iter().filter_map(|m| ed().project.media(*m).map(|x| (*m, x.path.clone()))).collect();
+    st.toast.set(Some(format!("Расшифровка: {} файл(ов) в фоне…", todo.len())));
+    std::thread::spawn(move || {
+        let mut done = Vec::new();
+        let mut errs = Vec::new();
+        for (m, p) in todo {
+            match crate::cmd::audio::transcribe_file(&p, None) {
+                Ok(t) => done.push((m, t)),
+                Err(e) => errs.push(e),
+            }
+        }
+        syngui::async_runtime::run_on_main_thread(move || {
+            let n = done.len();
+            {
+                let mut e = ed();
+                if n > 0 {
+                    e.begin("Расшифровка");
+                }
+                for (m, t) in done {
+                    if let Some(x) = e.project.media.iter_mut().find(|x| x.id == m) {
+                        x.transcript = Some(t);
+                    }
+                }
+                st.rev.set(e.revision);
+            }
+            st.toast.set(Some(if errs.is_empty() { format!("Расшифровано файлов: {n}") } else { format!("Расшифровано: {n}; ошибки: {}", errs.join("; ")) }));
+        });
+    });
+}
+
+/// Окно «Свойства» файла медиатеки.
+pub fn media_props_view(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.rev.get();
+        let Some(id) = st.media_props.get() else { return Vec::new() };
+        let (m, used) = {
+            let e = ed();
+            let Some(m) = e.project.media(id).cloned() else { return Vec::new() };
+            let used = e.project.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| c.media() == Some(id)).count();
+            (m, used)
+        };
+        let close = move || st.media_props.set(None);
+        let size = std::fs::metadata(&m.path).map(|x| format!("{:.1} МБ", x.len() as f64 / 1_048_576.0)).unwrap_or_else(|_| "файла нет".into());
+        let mut rows: Vec<(&str, String)> = vec![
+            ("Файл", m.path.display().to_string()),
+            ("Вид", match m.kind { MediaKind::Video => "видео", MediaKind::Audio => "звук", MediaKind::Image => "картинка", MediaKind::Lottie => "анимация Lottie" }.into()),
+            ("Размер файла", size),
+        ];
+        if m.duration > 0.0 {
+            rows.push(("Длительность", tc(m.duration)));
+        }
+        if m.width > 0 {
+            rows.push(("Кадр", format!("{}×{}", m.width, m.height)));
+        }
+        if m.fps > 0.0 {
+            rows.push(("Частота", format!("{} fps", m.fps)));
+        }
+        if matches!(m.kind, MediaKind::Video | MediaKind::Audio) {
+            rows.push(("Звук", if m.has_audio || m.kind == MediaKind::Audio { "есть".into() } else { "нет".into() }));
+        }
+        rows.push(("Расшифровка", m.transcript.as_ref().map(|t| format!("{} слов{}", t.words.len(), t.language.as_ref().map(|l| format!(", {l}")).unwrap_or_default())).unwrap_or_else(|| "нет".into())));
+        rows.push(("На таймлайне", format!("клипов: {used}")));
+        let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(
+            Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("m{id} · {}", m.name())).max_lines(1).elide(Elide::Middle).class("fp-title")).child(DecoratedBox::new().class("grow")).child(ToolButton::new("\u{E5CD}").tooltip("Закрыть (Esc)").on_click(close)),
+        );
+        for (k, v) in rows {
+            col = col.child(Row::new().gap(12.0).child(Text::new(k).class("row-sub").style("width", 130.0)).child(DecoratedBox::new().class("grow").child(Text::new(v).selectable(true).max_lines(3).elide(Elide::Middle).class("row-title"))));
+        }
+        vec![Box::new(
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(GestureDetector::new().on_click(close).child(DecoratedBox::new().class("fp-scrim")))
+                .child(Center::new().child(EventHook::new().on_key_down(move |k, _| {
+                    if k == Key::Escape {
+                        close();
+                        return KeyReply::Handled;
+                    }
+                    KeyReply::Ignore
+                }).child(DecoratedBox::new().class("fp-card").style("width", 560.0).child(Padding::all(16.0).child(col))))),
+        )]
+    })
 }

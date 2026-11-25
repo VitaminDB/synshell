@@ -163,6 +163,10 @@ pub struct St {
     pub layout_desc: RwSignal<String>,
     /// Окно отчёта покрытия шаблонов Fusion (C2).
     pub coverage_report: RwSignal<Option<crate::fusion::report::CoverageReport>>,
+    /// Выделенные файлы медиатеки (по порядку щелчков).
+    pub media_sel: RwSignal<Vec<u64>>,
+    /// Открыто окно «Свойства» файла медиатеки.
+    pub media_props: RwSignal<Option<u64>>,
     /// Масштаб окна «Просмотр»: `None` — вписать, `Some(k)` — доля от 100% (0.1–8.0).
     pub viewer_zoom: RwSignal<Option<f32>>,
     /// Сдвиг (панорамирование) кадра в «Просмотре», пикс. панели от центра.
@@ -224,6 +228,8 @@ impl St {
             layout_name: use_signal(String::new()),
             layout_desc: use_signal(String::new()),
             coverage_report: use_signal(None),
+            media_sel: use_signal(Vec::new()),
+            media_props: use_signal(None),
             viewer_zoom: use_signal(None),
             viewer_pan: use_signal((0.0, 0.0)),
             viewer_bg: use_signal(0),
@@ -820,6 +826,7 @@ pub fn root(st: St) -> impl Widget {
         .child(fontpick::view(st))
         .child(layouts_ui::view(st))
         .child(coverage_ui::view(st))
+        .child(panels::media_props_view(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).

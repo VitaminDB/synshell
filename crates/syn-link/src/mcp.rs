@@ -102,7 +102,8 @@ fn tools() -> Value {
              "offscreen": {"type": "boolean", "description": t!("окно рисуется отдельно: видно и перекрытое другими, но без меню (только local)")}}), &["device"])},
         {"name": "tap", "description": t!("Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка; action: right — правый щелчок (контекстное меню), double — двойной, hover — навести без щелчка."),
          "inputSchema": schema(json!({"device": dev, "x": num(&t!("X, px снимка")), "y": num(&t!("Y, px снимка")),
-             "action": {"type": "string", "enum": ["click", "double", "right", "hover"], "description": t!("что сделать (по умолчанию click)")}}), &["device", "x", "y"])},
+             "action": {"type": "string", "enum": ["click", "double", "right", "hover"], "description": t!("что сделать (по умолчанию click)")},
+             "mods": {"type": "array", "items": {"type": "string", "enum": ["shift", "ctrl", "alt", "super"]}, "description": t!("зажать на время щелчка (Shift+щелчок — диапазон, Ctrl+щелчок — добавить к выделению)")}}), &["device", "x", "y"])},
         {"name": "long_press", "description": t!("Удержать палец/кнопку в точке (контекстные меню, выбор)."),
          "inputSchema": schema(json!({"device": dev, "x": num("X"), "y": num("Y"), "ms": num(&t!("длительность, мс (700)"))}), &["device", "x", "y"])},
         {"name": "swipe", "description": t!("Провести из точки в точку (прокрутка списков, жесты от краёв, перетаскивание)."),
@@ -494,7 +495,8 @@ impl Server {
                 let s = self.screen(&device)?;
                 let (x, y) = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
                 if name == "tap" {
-                    match a.get("action").and_then(Value::as_str).unwrap_or("click") {
+                    let mods: Vec<u32> = a.get("mods").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).filter_map(gestures::mod_code).collect()).unwrap_or_default();
+                    gestures::with_mods(&device, &s, &mods, || { match a.get("action").and_then(Value::as_str).unwrap_or("click") {
                         "right" => gestures::right_click(&device, &s, x, y)?,
                         "hover" => gestures::hover(&device, &s, x, y)?,
                         "double" => {
@@ -504,6 +506,7 @@ impl Server {
                         }
                         _ => gestures::tap(&device, &s, x, y)?,
                     }
+                    Ok(()) })?;
                 } else {
                     gestures::hold(&device, &s, x, y, a.get("ms").and_then(Value::as_u64).unwrap_or(700))?;
                 }
