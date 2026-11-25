@@ -681,7 +681,7 @@ fn overlay(st: St) -> impl Widget {
             let lay = rows(p);
             if let (Some(c), Some((ti, _))) = (p.clip(cid), p.find_clip(cid)) {
                 if let Some((_, y, h)) = lay.iter().copied().find(|(r, _, _)| *r == RowKind::Track(ti)) {
-                    let src_dur = c.media().and_then(|m| p.media(m)).map(|m| m.duration).filter(|d| *d > 0.0);
+                    let src_dur = c.media().and_then(|m| p.media(m)).and_then(|m| m.src_limit());
                     // полная длина источника — полупрозрачно
                     if let Some(sd) = src_dur {
                         let s0 = c.start - c.offset / c.speed;
@@ -721,7 +721,7 @@ fn trimmed(p: &Project, c: &crate::doc::Clip, left: bool, dt: f64, sn: &Snapper)
 }
 
 fn trimmed_raw(p: &Project, c: &crate::doc::Clip, left: bool, dt: f64) -> (f64, f64) {
-    let src_dur = c.media().and_then(|m| p.media(m)).map(|m| m.duration).filter(|d| *d > 0.0);
+    let src_dur = c.media().and_then(|m| p.media(m)).and_then(|m| m.src_limit());
     let (ti, _) = p.find_clip(c.id).unwrap();
     let prev_end = p.tracks[ti].clips.iter().filter(|o| o.id != c.id && o.end() <= c.start + 1e-6).map(|o| o.end()).fold(0.0, f64::max);
     let next_start = p.tracks[ti].clips.iter().filter(|o| o.id != c.id && o.start >= c.end() - 1e-6).map(|o| o.start).fold(f64::MAX, f64::min);
@@ -1115,6 +1115,8 @@ fn clip_content(p: &Project, track_kind: TrackKind, c: &crate::doc::Clip, label:
             let mut row = Row::new().gap(0.0);
             for i in 0..n {
                 let src = c.offset + (i as f64 * tw as f64 / zoom as f64) * c.speed;
+                // Lottie длиннее анимации — по кругу
+                let src = if m.kind == crate::doc::MediaKind::Lottie && m.duration > 0.0 { src.rem_euclid(m.duration) } else { src };
                 let k = if m.duration > 0.0 { ((src / m.duration) * strip.len() as f64) as usize } else { 0 }.min(strip.len() - 1);
                 let f = &strip[k];
                 row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}", m.id), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));

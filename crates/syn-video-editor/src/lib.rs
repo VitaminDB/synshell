@@ -9,6 +9,7 @@ pub mod editor;
 pub mod fonts;
 pub mod fusion;
 pub mod layout;
+pub mod lottie;
 pub mod motion;
 pub mod render;
 pub mod store;

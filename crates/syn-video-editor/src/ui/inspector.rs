@@ -449,9 +449,15 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
     }
     if let Some(mid) = c.media() {
         let linked = p.linked_peer(id);
+        let mk = p.media(mid).map(|m| (m.kind, m.duration));
+        if let Some((crate::doc::MediaKind::Lottie, d)) = mk {
+            let loops = c.duration * c.speed / d.max(1e-3);
+            r.info("Анимация", format!("Lottie, {} {}", tc(d), if loops > 1.01 { format!("— по кругу ×{loops:.1}") } else { String::new() }));
+        }
         r.range("Скорость", c.speed, 0.1, 4.0, 0.05, move |st, x| {
             st.exec("clip.set", json!({"id": id, "speed": x}));
         });
+        let silent = matches!(mk, Some((crate::doc::MediaKind::Lottie | crate::doc::MediaKind::Image, _)));
         let (vol_target, vol_val) = if is_video {
             match linked.and_then(|lid| p.clip(lid)) {
                 Some(ac) => (ac.id, ac.volume),
@@ -460,9 +466,11 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
         } else {
             (id, c.volume)
         };
-        r.range("Громкость", vol_val, 0.0, 2.0, 0.01, move |st, x| {
-            st.exec("clip.set", json!({"id": vol_target, "volume": x}));
-        });
+        if !silent {
+            r.range("Громкость", vol_val, 0.0, 2.0, 0.01, move |st, x| {
+                st.exec("clip.set", json!({"id": vol_target, "volume": x}));
+            });
+        }
         if linked.is_some() {
             r.action(if is_video { "Звук" } else { "Связь с видео" }, "Отвязать", move |st| {
                 st.exec("clip.detach_audio", json!({"ids": [id]}));

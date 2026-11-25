@@ -349,12 +349,12 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
     let m = ed.project.media(mid).ok_or_else(|| format!("нет медиа m{mid}"))?.clone();
     let kind = if m.kind == MediaKind::Audio { TrackKind::Audio } else { TrackKind::Video };
     let offset = a.time("offset")?.unwrap_or(0.0);
-    if m.duration > 0.0 && offset >= m.duration {
+    if m.src_limit().is_some() && offset >= m.duration {
         return Err(format!("offset {} за концом источника ({})", tc(offset), tc(m.duration)));
     }
-    let avail = if m.duration > 0.0 { m.duration - offset } else { STILL };
+    let avail = if m.duration > 0.0 { (m.duration - offset).max(1.0 / ed.project.settings.fps.max(1.0)) } else { STILL };
     let duration = a.time("duration")?.unwrap_or(avail);
-    if m.duration > 0.0 && duration > avail + 1e-3 {
+    if m.src_limit().is_some() && duration > avail + 1e-3 {
         return Err(format!("в источнике после {} только {}", tc(offset), tc(avail)));
     }
     let insert = mode_insert(a)?;
@@ -543,7 +543,7 @@ fn clip_trim(ed: &mut Editor, a: &Args) -> Res {
     let id = a.need_id("id")?;
     let c = ed.project.clip(id).ok_or_else(|| format!("нет клипа c{id}"))?.clone();
     let peer = ed.project.linked_peer(id).and_then(|pid| ed.project.clip(pid).cloned());
-    let src = c.media().and_then(|m| ed.project.media(m)).map(|m| m.duration).filter(|d| *d > 0.0);
+    let src = c.media().and_then(|m| ed.project.media(m)).and_then(|m| m.src_limit());
     let mut start = a.time("start")?.map(|t| ed.project.snap(t)).unwrap_or(c.start);
     let mut end = a.time("end")?.map(|t| ed.project.snap(t)).unwrap_or(c.end());
     // в источнике до начала клипа есть только offset/speed секунд, после — остаток
@@ -562,7 +562,7 @@ fn clip_trim(ed: &mut Editor, a: &Args) -> Res {
     let peer_trim = if let Some(pc) = &peer {
         let ds = start - c.start;
         let de = end - c.end();
-        let psrc = pc.media().and_then(|m| ed.project.media(m)).map(|m| m.duration).filter(|d| *d > 0.0);
+        let psrc = pc.media().and_then(|m| ed.project.media(m)).and_then(|m| m.src_limit());
         let mut pstart = ed.project.snap(pc.start + ds).max((pc.start - pc.offset / pc.speed).max(0.0));
         let mut pend = ed.project.snap(pc.end() + de);
         if let Some(d) = psrc {

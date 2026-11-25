@@ -723,3 +723,64 @@ fn fusion_transition_set_render_and_params() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// C6: анимация Lottie — медиа, кадры по времени и по кругу, свободная длина,
+/// наложение из библиотеки на свободную дорожку «Графика».
+#[test]
+fn lottie_media_loops_and_applies() {
+    let dir = std::env::temp_dir().join(format!("sve-c6-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // красный квадрат 20×20 едет слева направо за 30 кадров (1 с), поле 100×50
+    let json = r#"{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":100,"h":50,"layers":[{"ty":4,"ind":1,"ip":0,"op":30,"st":0,
+      "ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"s":{"a":0,"k":[100,100]},"a":{"a":0,"k":[0,0]},
+        "p":{"a":1,"k":[{"t":0,"s":[10,25],"i":{"x":[1],"y":[1]},"o":{"x":[0],"y":[0]}},{"t":30,"s":[90,25]}]}},
+      "shapes":[{"ty":"rc","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[20,20]},"r":{"a":0,"k":0}},
+                {"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]}"#;
+    let path = dir.join("Slide.json");
+    std::fs::write(&path, json).unwrap();
+    std::fs::write(dir.join("other.json"), r#"{"a":1}"#).unwrap();
+    assert!(crate::lottie::is_lottie(&path));
+    assert!(!crate::lottie::is_lottie(&dir.join("other.json")));
+
+    let mut ed = Editor::new();
+    run(&mut ed, "media.import", &json!({"paths": [dir.display().to_string()]})).unwrap();
+    let m = ed.project.media[0].clone();
+    assert_eq!(ed.project.media.len(), 1, "обычный JSON не медиа");
+    assert_eq!((m.kind, m.width, m.height), (MediaKind::Lottie, 100, 50));
+    assert!((m.duration - 1.0).abs() < 1e-6);
+    // клип по умолчанию — длина анимации; длиннее — можно (по кругу)
+    let o = run(&mut ed, "clip.add", &json!({"media": m.id, "at": 0})).unwrap();
+    assert_eq!(clips(&ed, 0), vec![(0.0, 1.0, 0.0)]);
+    let cid = ed.project.tracks[0].clips[0].id;
+    let _ = o;
+    run(&mut ed, "clip.trim", &json!({"id": cid, "end": 3.5})).unwrap();
+    assert_eq!(ed.project.clip(cid).unwrap().duration, 3.5);
+
+    // кадр: квадрат слева в начале, справа ближе к концу, по кругу через секунду
+    let comp = crate::lottie::load(&path).unwrap();
+    let red_x = |t: f64| {
+        let f = crate::lottie::render(&comp, t, (100, 50));
+        assert_eq!((f.width, f.height), (100, 50));
+        let row = 25usize * 100 * 4;
+        (0..100usize).filter(|x| f.rgba[row + x * 4] > 200 && f.rgba[row + x * 4 + 3] > 200).map(|x| x as f64).sum::<f64>() / 20.0
+    };
+    let (a, b, c) = (red_x(0.0), red_x(0.8), red_x(1.0));
+    assert!(a < 25.0 && b > 60.0, "движение: {a} → {b}");
+    assert!((c - a).abs() < 1.5, "по кругу: {c} ≈ {a}");
+    // композитор: Lottie даёт кадр
+    let mut src = crate::render::compose::FrameSource::new(200, 100);
+    let fr = src.frames(&ed.project, 0.5);
+    assert!(fr.contains_key(&cid));
+
+    // template.apply по пути: занято — новая дорожка «Графика 2», чужое не затирается
+    let p = path.display().to_string();
+    let a1 = run(&mut ed, "template.apply", &json!({"name": "Slide", "path": p, "at": 0})).unwrap();
+    let a2 = run(&mut ed, "template.apply", &json!({"name": "Slide", "path": p, "at": 0.5, "duration": 2})).unwrap();
+    let names: Vec<_> = ed.project.tracks.iter().map(|t| (t.name.clone(), t.clips.len())).collect();
+    assert!(names.contains(&("Графика".into(), 1)) && names.contains(&("Графика 2".into(), 1)), "{names:?}");
+    assert_eq!(ed.project.media.len(), 1, "медиа не дублируется");
+    let c2 = ed.project.clip(a2.data["id"].as_u64().unwrap()).unwrap();
+    assert_eq!(c2.duration, 2.0);
+    let _ = a1;
+    let _ = std::fs::remove_dir_all(&dir);
+}

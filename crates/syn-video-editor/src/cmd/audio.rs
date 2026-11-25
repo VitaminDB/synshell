@@ -36,7 +36,7 @@ static TRANSCRIBE: Cmd = Cmd {
 fn transcribe(ed: &mut Editor, a: &Args) -> Res {
     let id = a.need_id("id")?;
     let m = ed.project.media(id).ok_or_else(|| format!("нет медиа m{id}"))?.clone();
-    if m.kind == crate::doc::MediaKind::Image || (m.kind == crate::doc::MediaKind::Video && !m.has_audio) {
+    if matches!(m.kind, crate::doc::MediaKind::Image | crate::doc::MediaKind::Lottie) || (m.kind == crate::doc::MediaKind::Video && !m.has_audio) {
         return Err(format!("m{id}: в файле нет звука"));
     }
     let lang = a.str("language")?;

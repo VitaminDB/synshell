@@ -40,7 +40,7 @@ fn audio_clips(p: &Project) -> Vec<(&Clip, String)> {
             let has = match m.kind {
                 MediaKind::Audio => true,
                 MediaKind::Video => m.has_audio,
-                MediaKind::Image => false,
+                MediaKind::Image | MediaKind::Lottie => false,
             };
             if has && c.volume > 0.0 {
                 out.push((c, m.path.display().to_string()));

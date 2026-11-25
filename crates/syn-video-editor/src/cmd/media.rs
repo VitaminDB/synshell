@@ -17,8 +17,8 @@ static IMPORT: Command = Command {
     category: "Медиа",
     title: "Импорт медиа…",
     shortcut: "Ctrl+I",
-    keywords: "import добавить файлы видео звук картинки медиатека",
-    help: "Добавить файлы в медиатеку (видео, звук, картинки); папка — все медиафайлы в ней. Возвращает id (m…).",
+    keywords: "import добавить файлы видео звук картинки медиатека lottie анимация",
+    help: "Добавить файлы в медиатеку (видео, звук, картинки, анимации Lottie .json/.lottie — клип длиннее анимации проигрывает её по кругу); папка — все медиафайлы в ней. Возвращает id (m…).",
     args: &[req("paths", Ty::Paths, "пути к файлам или папкам")],
     danger: false,
     run: import,
@@ -71,7 +71,9 @@ fn import(ed: &mut Editor, a: &Args) -> Res {
 
 fn kind_by_ext(p: &Path) -> Option<MediaKind> {
     let e = p.extension()?.to_str()?.to_ascii_lowercase();
-    if IMAGE.contains(&e.as_str()) {
+    if crate::lottie::EXT.contains(&e.as_str()) {
+        crate::lottie::is_lottie(p).then_some(MediaKind::Lottie)
+    } else if IMAGE.contains(&e.as_str()) {
         Some(MediaKind::Image)
     } else if AUDIO.contains(&e.as_str()) {
         Some(MediaKind::Audio)
@@ -90,6 +92,14 @@ pub fn probe(path: &Path) -> Result<Media, String> {
     let s = path.to_string_lossy();
     let mut m = Media { id: 0, path: path.to_path_buf(), kind: MediaKind::Video, duration: 0.0, width: 0, height: 0, fps: 0.0, has_audio: false, transcript: None };
     match kind_by_ext(path) {
+        Some(MediaKind::Lottie) => {
+            m.kind = MediaKind::Lottie;
+            (m.width, m.height, m.fps, m.duration) = crate::lottie::probe(path)?;
+            return Ok(m);
+        }
+        None if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) => {
+            return Err(format!("{}: JSON — не анимация Lottie", path.display()));
+        }
         Some(MediaKind::Image) => {
             m.kind = MediaKind::Image;
             if let Ok(img) = image::image_dimensions(path) {

@@ -99,6 +99,13 @@ fn build(path: &Path) -> Option<Vec<RgbaFrame>> {
         return Some(v);
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if crate::lottie::EXT.contains(&ext.as_str()) {
+        let comp = crate::lottie::load(path).ok()?;
+        let dur = comp.duration_secs() as f64;
+        let v: Vec<RgbaFrame> = (0..FRAMES).map(|i| crate::lottie::render(&comp, dur * (i as f64 + 0.5) / FRAMES as f64, (SIDE, SIDE))).collect();
+        save_cached(&file, &v);
+        return Some(v);
+    }
     if crate::cmd::media::IMAGE.contains(&ext.as_str()) {
         let img = image::open(path).ok()?.thumbnail(SIDE, SIDE).to_rgba8();
         let (w, h) = img.dimensions();

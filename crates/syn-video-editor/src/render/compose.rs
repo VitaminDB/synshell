@@ -1028,6 +1028,8 @@ pub struct FrameSource {
     stills: HashMap<u64, syngui::video::RgbaFrame>,
     /// Кэш последнего отрендеренного кадра Fusion-шаблона на клип: `clip_id -> (key_hash, frame)`.
     fusion_last: HashMap<u64, (u64, syngui::video::RgbaFrame)>,
+    /// Последний кадр Lottie у клипа: (номер кадра, размер) → кадр.
+    lottie_last: HashMap<u64, ((i64, (u32, u32)), syngui::video::RgbaFrame)>,
     max: (u32, u32),
     /// Нейрофильтры клипов (`interpolate`, `upscale`) — при экспорте.
     pub neural: bool,
@@ -1040,7 +1042,7 @@ pub struct FrameSource {
 impl FrameSource {
     /// Кадры вписываются в `max_w × max_h` (размер проекта или панели).
     pub fn new(max_w: u32, max_h: u32) -> Self {
-        Self { readers: HashMap::new(), stills: HashMap::new(), fusion_last: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new() }
+        Self { readers: HashMap::new(), stills: HashMap::new(), fusion_last: HashMap::new(), lottie_last: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new() }
     }
 
     pub fn frames(&mut self, p: &Project, t: f64) -> Frames {
@@ -1103,7 +1105,28 @@ impl FrameSource {
             let Some(mid) = c.media() else { continue };
             let Some(m) = p.media(mid) else { continue };
             let path = m.path.display().to_string();
-            let frame = if m.kind == crate::doc::MediaKind::Image {
+            let frame = if m.kind == crate::doc::MediaKind::Lottie {
+                // время источника, как у видео (скорость, сдвиг), по кругу; кадр анимации — в кэше
+                let src = c.offset + (t - c.start) * c.speed;
+                match crate::lottie::load(&m.path) {
+                    Ok(comp) => {
+                        let fi = crate::lottie::frame_at(&comp, src).round() as i64;
+                        let sig = (fi, self.max);
+                        match self.lottie_last.get(&c.id).filter(|(k, _)| *k == sig) {
+                            Some((_, f)) => Some(f.clone()),
+                            None => {
+                                let f = crate::lottie::render(&comp, src, self.max);
+                                self.lottie_last.insert(c.id, (sig, f.clone()));
+                                Some(f)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.notes.push(format!("c{}: {e}", c.id));
+                        None
+                    }
+                }
+            } else if m.kind == crate::doc::MediaKind::Image {
                 if !self.stills.contains_key(&mid) {
                     if let Ok(img) = image::open(&m.path) {
                         let img = img.to_rgba8();

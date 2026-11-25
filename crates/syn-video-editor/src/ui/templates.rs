@@ -43,12 +43,19 @@ pub struct TemplateEntry {
 /// Просканировать библиотеку шаблонов один раз за запуск.
 pub fn catalog() -> &'static [TemplateEntry] {
     static CAT: OnceLock<Vec<TemplateEntry>> = OnceLock::new();
-    CAT.get_or_init(|| scan_catalog(&fusion::library()))
+    CAT.get_or_init(|| {
+        let mut v = scan_catalog(&fusion::library());
+        v.extend(entries_from(crate::lottie::scan()));
+        v
+    })
 }
 
 pub fn scan_catalog(root: &Path) -> Vec<TemplateEntry> {
-    fusion::scan(root)
-        .into_iter()
+    entries_from(fusion::scan(root))
+}
+
+fn entries_from(list: Vec<(String, String, PathBuf)>) -> Vec<TemplateEntry> {
+    list.into_iter()
         .map(|(category, name, path)| {
             let display = name.replace('_', " ");
             let (top, sub) = match category.split_once('/') {
@@ -220,6 +227,46 @@ fn composite_over_backdrop(mut frame: RgbaFrame) -> RgbaFrame {
     frame
 }
 
+/// Кадр Lottie для плитки: по центру поля `THUMB_W×THUMB_H`, на подложке.
+fn lottie_tile(comp: &syngui::lottie::Composition, t: f64) -> RgbaFrame {
+    let f = crate::lottie::render(comp, t, (THUMB_W, THUMB_H));
+    let mut canvas = image::RgbaImage::new(THUMB_W, THUMB_H);
+    if let Some(img) = image::RgbaImage::from_raw(f.width, f.height, (*f.rgba).clone()) {
+        let x = (THUMB_W.saturating_sub(f.width) / 2) as i64;
+        let y = (THUMB_H.saturating_sub(f.height) / 2) as i64;
+        image::imageops::replace(&mut canvas, &img, x, y);
+    }
+    // тёмный рисунок (контуры) — на светлой подложке, иначе не виден
+    let (mut sum, mut wsum) = (0.0f64, 0.0f64);
+    for px in canvas.pixels() {
+        let a = px[3] as f64 / 255.0;
+        sum += a * (0.2126 * px[0] as f64 + 0.7152 * px[1] as f64 + 0.0722 * px[2] as f64) / 255.0;
+        wsum += a;
+    }
+    if wsum > 0.0 && sum / wsum < 0.3 {
+        let mut out = canvas.clone();
+        for (x, y, px) in out.enumerate_pixels_mut() {
+            let a = px[3] as f32 / 255.0;
+            let bg = if ((x / 10) + (y / 10)) % 2 == 0 { 236.0 } else { 226.0 };
+            for c in 0..3 {
+                px[c] = (px[c] as f32 * a + bg * (1.0 - a)).round() as u8;
+            }
+            px[3] = 255;
+        }
+        return RgbaFrame { width: THUMB_W, height: THUMB_H, pts: t, rgba: Arc::new(out.into_raw()) };
+    }
+    composite_over_backdrop(RgbaFrame { width: THUMB_W, height: THUMB_H, pts: t, rgba: Arc::new(canvas.into_raw()) })
+}
+
+fn save_png(file: &Path, f: &RgbaFrame) {
+    if let Some(img) = image::RgbaImage::from_raw(f.width, f.height, (*f.rgba).clone()) {
+        if let Some(d) = file.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = img.save(file);
+    }
+}
+
 /// Отрендерить один показательный кадр шаблона (используется и в тестах).
 pub fn render_hero(path: &Path) -> Option<RgbaFrame> {
     let file = cache_dir("tpl-thumbs").join(cache_key(path));
@@ -229,6 +276,12 @@ pub fn render_hero(path: &Path) -> Option<RgbaFrame> {
         if w > 0 && h > 0 {
             return Some(RgbaFrame { width: w, height: h, pts: 0.0, rgba: Arc::new(rgba.into_raw()) });
         }
+    }
+    if crate::lottie::is_lottie_ext(path) {
+        let comp = crate::lottie::load(path).ok()?;
+        let frame = lottie_tile(&comp, comp.duration_secs() as f64 * 0.45);
+        save_png(&file, &frame);
+        return Some(frame);
     }
     let comp = fusion::load_cached(path).ok()?;
     let is_tr = comp.is_transition();
@@ -263,13 +316,21 @@ pub fn render_strip(path: &Path) -> Option<Arc<Vec<RgbaFrame>>> {
             return Some(Arc::new(frames));
         }
     }
-    let comp = fusion::load_cached(path).ok()?;
-    let is_tr = comp.is_transition();
-    let needs_media = is_tr || !comp.main_inputs.is_empty() || comp.tools.values().any(|t| t.ty == "MediaIn");
+    let mut frames = Vec::with_capacity(STRIP_FRAMES);
+    if crate::lottie::is_lottie_ext(path) {
+        let comp = crate::lottie::load(path).ok()?;
+        let d = comp.duration_secs() as f64;
+        for i in 0..STRIP_FRAMES {
+            frames.push(lottie_tile(&comp, d * i as f64 / STRIP_FRAMES as f64));
+        }
+    }
+    let comp = if frames.is_empty() { Some(fusion::load_cached(path).ok()?) } else { None };
+    let is_tr = comp.as_ref().is_some_and(|c| c.is_transition());
+    let needs_media = comp.as_ref().is_some_and(|c| is_tr || !c.main_inputs.is_empty() || c.tools.values().any(|t| t.ty == "MediaIn"));
     let media = if needs_media { demo_media_pair(THUMB_W, THUMB_H).to_vec() } else { Vec::new() };
     let dur = if is_tr { 1.0 } else { 4.0 };
-    let mut frames = Vec::with_capacity(STRIP_FRAMES);
-    for i in 0..STRIP_FRAMES {
+    for i in 0..comp.as_ref().map_or(0, |_| STRIP_FRAMES) {
+        let comp = comp.as_ref().unwrap();
         let frac = if is_tr {
             i as f64 / (STRIP_FRAMES - 1).max(1) as f64
         } else {
@@ -445,6 +506,9 @@ fn ensure_hover_ticker() {
 
 /// Длительность шаблона (по `source_frames`, 4 с по умолчанию).
 pub fn template_duration(path: &Path, fps: f64) -> f64 {
+    if crate::lottie::is_lottie_ext(path) {
+        return crate::lottie::load(path).map(|c| (c.duration_secs() as f64).max(0.5)).unwrap_or(3.0);
+    }
     let fps = fps.max(1.0);
     fusion::load_cached(path)
         .ok()

@@ -59,6 +59,9 @@ pub enum MediaKind {
     Video,
     Audio,
     Image,
+    /// Анимация Lottie (.json / .lottie): кадры рисует `syngui::lottie`,
+    /// клип длиннее анимации проигрывает её по кругу.
+    Lottie,
 }
 
 impl MediaKind {
@@ -67,6 +70,7 @@ impl MediaKind {
             MediaKind::Video => "video",
             MediaKind::Audio => "audio",
             MediaKind::Image => "image",
+            MediaKind::Lottie => "lottie",
         }
     }
 }
@@ -110,6 +114,11 @@ pub struct TranscriptWord {
 }
 
 impl Media {
+    /// Предел источника для обрезки: картинка и Lottie (по кругу) — без предела.
+    pub fn src_limit(&self) -> Option<f64> {
+        (self.duration > 0.0 && !matches!(self.kind, MediaKind::Image | MediaKind::Lottie)).then_some(self.duration)
+    }
+
     pub fn name(&self) -> String {
         self.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| self.path.display().to_string())
     }

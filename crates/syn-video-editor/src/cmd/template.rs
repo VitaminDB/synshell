@@ -15,8 +15,8 @@ static LIST: Command = Command {
     category: "Шаблоны",
     title: "Найти шаблон",
     shortcut: "",
-    keywords: "template шаблон титр заголовок нижняя треть fusion davinci поиск",
-    help: "Поиск шаблонов в библиотеке (Fusion .setting из DaVinci Resolve): query — слова в имени или разделе (Заголовки, Нижние трети, Соцсети, YouTube, Переходы…). Показывает имя, раздел и тексты шаблона.",
+    keywords: "template шаблон титр заголовок нижняя треть fusion davinci поиск lottie анимация стикер",
+    help: "Поиск шаблонов в библиотеке (Fusion .setting из DaVinci Resolve и анимации Lottie из «Анимации Lottie» — раздел Lottie): query — слова в имени или разделе (Заголовки, Нижние трети, Соцсети, YouTube, Переходы…). Показывает имя, раздел и тексты шаблона.",
     args: &[arg("query", Ty::Str, "что искать"), arg("limit", Ty::Num, "сколько показать (20)")],
     danger: false,
     run: list,
@@ -24,7 +24,8 @@ static LIST: Command = Command {
 
 fn list(_ed: &mut Editor, a: &Args) -> Res {
     let root = fusion::library();
-    let all = fusion::scan(&root);
+    let mut all = fusion::scan(&root);
+    all.extend(crate::lottie::scan());
     if all.is_empty() {
         return Err(format!("шаблонов нет в {}", root.display()));
     }
@@ -37,6 +38,11 @@ fn list(_ed: &mut Editor, a: &Args) -> Res {
     }).collect();
     let mut lines = vec![format!("Найдено {} из {} шаблонов", hits.len(), all.len())];
     for (cat, name, path) in hits.iter().take(limit) {
+        if crate::lottie::is_lottie_ext(path) {
+            let info = crate::lottie::probe(path).map(|(w, h, fps, d)| format!("анимация {w}×{h}, {d:.1} с, {fps:.0} fps")).unwrap_or_else(|e| e);
+            lines.push(format!("{name} — {cat} — {info}"));
+            continue;
+        }
         let texts = std::fs::read_to_string(path).ok().and_then(|t| fusion::parse(&t).ok()).map(|r| fusion::text_layers(&r).into_iter().map(|l| l.text).collect::<Vec<_>>().join(" / ")).unwrap_or_default();
         lines.push(format!("{name} — {cat}{}", if texts.is_empty() { String::new() } else { format!(" — тексты: {texts}") }));
     }
@@ -137,7 +143,7 @@ static APPLY: Command = Command {
     title: "Наложить шаблон",
     shortcut: "",
     keywords: "template apply шаблон титр наложить fusion",
-    help: "Наложить шаблон Fusion из библиотеки (исполняется полный граф: Transform, Merge, Background, градиенты, маски, TextPlus, BezierSpline, KeyStretcher, Dissolve, Blur, Glow, Displace, Duplicate). Можно указать name или точный path к .setting; text — свои строки вместо текстов шаблона (через \\n).",
+    help: "Наложить шаблон из библиотеки. Анимация Lottie (раздел Lottie, .json/.lottie) встаёт клипом медиа поверх (импорт в медиатеку сам; duration по умолчанию — длина анимации, длиннее — по кругу; положение и размер — эффект transform). Шаблон Fusion (исполняется полный граф: Transform, Merge, Background, градиенты, маски, TextPlus, BezierSpline, KeyStretcher, Dissolve, Blur, Glow, Displace, Duplicate). Можно указать name или точный path к .setting; text — свои строки вместо текстов шаблона (через \\n).",
     args: &[
         req("name", Ty::Str, "имя шаблона (template.list)"),
         arg("path", Ty::Str, "точный путь к .setting (необязательно)"),
@@ -160,7 +166,8 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
         let stem = pb.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone());
         (stem, pb)
     } else {
-        let all = fusion::scan(&fusion::library());
+        let mut all = fusion::scan(&fusion::library());
+        all.extend(crate::lottie::scan());
         let n = name.to_lowercase();
         let (_, tname, path) = all
             .iter()
@@ -170,6 +177,9 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
             .clone();
         (tname, path)
     };
+    if crate::lottie::is_lottie_ext(&path) {
+        return apply_lottie(ed, a, &tname, &path);
+    }
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let root = fusion::parse(&text).map_err(|e| format!("{tname}: {e}"))?;
     let layers = fusion::text_layers(&root);
@@ -216,6 +226,59 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
     t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None });
     t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("c{id} шаблон {tname}: «{}» {}–{}", body.replace('\n', " / "), tc(start), tc(start + dur)), json!({"id": id})))
+}
+
+/// Анимация Lottie поверх: в медиатеку (если её там нет) и клипом на
+/// верхнюю видеодорожку «Графика» (перезапись места) или на `track`.
+fn apply_lottie(ed: &mut Editor, a: &Args, tname: &str, path: &std::path::Path) -> Res {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let probed = match ed.project.media.iter().find(|m| m.path == path) {
+        Some(_) => None,
+        None => Some(super::media::probe(&path)?),
+    };
+    let anim = match &probed {
+        Some(m) => m.duration,
+        None => ed.project.media.iter().find(|m| m.path == path).map(|m| m.duration).unwrap_or(3.0),
+    };
+    let at = a.time("at")?.unwrap_or(ed.playhead);
+    let duration = a.time("duration")?.unwrap_or(anim).max(0.1);
+    let track = a.id("track")?;
+    ed.begin("Шаблон");
+    let p = &mut ed.project;
+    let mid = match probed {
+        Some(mut m) => {
+            m.id = p.alloc();
+            let id = m.id;
+            p.media.push(m);
+            id
+        }
+        None => p.media.iter().find(|m| m.path == path).map(|m| m.id).unwrap_or_default(),
+    };
+    let ti = match track {
+        Some(t) => p.tracks.iter().position(|x| x.id == t && x.kind == TrackKind::Video).ok_or_else(|| format!("нет видеодорожки t{t}"))?,
+        // свободная дорожка «Графика…» на это время, иначе новая поверх — чужое не затираем
+        None => {
+            let (s0, e0) = (p.snap(at), p.snap(at) + p.snap(duration));
+            match p.tracks.iter().position(|t| t.kind == TrackKind::Video && t.name.starts_with("Графика") && t.clips.iter().all(|c| c.end() <= s0 + 1e-6 || c.start >= e0 - 1e-6)) {
+                Some(i) => i,
+                None => {
+                    let n = p.tracks.iter().filter(|t| t.name.starts_with("Графика")).count();
+                    let id = p.alloc();
+                    let name = if n == 0 { "Графика".to_string() } else { format!("Графика {}", n + 1) };
+                    p.tracks.push(crate::doc::Track { id, kind: TrackKind::Video, name, muted: false, hidden: false, clips: Vec::new() });
+                    p.tracks.len() - 1
+                }
+            }
+        }
+    };
+    let id = p.alloc();
+    let start = p.snap(at);
+    let dur = p.snap(duration).max(1.0 / p.settings.fps.max(1.0));
+    let t = &mut p.tracks[ti];
+    t.clips.retain(|c| c.end() <= start + 1e-6 || c.start >= start + dur - 1e-6);
+    t.clips.push(Clip { id, source: Source::Media { media: mid }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.to_string(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None });
+    t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+    Ok(Out::with(format!("c{id} Lottie {tname} (m{mid}) {}–{}", tc(start), tc(start + dur)), json!({"id": id, "media": mid})))
 }
 
 static PARAMS: Command = Command {
