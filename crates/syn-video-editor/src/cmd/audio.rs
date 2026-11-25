@@ -10,7 +10,7 @@ use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::doc::{tc, Id, Project, TranscriptWord};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&TRANSCRIBE, &TRANSCRIPT, &SILENCES, &CUT_SILENCE, &CUT_RANGES];
+pub static COMMANDS: &[&Cmd] = &[&TRANSCRIBE, &TRANSCRIPT, &SILENCES, &CUT_SILENCE, &CUT_RANGES, &SUBTITLES];
 
 /// Звук файла: моно f32, 16 кГц.
 fn pcm16k(path: &str) -> Result<Vec<f32>, String> {
@@ -40,18 +40,130 @@ fn transcribe(ed: &mut Editor, a: &Args) -> Res {
         return Err(format!("m{id}: в файле нет звука"));
     }
     let lang = a.str("language")?;
-    syn_assist::tools::progress(0, 0, "звук");
-    let pcm = pcm16k(&m.path.to_string_lossy())?;
-    syn_assist::tools::progress(0, 0, "распознавание");
-    let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
-    let t = c.transcribe_words("", &pcm, 16000, lang.as_deref(), false).map_err(|e| format!("распознавание: {e}"))?;
-    let words: Vec<TranscriptWord> = t.words.iter().map(|w| TranscriptWord { text: w.text.trim().to_string(), start: w.start as f64, end: w.end as f64 }).filter(|w| !w.text.is_empty()).collect();
-    let n = words.len();
+    let t = transcribe_file(&m.path, lang.as_deref())?;
+    let n = t.words.len();
+    let (text, language) = (t.text.clone(), t.language.clone());
     ed.begin("Расшифровка");
     let mm = ed.project.media.iter_mut().find(|x| x.id == id).unwrap();
-    mm.transcript = Some(crate::doc::Transcript { text: t.text.trim().to_string(), language: t.language.clone(), words });
-    let preview: String = t.text.trim().chars().take(400).collect();
-    Ok(Out::with(format!("m{id}: {n} слов{}. {preview}{}", t.language.map(|l| format!(", язык {l}")).unwrap_or_default(), if t.text.chars().count() > 400 { "…" } else { "" }), json!({"words": n})))
+    mm.transcript = Some(t);
+    let preview: String = text.chars().take(400).collect();
+    Ok(Out::with(format!("m{id}: {n} слов{}. {preview}{}", language.map(|l| format!(", язык {l}")).unwrap_or_default(), if text.chars().count() > 400 { "…" } else { "" }), json!({"words": n})))
+}
+
+/// Распознать речь файла службой нейросетей — без доступа к редактору
+/// (можно в своём потоке, окно не ждёт).
+pub fn transcribe_file(path: &std::path::Path, lang: Option<&str>) -> Result<crate::doc::Transcript, String> {
+    syn_assist::tools::progress(0, 0, "звук");
+    let pcm = pcm16k(&path.to_string_lossy())?;
+    syn_assist::tools::progress(0, 0, "распознавание");
+    let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
+    let t = c.transcribe_words("", &pcm, 16000, lang, false).map_err(|e| format!("распознавание: {e}"))?;
+    let words: Vec<TranscriptWord> = t.words.iter().map(|w| TranscriptWord { text: w.text.trim().to_string(), start: w.start as f64, end: w.end as f64 }).filter(|w| !w.text.is_empty()).collect();
+    Ok(crate::doc::Transcript { text: t.text.trim().to_string(), language: t.language.clone(), words })
+}
+
+/// Фразы расшифровки: разрыв по паузе > 0.6 с, концу предложения или длине `max_chars`.
+pub fn phrases(words: &[TranscriptWord], max_chars: usize) -> Vec<(f64, f64, String)> {
+    let mut out = Vec::new();
+    let mut cur: Vec<&TranscriptWord> = Vec::new();
+    let flush = |cur: &mut Vec<&TranscriptWord>, out: &mut Vec<(f64, f64, String)>| {
+        if let (Some(f), Some(l)) = (cur.first(), cur.last()) {
+            out.push((f.start, l.end, cur.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")));
+        }
+        cur.clear();
+    };
+    for w in words {
+        if let Some(last) = cur.last() {
+            let len: usize = cur.iter().map(|w| w.text.chars().count() + 1).sum::<usize>() + w.text.chars().count();
+            if w.start - last.end > 0.6 || last.text.ends_with(['.', '!', '?']) || len > max_chars {
+                flush(&mut cur, &mut out);
+            }
+        }
+        cur.push(w);
+    }
+    flush(&mut cur, &mut out);
+    out
+}
+
+static SUBTITLES: Cmd = Cmd {
+    id: "subtitles.add",
+    category: "Звук",
+    title: "Субтитры из речи",
+    shortcut: "",
+    keywords: "subtitles субтитры титры речь расшифровка captions",
+    help: "Субтитры по расшифровке (media.transcribe): для клипов ids (по умолчанию все клипы с расшифровкой) фразы встают титрами на дорожку «Субтитры» внизу кадра, по времени речи с учётом сдвига и скорости клипа. max_chars — длина строки (42), size — размер шрифта (52). Прежние субтитры на этом отрезке заменяются.",
+    args: &[arg("ids", Ty::Ids, "клипы (c…)"), arg("max_chars", Ty::Num, "символов в фразе (42)"), arg("size", Ty::Num, "размер шрифта (52)")],
+    danger: false,
+    run: subtitles,
+};
+
+fn subtitles(ed: &mut Editor, a: &Args) -> Res {
+    let max_chars = a.num("max_chars")?.unwrap_or(42.0).clamp(8.0, 200.0) as usize;
+    let size = a.num("size")?.unwrap_or(52.0).clamp(10.0, 300.0);
+    let p = &ed.project;
+    let with_t = |c: &crate::doc::Clip| c.media().and_then(|m| p.media(m)).is_some_and(|m| m.transcript.is_some());
+    // видео со связанным звуком — один раз (по звуковому клипу, если он есть)
+    let mut clips: Vec<crate::doc::Clip> = match a.ids("ids")? {
+        Some(ids) => ids.iter().filter_map(|i| p.clip(*i).cloned()).collect(),
+        None => p.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| with_t(c)).cloned().collect(),
+    };
+    clips.retain(|c| with_t(c));
+    let mut seen = std::collections::HashSet::new();
+    clips.retain(|c| seen.insert(p.linked_peer(c.id).map_or(c.id, |q| q.min(c.id))));
+    if clips.is_empty() {
+        return Err("нет клипов с расшифровкой — сначала media.transcribe".into());
+    }
+    let mut subs: Vec<(f64, f64, String)> = Vec::new();
+    for c in &clips {
+        let m = p.media(c.media().unwrap()).unwrap();
+        for (s, e, text) in phrases(&m.transcript.as_ref().unwrap().words, max_chars) {
+            // время источника → таймлайн; фраза за краями клипа — обрезается или пропускается
+            let ts = c.start + (s - c.offset) / c.speed;
+            let te = (c.start + (e - c.offset) / c.speed).min(c.end());
+            let ts = ts.max(c.start);
+            if te - ts > 0.02 {
+                subs.push((ts, te, text));
+            }
+        }
+    }
+    if subs.is_empty() {
+        return Err("в границах клипов нет речи".into());
+    }
+    subs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    ed.begin("Субтитры");
+    let p = &mut ed.project;
+    let ti = match p.tracks.iter().position(|t| t.kind == crate::doc::TrackKind::Video && t.name == "Субтитры") {
+        Some(i) => i,
+        None => {
+            let id = p.alloc();
+            p.tracks.push(crate::doc::Track { id, kind: crate::doc::TrackKind::Video, name: "Субтитры".into(), muted: false, hidden: false, clips: Vec::new() });
+            p.tracks.len() - 1
+        }
+    };
+    let fps = p.settings.fps.max(1.0);
+    let (lo, hi) = (subs[0].0, subs.last().unwrap().1);
+    p.tracks[ti].clips.retain(|c| c.end() <= lo + 1e-6 || c.start >= hi - 1e-6);
+    let n = subs.len();
+    let mut prev_end = 0.0f64;
+    let starts: Vec<f64> = subs.iter().map(|x| x.0).collect();
+    for (i, (s, e, text)) in subs.into_iter().enumerate() {
+        let s = ((s * fps).round() / fps).max(prev_end);
+        // короткую фразу показать хотя бы 0.8 с, не налезая на следующую
+        let next = starts.get(i + 1).copied().unwrap_or(f64::MAX);
+        let e = e.max((s + 0.8).min(next));
+        let e = ((e * fps).round() / fps).max(s + 1.0 / fps);
+        prev_end = e;
+        let id = p.alloc();
+        let mut style = serde_json::Map::new();
+        style.insert("position".into(), json!("bottom"));
+        style.insert("size".into(), json!(size));
+        style.insert("color".into(), json!("#ffffff"));
+        style.insert("in".into(), json!("none"));
+        style.insert("out".into(), json!("none"));
+        p.tracks[ti].clips.push(crate::doc::Clip { id, source: crate::doc::Source::Title { text, style }, start: s, duration: e - s, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None });
+    }
+    p.tracks[ti].clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+    Ok(Out::with(format!("Субтитров: {n} ({}–{})", tc(lo), tc(hi)), json!({"count": n})))
 }
 
 static TRANSCRIPT: Cmd = Cmd {

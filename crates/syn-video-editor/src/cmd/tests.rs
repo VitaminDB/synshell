@@ -934,3 +934,38 @@ fn blocks_apply_params_save() {
     std::env::remove_var("SYN_VIDEO_EDITOR_BLOCKS");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// D3: субтитры по расшифровке — фразы, время с учётом сдвига и скорости, замена на отрезке.
+#[test]
+fn subtitles_from_transcript() {
+    use crate::doc::TranscriptWord;
+    let mut ed = ed_with_media(20.0);
+    let mid = ed.project.media[0].id;
+    let w = |t: &str, s: f64, e: f64| TranscriptWord { text: t.into(), start: s, end: e };
+    ed.project.media[0].transcript = Some(crate::doc::Transcript {
+        text: String::new(),
+        language: Some("ru".into()),
+        words: vec![w("Привет,", 1.0, 1.4), w("друзья.", 1.5, 2.0), w("Сегодня", 3.0, 3.4), w("монтируем", 3.5, 4.0), w("видео", 4.1, 4.5), w("вне", 12.0, 12.5)],
+    });
+    run(&mut ed, "subtitles.add", &json!({})).unwrap_err(); // клипов ещё нет
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 10, "offset": 0.5, "duration": 4})).unwrap();
+    let v = ed.project.tracks[0].clips[0].id;
+    run(&mut ed, "clip.set", &json!({"id": v, "speed": 2})).unwrap(); // 0.5..8.5 источника за 4 с
+    let o = run(&mut ed, "subtitles.add", &json!({"max_chars": 30})).unwrap();
+    assert_eq!(o.data["count"].as_u64(), Some(2), "{}", o.text);
+    let t = ed.project.tracks.iter().find(|t| t.name == "Субтитры").unwrap();
+    let got: Vec<(f64, String)> = t.clips.iter().map(|c| (c.start, match &c.source { crate::doc::Source::Title { text, .. } => text.clone(), _ => String::new() })).collect();
+    assert_eq!(got[0].1, "Привет, друзья.");
+    assert!((got[0].0 - 10.25).abs() < 0.04, "{got:?}"); // 10 + (1.0−0.5)/2
+    assert_eq!(got[1].1, "Сегодня монтируем видео");
+    // повтор — замена, не удвоение
+    assert!(t.clips[1].duration >= 0.79, "короткая фраза видна");
+    run(&mut ed, "subtitles.add", &json!({"max_chars": 30})).unwrap();
+    assert_eq!(ed.project.tracks.iter().find(|t| t.name == "Субтитры").unwrap().clips.len(), 2);
+    let o = run(&mut ed, "subtitles.add", &json!({"max_chars": 20})).unwrap();
+    assert_eq!(o.data["count"].as_u64(), Some(3), "по длине — три");
+    // фразы режутся по длине
+    let ph = crate::cmd::audio::phrases(&ed.project.media[0].transcript.as_ref().unwrap().words, 10);
+    assert!(ph.iter().all(|p| p.2.chars().count() <= 12 || !p.2.contains(' ')), "{ph:?}");
+    run(&mut ed, "media.vfx", &json!({"id": mid, "kind": "upscale", "scale": 3})).unwrap_err();
+}

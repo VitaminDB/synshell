@@ -2,11 +2,11 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::{req, Args, Command, Out, Res, Ty};
+use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::doc::{expand, Media, MediaKind};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Command] = &[&IMPORT, &LIST, &REMOVE];
+pub static COMMANDS: &[&Command] = &[&IMPORT, &LIST, &REMOVE, &VFX];
 
 pub const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "heic"];
 pub const AUDIO: &[&str] = &["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif"];
@@ -189,4 +189,64 @@ fn remove(ed: &mut Editor, a: &Args) -> Res {
         n += before - t.clips.len();
     }
     Ok(Out::text(format!("Убрано m{id} {name} и клипов: {n}")))
+}
+
+/// Нейрофильтр над файлом целиком (пакетная обработка): клип файла во
+/// временном проекте с эффектом `upscale` или `interpolate` → экспорт тем же
+/// композитором (synaptix-vfx). `kind`: upscale (scale 2|4, model) или
+/// interpolate (fps). Результат — рядом с исходным файлом.
+pub fn vfx_file(path: &Path, kind: &str, scale: u32, model: &str, fps: f64, progress: impl FnMut(usize, usize)) -> Result<PathBuf, String> {
+    let m = probe(path)?;
+    if m.kind != MediaKind::Video {
+        return Err(format!("{}: не видео", path.display()));
+    }
+    let mut ed = Editor::new();
+    let mid = ed.project.alloc();
+    ed.project.media.push(Media { id: mid, ..m.clone() });
+    let (w, h, f) = match kind {
+        "upscale" => ((m.width * scale) & !1, (m.height * scale) & !1, if m.fps > 0.0 { m.fps } else { 30.0 }),
+        "interpolate" => (m.width & !1, m.height & !1, fps),
+        _ => return Err(format!("нейрофильтр «{kind}»: upscale или interpolate")),
+    };
+    ed.project.settings.width = w.max(2);
+    ed.project.settings.height = h.max(2);
+    ed.project.settings.fps = f;
+    super::run(&mut ed, "clip.add", &json!({"media": mid, "at": 0})).map_err(|e| format!("клип: {e}"))?;
+    let vid = ed.project.tracks.iter().find(|t| t.kind == crate::doc::TrackKind::Video).and_then(|t| t.clips.first()).map(|c| c.id).ok_or("нет клипа")?;
+    let params = if kind == "upscale" { json!({"scale": scale, "model": model}) } else { json!({}) };
+    super::run(&mut ed, "effect.add", &json!({"ids": [vid], "kind": kind, "params": params})).map_err(|e| format!("эффект: {e}"))?;
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "video".into());
+    let tag = if kind == "upscale" { format!("up{scale}x") } else { format!("{}fps", f.round()) };
+    let dir = path.parent().filter(|d| std::fs::metadata(d).is_ok_and(|m| !m.permissions().readonly())).map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
+    let out = dir.join(format!("{stem}.{tag}.mp4"));
+    crate::render::run_child(&ed.project, &["export".into(), out.display().to_string()], progress)?;
+    if !out.is_file() {
+        return Err(format!("{}: экспорт не создал файл", out.display()));
+    }
+    Ok(out)
+}
+
+static VFX: Command = Command {
+    id: "media.vfx",
+    category: "Медиа",
+    title: "Нейрофильтр над файлом",
+    shortcut: "",
+    keywords: "vfx upscale увеличение rife интерполяция плавность 60 fps нейро пакетная обработка",
+    help: "Пакетно обработать видео нейрофильтром synaptix-vfx и добавить результат в медиатеку: kind upscale (scale 2|4, model plksr|span|compact|nanovsr) или interpolate (fps — до какой частоты, 60). Файл пишется рядом с исходным (<имя>.up2x.mp4 / <имя>.60fps.mp4). Долго; нужна видеокарта с CUDA.",
+    args: &[req("id", Ty::Id, "медиа (m…)"), req("kind", Ty::Str, "upscale | interpolate"), arg("scale", Ty::Num, "увеличение 2 или 4"), arg("model", Ty::Str, "модель увеличения"), arg("fps", Ty::Num, "частота для interpolate (60)")],
+    danger: false,
+    run: vfx,
+};
+
+fn vfx(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let m = ed.project.media(id).ok_or_else(|| format!("нет медиа m{id}"))?.clone();
+    let kind = a.need_str("kind")?;
+    let scale = a.num("scale")?.unwrap_or(2.0) as u32;
+    if !matches!(scale, 2 | 4) {
+        return Err("scale: 2 или 4".into());
+    }
+    let out = vfx_file(&m.path, &kind, scale, &a.str("model")?.unwrap_or_default(), a.num("fps")?.unwrap_or(60.0).clamp(1.0, 240.0), |i, n| syn_assist::tools::progress(i, n, "нейрофильтр"))?;
+    let r = super::run(ed, "media.import", &json!({"paths": [out.display().to_string()]}))?;
+    Ok(Out::with(format!("{} → {}\n{}", m.name(), out.display(), r.text), r.data))
 }

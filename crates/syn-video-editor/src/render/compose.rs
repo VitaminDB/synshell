@@ -1174,7 +1174,9 @@ impl FrameSource {
                 };
                 let mut f = r.as_ref().map(|_| ()).and(None::<syngui::video::RgbaFrame>);
                 if let Some(r) = r {
-                    if let Ok(cur) = r.frame_at(src) {
+                    let rife = self.neural && effect(c, "interpolate").is_some();
+                    // с RIFE — последний кадр до момента (между ним и следующим строится промежуточный)
+                    if let Ok(cur) = if rife { r.frame_floor(src) } else { r.frame_at(src) } {
                         let mut out = cur.clone();
                         if self.neural && effect(c, "interpolate").is_some() && src > cur.pts + 1e-4 {
                             if let Some(next) = r.peek_next() {

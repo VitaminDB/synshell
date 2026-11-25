@@ -127,7 +127,7 @@
 "длинная сторона снимка, px (по умолчанию 1280; 0 — без уменьшения)" = "lado maior da captura, px (padrão 1280; 0 — sem redução)"
 "вывод (монитор), по умолчанию первый" = "saída (monitor), a primeira por padrão"
 "разбудить погашенный экран перед снимком (по умолчанию да)" = "acordar a tela apagada antes da captura (sim por padrão)"
-"Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка." = "Tocar (dedo no telefone, botão esquerdo do mouse no computador) em um ponto da captura."
+"Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка; action: right — правый щелчок (контекстное меню), double — двойной, hover — навести без щелчка." = "Tocar (dedo no telefone, botão esquerdo do mouse no computador) em um ponto da captura. (action: right / double / hover)"
 "X, px снимка" = "X, px da captura"
 "Y, px снимка" = "Y, px da captura"
 "Удержать палец/кнопку в точке (контекстные меню, выбор)." = "Manter o dedo/botão pressionado em um ponto (menus de contexto, seleção)."

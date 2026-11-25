@@ -100,8 +100,9 @@ fn tools() -> Value {
              "wake": {"type": "boolean", "description": t!("разбудить погашенный экран перед снимком (по умолчанию да)")},
              "window": {"type": "string", "description": t!("снять только окно: часть app_id или заголовка, pid:N или id:N (из windows); вместе с его меню и подсказками; координаты жестов — в пикселях снимка окна")},
              "offscreen": {"type": "boolean", "description": t!("окно рисуется отдельно: видно и перекрытое другими, но без меню (только local)")}}), &["device"])},
-        {"name": "tap", "description": t!("Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка."),
-         "inputSchema": schema(json!({"device": dev, "x": num(&t!("X, px снимка")), "y": num(&t!("Y, px снимка"))}), &["device", "x", "y"])},
+        {"name": "tap", "description": t!("Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка; action: right — правый щелчок (контекстное меню), double — двойной, hover — навести без щелчка."),
+         "inputSchema": schema(json!({"device": dev, "x": num(&t!("X, px снимка")), "y": num(&t!("Y, px снимка")),
+             "action": {"type": "string", "enum": ["click", "double", "right", "hover"], "description": t!("что сделать (по умолчанию click)")}}), &["device", "x", "y"])},
         {"name": "long_press", "description": t!("Удержать палец/кнопку в точке (контекстные меню, выбор)."),
          "inputSchema": schema(json!({"device": dev, "x": num("X"), "y": num("Y"), "ms": num(&t!("длительность, мс (700)"))}), &["device", "x", "y"])},
         {"name": "swipe", "description": t!("Провести из точки в точку (прокрутка списков, жесты от краёв, перетаскивание)."),
@@ -493,7 +494,16 @@ impl Server {
                 let s = self.screen(&device)?;
                 let (x, y) = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
                 if name == "tap" {
-                    gestures::tap(&device, &s, x, y)?;
+                    match a.get("action").and_then(Value::as_str).unwrap_or("click") {
+                        "right" => gestures::right_click(&device, &s, x, y)?,
+                        "hover" => gestures::hover(&device, &s, x, y)?,
+                        "double" => {
+                            gestures::tap(&device, &s, x, y)?;
+                            std::thread::sleep(Duration::from_millis(80));
+                            gestures::tap(&device, &s, x, y)?;
+                        }
+                        _ => gestures::tap(&device, &s, x, y)?,
+                    }
                 } else {
                     gestures::hold(&device, &s, x, y, a.get("ms").and_then(Value::as_u64).unwrap_or(700))?;
                 }

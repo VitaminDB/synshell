@@ -127,7 +127,7 @@
 "длинная сторона снимка, px (по умолчанию 1280; 0 — без уменьшения)" = "long side of the screenshot, px (default 1280; 0 — no downscaling)"
 "вывод (монитор), по умолчанию первый" = "output (monitor), the first one by default"
 "разбудить погашенный экран перед снимком (по умолчанию да)" = "wake a blanked screen before the screenshot (yes by default)"
-"Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка." = "Tap (finger on a phone, left mouse button on a computer) at a screenshot point."
+"Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка; action: right — правый щелчок (контекстное меню), double — двойной, hover — навести без щелчка." = "Tap (finger on a phone, left mouse button on a computer) at a screenshot point; action: right — right click (context menu), double — double click, hover — move the pointer without clicking."
 "X, px снимка" = "X, screenshot px"
 "Y, px снимка" = "Y, screenshot px"
 "Удержать палец/кнопку в точке (контекстные меню, выбор)." = "Hold the finger/button at a point (context menus, selection)."
@@ -372,3 +372,4 @@
 "нет окна «{q}»; есть: {names}" = "no window “{q}”; available: {names}"
 "область за краем снимка" = "the area is outside the screenshot"
 "снимок не RGBA" = "the screenshot is not RGBA"
+"что сделать (по умолчанию click)" = "what to do (click by default)"
