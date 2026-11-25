@@ -12,6 +12,7 @@ pub mod timeline;
 mod fontpick;
 mod layouts_ui;
 mod luts;
+mod framegraph_ui;
 mod coverage_ui;
 mod curves;
 mod xform;

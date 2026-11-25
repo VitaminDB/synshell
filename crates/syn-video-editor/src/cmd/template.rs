@@ -223,7 +223,7 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
     // освободить место (перезапись)
     let t = &mut p.tracks[ti];
     t.clips.retain(|c| c.end() <= start + 1e-6 || c.start >= start + dur - 1e-6);
-    t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None });
+    t.clips.push(Clip { id, source: Source::Title { text: body.clone(), style }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.clone(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None });
     t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("c{id} шаблон {tname}: «{}» {}–{}", body.replace('\n', " / "), tc(start), tc(start + dur)), json!({"id": id})))
 }
@@ -276,7 +276,7 @@ fn apply_lottie(ed: &mut Editor, a: &Args, tname: &str, path: &std::path::Path) 
     let dur = p.snap(duration).max(1.0 / p.settings.fps.max(1.0));
     let t = &mut p.tracks[ti];
     t.clips.retain(|c| c.end() <= start + 1e-6 || c.start >= start + dur - 1e-6);
-    t.clips.push(Clip { id, source: Source::Media { media: mid }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.to_string(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None });
+    t.clips.push(Clip { id, source: Source::Media { media: mid }, start, duration: dur, offset: 0.0, speed: 1.0, volume: 1.0, name: tname.to_string(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None });
     t.clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("c{id} Lottie {tname} (m{mid}) {}–{}", tc(start), tc(start + dur)), json!({"id": id, "media": mid})))
 }

@@ -144,6 +144,10 @@ pub fn fade(c: &Clip, lt: f64, prefix: &str) -> f64 {
 /// Цепочка `filter` из эффектов цвета, размытия, виньетки.
 fn filters(c: &Clip, scale: f32) -> String {
     let mut f = Vec::new();
+    // с графом кадра эффекты изображения считает граф (FrameSource)
+    if c.graph.is_some() {
+        return String::new();
+    }
     if let Some(e) = effect(c, "color") {
         let p = &e.params;
         let b = num(p, "brightness", 0.0);
@@ -1045,6 +1049,33 @@ impl FrameSource {
         Self { readers: HashMap::new(), stills: HashMap::new(), fusion_last: HashMap::new(), lottie_last: HashMap::new(), max: (max_w, max_h), neural: false, interp: HashMap::new(), upscale: HashMap::new(), notes: Vec::new() }
     }
 
+    /// Граф кадра клипа (D1) на кадре источника; нейроувеличение — общим слотом клипа.
+    fn eval_graph(&mut self, cid: u64, g: &crate::framegraph::FrameGraph, f: &syngui::video::RgbaFrame) -> syngui::video::RgbaFrame {
+        let scale = f.height as f32 / 1080.0;
+        let neural_on = self.neural;
+        let slots = &mut self.upscale;
+        let notes = &mut self.notes;
+        let mut neural = |n: &crate::framegraph::GNode, im: &crate::fusion::img::Image| -> Option<crate::fusion::img::Image> {
+            if !neural_on {
+                return None;
+            }
+            let hint = n.params.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+            let slot = slots.entry(cid).or_insert_with(|| super::neural::Upscale::open(&hint).map_err(|e| notes.push(format!("c{cid}: увеличение пропущено — {e}"))).ok());
+            let up = slot.as_mut()?;
+            let fr = syngui::video::RgbaFrame { width: im.width, height: im.height, pts: 0.0, rgba: Arc::new(im.to_rgba8()) };
+            match up.apply(&fr) {
+                Ok(v) => Some(crate::fusion::img::Image::from_rgba8(v.width, v.height, &v.rgba)),
+                Err(e) => {
+                    notes.push(format!("c{cid}: увеличение — {e}"));
+                    *slot = None;
+                    None
+                }
+            }
+        };
+        let im = g.eval(f.width, f.height, &f.rgba, scale, &mut neural);
+        syngui::video::RgbaFrame { width: im.width, height: im.height, pts: f.pts, rgba: Arc::new(im.to_rgba8()) }
+    }
+
     pub fn frames(&mut self, p: &Project, t: f64) -> Frames {
         let mut out = Frames::new();
         let active_layers = layers(p, t);
@@ -1163,7 +1194,7 @@ impl FrameSource {
                         f = Some(out);
                     }
                 }
-                if let (true, Some(e), Some(fr)) = (self.neural, effect(c, "upscale"), f.as_ref()) {
+                if let (true, Some(e), Some(fr), true) = (self.neural, effect(c, "upscale"), f.as_ref(), c.graph.is_none()) {
                     let hint = e.params.get("model").and_then(Value::as_str).unwrap_or("").to_string();
                     let notes = &mut self.notes;
                     let slot = self.upscale.entry(c.id).or_insert_with(|| super::neural::Upscale::open(&hint).map_err(|err| notes.push(format!("c{}: увеличение пропущено — {err}", c.id))).ok());
@@ -1183,6 +1214,11 @@ impl FrameSource {
                 f
             };
             let Some(mut f) = frame else { continue };
+            if let Some(g) = &c.graph {
+                f = self.eval_graph(c.id, g, &f);
+                out.insert(c.id, f);
+                continue;
+            }
             if let Some(e) = effect(c, "lut") {
                 if let Some(lp) = e.params.get("path").and_then(Value::as_str) {
                     if let Ok(lut) = super::lut::load(lp) {

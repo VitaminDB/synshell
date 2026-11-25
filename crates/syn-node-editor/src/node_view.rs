@@ -538,6 +538,31 @@ fn port_row(node_id: NodeId, in_port: Option<PortSchema>, out_port: Option<PortS
     })
 }
 
+/// Поле карточки следует за своим сигналом: внешняя правка (отмена, агент,
+/// загрузка графа) перестраивает контрол, своя (протяжка, ввод) — нет, чтобы
+/// жест не обрывался. `mine` — последнее значение, записанное самим полем.
+fn follow<T: Clone + PartialEq + Send + Sync + 'static>(sig: RwSignal<T>, build: impl Fn(T, RwSignal<Option<T>>) -> Box<dyn Widget> + Send + Sync + 'static) -> Box<dyn Widget> {
+    let mine = use_signal(None::<T>);
+    let ext = use_signal(0u64);
+    create_effect(move || {
+        let v = sig.get();
+        if mine.get_untracked().as_ref() != Some(&v) {
+            mine.set(None);
+            ext.update(|n| *n += 1);
+        }
+    });
+    Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = ext.get();
+        vec![build(sig.get_untracked(), mine)]
+    }))
+}
+
+/// Записать значение из самого поля (без перестройки контрола).
+fn put<T: Clone + PartialEq + Send + Sync + 'static>(sig: RwSignal<T>, mine: RwSignal<Option<T>>, v: T) {
+    mine.set(Some(v.clone()));
+    sig.set(v);
+}
+
 fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'static str, FieldValue>>>) -> Box<dyn Widget> {
     let label = syngui::i18n::t(schema.label);
     let name = schema.name;
@@ -546,28 +571,25 @@ fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'
     drop(map);
 
     let field_widget: Box<dyn Widget> = match (schema.ty, value) {
-        (FieldType::Text, Some(FieldValue::Text(sig))) => {
-            let initial = sig.get_untracked();
+        (FieldType::Text, Some(FieldValue::Text(sig))) => follow(sig, move |initial, mine| {
             Box::new(
                 TextField::new()
                     .placeholder(tr!("nodes.field.text_placeholder"))
                     .text(initial)
-                    .on_change(move |s| sig.set(s.to_string()))
+                    .on_change(move |s| put(sig, mine, s.to_string()))
                     .class("node-input-text"),
             )
-        }
-        (FieldType::Float, Some(FieldValue::Float(sig))) => {
-            let initial = sig.get_untracked();
+        }),
+        (FieldType::Float, Some(FieldValue::Float(sig))) => follow(sig, move |initial, mine| {
             Box::new(
                 Slider::new()
                     .range(-100.0, 100.0)
                     .value(initial)
-                    .on_change(move |v| sig.set(v))
+                    .on_change(move |v| put(sig, mine, v))
                     .class("node-input-slider"),
             )
-        }
-        (FieldType::Int, Some(FieldValue::Int(sig))) => {
-            let initial = sig.get_untracked();
+        }),
+        (FieldType::Int, Some(FieldValue::Int(sig))) => follow(sig, move |initial, mine| {
             Box::new(
                 SpinBox::new()
                     .min(-1000.0)
@@ -575,11 +597,11 @@ fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'
                     .step(1.0)
                     .decimal_places(0)
                     .value(initial as f64)
-                    .on_change(move |v| sig.set(v as i32))
+                    .on_change(move |v| put(sig, mine, v as i32))
                     .width(80.0)
                     .class("node-input-spinbox"),
             )
-        }
+        }),
         (FieldType::Bool, Some(FieldValue::Bool(sig))) => {
             let initial = sig.get_untracked();
             if name == "bypass" {
@@ -611,8 +633,7 @@ fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'
                     .class("node-input-color"),
             )
         }
-        (FieldType::Choice(opts), Some(FieldValue::Choice(sig))) => {
-            let initial_idx = sig.get_untracked();
+        (FieldType::Choice(opts), Some(FieldValue::Choice(sig))) => follow(sig, move |initial_idx, mine| {
             let opts_vec: Vec<&'static str> = opts.to_vec();
             let initial_label = opts_vec.get(initial_idx).copied().unwrap_or("");
             let items: Vec<DropdownItem> = opts_vec.iter().map(|o| DropdownItem::simple(*o)).collect();
@@ -622,12 +643,12 @@ fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'
                     .selected(initial_label)
                     .on_change(move |val| {
                         if let Some(idx) = opts_for_cb.iter().position(|o| *o == val) {
-                            sig.set(idx);
+                            put(sig, mine, idx);
                         }
                     })
                     .class("node-input-dropdown"),
-            )
-        }
+            ) as Box<dyn Widget>
+        }),
         _ => Box::new(Text::new("?").class("node-card-field-error")),
     };
 

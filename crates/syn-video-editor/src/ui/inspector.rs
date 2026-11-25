@@ -93,7 +93,8 @@ pub fn key() -> String {
                 }
                 None => "-".into(),
             };
-            format!("c{}:{src}:{}:{tr_key}:{:.4}:{:.4}:{}:{par}:{lnk}{anim}", c.id, fx.join(","), c.start, c.duration, c.blend)
+            let gk = c.graph.as_ref().map(|g| g.nodes.len()).unwrap_or(0);
+            format!("c{}:{src}:{}:{tr_key}:{:.4}:{:.4}:{}:{par}:{lnk}{anim}:g{gk}", c.id, fx.join(","), c.start, c.duration, c.blend)
         }
         None => format!("p:{}x{}@{}:{}:{}:{}:{:.4}", p.settings.width, p.settings.height, p.settings.fps, p.settings.bg, p.media.len(), p.tracks.len(), p.duration()),
     }
@@ -408,6 +409,13 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
     };
     r.info("Источник", src);
     r.info("Время", format!("{} — {} ({})", tc(c.start), tc(c.end()), tc(c.duration)));
+    if p.find_clip(id).is_some_and(|(ti, _)| p.tracks[ti].kind == crate::doc::TrackKind::Video) {
+        let label = match &base.graph {
+            Some(g) => format!("Открыть ({} нод)", g.nodes.len()),
+            None => "Открыть как граф".to_string(),
+        };
+        r.action("Граф кадра", &label, move |st| super::framegraph_ui::open(st, id));
+    }
     r.add(Property::text("Имя", c.name.clone()), move |st, v| {
         if let PropertyValue::Text(s) = v {
             st.exec("clip.set", json!({"id": id, "name": s}));

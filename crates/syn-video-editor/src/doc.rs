@@ -239,6 +239,10 @@ pub struct Clip {
     /// Связанный клип (видео ↔ его звук на аудиодорожке): правки идут синхронно, пока связь не разорвана.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Id>,
+    /// Граф кадра (D1): эффекты изображения нодами с ветвлением и слиянием;
+    /// при графе `color/blur/sharpen/vignette/lut/upscale` берутся только из него.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<crate::framegraph::FrameGraph>,
 }
 
 fn is_normal_blend(s: &String) -> bool {

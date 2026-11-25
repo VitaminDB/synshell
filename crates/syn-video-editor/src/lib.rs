@@ -7,6 +7,7 @@ pub mod cmd;
 pub mod doc;
 pub mod editor;
 pub mod fonts;
+pub mod framegraph;
 pub mod fusion;
 pub mod layout;
 pub mod lottie;

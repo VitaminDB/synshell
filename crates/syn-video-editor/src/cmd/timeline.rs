@@ -368,8 +368,8 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
         let vid = p.alloc();
         let aid = p.alloc();
         let ati = audio_track_for_video(p, ti, start, duration, insert);
-        let v_clip = Clip { id: vid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 0.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(aid) };
-        let a_clip = Clip { id: aid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(vid) };
+        let v_clip = Clip { id: vid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 0.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(aid), graph: None };
+        let a_clip = Clip { id: aid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(vid), graph: None };
         let (_, v_splits) = place_with_splits(p, ti, v_clip, insert);
         let (_, a_splits) = place_with_splits(p, ati, a_clip, insert);
         relink_splits(p, &v_splits, &a_splits);
@@ -382,7 +382,7 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
         ));
     }
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None };
+    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
     place(p, ti, clip, insert);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} {} на t{} {}–{}", m.name(), p.tracks[ti].id, tc(c.start), tc(c.end())), json!({"id": id})))
@@ -419,7 +419,7 @@ fn title_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None };
+    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} титр «{text}» {}–{}", tc(c.start), tc(c.end())), json!({"id": id})))
@@ -459,7 +459,7 @@ fn shape_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Shape { kind: kind.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None };
+    let clip = Clip { id, source: Source::Shape { kind: kind.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} фигура {} {}–{}", crate::doc::shape_title(&kind), tc(c.start), tc(c.end())), json!({"id": id})))
@@ -978,6 +978,24 @@ fn effect_add(ed: &mut Editor, a: &Args) -> Res {
     ed.begin("Добавить эффект");
     let mut made = Vec::new();
     for id in &targets {
+        // у клипа граф кадра — эффект изображения встаёт нодой перед выходом
+        if crate::framegraph::IMAGE_FX.contains(&kind.as_str()) {
+            if let Some(g) = ed.project.clip_mut(*id).unwrap().graph.as_mut() {
+                let nid = g.next_id();
+                let out = g.nodes.iter().find(|n| n.kind == "output").map(|n| (n.id, n.x, n.y));
+                if let Some((oid, ox, oy)) = out {
+                    let prev = g.input(oid, "in");
+                    g.links.retain(|l| !(l.to == oid && l.port == "in"));
+                    if let Some(p) = prev {
+                        g.links.push(crate::framegraph::GLink { from: p, to: nid, port: "in".into() });
+                    }
+                    g.links.push(crate::framegraph::GLink { from: nid, to: oid, port: "in".into() });
+                    g.nodes.push(crate::framegraph::GNode { id: nid, kind: kind.clone(), params: params.clone(), x: ox, y: oy + 120.0 });
+                    made.push(format!("c{id}: нода {nid} графа кадра"));
+                    continue;
+                }
+            }
+        }
         let eid = ed.project.alloc();
         let mut params: Map<String, Value> = params.clone();
         if kind == "lut" {

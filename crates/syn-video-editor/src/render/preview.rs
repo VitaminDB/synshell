@@ -35,7 +35,7 @@ fn base(w: u32, h: u32, fps: f64) -> Project {
 }
 
 fn clip(id: u64, source: Source, start: f64, duration: f64) -> Clip {
-    Clip { id, source, start, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None }
+    Clip { id, source, start, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None }
 }
 
 fn title_style() -> Map<String, Value> {

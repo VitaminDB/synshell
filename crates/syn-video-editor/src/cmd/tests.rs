@@ -658,6 +658,7 @@ fn fusion_transition_set_render_and_params() {
         blend: "normal".into(),
         parent: None,
         link: None,
+        graph: None,
     });
     ed.project.tracks[0].clips.push(crate::doc::Clip {
         id: c2,
@@ -674,6 +675,7 @@ fn fusion_transition_set_render_and_params() {
         blend: "normal".into(),
         parent: None,
         link: None,
+        graph: None,
     });
     let _ = v1;
 
@@ -823,4 +825,56 @@ fn lut_library_and_apply() {
     run(&mut ed, "lut.apply", &json!({"ids": [v], "path": "/нет/такого.cube"})).unwrap_err();
     run(&mut ed, "lut.apply", &json!({"ids": [a], "path": inv})).unwrap_err();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D1: граф кадра — открыть из эффектов, ветвление со слиянием, проверка,
+/// расчёт кадра и возврат к эффектам.
+#[test]
+fn frame_graph_open_branch_eval_close() {
+    let mut ed = ed_with_media(10.0);
+    let mid = ed.project.media[0].id;
+    run(&mut ed, "clip.add", &json!({"media": mid, "at": 0})).unwrap();
+    let (v, a) = (ed.project.tracks[0].clips[0].id, ed.project.tracks[1].clips[0].id);
+    run(&mut ed, "effect.add", &json!({"ids": [v], "kind": "color", "params": {"saturation": -1.0}})).unwrap();
+    run(&mut ed, "effect.add", &json!({"ids": [v], "kind": "fade_in"})).unwrap();
+    run(&mut ed, "graph.open", &json!({"id": a})).unwrap_err();
+    run(&mut ed, "graph.open", &json!({"id": v})).unwrap();
+    let c = ed.project.clip(v).unwrap();
+    assert_eq!(c.effects.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(), vec!["fade_in"], "цвет ушёл в граф, затухание осталось");
+    let g = c.graph.clone().unwrap();
+    assert_eq!(g.nodes.iter().map(|n| n.kind.as_str()).collect::<Vec<_>>(), vec!["source", "color", "output"]);
+    assert!(g.as_chain().is_some());
+    // свечение «своими руками»: source → blur → merge.fg (screen), color → merge.bg
+    run(&mut ed, "graph.add", &json!({"id": v, "kind": "merge", "after": 2, "params": {"mode": "screen", "opacity": 0.8}})).unwrap();
+    run(&mut ed, "graph.add", &json!({"id": v, "kind": "blur", "params": {"radius": 12}})).unwrap();
+    run(&mut ed, "graph.link", &json!({"id": v, "from": 1, "to": 5})).unwrap();
+    run(&mut ed, "graph.link", &json!({"id": v, "from": 5, "to": 4, "port": "fg"})).unwrap();
+    let g = ed.project.clip(v).unwrap().graph.clone().unwrap();
+    assert_eq!(g.input(3, "in"), Some(4), "выход ← merge");
+    assert_eq!((g.input(4, "bg"), g.input(4, "fg")), (Some(2), Some(5)));
+    assert!(g.as_chain().is_none());
+    // ошибки не портят граф
+    run(&mut ed, "graph.link", &json!({"id": v, "from": 4, "to": 2})).unwrap_err(); // цикл
+    run(&mut ed, "graph.link", &json!({"id": v, "from": 1, "to": 4, "port": "zz"})).unwrap_err();
+    run(&mut ed, "graph.add", &json!({"id": v, "kind": "nope"})).unwrap_err();
+    assert_eq!(ed.project.clip(v).unwrap().graph.as_ref(), Some(&g));
+    // расчёт: ч/б фон + яркая размытая копия экраном → светлее и серее исходного красного
+    let (w, h) = (16u32, 8u32);
+    let src: Vec<u8> = (0..w * h).flat_map(|_| [200u8, 40, 40, 255]).collect();
+    let out = g.eval(w, h, &src, 1.0 / 1080.0, &mut |_, _| None).to_rgba8();
+    let px = &out[(4 * w as usize + 8) * 4..][..4];
+    assert!(px[1] > 60 && px[0] > 90, "серый + экран: {px:?}");
+    assert_eq!(px[3], 255);
+    // закрыть: с ветвлением — только force; цепочка — обратно в эффекты
+    run(&mut ed, "graph.close", &json!({"id": v})).unwrap_err();
+    run(&mut ed, "graph.remove", &json!({"id": v, "node": 4})).unwrap();
+    run(&mut ed, "graph.remove", &json!({"id": v, "node": 5})).unwrap();
+    assert!(ed.project.clip(v).unwrap().graph.as_ref().unwrap().as_chain().is_some());
+    run(&mut ed, "graph.close", &json!({"id": v})).unwrap();
+    let c = ed.project.clip(v).unwrap();
+    assert!(c.graph.is_none());
+    assert_eq!(c.effects.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(), vec!["fade_in", "color"]);
+    // отмена возвращает граф
+    run(&mut ed, "edit.undo", &json!({})).unwrap();
+    assert!(ed.project.clip(v).unwrap().graph.is_some());
 }

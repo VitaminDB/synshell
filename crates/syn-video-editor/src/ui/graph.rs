@@ -118,6 +118,7 @@ const TL_OUT: &[PortSchema] = &[PortSchema { name: "count", label: "постав
 /// Хост, строки и ноды видеоредактора — до создания окна.
 pub fn init() {
     syn_node_editor::host::set_host(Host);
+    super::framegraph_ui::register();
     syngui::i18n::register_catalogs(&syn_node_editor::i18n::CATALOGS);
     syngui::i18n::register_catalogs(&synaptix_flow::CATALOGS);
     registry::register_category(CategoryInfo { key: "video_editor", label: "Видеоредактор", icon: "\u{E02C}" });
@@ -160,6 +161,7 @@ pub fn init() {
 /// Внутри окна: рабочее место графов (открытые графы сохраняются сами).
 pub fn mount(st: St) {
     let _ = ST.set(st);
+    super::framegraph_ui::init();
     let ws = EditorWorkspace::new_or_restore();
     if ws.active.get_untracked().is_none() {
         ws.new_untitled();
@@ -175,6 +177,16 @@ pub fn panel() -> Box<dyn Widget> {
         return Box::new(Center::new().child(Text::new("Редактор узлов не подключён").class("panel-empty")));
     };
     Box::new(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        // открыт граф кадра клипа — его холст
+        if let (Some(o), Some(st)) = (super::framegraph_ui::current().get(), ST.get().copied()) {
+            let ctx = o.ctx;
+            return vec![Box::new(
+                Column::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(super::framegraph_ui::head(st, o))).child(DecoratedBox::new().class("graph-zoom").child(syn_node_editor::canvas::zoom_controls(ctx)))))
+                    .child(DecoratedBox::new().class("grow").child(syn_node_editor::canvas::view_bare(ctx, Vec::new()))),
+            )];
+        }
         vec![match ws.active_ctx() {
             Some(ctx) => Box::new(
                 Column::new()

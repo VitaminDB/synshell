@@ -1256,6 +1256,9 @@ fn menu_items(st: St) -> Vec<MenuItem> {
     } else if !is_audio_track && media.is_some_and(|m| m.kind == crate::doc::MediaKind::Video && m.has_audio) && c.volume > 0.0 {
         v.push(MenuItem::new("detach", "Отделить звук").icon(super::icons::AUDIO));
     }
+    if !is_audio_track {
+        v.push(MenuItem::new("graph", if c.graph.is_some() { "Граф кадра…" } else { "Открыть как граф" }));
+    }
     v.push(MenuItem::separator());
     v.push(MenuItem::new("props", "Свойства…"));
     v
@@ -1299,6 +1302,10 @@ fn menu_run(st: St, id: &str) {
         }
         "detach" => {
             st.exec("clip.detach_audio", json!({"ids": [cid]}));
+        }
+        "graph" => {
+            st.exec("selection.set", json!({"ids": [cid]}));
+            super::framegraph_ui::open(st, cid);
         }
         "props" => {
             st.exec("selection.set", json!({"ids": [cid]}));
