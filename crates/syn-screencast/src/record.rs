@@ -585,6 +585,10 @@ fn record(a: &Args, st: &mut Status) -> Result<()> {
     st.seconds = n as f64 / a.fps as f64;
     st.bytes = std::fs::metadata(&a.path).map(|m| m.len()).unwrap_or(0);
     drop(video);
+    if n == 0 && err.is_none() {
+        let _ = std::fs::remove_file(&a.path);
+        err = Some(anyhow::anyhow!("{}", t!("записи не было")));
+    }
     match err {
         Some(e) => Err(e),
         None => Ok(()),
