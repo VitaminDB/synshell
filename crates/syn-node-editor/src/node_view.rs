@@ -612,17 +612,17 @@ fn port_row(node_id: NodeId, node_kind: NodeKind, in_port: Option<PortSchema>, o
         None => Box::new(Padding::symmetric(6.0, 0.0).child(Text::new("").class("node-card-port-label-out"))),
     };
 
+    // Две группы по краям через SpaceBetween (как шапка): растягивающая вставка
+    // в строке без жёсткой ширины (новая вкладка, пересборка) схлопывалась —
+    // подписи выхода съезжали к середине («файлы файлы»).
+    let left = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).children(vec![Box::new(PortDot::new(node_id, in_port, PortSide::Input, in_color)) as Box<dyn Widget>, in_label_widget]);
+    let right = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).children(vec![out_label_widget, Box::new(PortDot::new(node_id, out_port, PortSide::Output, out_color)) as Box<dyn Widget>]);
     Box::new(
         Row::new()
             .gap(0.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .children(vec![
-                Box::new(PortDot::new(node_id, in_port, PortSide::Input, in_color)) as Box<dyn Widget>,
-                in_label_widget,
-                Box::new(PortLabelSpacer),
-                out_label_widget,
-                Box::new(PortDot::new(node_id, out_port, PortSide::Output, out_color)),
-            ]),
+            .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .children(vec![Box::new(left) as Box<dyn Widget>, Box::new(PortLabelSpacer), Box::new(right)]),
     )
 }
 
@@ -897,6 +897,7 @@ impl Widget for DragHandle {
             drag_start_pos: Point::zero(),
             node: self.node,
             group: Vec::new(),
+            moved: false,
             child_id: None,
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             classes: Vec::new(),
@@ -931,6 +932,9 @@ struct DragHandleElement {
     node: Option<(NodeId, NodeEditorCtx)>,
     /// Другие выделенные ноды, которые едут вместе: (позиция, начало).
     group: Vec<(RwSignal<Point>, Point)>,
+    /// Был ли перенос после нажатия: щелчок без переноса по ноде из
+    /// выделения оставляет выделенной только её.
+    moved: bool,
     child_id: Option<ElementId>,
     dirty_flags: DirtyFlags,
     classes: Vec<String>,
@@ -974,6 +978,7 @@ impl Element for DragHandleElement {
         match event {
             Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
                 self.group.clear();
+                self.moved = false;
                 if let Some((id, ectx)) = self.node {
                     let m = syngui::input::current_modifiers();
                     if m.ctrl || m.shift {
@@ -997,6 +1002,9 @@ impl Element for DragHandleElement {
                     let dx = pos.x - start.x;
                     let dy = pos.y - start.y;
                     let new_pos = Point::new(self.drag_start_pos.x + dx, self.drag_start_pos.y + dy);
+                    if dx.abs() + dy.abs() > 3.0 {
+                        self.moved = true;
+                    }
                     for (p, s) in &self.group {
                         p.set(Point::new(s.x + dx, s.y + dy));
                     }
@@ -1011,6 +1019,12 @@ impl Element for DragHandleElement {
             }
             Event::MouseUp { button: MouseButton::Left, .. } if self.drag_start_world.is_some() => {
                 self.drag_start_world = None;
+                // щелчок без переноса — выделена только эта нода
+                if let (false, Some((id, ectx))) = (self.moved, self.node) {
+                    if ectx.picked.get_untracked() != vec![id] {
+                        ectx.picked.set(vec![id]);
+                    }
+                }
                 ctx.set_cursor(CursorIcon::Default);
                 EventResult::Handled
             }

@@ -30,6 +30,8 @@ pub struct NodeEditorCtx {
     /// Выделенные ноды (Ctrl/Shift+щелчок по шапке добавляет и убирает):
     /// двигаются вместе, над ними — действия программы (например, «Объединить в блок»).
     pub picked: RwSignal<Vec<NodeId>>,
+    /// Размер видимой области холста (для «Вписать»).
+    pub view_size: RwSignal<syngui::core::Size>,
     /// Provisional wire — drag-from-output.
     pub pending: RwSignal<Option<PendingWire>>,
     /// Открыто ли контекстное меню фона.
@@ -71,6 +73,7 @@ impl NodeEditorCtx {
             zoom: use_signal(1.0_f32),
             selected: use_signal(None::<NodeId>),
             picked: use_signal(Vec::<NodeId>::new()),
+            view_size: use_signal(syngui::core::Size::zero()),
             pending: use_signal(None::<PendingWire>),
             menu_open: use_signal(false),
             menu_world_pos: use_signal(Point::zero()),
@@ -438,8 +441,42 @@ impl NodeEditorCtx {
     }
 
     /// Сбросить зум/пан.
+    /// «Вписать»: масштаб и сдвиг, при которых все видимые ноды целиком на холсте
+    /// (не крупнее 100 %); холст ещё не измерен или нод нет — исходный вид.
     pub fn reset_view(&self) {
-        self.pan.set(Point::new(40.0, 40.0));
-        self.zoom.set(1.0);
+        let size = self.view_size.get_untracked();
+        let nodes = self.nodes.get_untracked();
+        let own = crate::group::owners(&nodes);
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for n in nodes.iter().filter(|n| !own.contains_key(&n.id)) {
+            let p = n.pos.get_untracked();
+            let b = n.bounds.get_untracked().size;
+            let (w, h) = (b.width.max(160.0), b.height.max(60.0));
+            x0 = x0.min(p.x);
+            y0 = y0.min(p.y);
+            x1 = x1.max(p.x + w);
+            y1 = y1.max(p.y + h);
+        }
+        if size.width < 50.0 || size.height < 50.0 || x0 > x1 {
+            self.pan.set(Point::new(40.0, 40.0));
+            self.zoom.set(1.0);
+            return;
+        }
+        const MARGIN: f32 = 32.0;
+        let (bw, bh) = (x1 - x0, y1 - y0);
+        let z = ((size.width - 2.0 * MARGIN) / bw).min((size.height - 2.0 * MARGIN) / bh).clamp(0.25, 1.0);
+        // Холст масштабируется вместе со своим началом O (точка окна):
+        // экран = (O + мир) × масштаб + сдвиг, на холсте = экран − O.
+        // O — по любой измеренной ноде: её рамка в окне минус положение на холсте.
+        let o = nodes.iter().find(|n| n.bounds.get_untracked().size.width > 0.0).map(|n| {
+            let (b, p) = (n.bounds.get_untracked().origin, n.pos.get_untracked());
+            Point::new(b.x - p.x, b.y - p.y)
+        }).unwrap_or(Point::zero());
+        let pan = Point::new(
+            ((size.width - bw * z) / 2.0 - o.x * (z - 1.0)) / z - x0,
+            ((size.height - bh * z) / 2.0 - o.y * (z - 1.0)) / z - y0,
+        );
+        self.zoom.set(z);
+        self.pan.set(pan);
     }
 }

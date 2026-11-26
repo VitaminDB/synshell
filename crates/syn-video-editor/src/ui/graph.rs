@@ -201,7 +201,9 @@ pub fn panel() -> Box<dyn Widget> {
             Some(ctx) => Box::new(
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(tabs(ws)).child(DecoratedBox::new().class("grow")).child(DecoratedBox::new().class("graph-zoom").child(syn_node_editor::canvas::zoom_controls(ctx))).child(DecoratedBox::new().class("toolbar-sep")).child(syn_node_editor::run_controls::view(ctx))))
+                    .child(DecoratedBox::new().class("graph-head").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").clip(true).child(ScrollView::new().horizontal().child(tabs(ws)))).child(ToolButton::new("\u{E145}").tooltip("Новый граф").on_click(move || {
+                        ws.new_untitled();
+                    })).child(DecoratedBox::new().class("graph-zoom").child(syn_node_editor::canvas::zoom_controls(ctx))).child(DecoratedBox::new().class("toolbar-sep")).child(syn_node_editor::run_controls::view(ctx))))
                     // медиа из медиатеки или файл из проводника — нода «Файл» в точке броска
                     .child(DecoratedBox::new().class("grow").child(
                         DropArea::new()
@@ -236,9 +238,6 @@ fn tabs(ws: EditorWorkspace) -> impl Widget {
                 ),
             );
         }
-        row = row.child(ToolButton::new("\u{E145}").tooltip("Новый граф").on_click(move || {
-            ws.new_untitled();
-        }));
         vec![Box::new(row)]
     })
 }

@@ -83,7 +83,10 @@ fn view_with(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>, zoom_toolbar: b
     // слои на всю площадь холста: полоса выделения прижимается к низу
     let frame_inner = Stack::new().fit(StackFit::Expand).children(layers);
 
-    DecoratedBox::new().child(EventHook::new().on_resize(move |s| canvas_size.set(s)).child(frame_inner)).class("ne-canvas-frame")
+    DecoratedBox::new().child(EventHook::new().on_resize(move |s| {
+        canvas_size.set(s);
+        ctx.view_size.set(s);
+    }).child(frame_inner)).class("ne-canvas-frame")
 }
 
 /// Верхняя «overlay-полоса» canvas'а: zoom-toolbar слева. Run-пилюля
