@@ -121,7 +121,7 @@ Every application has its own README with screenshots and a command-line referen
 |---|---|
 | [syn-notes](crates/syn-notes/README.md) | **Notes.** Pages and free canvases with kanban boards, Gantt charts, mind maps, a calendar and charts, handwriting and a book reader, all in one `.syn` project file. |
 | [synpass](crates/syn-pass/README.md) | **Password manager.** An encrypted vault under one master password, synced with your other synshell devices. |
-| [syn-models](crates/syn-models/README.md) | **Models.** Hugging Face search and downloads, a library of `.syn` model packages and packing models into them with quantization in the neural service. |
+| [syn-models](crates/syn-models/README.md) | **Models.** Hugging Face search and downloads, a library of `.syn` model packages, packing models into them and LoRA training — quantization and training run in the neural service. |
 | [synassistant](crates/syn-assistant/README.md) | **The synshell assistant.** Chat and voice conversations with local neural networks that can control the system, files, notes and the web. |
 | [syn-vm](crates/syn-vm/README.md) | **Virtual machines.** QEMU/KVM with a native UI, a scriptable CLI and an MCP server for AI agents. |
 
