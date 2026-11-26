@@ -66,19 +66,61 @@ pub struct VideoResult {
     pub seed: u64,
 }
 
+/// LoRA для видео: у MiniMax-H3 по умолчанию Turbo на 8 шагов из библиотеки
+/// (`lora/h3/*turbo_8step*.safetensors`, свежая версия): шаги и CFG 1 берёт
+/// synaptix-gen по имени файла. «off»/«none»/пусто — без LoRA; иначе путь
+/// или имя файла в `lora/h3`.
+pub fn video_lora(mgr: &Arc<Manager>, model: &str, want: Option<&str>) -> Result<Option<PathBuf>, Error> {
+    let h3 = model.contains("minimax-h3") || model.contains("h3-");
+    let dirs: Vec<PathBuf> = mgr.library_paths().into_iter().map(|l| l.join(super::lora::LORA_DIR).join("h3")).collect();
+    match want.map(str::trim) {
+        Some("off" | "none" | "no" | "нет" | "") => Ok(None),
+        Some(w) => {
+            let p = PathBuf::from(w);
+            if p.is_file() {
+                return Ok(Some(p));
+            }
+            dirs.iter().map(|d| d.join(w)).find(|p| p.is_file()).map(Some).ok_or_else(|| Error::new(crate::ErrorCode::Failed, format!("LoRA «{w}» не найдена (путь или файл в lora/h3)")))
+        }
+        None if h3 => Ok(default_turbo(&dirs)),
+        None => Ok(None),
+    }
+}
+
+/// Turbo 8 шагов: последняя версия по имени файла.
+fn default_turbo(dirs: &[PathBuf]) -> Option<PathBuf> {
+    let mut found: Vec<PathBuf> = dirs
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            n.ends_with(".safetensors") && n.contains("turbo") && n.contains("8step")
+        })
+        .collect();
+    found.sort();
+    found.pop()
+}
+
 /// Видео; `cancel` — прервать денойз.
 pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, cancel: &AtomicBool, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<VideoResult, Error> {
     let model = mgr.resolve_id(model, ModelKind::Video)?;
     let mp = mgr.params(&model, &Params::new());
     let seed = seed_of(p.seed, &mp);
+    let lora = video_lora(mgr, &model, p.lora.as_deref())?;
+    // дистиллированная LoRA (Turbo): шаги по ней, CFG 1 и без негатива —
+    // шаги/CFG/негатив из настроек модели (под 20 шагов) не подставляются
+    let turbo = lora.as_deref().and_then(synaptix_gen::video::lora_steps).is_some();
     let req = synaptix_gen::video::VideoRequest {
         prompt,
-        negative: negative_of(p.negative, &mp),
+        negative: if turbo { p.negative } else { negative_of(p.negative, &mp) },
         width: p.width.or(mp.u32("width").map(|v| v as usize)),
         height: p.height.or(mp.u32("height").map(|v| v as usize)),
         seconds: p.seconds.or(mp.f32("duration").map(|v| v as f64)),
-        steps: p.steps.or(mp.u32("steps").map(|v| v as usize)),
-        guidance: p.guidance.or(mp.f32("guidance")),
+        steps: if turbo { p.steps } else { p.steps.or(mp.u32("steps").map(|v| v as usize)) },
+        guidance: if turbo { p.guidance } else { p.guidance.or(mp.f32("guidance")) },
         seed,
         first_frame: p.first_frame.map(PathBuf::from),
         last_frame: p.last_frame.map(PathBuf::from),
@@ -95,6 +137,8 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
         context: p.context.map(PathBuf::from),
         context_frames: p.context_frames,
         tail_out: p.tail_out.map(PathBuf::from),
+        lora,
+        lora_strength: p.lora_strength,
         model_id: Some(model.clone()),
     };
     mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация видео");

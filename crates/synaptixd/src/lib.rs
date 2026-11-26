@@ -1141,6 +1141,12 @@ pub enum Request {
         /// H3 restyle: сила перерисовки source_video (0..1).
         #[serde(default)]
         strength: Option<f32>,
+        /// H3: LoRA поверх DiT — путь к .safetensors; «off» — без LoRA;
+        /// не задано — Turbo 8 шагов из библиотеки (lora/h3).
+        #[serde(default)]
+        lora: Option<String>,
+        #[serde(default)]
+        lora_strength: Option<f32>,
     },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
@@ -1516,6 +1522,9 @@ pub struct VideoParams {
     pub context_frames: Option<usize>,
     /// Куда записать `.safetensors` латента хвоста этого ролика.
     pub tail_out: Option<String>,
+    /// H3: LoRA (путь; «off» — без неё; `None` — Turbo 8 шагов по умолчанию) и сила.
+    pub lora: Option<String>,
+    pub lora_strength: Option<f32>,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -2036,6 +2045,8 @@ impl Client {
             control: p.control.clone(),
             two_stage: p.two_stage,
             strength: p.strength,
+            lora: p.lora.clone(),
+            lora_strength: p.lora_strength,
         };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {

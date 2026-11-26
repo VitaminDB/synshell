@@ -509,6 +509,9 @@ fn video(cx: &mut Cx) -> R {
         context: ctx.as_ref().map(|(p, _)| p.display().to_string()),
         context_frames: cx.pos("context_frames").map(|v| v as usize),
         tail_out: Some(tail_out.display().to_string()),
+        // H3: LoRA узла (путь или «off»); не задана — Turbo 8 шагов по умолчанию
+        lora: cx.file("lora").or_else(|| cx.str("lora")),
+        lora_strength: cx.pos("lora_strength").map(|v| v as f32),
     };
     let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
     let prompt = cx.need("prompt")?;
