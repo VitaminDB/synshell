@@ -20,3 +20,5 @@ wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-protocols = { version = "0.32", features = ["client"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+synshell-common.workspace = true
+ffmpeg-next = { version = "9.0", default-features = false, features = ["codec", "format", "filter", "software-scaling"] }

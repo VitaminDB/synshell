@@ -30,6 +30,7 @@ pub fn run(choice: Choice, w: u32, h: u32, rgba: &[u8], cfg: &Config) -> anyhow:
             let path = save(&png, cfg)?;
             open(&path);
         }
+        Choice::Record => {}
     }
     Ok(())
 }

@@ -25,7 +25,7 @@ use smithay::{
             Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
         },
     },
-    utils::{Buffer as BufferCoords, Physical, Rectangle, Size},
+    utils::{Buffer as BufferCoords, Physical, Rectangle, Size, Transform},
     wayland::{dmabuf::get_dmabuf, shm::with_buffer_contents_mut},
 };
 
@@ -37,6 +37,7 @@ pub struct FrameData {
     region: Rectangle<i32, BufferCoords>,
     /// Полный размер буфера вывода.
     full: Size<i32, BufferCoords>,
+    transform: Transform,
     overlay_cursor: bool,
     used: AtomicBool,
 }
@@ -101,7 +102,7 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
             return;
         };
         let scale = output.current_scale().fractional_scale();
-        let transform = output.current_transform();
+        let transform = capture_transform(state, &output);
         // Буфер вывода — в «сыром» положении режима (как при выводе на экран).
         let full = Size::<i32, BufferCoords>::from((mode.size.w, mode.size.h));
         let upright: Size<i32, Physical> = transform.transform_size(mode.size);
@@ -114,7 +115,7 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
                 Rectangle::new((raw.loc.x, raw.loc.y).into(), (raw.size.w, raw.size.h).into())
             }
         };
-        let data = FrameData { output, region, full, overlay_cursor: overlay_cursor != 0, used: AtomicBool::new(false) };
+        let data = FrameData { output, region, full, transform, overlay_cursor: overlay_cursor != 0, used: AtomicBool::new(false) };
         let frame = data_init.init(frame, data);
         if region.size.w <= 0 || region.size.h <= 0 {
             frame.failed();
@@ -129,7 +130,15 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
             }
             frame.buffer_done();
         }
-        let _ = state;
+    }
+}
+
+fn capture_transform(state: &State, output: &Output) -> Transform {
+    let t = output.current_transform();
+    if matches!(state.backend, crate::backend::Backend::Winit(_)) {
+        crate::backend::compose_transform(t, Transform::Flipped180)
+    } else {
+        t
     }
 }
 
@@ -143,6 +152,7 @@ fn dummy() -> FrameData {
         }),
         region: Rectangle::default(),
         full: Size::default(),
+        transform: Transform::Normal,
         overlay_cursor: false,
         used: AtomicBool::new(true),
     }
@@ -264,6 +274,7 @@ impl State {
                 output: data.output.clone(),
                 region: data.region,
                 full: data.full,
+                transform: data.transform,
                 overlay_cursor: data.overlay_cursor,
                 used: AtomicBool::new(true),
             };
@@ -281,7 +292,7 @@ fn render_into(
 ) -> anyhow::Result<()> {
     let mode = output.current_mode().ok_or_else(|| anyhow::anyhow!("нет режима"))?;
     let scale = output.current_scale().fractional_scale();
-    let transform = output.current_transform();
+    let transform = data.transform;
     let (elements, clear) = crate::render::output_elements(core, renderer, output, data.overlay_cursor);
     let mut tracker = OutputDamageTracker::new(mode.size, scale, transform);
 

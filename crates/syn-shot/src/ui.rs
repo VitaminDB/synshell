@@ -25,6 +25,8 @@ mod glyph {
     pub const CROP: &str = "\u{e3be}";
     pub const SCREEN: &str = "\u{e30c}";
     pub const ALL: &str = "\u{e162}";
+    pub const RECORD: &str = "\u{e061}";
+    pub const VIDEOCAM: &str = "\u{e04b}";
 }
 
 /// Ширина полосы, в которой по центру стоит панель действий, и её высота
@@ -102,7 +104,7 @@ fn close_button() -> W {
 /// Флажок «Курсор»: снимок с указателем мыши; выбор запоминается
 /// (`[general] screenshot_cursor`). Нет кадра с указателем — нет и флажка.
 fn cursor_check() -> Option<W> {
-    if !sel::shot().has_cursor() {
+    if sel::record_mode() || !sel::shot().has_cursor() {
         return None;
     }
     let s = sel::sig();
@@ -128,16 +130,17 @@ fn hint_layer(i: usize) -> Vec<W> {
         return Vec::new();
     }
     let many = sel::shot().frames.len() > 1;
+    let rec = sel::record_mode();
+    let (title, keys) = if rec {
+        (t!("Выделите область для записи или щёлкните по окну"), t!("Enter — записать весь экран · Esc — отмена"))
+    } else {
+        (t!("Выделите область или щёлкните по окну"), t!("Enter — весь экран · Ctrl+C — копировать · Esc — отмена"))
+    };
     let mut row = Row::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Icon::new(glyph::CROP).class("icon shot-hint-icon"))
-        .child(
-            Column::new()
-                .gap(1.0)
-                .child(Text::new(t!("Выделите область или щёлкните по окну")).max_lines(1).class("shot-hint-text"))
-                .child(Text::new(t!("Enter — весь экран · Ctrl+C — копировать · Esc — отмена")).max_lines(1).class("shot-hint-keys")),
-        )
+        .child(Icon::new(if rec { glyph::VIDEOCAM } else { glyph::CROP }).class("icon shot-hint-icon"))
+        .child(Column::new().gap(1.0).child(Text::new(title).max_lines(1).class("shot-hint-text")).child(Text::new(keys).max_lines(1).class("shot-hint-keys")))
         .child(separator());
     if let Some(c) = cursor_check() {
         row = row.child(c).child(separator());
@@ -168,6 +171,13 @@ fn toolbar_layer(i: usize) -> Vec<W> {
     let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if let Some(c) = cursor_check() {
         row = row.child(c).child(separator());
+    }
+    if sel::record_mode() {
+        let bar = DecoratedBox::new().class("shot-bar").child(
+            row.child(button(glyph::RECORD, &t!("Записать"), &t!("Начать запись выделенной области (Enter)"), "primary", Choice::Record)).child(separator()).child(close_button()),
+        );
+        let strip = Row::new().main_axis_alignment(MainAxisAlignment::Center).child(bar).style("width", StyleValue::px(BAR_W));
+        return vec![boxed(Positioned::new(strip).at(x, y))];
     }
     let bar = DecoratedBox::new().class("shot-bar").child(
         row.child(button(glyph::COPY, &t!("Копировать"), &t!("Копировать снимок в буфер обмена (Ctrl+C)"), "", Choice::Copy))

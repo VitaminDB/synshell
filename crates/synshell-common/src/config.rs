@@ -80,6 +80,7 @@ pub struct Config {
     pub eink: EinkSettings,
     /// Оповещения о питании (`[power_alerts]`): низкий заряд, выключение при разряде, сон, неожиданные выключения.
     pub power_alerts: PowerAlerts,
+    pub recording: Recording,
 }
 
 impl Default for Config {
@@ -126,6 +127,39 @@ impl Default for Config {
             x11_apps: Vec::new(),
             eink: EinkSettings::default(),
             power_alerts: PowerAlerts::default(),
+            recording: Recording::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Recording {
+    pub dir: String,
+    pub mode: String,
+    pub fps: u32,
+    pub audio: bool,
+    pub mic: bool,
+    pub cursor: bool,
+    pub codec: String,
+    pub encoder: String,
+    pub quality: String,
+    pub panel_button: bool,
+}
+
+impl Default for Recording {
+    fn default() -> Self {
+        Self {
+            dir: String::new(),
+            mode: "screen".into(),
+            fps: 60,
+            audio: true,
+            mic: false,
+            cursor: true,
+            codec: "h264".into(),
+            encoder: "auto".into(),
+            quality: "high".into(),
+            panel_button: true,
         }
     }
 }
@@ -2386,6 +2420,7 @@ pub fn default_keybindings() -> Vec<(&'static str, &'static str)> {
         ("Print", "screenshot-interactive"),
         ("Shift+Print", "screenshot"),
         ("Alt+Print", "screenshot-window"),
+        ("Super+Alt+R", "spawn synshot --record toggle"),
         ("Super+Shift+R", "reload-config"),
         ("Super+Shift+E", "shell power-menu"),
         ("Ctrl+Alt+Delete", "shell resources processes"),

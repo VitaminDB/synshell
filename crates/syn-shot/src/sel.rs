@@ -46,6 +46,7 @@ pub enum Choice {
     Copy,
     CopyPath,
     Open,
+    Record,
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +68,23 @@ thread_local! {
     static SEL: RefCell<Sel> = const { RefCell::new(Sel { rect: None, drag: Drag::None, pointer: (0.0, 0.0) }) };
     static SIGNALS: Cell<Option<Signals>> = const { Cell::new(None) };
     static RESULT: Cell<Option<(Choice, R, bool)>> = const { Cell::new(None) };
+    static RECORD: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn set_record_mode(on: bool) {
+    RECORD.with(|r| r.set(on));
+}
+
+pub fn record_mode() -> bool {
+    RECORD.with(|r| r.get())
+}
+
+fn main_choice() -> Choice {
+    if record_mode() {
+        Choice::Record
+    } else {
+        Choice::Save
+    }
 }
 
 pub fn init(shot: Shot, cursor: bool) {
@@ -251,7 +269,7 @@ pub fn release(p: (f64, f64)) {
 
 pub fn double_click(p: (f64, f64)) {
     if with(|s| s.rect.is_some_and(|r| r.contains(p))) {
-        finish(Choice::Save);
+        finish(main_choice());
     } else {
         press(p);
     }
@@ -291,11 +309,12 @@ pub fn key(k: &KeyInfo) -> bool {
                 cancel();
             }
         }
-        Key::Enter => finish(Choice::Save),
-        Key::S if ctrl => finish(Choice::Save),
-        Key::C if ctrl && shift => finish(Choice::CopyPath),
-        Key::C if ctrl => finish(Choice::Copy),
-        Key::O if ctrl => finish(Choice::Open),
+        Key::Enter => finish(main_choice()),
+        Key::R if ctrl && record_mode() => finish(Choice::Record),
+        Key::S if ctrl && !record_mode() => finish(Choice::Save),
+        Key::C if ctrl && shift && !record_mode() => finish(Choice::CopyPath),
+        Key::C if ctrl && !record_mode() => finish(Choice::Copy),
+        Key::O if ctrl && !record_mode() => finish(Choice::Open),
         Key::A if ctrl && shift => select(shot.bounds),
         Key::A if ctrl => select(shot.frames[shot.nearest_frame(with(|s| s.pointer))].geo),
         Key::Delete | Key::Backspace => update(|s| s.rect = None),

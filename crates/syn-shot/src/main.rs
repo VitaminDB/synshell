@@ -9,6 +9,7 @@
 
 mod output;
 mod overlay;
+mod record;
 mod sel;
 mod shot;
 mod ui;
@@ -26,6 +27,11 @@ fn main() {
         .init();
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
 
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(p) = all.iter().position(|a| a == "--record") {
+        std::process::exit(record::main(&all[p + 1..]));
+    }
+
     let mut capture: Option<String> = None;
     let mut full: Option<String> = None;
     let mut it = std::env::args().skip(1);
@@ -36,6 +42,7 @@ fn main() {
             "--full" => full = it.next(),
             "-h" | "--help" => {
                 println!("{}", t!("synshot [--capture ФАЙЛ] [--full PNG]\n\nВыделить область или окно и сохранить снимок экрана.\n--full PNG — весь экран сразу в файл, без выделения."));
+                println!("\n{}", record::HELP);
                 return;
             }
             "-V" | "--version" => {

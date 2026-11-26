@@ -28,6 +28,7 @@ pub mod paths;
 pub mod preview;
 pub mod login_theme;
 pub mod rotation_state;
+pub mod screenrec;
 pub mod sound_theme;
 pub mod text;
 pub mod theme;

@@ -13,6 +13,10 @@
 //!                                                 конец — закрытие stdin или SIGTERM
 //!   syn-screencast --screenshot ФАЙЛ.png [--output ВЫВОД] [--cursor 0|1]
 
+mod audio;
+mod enc;
+mod record;
+
 use std::io::{BufRead, Write};
 use std::os::fd::{AsFd, BorrowedFd, RawFd};
 use std::sync::mpsc;
@@ -745,6 +749,10 @@ fn main() {
     let cursor = opt("--cursor").map(|v| v != "0").unwrap_or(true);
     let r = match args.first().map(String::as_str) {
         Some("--list") => list(),
+        Some("--record") => {
+            synshell_common::tr_init(&[]);
+            record::run(record::Args::parse(&args))
+        }
         Some("--stream") => stream(&args.get(1).cloned().unwrap_or_default(), cursor, opt("--fps").and_then(|s| s.parse().ok()).unwrap_or(60)),
         Some("--probe") => probe(args.get(1).and_then(|s| s.parse().ok()).unwrap_or(0), opt("--secs").and_then(|s| s.parse().ok()).unwrap_or(3.0), opt("--png")),
         Some("--screenshot") => screenshot(args.get(1).map(String::as_str).unwrap_or("screenshot.png"), &opt("--output").unwrap_or_default(), cursor),

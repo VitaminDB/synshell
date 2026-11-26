@@ -8421,11 +8421,13 @@ name = "syn-screencast"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "ffmpeg-next",
  "gbm",
  "image",
  "libc",
  "pipewire",
  "serde_json",
+ "synshell-common",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
