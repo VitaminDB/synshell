@@ -1217,6 +1217,14 @@ pub enum Request {
         model: String,
         texts: Vec<String>,
     },
+    /// Байтовые границы токенов текста по токенизатору модели любого вида
+    /// (эмбеддер, реранкер, языковая): клиент режет текст на куски по
+    /// токенам, не держа токенизатор у себя. Модель не загружается — читается
+    /// только её `tokenizer.json`. Пустой `model` — эмбеддер по умолчанию.
+    TokenSpans {
+        model: String,
+        text: String,
+    },
     /// Сведения о языковой модели: окно, зрение, пресеты сэмплинга и глубины
     /// размышлений. Модель загружается, если ещё не в памяти.
     LlmInfo {
@@ -1605,6 +1613,12 @@ pub struct Generated {
     pub thinking_forced: bool,
 }
 
+/// Ответ `TokenSpans`: байтовые границы токенов `[начало, конец)`.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct TokenSpans {
+    pub spans: Vec<(usize, usize)>,
+}
+
 /// Ответ `Tokenize`: по числу на текст.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct TokenCounts {
@@ -1639,6 +1653,31 @@ pub struct LlmInfo {
     pub reasoning_levels: Vec<String>,
     #[serde(default)]
     pub reasoning_default: Option<String>,
+}
+
+impl LlmInfo {
+    /// Пресет по id.
+    pub fn preset(&self, id: &str) -> Option<&SamplingPreset> {
+        self.presets.iter().find(|p| p.id == id)
+    }
+
+    /// Пресет под режим размышлений: `preferred`, если он для этого режима
+    /// годится, иначе первый пресет этого режима, иначе первый общий.
+    pub fn pick(&self, preferred: &str, thinking: bool) -> Option<&SamplingPreset> {
+        let fits = |p: &&SamplingPreset| p.thinking.is_none_or(|t| t == thinking);
+        self.preset(preferred)
+            .filter(fits)
+            .or_else(|| self.presets.iter().find(|p| p.thinking == Some(thinking)))
+            .or_else(|| self.presets.iter().find(fits))
+            .or_else(|| self.presets.first())
+    }
+
+    /// Запрошенная глубина размышлений, если шаблон модели её знает (без
+    /// учёта регистра); иначе `None` — шаблон возьмёт свою по умолчанию.
+    pub fn resolve_reasoning(&self, requested: Option<&str>) -> Option<&str> {
+        let requested = requested?.trim();
+        self.reasoning_levels.iter().find(|l| l.eq_ignore_ascii_case(requested)).map(String::as_str)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2232,6 +2271,14 @@ impl Client {
         let (v, _) = self.call(Request::Tokenize { model: model.into(), texts: texts.to_vec() }, &[])?;
         let r: TokenCounts = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
         Ok(r.counts)
+    }
+
+    /// Байтовые границы токенов `text` по токенизатору модели (id или путь
+    /// к файлу; пусто — эмбеддер по умолчанию).
+    pub fn token_spans(&mut self, model: &str, text: &str) -> Result<Vec<(usize, usize)>> {
+        let (v, _) = self.call(Request::TokenSpans { model: model.into(), text: text.into() }, &[])?;
+        let r: TokenSpans = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        Ok(r.spans)
     }
 
     pub fn llm_info(&mut self, model: &str) -> Result<LlmInfo> {

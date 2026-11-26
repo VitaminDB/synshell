@@ -43,7 +43,9 @@ syngui = { workspace = true, features = [
     "pen",
     "print",
 ] }
-synaptix-bundle = { workspace = true, features = ["sha256", "blake3"] }
+# Проект заметок — контейнер `.syn`; квант-форматы движка (фича `quant`,
+# тянет synaptix-core) заметкам не нужны — библиотеку берут и клиенты без движка.
+synaptix-bundle = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false, features = ["sha256", "blake3"] }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

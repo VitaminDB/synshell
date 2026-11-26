@@ -118,7 +118,7 @@ fn priority(req: &Request) -> devices::Prio {
     use devices::Prio;
     let asked = |p: &Params| p.text("priority").and_then(Prio::parse);
     match req {
-        Request::Transcribe { .. } | Request::Ctc { .. } | Request::MfaAlign { .. } | Request::Embed { .. } | Request::Rerank { .. } | Request::Tokenize { .. } => Prio::Interactive,
+        Request::Transcribe { .. } | Request::Ctc { .. } | Request::MfaAlign { .. } | Request::Embed { .. } | Request::Rerank { .. } | Request::Tokenize { .. } | Request::TokenSpans { .. } => Prio::Interactive,
         Request::Speak { params, .. } => asked(params).unwrap_or(Prio::Interactive),
         Request::Generate { params, .. } => asked(params).unwrap_or(Prio::Normal),
         _ => Prio::Normal,
@@ -131,6 +131,7 @@ fn req_name(req: &Request) -> &'static str {
         Request::Open { .. } => "open",
         Request::LlmInfo { .. } => "llm_info",
         Request::Tokenize { .. } => "tokenize",
+        Request::TokenSpans { .. } => "token_spans",
         _ => "запрос",
     })
 }
@@ -646,6 +647,12 @@ impl Conn {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
                 let counts = mgr.run(&model, |m| m.tokenize(&texts))?;
                 (data(crate::TokenCounts { counts }), none())
+            }
+            Request::TokenSpans { model, text } => {
+                let id = if model.trim().is_empty() { mgr.resolve_id("", ModelKind::Embed)? } else { mgr.resolve_any(&model)? };
+                let file = mgr.model_file(&id).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("{id}: нет такой модели")))?;
+                let spans = synaptix::facade::llm::token_spans(&file.path, &text).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+                (data(crate::TokenSpans { spans }), none())
             }
             Request::LlmInfo { model } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
