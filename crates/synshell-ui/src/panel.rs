@@ -564,6 +564,12 @@ fn start_defloat_timer(id: SurfaceId, key: u64, panel: Panel, out: OutputInfo, h
     });
 }
 
+fn first_clock_panel() -> Option<usize> {
+    let ctx = ShellCtx::get();
+    let cfg = ctx.cfg();
+    cfg.panels.iter().position(|p| p.applets.iter().any(|a| a.kind == "clock" || a.kind == "record") && p.shows_on(ctx.form_factor))
+}
+
 fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: bool, defloated: bool) -> impl Widget {
     let mut flex = Flex::new()
         .direction(if pc.vertical { FlexDirection::Column } else { FlexDirection::Row })
@@ -573,7 +579,16 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
     // без часов — первой (пока звонка нет, она пустая).
     let call_at = (!editing && !panel.applets.iter().any(|a| a.kind == "call"))
         .then(|| panel.applets.iter().position(|a| a.kind == "clock").map_or(0, |i| i + 1));
+    let record_at = (!editing && !panel.applets.iter().any(|a| a.kind == "record") && first_clock_panel() == Some(pc.index))
+        .then(|| panel.applets.iter().position(|a| a.kind == "clock"))
+        .flatten();
     for (ai, a) in panel.applets.iter().enumerate() {
+        if record_at == Some(ai) {
+            let pcr = pc.clone();
+            flex = flex.child(
+                EventHook::new().report_bounds(pc.bounds_slot("record")).child(crate::record::applet(&pcr, false)).class("applet-slot applet-slot-record"),
+            );
+        }
         if call_at == Some(ai) {
             flex = flex.child(DecoratedBox::new().child(crate::calls::pill(pc.vertical)).class("applet-slot applet-slot-call"));
         }
@@ -585,7 +600,7 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         let item_slot = pc.item_slot(ai);
         // Правый клик по апплету, который сам его не обрабатывает, — меню
         // этого апплета (убрать, настроить, изменить панель).
-        let w: Box<dyn Widget> = if editing || matches!(a.kind.as_str(), "taskbar" | "tray" | "app" | "group" | "folder" | "window-title") {
+        let w: Box<dyn Widget> = if editing || matches!(a.kind.as_str(), "taskbar" | "tray" | "app" | "group" | "folder" | "window-title" | "record") {
             w
         } else {
             let pcm = pc.clone();

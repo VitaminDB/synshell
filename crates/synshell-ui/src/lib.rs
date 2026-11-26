@@ -60,6 +60,7 @@ pub mod pins;
 pub mod popup;
 pub mod power_alerts;
 pub mod recents;
+pub mod record;
 pub mod rotation;
 pub mod autobright;
 pub mod backlight;

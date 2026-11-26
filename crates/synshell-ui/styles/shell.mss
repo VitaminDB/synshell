@@ -2070,3 +2070,19 @@ TextField {
 .courier-chip { padding: 1px 7px; border-radius: 999px; background-color: var(--hover); }
 .courier-chip-text { font-size: 10px; font-weight: 600; color: var(--muted); }
 .courier-tg.courier-on .courier-avatar-icon, .courier-wa.courier-on .courier-avatar-icon { icon-color: #ffffff; }
+
+.applet-record .record-idle { icon-color: var(--muted); }
+.record-on { background-color: #e5393522; }
+.record-on:hover { background-color: #e5393533; }
+.record-dot { width: 10px; height: 10px; border-radius: 999px; background-color: #e53935; animation: record-pulse 1400ms ease-in-out infinite; }
+@keyframes record-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
+.record-dot-saving { background-color: var(--muted); }
+.record-dot-big { width: 14px; height: 14px; }
+.record-time { color: var(--fg); }
+.record-row { padding: 6px 10px; }
+.record-live { padding: 10px; border-radius: var(--radius-sm); background-color: #e5393518; }
+.record-title-icon { icon-size: 22px; icon-color: #e53935; }
+.record-default { icon-size: 12px; icon-color: #e53935; }
+.record-stop { background-color: #e53935; }
+.record-stop:hover { background-color: #e53935; opacity: 0.9; }
+.record-stop .link-btn-text { color: #ffffff; }

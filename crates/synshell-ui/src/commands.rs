@@ -64,6 +64,9 @@ pub fn handle(cmd: &str) {
     let arg = it.collect::<Vec<_>>().join(" ");
     let num = |d: i32| -> i32 { arg.trim().trim_start_matches('+').parse().unwrap_or(d) };
     log::debug!("команда оболочки: {cmd}");
+    if crate::record::command(name, &arg) {
+        return;
+    }
     // Затвор — на любой готовый снимок (в файл, в буфер, путь).
     if matches!(name, "screenshot-taken" | "screenshot-copied" | "screenshot-path") {
         crate::sounds::play(crate::sounds::Ev::ScreenCapture);

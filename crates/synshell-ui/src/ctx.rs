@@ -55,6 +55,7 @@ pub enum PopupKind {
     Link,
     /// Курьер: мессенджеры (привязка WhatsApp), сеанс Claude, последние сообщения.
     Courier,
+    Record,
     /// История буфера обмена (апплет `clipboard`, Super+V).
     Clipboard,
     /// Запрос спаривания с устройством (id).
