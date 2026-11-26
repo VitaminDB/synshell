@@ -272,6 +272,27 @@ mod tests {
     }
 
     #[test]
+    fn vfx_ops_wire() {
+        let g: Graph = serde_json::from_value(serde_json::json!({
+            "name": "smooth",
+            "description": "плавнее и крупнее",
+            "params": {"video": {"type": "file", "description": "ролик"}},
+            "nodes": [
+                {"id": "up", "op": "vfx_upscale", "video": "{{video}}", "scale": "2"},
+                {"id": "smooth", "op": "vfx_interpolate", "video": "{{up.file}}", "fps": 60}
+            ],
+            "output": ["smooth"]
+        }))
+        .unwrap();
+        let p = params(&g, serde_json::json!({"video": "/tmp/v.mp4"}));
+        let f = to_flow(&g, &p).unwrap();
+        f.validate().unwrap();
+        let by = |l: &str| f.nodes.iter().find(|n| n.label == l).unwrap().id;
+        assert!(f.links.iter().any(|l| l.from_node == by("up") && l.to_node == by("smooth") && l.to_port == "video"));
+        assert_eq!(f.node(by("smooth")).unwrap().kind, "vfx_interpolate");
+    }
+
+    #[test]
     fn tail_reference_wires_to_context() {
         let g: Graph = serde_json::from_value(serde_json::json!({
             "name": "manual-chain",

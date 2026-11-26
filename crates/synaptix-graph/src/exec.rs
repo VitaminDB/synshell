@@ -9,7 +9,7 @@ use synaptix_flow::{Cancel, Event};
 
 use crate::{Graph, Report};
 
-pub(crate) const OPS: &[&str] = &["text", "llm", "image", "video", "music", "speak", "transcribe", "concat", "mux", "frame", "trim", "still"];
+pub(crate) const OPS: &[&str] = &["text", "llm", "image", "video", "music", "speak", "transcribe", "concat", "mux", "frame", "trim", "still", "vfx_upscale", "vfx_interpolate"];
 
 /// Параметры: заданные + умолчания.
 pub(crate) fn with_defaults(graph: &Graph, params: &Map<String, Value>) -> Map<String, Value> {
