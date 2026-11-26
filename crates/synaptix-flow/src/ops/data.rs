@@ -108,12 +108,26 @@ fn split_inline(line: &str) -> Vec<&str> {
     out
 }
 
+/// Лишние строки сверх ожидаемых (вступление «Here are the scenes:»,
+/// пояснение в конце) короче описаний сцен — оставить `n` самых длинных
+/// в исходном порядке.
+fn keep_longest(items: Vec<String>, n: usize) -> Vec<String> {
+    let mut idx: Vec<usize> = (0..items.len()).collect();
+    idx.sort_by_key(|&i| std::cmp::Reverse(items[i].chars().count()));
+    let mut keep: Vec<usize> = idx.into_iter().take(n).collect();
+    keep.sort_unstable();
+    keep.into_iter().map(|i| items[i].clone()).collect()
+}
+
 pub fn lines(cx: &mut Cx) -> R {
     let t = cx.val("text").text();
-    let items = split_lines(&t);
+    let mut items = split_lines(&t);
     // Ожидаемое число пунктов (рецепт: сцен столько, сколько заказано) —
     // иначе ошибка, а не молча меньше роликов.
     if let Some(n) = cx.pos("expect").map(|v| v.round() as usize) {
+        if items.len() > n && n > 0 {
+            items = keep_longest(items, n);
+        }
         if items.len() != n {
             let msg = cx.str("expect_msg").unwrap_or_else(|| "получено {k} строк из {n}".into());
             return Err(msg.replace("{k}", &items.len().to_string()).replace("{n}", &n.to_string()));
@@ -135,6 +149,17 @@ pub fn list(cx: &mut Cx) -> R {
     }
     cx.out("list", Val::List(out));
     Ok(())
+}
+
+#[cfg(test)]
+mod keep_tests {
+    #[test]
+    fn drops_preamble() {
+        let v = vec!["Here are the two scenes:".to_string(), "A long first scene description with the duck and the troll".into(), "A long second scene description where the troll agrees".into()];
+        let k = super::keep_longest(v, 2);
+        assert_eq!(k.len(), 2);
+        assert!(k[0].starts_with("A long first"));
+    }
 }
 
 #[cfg(test)]
