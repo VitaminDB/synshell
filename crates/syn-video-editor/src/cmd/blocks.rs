@@ -7,7 +7,7 @@ use crate::blocks::{self, Block, Expose};
 use crate::editor::Editor;
 use crate::framegraph::{FrameGraph, GLink, GNode};
 
-pub static COMMANDS: &[&Command] = &[&LIST, &APPLY, &SET, &SAVE];
+pub static COMMANDS: &[&Command] = &[&LIST, &APPLY, &SET, &SAVE, &GROUP, &UNGROUP];
 
 static LIST: Command = Command {
     id: "block.list",
@@ -124,17 +124,16 @@ static SAVE: Command = Command {
     run: save,
 };
 
-fn save(ed: &mut Editor, a: &Args) -> Res {
-    let id = a.need_id("id")?;
-    let name = a.need_str("name")?.trim().to_string();
-    if name.is_empty() {
-        return Err("пустое имя".into());
-    }
-    let g = ed.project.clip(id).and_then(|c| c.graph.clone()).ok_or_else(|| format!("у c{id} нет графа кадра"))?;
-    let pick: Vec<u32> = match a.ids("nodes")? {
-        Some(v) => v.into_iter().map(|x| x as u32).collect(),
-        None => g.nodes.iter().filter(|n| !matches!(n.kind.as_str(), "source" | "output")).map(|n| n.id).collect(),
-    };
+/// Подграф из нод `pick` графа `g`: блок (без имени), нумерация нод
+/// исходного графа → блока, откуда вход извне (если есть), какая нода — выход.
+struct Extract {
+    sub: FrameGraph,
+    expose: Vec<Expose>,
+    input: Option<u32>,
+    out: u32,
+}
+
+fn extract(g: &FrameGraph, pick: &[u32], expose_arg: Option<Value>) -> Result<Extract, String> {
     if pick.is_empty() || pick.iter().any(|p| g.node(*p).is_none_or(|n| matches!(n.kind.as_str(), "source" | "output"))) {
         return Err("nodes: ноды графа, кроме кадра и выхода".into());
     }
@@ -142,6 +141,7 @@ fn save(ed: &mut Editor, a: &Args) -> Res {
     let ins: Vec<&GLink> = g.links.iter().filter(|l| pick.contains(&l.to) && !pick.contains(&l.from)).collect();
     let outs: Vec<u32> = {
         let mut v: Vec<u32> = g.links.iter().filter(|l| pick.contains(&l.from) && !pick.contains(&l.to)).map(|l| l.from).collect();
+        v.sort();
         v.dedup();
         v
     };
@@ -174,7 +174,7 @@ fn save(ed: &mut Editor, a: &Args) -> Res {
     sub.links.push(GLink { from: map[&outs[0]], to: out_id, port: "in".into() });
     sub.validate()?;
     sub.layout();
-    let expose: Vec<Expose> = match a.value("expose") {
+    let expose: Vec<Expose> = match expose_arg {
         Some(v) => {
             let mut ex: Vec<Expose> = serde_json::from_value(v).map_err(|e| format!("expose: {e}"))?;
             for e in &mut ex {
@@ -191,9 +191,142 @@ fn save(ed: &mut Editor, a: &Args) -> Res {
             .map(|(n, k, x)| Expose { key: format!("n{}_{k}", n.id), label: format!("{}: {k}", crate::framegraph::kind_title(&n.kind)), node: n.id, param: k, min: if x < 0.0 { x * 2.0 } else { 0.0 }, max: (x.abs() * 2.0).max(1.0), default: x })
             .collect(),
     };
-    let b = Block { name: name.clone(), description: a.str("description")?.unwrap_or_default(), graph: sub, expose, builtin: false };
-    let f = blocks::file_for(&name);
+    Ok(Extract { sub, expose, input: src_from.first().copied(), out: outs[0] })
+}
+
+fn pick_nodes(g: &FrameGraph, a: &Args) -> Result<Vec<u32>, String> {
+    Ok(match a.ids("nodes")? {
+        Some(v) => v.into_iter().map(|x| x as u32).collect(),
+        None => g.nodes.iter().filter(|n| !matches!(n.kind.as_str(), "source" | "output")).map(|n| n.id).collect(),
+    })
+}
+
+fn write_block(b: &Block) -> Result<std::path::PathBuf, String> {
+    let f = blocks::file_for(&b.name);
     std::fs::create_dir_all(blocks::dir()).map_err(|e| e.to_string())?;
-    std::fs::write(&f, serde_json::to_string_pretty(&b).unwrap_or_default()).map_err(|e| format!("{}: {e}", f.display()))?;
+    std::fs::write(&f, serde_json::to_string_pretty(b).unwrap_or_default()).map_err(|e| format!("{}: {e}", f.display()))?;
+    Ok(f)
+}
+
+fn save(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let name = a.need_str("name")?.trim().to_string();
+    if name.is_empty() {
+        return Err("пустое имя".into());
+    }
+    let g = ed.project.clip(id).and_then(|c| c.graph.clone()).ok_or_else(|| format!("у c{id} нет графа кадра"))?;
+    let pick = pick_nodes(&g, a)?;
+    let x = extract(&g, &pick, a.value("expose"))?;
+    let b = Block { name: name.clone(), description: a.str("description")?.unwrap_or_default(), graph: x.sub, expose: x.expose, builtin: false };
+    let f = write_block(&b)?;
     Ok(Out::text(format!("Блок «{name}» сохранён: {} нод, параметров {} — {}", pick.len(), b.expose.len(), f.display())))
+}
+
+static GROUP: Command = Command {
+    id: "block.group",
+    category: "Граф",
+    title: "Объединить ноды в блок",
+    shortcut: "",
+    keywords: "block блок объединить сгруппировать ноды подграф макрос group collapse",
+    help: "Объединить ноды графа кадра клипа в одну ноду-блок (как макрос в Fusion): nodes — id нод (у них один вход извне и один выход наружу); expose — вынесенные параметры [{key, label, node, param, min, max}] (по умолчанию все числовые); save — сохранить блок в библиотеку (true: появится в «Эффектах» и block.list). Разгруппировать — block.ungroup. Один шаг отмены.",
+    args: &[req("id", Ty::Id, "клип (c…)"), req("nodes", Ty::Ids, "ноды (id)"), req("name", Ty::Str, "имя блока"), arg("description", Ty::Str, "описание"), arg("expose", Ty::Any, "вынесенные параметры"), arg("save", Ty::Bool, "сохранить в библиотеку (true)")],
+    danger: false,
+    run: group,
+};
+
+fn group(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let name = a.need_str("name")?.trim().to_string();
+    if name.is_empty() {
+        return Err("пустое имя".into());
+    }
+    let mut g = ed.project.clip(id).and_then(|c| c.graph.clone()).ok_or_else(|| format!("у c{id} нет графа кадра"))?;
+    let pick = pick_nodes(&g, a)?;
+    let x = extract(&g, &pick, a.value("expose"))?;
+    let b = Block { name: name.clone(), description: a.str("description")?.unwrap_or_default(), graph: x.sub, expose: x.expose, builtin: false };
+    // нода-блок на месте выделенных (по центру), связи извне — к ней
+    let nid = g.next_id();
+    let (cx, cy) = {
+        let ns: Vec<&GNode> = pick.iter().filter_map(|p| g.node(*p)).collect();
+        (ns.iter().map(|n| n.x).sum::<f32>() / ns.len() as f32, ns.iter().map(|n| n.y).sum::<f32>() / ns.len() as f32)
+    };
+    let outgoing: Vec<GLink> = g.links.iter().filter(|l| l.from == x.out && !pick.contains(&l.to)).cloned().collect();
+    g.links.retain(|l| !pick.contains(&l.from) && !pick.contains(&l.to));
+    g.nodes.retain(|n| !pick.contains(&n.id));
+    if let Some(i) = x.input {
+        g.links.push(GLink { from: i, to: nid, port: "in".into() });
+    }
+    for l in outgoing {
+        g.links.push(GLink { from: nid, to: l.to, port: l.port });
+    }
+    g.nodes.push(GNode { id: nid, kind: "block".into(), params: blocks::node_params(&b, None), x: cx, y: cy });
+    g.validate()?;
+    let saved = if a.bool("save")?.unwrap_or(true) { format!(", в библиотеке: {}", write_block(&b)?.display()) } else { String::new() };
+    ed.begin("Объединить в блок");
+    ed.project.clip_mut(id).unwrap().graph = Some(g);
+    Ok(Out::with(format!("c{id}: ноды {:?} → блок «{name}» (нода {nid}), параметров {}{saved}", pick, b.expose.len()), json!({"node": nid})))
+}
+
+static UNGROUP: Command = Command {
+    id: "block.ungroup",
+    category: "Граф",
+    title: "Разгруппировать блок",
+    shortcut: "",
+    keywords: "block блок разгруппировать раскрыть развернуть ungroup expand",
+    help: "Развернуть ноду-блок графа кадра клипа обратно в её ноды (с текущими значениями вынесенных параметров). Один шаг отмены.",
+    args: &[req("id", Ty::Id, "клип (c…)"), req("node", Ty::Num, "нода-блок (id)")],
+    danger: false,
+    run: ungroup,
+};
+
+fn ungroup(ed: &mut Editor, a: &Args) -> Res {
+    let id = a.need_id("id")?;
+    let bid = a.num("node")?.unwrap_or(0.0) as u32;
+    let mut g = ed.project.clip(id).and_then(|c| c.graph.clone()).ok_or_else(|| format!("у c{id} нет графа кадра"))?;
+    let bn = g.node(bid).filter(|n| n.kind == "block").cloned().ok_or_else(|| format!("нода {bid} — не блок"))?;
+    let inner = blocks::inner(&bn.params).ok_or("граф блока не читается")?;
+    let src = inner.nodes.iter().find(|n| n.kind == "source").map(|n| n.id).ok_or("в блоке нет входа")?;
+    let out = inner.nodes.iter().find(|n| n.kind == "output").map(|n| n.id).ok_or("в блоке нет выхода")?;
+    let feed = inner.input(out, "in").ok_or("выход блока ни к чему не подключён")?;
+    let input = g.input(bid, "in");
+    let outgoing: Vec<GLink> = g.links.iter().filter(|l| l.from == bid).cloned().collect();
+    g.links.retain(|l| l.from != bid && l.to != bid);
+    g.nodes.retain(|n| n.id != bid);
+    let mut next = g.next_id();
+    let mut map = std::collections::HashMap::new();
+    let (minx, miny) = inner.nodes.iter().fold((f32::MAX, f32::MAX), |(a, b), n| (a.min(n.x), b.min(n.y)));
+    for n in inner.nodes.iter().filter(|n| n.id != src && n.id != out) {
+        map.insert(n.id, next);
+        g.nodes.push(GNode { id: next, kind: n.kind.clone(), params: n.params.clone(), x: bn.x + (n.x - minx) * 0.8, y: bn.y + (n.y - miny) * 0.8 });
+        next += 1;
+    }
+    for l in &inner.links {
+        let to = match map.get(&l.to) {
+            Some(t) => *t,
+            None => continue, // к выходу блока — ниже
+        };
+        let from = if l.from == src {
+            match input {
+                Some(i) => i,
+                None => continue,
+            }
+        } else {
+            map[&l.from]
+        };
+        g.links.push(GLink { from, to, port: l.port.clone() });
+    }
+    let last = if feed == src { input } else { map.get(&feed).copied() };
+    if let Some(f) = last {
+        for l in outgoing {
+            g.links.push(GLink { from: f, to: l.to, port: l.port });
+        }
+    }
+    g.validate()?;
+    if g.crowded() {
+        g.layout();
+    }
+    let name = bn.params.get("block").and_then(Value::as_str).unwrap_or("блок").to_string();
+    ed.begin("Разгруппировать блок");
+    ed.project.clip_mut(id).unwrap().graph = Some(g);
+    Ok(Out::text(format!("c{id}: блок «{name}» развёрнут в {} нод", map.len())))
 }

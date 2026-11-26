@@ -27,6 +27,9 @@ pub struct NodeEditorCtx {
     pub zoom: RwSignal<f32>,
     /// id выделенной ноды (или None).
     pub selected: RwSignal<Option<NodeId>>,
+    /// Выделенные ноды (Ctrl/Shift+щелчок по шапке добавляет и убирает):
+    /// двигаются вместе, над ними — действия программы (например, «Объединить в блок»).
+    pub picked: RwSignal<Vec<NodeId>>,
     /// Provisional wire — drag-from-output.
     pub pending: RwSignal<Option<PendingWire>>,
     /// Открыто ли контекстное меню фона.
@@ -67,6 +70,7 @@ impl NodeEditorCtx {
             pan: use_signal(Point::new(40.0, 40.0)),
             zoom: use_signal(1.0_f32),
             selected: use_signal(None::<NodeId>),
+            picked: use_signal(Vec::<NodeId>::new()),
             pending: use_signal(None::<PendingWire>),
             menu_open: use_signal(false),
             menu_world_pos: use_signal(Point::zero()),
@@ -200,6 +204,36 @@ impl NodeEditorCtx {
         self.connections.set(c);
         if self.selected.get_untracked() == Some(id) {
             self.selected.set(None);
+        }
+        if self.picked.get_untracked().contains(&id) {
+            self.picked.update(|p| p.retain(|x| *x != id));
+        }
+    }
+
+    /// Ctrl/Shift+щелчок: добавить ноду к выделению или убрать из него.
+    pub fn pick_toggle(&self, id: NodeId) {
+        self.picked.update(|p| {
+            if let Some(i) = p.iter().position(|x| *x == id) {
+                p.remove(i);
+            } else {
+                p.push(id);
+            }
+        });
+        self.selected.set(Some(id));
+    }
+
+    /// Обычный щелчок: выделена только эта нода (если она уже в выделении — оно сохраняется для переноса группы).
+    pub fn pick_only(&self, id: NodeId) {
+        if !self.picked.get_untracked().contains(&id) {
+            self.picked.set(vec![id]);
+        }
+        self.selected.set(Some(id));
+    }
+
+    /// Снять выделение.
+    pub fn pick_clear(&self) {
+        if !self.picked.get_untracked().is_empty() {
+            self.picked.set(Vec::new());
         }
     }
 

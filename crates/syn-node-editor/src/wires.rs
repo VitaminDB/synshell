@@ -41,8 +41,19 @@ pub fn view() -> impl Widget {
         let nodes = ctx.nodes.get();
         let conns = ctx.connections.get();
         let pending = ctx.pending.get();
+        let picked = ctx.picked.get();
 
         c.set_anti_alias(1.0);
+        // выделенные ноды: подложка цвета акцента чуть больше карточки
+        if !picked.is_empty() {
+            let accent = c.mss_accent().unwrap_or(syngui::core::Color::new(0.35, 0.55, 1.0, 1.0));
+            for n in nodes.iter().filter(|n| picked.contains(&n.id)) {
+                let p = n.pos.get();
+                let b = n.bounds.get();
+                c.set_color(syngui::core::Color::new(accent.r, accent.g, accent.b, 0.95));
+                c.fill_rounded_rect(p.x - 3.0, p.y - 3.0, b.size.width + 6.0, b.size.height + 6.0, 10.0);
+            }
+        }
         c.set_stroke_width(2.0);
 
         for conn in &conns {

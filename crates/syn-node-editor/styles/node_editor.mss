@@ -104,3 +104,14 @@
     font-weight: 600;
     text-align: center;
 }
+
+/* Полоса выделения нод над холстом. */
+.ne-selbar {
+    background-color: var(--bg-panel, #23262f);
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: var(--primary);
+    padding: 6px 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.ne-selbar-text { color: var(--fg, #e6e6e6); font-size: 13px; }

@@ -161,6 +161,7 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
     // но всё реактивное состояние ноды живёт в `node.fields/runtime/style/
     // enabled` (Copy-RwSignal, shared), поэтому пересборка UI не теряет
     // ни одного пользовательского значения.
+    let ectx = use_context::<NodeEditorCtx>();
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let style: NodeStyle = style_signal.get();
         let enabled: bool = enabled_signal.get();
@@ -173,6 +174,7 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                     meta,
                     node_for_body.pos,
                     node_for_body.timing,
+                    ectx,
                 )) as Box<dyn Widget>,
                 ports_and_fields(node_for_body.clone(), meta),
             ]);
@@ -190,6 +192,7 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
         if !enabled {
             classes.push("disabled".to_string());
         }
+
         // Shadow выключается явно пользователем ИЛИ автоматически у
         // disabled-ноды — disabled-карточка без тени читается как
         // «выпавшая из сцены», без дублирующего drop-shadow.
@@ -233,6 +236,19 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
         items.push(MenuItem::new("shadow-toggle", shadow_label).icon(MI_WB_SHADE));
         let enabled_label = if enabled { tr!("nodes.menu.disable") } else { tr!("nodes.menu.enable") };
         items.push(MenuItem::new("enabled-toggle", enabled_label).icon(MI_POWER_SETTINGS));
+        // пункты программы для этой ноды («Сделать блоком», «Разгруппировать»…);
+        // над несколькими выделенными — полоса выделения над холстом
+        let sel: Vec<NodeId> = vec![id];
+        if let Some(h) = crate::node_menu() {
+            let extra = (h.items)(&ectx, id, &sel);
+            if !extra.is_empty() {
+                items.push(MenuItem::separator());
+                for (k, label) in extra {
+                    items.push(MenuItem::new(format!("host:{k}"), label));
+                }
+            }
+        }
+        let sel_menu = sel.clone();
 
         let node_for_select = node_for_menu.clone();
         let menu = ContextMenu::new()
@@ -257,6 +273,11 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                         let cur = node_for_select.enabled.get_untracked();
                         node_for_select.enabled.set(!cur);
                     }
+                    a if a.starts_with("host:") => {
+                        if let Some(h) = crate::node_menu() {
+                            (h.run)(&nctx, id, &sel_menu, &a["host:".len()..]);
+                        }
+                    }
                     _ => {}
                 }
             })
@@ -271,6 +292,7 @@ fn header_widget(
     meta: &'static NodeKindMeta,
     pos_signal: RwSignal<Point>,
     timing: super::timing::Stopwatch,
+    ectx: NodeEditorCtx,
 ) -> impl Widget {
     let title = crate::i18n::node_title(meta);
     let icon = meta.icon;
@@ -325,7 +347,7 @@ fn header_widget(
             Box::new(tail_group) as Box<dyn Widget>,
         ]);
     let inner_padded = Padding::symmetric(NODE_PADDING_H, 0.0).child(inner_row);
-    DragHandle::new(pos_signal, HEADER_HEIGHT, inner_padded)
+    DragHandle::new(pos_signal, HEADER_HEIGHT, inner_padded).node(id, ectx)
 }
 
 fn ports_and_fields(node: NodeInstance, meta: &'static NodeKindMeta) -> Box<dyn Widget> {
@@ -804,6 +826,8 @@ pub struct DragHandle {
     child: Option<Box<dyn Widget>>,
     pos_signal: RwSignal<Point>,
     height: f32,
+    /// Нода и редактор: выделение (Ctrl/Shift+щелчок) и перенос выделенных вместе.
+    node: Option<(NodeId, NodeEditorCtx)>,
 }
 
 impl DragHandle {
@@ -812,7 +836,12 @@ impl DragHandle {
             child: Some(Box::new(child)),
             pos_signal,
             height,
+            node: None,
         }
+    }
+    fn node(mut self, id: NodeId, ctx: NodeEditorCtx) -> Self {
+        self.node = Some((id, ctx));
+        self
     }
 }
 
@@ -825,6 +854,8 @@ impl Widget for DragHandle {
             height: self.height,
             drag_start_world: None,
             drag_start_pos: Point::zero(),
+            node: self.node,
+            group: Vec::new(),
             child_id: None,
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             classes: Vec::new(),
@@ -856,6 +887,9 @@ struct DragHandleElement {
     height: f32,
     drag_start_world: Option<Point>,
     drag_start_pos: Point,
+    node: Option<(NodeId, NodeEditorCtx)>,
+    /// Другие выделенные ноды, которые едут вместе: (позиция, начало).
+    group: Vec<(RwSignal<Point>, Point)>,
     child_id: Option<ElementId>,
     dirty_flags: DirtyFlags,
     classes: Vec<String>,
@@ -867,6 +901,7 @@ impl Element for DragHandleElement {
         if let Some(w) = widget.as_any().downcast_ref::<DragHandle>() {
             self.pos_signal = w.pos_signal;
             self.height = w.height;
+            self.node = w.node;
         }
     }
 
@@ -897,6 +932,20 @@ impl Element for DragHandleElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+                self.group.clear();
+                if let Some((id, ectx)) = self.node {
+                    let m = syngui::input::current_modifiers();
+                    if m.ctrl || m.shift {
+                        // добавить к выделению / убрать — без переноса
+                        ectx.pick_toggle(id);
+                        return EventResult::Handled;
+                    }
+                    ectx.pick_only(id);
+                    let picked = ectx.picked.get_untracked();
+                    if picked.len() > 1 {
+                        self.group = ectx.nodes.get_untracked().iter().filter(|n| n.id != id && picked.contains(&n.id)).map(|n| (n.pos, n.pos.get_untracked())).collect();
+                    }
+                }
                 self.drag_start_world = Some(*position);
                 self.drag_start_pos = self.pos_signal.get_untracked();
                 ctx.set_cursor(CursorIcon::Grabbing);
@@ -907,6 +956,9 @@ impl Element for DragHandleElement {
                     let dx = pos.x - start.x;
                     let dy = pos.y - start.y;
                     let new_pos = Point::new(self.drag_start_pos.x + dx, self.drag_start_pos.y + dy);
+                    for (p, s) in &self.group {
+                        p.set(Point::new(s.x + dx, s.y + dy));
+                    }
                     self.pos_signal.set(new_pos);
                     ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;

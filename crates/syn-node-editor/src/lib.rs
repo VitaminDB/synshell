@@ -38,6 +38,24 @@ pub mod wires;
 
 pub use registry::{register_category, register_kind, register_port_kind, CategoryInfo, NodeCategory, NodeKindMeta};
 pub use state::NodeEditorCtx;
+
+/// Свои пункты контекстного меню ноды от программы: по ноде и выделению
+/// (`picked`) — пункты (id, подпись); выбор пункта — `run`.
+pub struct NodeMenuHook {
+    pub items: fn(&NodeEditorCtx, types::NodeId, &[types::NodeId]) -> Vec<(String, String)>,
+    pub run: fn(&NodeEditorCtx, types::NodeId, &[types::NodeId], &str),
+}
+
+static NODE_MENU: std::sync::OnceLock<NodeMenuHook> = std::sync::OnceLock::new();
+
+/// Поставить крючок меню нод (один на программу).
+pub fn set_node_menu(h: NodeMenuHook) {
+    let _ = NODE_MENU.set(h);
+}
+
+pub(crate) fn node_menu() -> Option<&'static NodeMenuHook> {
+    NODE_MENU.get()
+}
 pub use tabs::EditorWorkspace;
 pub use types::{ExtKind, ExtRuntime, NodeKind, NodeRuntime, PortValue};
 

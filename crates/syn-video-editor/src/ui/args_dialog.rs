@@ -52,8 +52,13 @@ fn prefill(st: St, cmd_id: &str, name: &str, ty: Ty) -> String {
 }
 
 pub fn open(st: St, id: &str) {
+    open_with(st, id, &[]);
+}
+
+/// Окно с заранее заполненными полями (`(аргумент, значение)`).
+pub fn open_with(st: St, id: &str, preset: &[(&str, String)]) {
     let Some(c) = cmd::find(id) else { return };
-    let vals: Vec<String> = c.args.iter().map(|a| prefill(st, c.id, a.name, a.ty)).collect();
+    let vals: Vec<String> = c.args.iter().map(|a| preset.iter().find(|p| p.0 == a.name).map(|p| p.1.clone()).unwrap_or_else(|| prefill(st, c.id, a.name, a.ty))).collect();
     st.args_draft.set(Some(Draft { id: c.id, vals: Arc::new(Mutex::new(vals)), redraw: 0 }));
 }
 
@@ -177,7 +182,7 @@ fn card(st: St, c: &'static cmd::Command, d: &Draft) -> impl Widget {
             .child(Text::new(format!("{}{}", a.name, if a.required { " *" } else { "" })).class("lp-name"))
             .child(Text::new(a.help).max_lines(3).class("row-sub"));
         let field: Box<dyn Widget> = match a.ty {
-            Ty::Bool => Box::new(Checkbox::checked(v == "true").label(if a.required { "да" } else { "да (не отмечено — по умолчанию)" }).on_change(move |b| set_val(st, i, b.to_string()))),
+            Ty::Bool => Box::new(Checkbox::checked(v == "true").label("да").on_change(move |b| set_val(st, i, b.to_string()))),
             Ty::Choice(items) => {
                 let mut list = Vec::new();
                 if !a.required {

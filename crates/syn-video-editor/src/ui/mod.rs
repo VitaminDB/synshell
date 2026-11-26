@@ -17,7 +17,7 @@ mod framegraph_ui;
 pub mod socket;
 mod coverage_ui;
 mod project_templates;
-mod args_dialog;
+pub(crate) mod args_dialog;
 mod curves;
 mod color;
 mod xform;
@@ -632,6 +632,11 @@ impl St {
 }
 
 static UI_ST: OnceLock<St> = OnceLock::new();
+
+/// Состояние окна для крючков, вызываемых не из виджета (меню нод и т. п.).
+pub(crate) fn ui_st() -> Option<St> {
+    UI_ST.get().copied()
+}
 
 /// Мост действий окна для агента и сокета (`ui.list`, `ui.run`): всё из меню и
 /// палитры, что не команда документа.

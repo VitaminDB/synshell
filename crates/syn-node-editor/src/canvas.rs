@@ -12,6 +12,9 @@ use syngui::mgui;
 use syngui::prelude::*;
 use syngui::widgets::containers::PanZoomViewport;
 use syngui::widgets::overlay::menu::{MenuItem, PopupMenu};
+use crate::types::NodeId;
+use syngui::containers::Positioned;
+use syngui::EventHook;
 use syngui::widgets::{DecoratedBox, Padding, Reactive, Row, Stack, ToolButton};
 
 use crate::icons::{MI_FIT_SCREEN, MI_ZOOM_IN, MI_ZOOM_OUT};
@@ -73,11 +76,14 @@ fn view_with(ctx: NodeEditorCtx, overlays: Vec<Box<dyn Widget>>, zoom_toolbar: b
         layers.push(Box::new(overlay_row(ctx, build_toolbar(ctx))));
     }
     layers.extend(overlays);
+    let canvas_size = use_signal(syngui::core::Size::zero());
+    layers.push(Box::new(selection_bar(ctx, canvas_size)));
     layers.push(bg_menu);
     layers.push(Box::new(style_dialog::view(ctx)));
-    let frame_inner = Stack::new().children(layers);
+    // слои на всю площадь холста: полоса выделения прижимается к низу
+    let frame_inner = Stack::new().fit(StackFit::Expand).children(layers);
 
-    DecoratedBox::new().child(frame_inner).class("ne-canvas-frame")
+    DecoratedBox::new().child(EventHook::new().on_resize(move |s| canvas_size.set(s)).child(frame_inner)).class("ne-canvas-frame")
 }
 
 /// Верхняя «overlay-полоса» canvas'а: zoom-toolbar слева. Run-пилюля
@@ -285,4 +291,35 @@ fn build_bg_menu(ctx: NodeEditorCtx) -> Box<dyn Widget> {
                 ctx_select.menu_open.set(false);
             }),
     )
+}
+
+/// Полоса над холстом при выделенных нодах: сколько выделено, действия
+/// программы над выделением (например, «Объединить в блок»), «Снять».
+fn selection_bar(ctx: NodeEditorCtx, size: RwSignal<syngui::core::Size>) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        // только живые ноды: холст мог перезаполниться (объединение в блок, отмена)
+        let nodes = ctx.nodes.get();
+        let picked: Vec<NodeId> = ctx.picked.get().into_iter().filter(|id| nodes.iter().any(|n| n.id == *id)).collect();
+        if picked.len() < 2 {
+            return Vec::new();
+        }
+        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("Выделено нод: {}", picked.len())).class("ne-selbar-text"));
+        if let Some(h) = crate::node_menu() {
+            for (k, label) in (h.items)(&ctx, picked[0], &picked) {
+                let sel = picked.clone();
+                let first = picked[0];
+                row = row.child(Button::new(label).class("ne-selbar-btn").on_click(move || {
+                    if let Some(h) = crate::node_menu() {
+                        (h.run)(&ctx, first, &sel, &k);
+                    }
+                }));
+            }
+        }
+        row = row.child(Button::new("Снять выделение").class("ne-selbar-btn").on_click(move || ctx.pick_clear()));
+        let bar = DecoratedBox::new().class("ne-selbar").child(row);
+        // у нижнего края холста — не закрывает шапки нод
+        let h = size.get().height;
+        let y = if h > 160.0 { h - 96.0 } else { 12.0 };
+        vec![Box::new(Positioned::new(bar).at(16.0, y))]
+    })
 }

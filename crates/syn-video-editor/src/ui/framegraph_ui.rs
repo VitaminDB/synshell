@@ -135,6 +135,43 @@ pub fn current() -> RwSignal<Option<Open>> {
 
 pub fn init() {
     let _ = current();
+    syn_node_editor::set_node_menu(syn_node_editor::NodeMenuHook { items: menu_items, run: menu_run });
+}
+
+/// Вид ноды графа кадра по ноде холста.
+fn kind_of(ctx: &NodeEditorCtx, id: NodeId) -> Option<&'static str> {
+    ctx.nodes.get_untracked().iter().find(|n| n.id == id).and_then(|n| graph_kind(n.kind))
+}
+
+/// Пункты меню ноды графа кадра: объединить выделенные в блок, разгруппировать блок.
+fn menu_items(ctx: &NodeEditorCtx, id: NodeId, sel: &[NodeId]) -> Vec<(String, String)> {
+    if current().get_untracked().is_none() || kind_of(ctx, id).is_none() {
+        return Vec::new();
+    }
+    let mut v = Vec::new();
+    let kinds: Vec<Option<&str>> = sel.iter().map(|n| kind_of(ctx, *n)).collect();
+    if kinds.iter().all(|k| k.is_some_and(|k| !matches!(k, "source" | "output"))) {
+        v.push(("group".into(), if sel.len() > 1 { "Объединить в блок…".into() } else { "Сделать блоком…".into() }));
+    }
+    if sel.len() == 1 && kind_of(ctx, id) == Some("block") {
+        v.push(("ungroup".into(), "Разгруппировать блок".into()));
+    }
+    v
+}
+
+fn menu_run(ctx: &NodeEditorCtx, id: NodeId, sel: &[NodeId], action: &str) {
+    let (Some(o), Some(st)) = (current().get_untracked(), super::ui_st()) else { return };
+    match action {
+        "group" => {
+            let nodes = sel.iter().map(|n| n.0.to_string()).collect::<Vec<_>>().join(", ");
+            super::args_dialog::open_with(st, "block.group", &[("id", format!("c{}", o.clip)), ("nodes", nodes), ("save", "true".into())]);
+        }
+        "ungroup" => {
+            st.exec("block.ungroup", json!({"id": o.clip, "node": id.0}));
+            ctx.pick_clear();
+        }
+        _ => {}
+    }
 }
 
 /// Значения полей ноды графа — в сигналы карточки.
