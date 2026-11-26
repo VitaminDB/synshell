@@ -1091,7 +1091,6 @@ fn titlebar(st: St) -> Box<dyn Widget> {
                 )
                 .child(build_chip())
                 .child(menu.build())
-                .child(page_tabs(st))
                 .child(DecoratedBox::new().class("grow"))
                 .child(
                     GestureDetector::new().on_click(move || st.palette_open.set(true)).child(
@@ -1181,6 +1180,9 @@ fn toolbar(st: St) -> impl Widget {
             .child(sep())
             .child(ToolButton::new(icons::ZOOM_OUT).tooltip("Мельче").on_click(move || st.zoom.update(|z| *z = (*z / 1.5).max(4.0))))
             .child(ToolButton::new(icons::ZOOM_IN).tooltip("Крупнее").on_click(move || st.zoom.update(|z| *z = (*z * 1.5).min(800.0))))
+            .child(sep())
+            // страницы окна, как в Hexspire: монтаж / настройки
+            .child(page_tabs(st))
             .child(DecoratedBox::new().class("grow"))
             .child(
                 GestureDetector::new().on_click(move || st.open_panel("ai")).child({
