@@ -114,6 +114,8 @@ pub struct Agent {
     /// Параметры генерации каждого шага (`temperature`, `top_p`, `max_tokens`…) —
     /// поверх настроек модели в службе; пусто — как настроено в службе.
     pub params: Params,
+    /// Навыки приложения ([`Agent::with_skill_dirs`]) — без системных `models`/`nodes`.
+    pub app_skills: bool,
 }
 
 /// Забирает накопившиеся сообщения пользователя (пусто — нет новых).
@@ -131,7 +133,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new() }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new(), app_skills: false }
     }
 
     /// Очередь сообщений пользователя во время хода (см. [`Agent::inbox`]).
@@ -188,6 +190,7 @@ impl Agent {
     /// без системных навыков synshell (`models`, `nodes`) — для приложений.
     pub fn with_skill_dirs(mut self, dirs: Vec<std::path::PathBuf>, disabled: Vec<String>) -> Self {
         self.skills = crate::skills::list_all(&dirs, &disabled);
+        self.app_skills = true;
         if !self.skills.is_empty() {
             self.tools.push(Arc::new(crate::skills::SkillTool { dirs, disabled, system: false }));
         }
@@ -222,9 +225,11 @@ impl Agent {
         self.auto_approve || self.approved.iter().any(|t| t == tool)
     }
 
-    fn system_prompt(&self) -> String {
+    /// Итоговый системный промпт (база, навыки, базы знаний, рецепты, память, указания).
+    pub fn system_prompt(&self) -> String {
         let mut s = self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools));
-        s.push_str(&crate::skills::prompt_section(&self.skills));
+        // у приложений (with_skill_dirs) системных навыков models/nodes нет — не упоминать их
+        s.push_str(&crate::skills::prompt_section_for(!self.app_skills));
         s.push_str(&crate::kb::prompt_section(&self.knowledge));
         if let Some(dir) = &self.recipes {
             s.push_str(&crate::pipeline::prompt_section(dir));
@@ -713,6 +718,7 @@ impl Agent {
             recipes: None,
             inbox: None,
             params: self.params.clone(),
+            app_skills: self.app_skills,
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();
