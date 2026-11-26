@@ -33,6 +33,11 @@ pub struct Sandbox {
     pub size: String,
     pub synwm_pid: u32,
     pub dbus_pid: u32,
+    /// Свой `XDG_RUNTIME_DIR` песочницы: сокеты её программ (хранитель
+    /// терминалов Synthos, Курьер, Заметки, видеоредактор…) живут здесь, а не
+    /// рядом с живым сеансом. Пусто — описание старой песочницы.
+    #[serde(default)]
+    pub runtime: PathBuf,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,6 +99,11 @@ impl Sandbox {
             ("SYNSHELL_FORM_FACTOR".to_string(), self.form_factor.clone()),
             ("SYNKEYBOARD_SOCKET".to_string(), kb_socket(&self.name)),
         ];
+        if !self.runtime.as_os_str().is_empty() {
+            v.push(("XDG_RUNTIME_DIR".to_string(), self.runtime.to_string_lossy().into_owned()));
+            v.push(("XDG_CONFIG_HOME".to_string(), self.dir.join("home/config").to_string_lossy().into_owned()));
+            v.push(("XDG_DATA_HOME".to_string(), self.dir.join("home/data").to_string_lossy().into_owned()));
+        }
         if !self.display.is_empty() {
             v.push(("DISPLAY".to_string(), self.display.clone()));
         }
@@ -142,12 +152,29 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         }
     }
 
+    // Свой служебный каталог (XDG_RUNTIME_DIR): программы песочницы создают и
+    // ищут сокеты здесь и не цепляются к службам живого сеанса (хранитель
+    // терминалов Synthos, syncourier, syn-notes, видеоредактор, synwm…).
+    // Общее — только звук (PipeWire, Pulse); служба нейросетей — в /run/synaptix.
+    let runtime = isolated_runtime(&dir)?;
+    // Свои настройки и данные программ (XDG_CONFIG_HOME, XDG_DATA_HOME), как у
+    // нового пользователя: иначе программа песочницы восстанавливает своё живое
+    // состояние — Synthos, например, заново открывал вкладки терминалов и
+    // запускал в них команды (`claude --resume` — вторая копия живого сеанса).
+    isolated_home(&dir)?;
+    // Вложенный synwm — клиент живого Wayland: полный путь к его сокету
+    // (имя `wayland-N` искалось бы уже в своём каталоге).
+    let host_wayland = host_wayland();
+
     // Свой D-Bus сеанса.
     // Без экрана живого сеанса: службы, которые он поднимает по требованию (порталы выбора
     // файлов и др.), иначе открывают окна на живом столе. Экран песочницы — ниже, когда
     // поднимется synwm (dbus-update-activation-environment).
     let mut dbus = Command::new("dbus-daemon")
         .args(["--session", "--nofork", "--print-address=1", "--print-pid=1"])
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .env("XDG_CONFIG_HOME", dir.join("home/config"))
+        .env("XDG_DATA_HOME", dir.join("home/data"))
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
         .env_remove("SYNSHELL_SOCKET")
@@ -174,6 +201,9 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         .env("SYNKEYBOARD_SOCKET", kb_socket(&name))
         // своя шина: оболочка регистрирует бэкенд портала (выбор файлов внутри песочницы)
         .env("SYNSHELL_OWN_BUS", "1")
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .env("XDG_CONFIG_HOME", dir.join("home/config"))
+        .env("XDG_DATA_HOME", dir.join("home/data"))
         .env_remove("SYNSHELL_SOCKET")
         .env_remove("SYNDESKTOP_SOCKET")
         .env_remove("DISPLAY")
@@ -184,6 +214,9 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         .process_group(0);
     if let Some(sh) = &o.shell {
         cmd.env("SYNSHELL_SHELL", sh);
+    }
+    if let Some(w) = &host_wayland {
+        cmd.env("WAYLAND_DISPLAY", w);
     }
     let child = match cmd.spawn() {
         Ok(c) => c,
@@ -221,7 +254,10 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         bail!("{}", t!("synwm песочницы не поднялся за 30 с"));
     };
     // Окружение песочницы — для служб, которые её D-Bus запускает по требованию.
-    let mut vars = vec![format!("WAYLAND_DISPLAY={wayland}"), format!("SYNSHELL_CONFIG_DIR={}", dir.join("config").display()), format!("XDG_STATE_HOME={}", dir.join("state").display())];
+    let mut vars = vec![
+        format!("XDG_RUNTIME_DIR={}", runtime.display()),
+        format!("XDG_CONFIG_HOME={}", dir.join("home/config").display()),
+        format!("XDG_DATA_HOME={}", dir.join("home/data").display()), format!("WAYLAND_DISPLAY={wayland}"), format!("SYNSHELL_CONFIG_DIR={}", dir.join("config").display()), format!("XDG_STATE_HOME={}", dir.join("state").display())];
     if let Some(d) = &display {
         vars.push(format!("DISPLAY={d}"));
     }
@@ -240,6 +276,7 @@ pub fn start(o: &Opts) -> Result<Sandbox> {
         size,
         synwm_pid,
         dbus_pid,
+        runtime,
     };
     std::fs::write(base().join(format!("{name}.json")), serde_json::to_vec_pretty(&s)?)?;
     Ok(s)
@@ -273,6 +310,70 @@ pub fn stop(name: &str) -> Result<()> {
     let _ = std::fs::remove_file(kb_socket(name));
     let _ = std::fs::remove_dir_all(&s.dir);
     Ok(())
+}
+
+/// Свой `XDG_RUNTIME_DIR` песочницы (0700) со ссылками только на звук живого сеанса.
+fn isolated_runtime(dir: &std::path::Path) -> Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let run = dir.join("run");
+    std::fs::create_dir_all(&run)?;
+    std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700))?;
+    let host = synshell_common::paths::runtime_dir();
+    for name in SHARED_RUNTIME {
+        let src = host.join(name);
+        if src.exists() {
+            let _ = std::os::unix::fs::symlink(&src, run.join(name));
+        }
+    }
+    Ok(run)
+}
+
+/// Чистые `XDG_CONFIG_HOME` и `XDG_DATA_HOME` песочницы. Из живых — только
+/// оформление и справочное: шрифты, значки, темы, ярлыки программ (ссылками) и
+/// мелкие общие файлы (копией).
+fn isolated_home(dir: &std::path::Path) -> Result<()> {
+    let cfg = dir.join("home/config");
+    let data = dir.join("home/data");
+    std::fs::create_dir_all(&cfg)?;
+    std::fs::create_dir_all(&data)?;
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let live_cfg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+    let live_data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
+    for name in LINKED_CONFIG {
+        let src = live_cfg.join(name);
+        if src.exists() {
+            let _ = std::os::unix::fs::symlink(&src, cfg.join(name));
+        }
+    }
+    for name in COPIED_CONFIG {
+        let _ = std::fs::copy(live_cfg.join(name), cfg.join(name));
+    }
+    for name in LINKED_DATA {
+        let src = live_data.join(name);
+        if src.exists() {
+            let _ = std::os::unix::fs::symlink(&src, data.join(name));
+        }
+    }
+    Ok(())
+}
+
+/// Оформление: шрифты и темы инструментов (ссылкой — только чтение на деле).
+const LINKED_CONFIG: &[&str] = &["fontconfig", "gtk-3.0", "gtk-4.0", "Kvantum", "qt5ct", "qt6ct"];
+/// Мелкие общие файлы — копией (правки в песочнице не уходят наружу).
+const COPIED_CONFIG: &[&str] = &["mimeapps.list", "user-dirs.dirs", "user-dirs.locale"];
+/// Шрифты, значки, темы, ярлыки программ.
+const LINKED_DATA: &[&str] = &["fonts", "icons", "themes", "applications", "mime"];
+
+/// Что из служебного каталога живого сеанса видно в песочнице: только звук.
+const SHARED_RUNTIME: &[&str] = &["pipewire-0", "pipewire-0-manager", "pulse"];
+
+/// Wayland живого сеанса полным путём (для вложенного synwm).
+fn host_wayland() -> Option<String> {
+    let w = std::env::var("WAYLAND_DISPLAY").ok().filter(|w| !w.is_empty())?;
+    if w.starts_with('/') {
+        return Some(w);
+    }
+    Some(synshell_common::paths::runtime_dir().join(w).to_string_lossy().into_owned())
 }
 
 fn strip_ansi(s: &str) -> String {
