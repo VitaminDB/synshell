@@ -245,11 +245,18 @@ impl Drop for Lease {
         // Модель выгрузили, пока ей пользовались: последняя ссылка уходит
         // здесь, и только теперь память можно вернуть драйверу.
         let last = unloaded && Arc::strong_count(&model) == 1;
+        let heavy = matches!(&*model, Loaded::Video(..) | Loaded::Image(..) | Loaded::Music(..));
         drop(model);
         if last {
             trim();
             release_vram(Some(self.device));
             tracing::info!("{}: память освобождена после завершения работы", self.id);
+        } else if heavy {
+            // Генерация видео/картинок/музыки грузит и отпускает десятки ГБ
+            // в RAM на каждый ход, а модель остаётся «загруженной» (0 МБ на
+            // карте) — без возврата аренами malloc память копилась от хода к
+            // ходу (+11 ГБ на сцену LTX, OOM на 4-й).
+            trim();
         }
         self.mgr.notify(Event::ModelState { model: entry });
     }
@@ -276,6 +283,18 @@ fn rss() -> u64 {
     let text = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
     let pages: u64 = text.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
     pages * unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64
+}
+
+/// Порог mmap у glibc фиксированный: иначе он растёт до 32 МБ после первых
+/// освобождений, и тензоры весов/активаций до 32 МБ идут в арены потоков,
+/// откуда не возвращаются системе (фрагментация копилась от генерации к
+/// генерации). Вызывается при старте службы.
+pub fn tune_malloc() {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 4 << 20);
+        libc::mallopt(libc::M_TRIM_THRESHOLD, 64 << 20);
+    }
 }
 
 fn trim() {

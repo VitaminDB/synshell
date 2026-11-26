@@ -935,6 +935,7 @@ pub fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "synaptixd=info".into()))
         .init();
+    manager::tune_malloc();
     let cfg = config::Config::load();
     if let Some(dir) = cfg.socket.parent() {
         std::fs::create_dir_all(dir)?;
