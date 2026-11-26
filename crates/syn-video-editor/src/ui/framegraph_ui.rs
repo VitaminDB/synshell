@@ -29,19 +29,39 @@ const OUT: &[PortSchema] = &[PortSchema { name: "out", label: "кадр", kind: 
 const MERGE_IN: &[PortSchema] = &[PortSchema { name: "bg", label: "фон", kind: FRAME }, PortSchema { name: "fg", label: "поверх", kind: FRAME }];
 const MODES: &[&str] = &["normal", "screen", "add", "multiply", "overlay", "darken", "lighten", "soft_light", "hard_light", "difference"];
 
+const fn rng(min: f32, max: f32) -> FieldType {
+    FieldType::Range { min, max }
+}
 const F_COLOR: &[FieldSchema] = &[
-    FieldSchema { name: "brightness", label: "Яркость", ty: FieldType::Float },
-    FieldSchema { name: "contrast", label: "Контраст", ty: FieldType::Float },
-    FieldSchema { name: "saturation", label: "Насыщенность", ty: FieldType::Float },
-    FieldSchema { name: "temperature", label: "Температура", ty: FieldType::Float },
+    FieldSchema { name: "brightness", label: "Яркость", ty: rng(-1.0, 1.0) },
+    FieldSchema { name: "contrast", label: "Контраст", ty: rng(-1.0, 1.0) },
+    FieldSchema { name: "saturation", label: "Насыщенность", ty: rng(-1.0, 1.0) },
+    FieldSchema { name: "temperature", label: "Температура", ty: rng(-1.0, 1.0) },
 ];
-const F_BLUR: &[FieldSchema] = &[FieldSchema { name: "radius", label: "Радиус", ty: FieldType::Float }];
-const F_SHARPEN: &[FieldSchema] = &[FieldSchema { name: "amount", label: "Сила", ty: FieldType::Float }];
-const F_VIGNETTE: &[FieldSchema] = &[FieldSchema { name: "amount", label: "Сила", ty: FieldType::Float }];
-const F_LUT: &[FieldSchema] = &[FieldSchema { name: "path", label: "Файл .cube", ty: FieldType::Text }, FieldSchema { name: "strength", label: "Сила", ty: FieldType::Float }];
-const F_GLOW: &[FieldSchema] = &[FieldSchema { name: "size", label: "Размер", ty: FieldType::Float }, FieldSchema { name: "strength", label: "Сила", ty: FieldType::Float }];
+const F_BLUR: &[FieldSchema] = &[FieldSchema { name: "radius", label: "Радиус, пикс.", ty: rng(0.0, 60.0) }];
+const F_SHARPEN: &[FieldSchema] = &[FieldSchema { name: "amount", label: "Сила", ty: rng(0.0, 2.0) }];
+const F_VIGNETTE: &[FieldSchema] = &[FieldSchema { name: "amount", label: "Сила", ty: rng(0.0, 1.0) }];
+const F_LUT: &[FieldSchema] = &[FieldSchema { name: "path", label: "Файл .cube", ty: FieldType::Text }, FieldSchema { name: "strength", label: "Сила", ty: rng(0.0, 1.0) }];
+const F_GLOW: &[FieldSchema] = &[FieldSchema { name: "size", label: "Размер, пикс.", ty: rng(0.0, 100.0) }, FieldSchema { name: "strength", label: "Сила", ty: rng(0.0, 2.0) }];
 const F_UPSCALE: &[FieldSchema] = &[FieldSchema { name: "model", label: "Модель", ty: FieldType::Text }];
-const F_MERGE: &[FieldSchema] = &[FieldSchema { name: "mode", label: "Режим", ty: FieldType::Choice(MODES) }, FieldSchema { name: "opacity", label: "Непрозрачность", ty: FieldType::Float }];
+const F_MERGE: &[FieldSchema] = &[FieldSchema { name: "mode", label: "Режим", ty: FieldType::Choice(MODES) }, FieldSchema { name: "opacity", label: "Непрозрачность", ty: rng(0.0, 1.0) }];
+
+#[cfg(test)]
+mod tests {
+    /// Пределы и подписи на холсте совпадают с таблицей графа кадра (блоки берут её).
+    #[test]
+    fn ranges_match_framegraph() {
+        use syn_node_editor::types::FieldType;
+        for (kind, _, fields, _) in super::SPEC {
+            for f in *fields {
+                if let FieldType::Range { min, max } = f.ty {
+                    let (l, a, b) = crate::framegraph::param_spec(kind, f.name).unwrap_or_else(|| panic!("{kind}.{}", f.name));
+                    assert_eq!((l, a, b), (f.label, min, max), "{kind}.{}", f.name);
+                }
+            }
+        }
+    }
+}
 
 /// Вид ноды графа ↔ вид ноды редактора; поля и их значения по умолчанию.
 const SPEC: &[(&str, &str, &[FieldSchema], &[(&str, f32)])] = &[
@@ -80,6 +100,7 @@ pub fn register() {
             "merge" => (MERGE_IN, OUT),
             _ => (IN, OUT),
         };
+        let body: Option<fn(&NodeInstance) -> Box<dyn syngui::Widget>> = if *kind == "block" { Some(block_body) } else { None };
         registry::register_kind(NodeKindMeta {
             kind: NodeKind::Ext(ExtKind(e)),
             icon: match *kind {
@@ -97,7 +118,7 @@ pub fn register() {
             inputs: PortsSpec::Static(inputs),
             outputs: PortsSpec::Static(outputs),
             fields,
-            body: None,
+            body,
             ports_layout: PortsLayout::Rows,
             port_row_extra: None,
             executor: &NOOP,
@@ -135,6 +156,7 @@ pub fn current() -> RwSignal<Option<Open>> {
 
 pub fn init() {
     let _ = current();
+    let _ = block_rev();
     syn_node_editor::set_node_menu(syn_node_editor::NodeMenuHook { items: menu_items, run: menu_run });
 }
 
@@ -308,7 +330,7 @@ fn same(a: &FrameGraph, b: &FrameGraph) -> bool {
             for f in fields {
                 if !n.params.contains_key(f.name) {
                     match f.ty {
-                        FieldType::Float => {
+                        FieldType::Float | FieldType::Range { .. } => {
                             n.params.insert(f.name.into(), json!(defaults.iter().find(|d| d.0 == f.name).map(|d| d.1 as f64).unwrap_or(0.0)));
                         }
                         FieldType::Choice(_) => {
@@ -377,6 +399,7 @@ pub fn open(st: St, cid: u64) {
         if o.gen != gen {
             return;
         }
+        check_blocks(cid);
         match ed().project.clip(cid).and_then(|c| c.graph.clone()) {
             Some(g) => {
                 if !same(&g, &read(ctx, false, Some(&g))) {
@@ -405,4 +428,90 @@ pub fn head(st: St, o: Open) -> impl Widget {
             }
         }).class("head-btn"))
         .child(Button::new("К графам сценария").on_click(move || current().set(None)).class("head-btn"))
+}
+
+/// Значения блоков, которые видит холст (нода → values): правка извне
+/// (инспектор, агент, отмена) отличается от них — тело блока перестраивается.
+static BLOCK_SEEN: std::sync::Mutex<Option<std::collections::HashMap<(u64, u32), Value>>> = std::sync::Mutex::new(None);
+static BLOCK_REV: OnceLock<RwSignal<u64>> = OnceLock::new();
+
+fn block_rev() -> RwSignal<u64> {
+    *BLOCK_REV.get_or_init(|| use_signal(0))
+}
+
+fn block_vals(cid: u64, nid: u32) -> Value {
+    ed().project.clip(cid).and_then(|c| c.graph.as_ref()).and_then(|g| g.node(nid)).and_then(|n| n.params.get("values").cloned()).unwrap_or(Value::Null)
+}
+
+fn seen_set(cid: u64, nid: u32, v: Value) {
+    BLOCK_SEEN.lock().unwrap().get_or_insert_with(Default::default).insert((cid, nid), v);
+}
+
+/// Сверить значения блоков клипа с тем, что на холсте; правка извне — перестроить тела блоков.
+fn check_blocks(cid: u64) {
+    let Some(g) = ed().project.clip(cid).and_then(|c| c.graph.clone()) else { return };
+    let mut changed = false;
+    {
+        let mut m = BLOCK_SEEN.lock().unwrap();
+        let m = m.get_or_insert_with(Default::default);
+        for n in g.nodes.iter().filter(|n| n.kind == "block") {
+            let v = n.params.get("values").cloned().unwrap_or(Value::Null);
+            if m.get(&(cid, n.id)) != Some(&v) {
+                m.insert((cid, n.id), v);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        block_rev().update(|r| *r += 1);
+    }
+}
+
+/// Тело ноды-блока на холсте: ползунки вынесенных параметров (подписи и
+/// пределы — из блока); правка — `block.set` (как в инспекторе).
+fn block_body(node: &NodeInstance) -> Box<dyn syngui::Widget> {
+    let nid = node.id.0 as u32;
+    let rev = block_rev();
+    Box::new(Reactive::new(move || -> Vec<Box<dyn syngui::Widget>> {
+        let _ = rev.get();
+        vec![block_sliders(nid)]
+    }))
+}
+
+fn block_sliders(nid: u32) -> Box<dyn syngui::Widget> {
+    use syngui::widgets::{Slider, Text};
+    let Some(o) = current().get_untracked() else { return Box::new(Text::new("")) };
+    let cid = o.clip;
+    seen_set(cid, nid, block_vals(cid, nid));
+    let Some(gn) = ed().project.clip(cid).and_then(|c| c.graph.as_ref()).and_then(|g| g.node(nid).cloned()) else { return Box::new(Text::new("")) };
+    let vals = gn.params.get("values").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let ex = crate::blocks::exposes(&gn.params);
+    if ex.is_empty() {
+        col = col.child(Text::new("без вынесенных параметров").class("node-card-hint"));
+    }
+    for e in ex {
+        let v = vals.get(&e.key).and_then(Value::as_f64).unwrap_or(e.default).clamp(e.min, e.max);
+        let (min, max) = (e.min as f32, e.max as f32);
+        let key = e.key.clone();
+        let val = use_signal(v as f32);
+        let digits = if e.max - e.min > 20.0 { 0 } else { 2 };
+        col = col.child(
+            Row::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().style("width", 120.0f32).child(Text::new(e.label.clone()).max_lines(1).class("node-card-port-label-in")))
+                .child(DecoratedBox::new().class("grow").child(Slider::new().range(min, max).value(v as f32).on_change(move |x| {
+                    let x = x.clamp(min, max);
+                    val.set(x);
+                    if let Some(st) = super::ui_st() {
+                        st.exec("block.set", json!({"id": cid, "node": nid, "values": {key.clone(): ((x as f64) * 1000.0).round() / 1000.0}}));
+                        // своя правка — тело не перестраивать (протяжка не рвётся)
+                        seen_set(cid, nid, block_vals(cid, nid));
+                    }
+                }).class("node-input-slider")))
+                .child(Reactive::new(move || -> Vec<Box<dyn syngui::Widget>> { vec![Box::new(Text::new(format!("{:.*}", digits, val.get())).class("node-card-port-label-out"))] })),
+        );
+    }
+    Box::new(Padding::symmetric(10.0, 6.0).child(col))
 }

@@ -188,7 +188,18 @@ fn extract(g: &FrameGraph, pick: &[u32], expose_arg: Option<Value>) -> Result<Ex
             .nodes
             .iter()
             .flat_map(|n| n.params.iter().filter_map(move |(k, v)| v.as_f64().map(|x| (n, k.clone(), x))))
-            .map(|(n, k, x)| Expose { key: format!("n{}_{k}", n.id), label: format!("{}: {k}", crate::framegraph::kind_title(&n.kind)), node: n.id, param: k, min: if x < 0.0 { x * 2.0 } else { 0.0 }, max: (x.abs() * 2.0).max(1.0), default: x })
+            .map(|(n, k, x)| {
+                // подпись и пределы — из таблицы графа кадра; повтор вида ноды — с номером
+                let (label, min, max) = match crate::framegraph::param_spec(&n.kind, &k) {
+                    Some((l, a, b)) => (l.to_string(), a as f64, b as f64),
+                    None => (k.clone(), if x < 0.0 { x * 2.0 } else { 0.0 }, (x.abs() * 2.0).max(1.0)),
+                };
+                // «Цвет: температура»; две ноды одного вида — с номером ноды
+                let same_kind = sub.nodes.iter().filter(|m| m.kind == n.kind).count() > 1;
+                let title = crate::framegraph::kind_title(&n.kind);
+                let label = if same_kind { format!("{title} {}: {}", n.id, label.to_lowercase()) } else { format!("{title}: {}", label.to_lowercase()) };
+                Expose { key: format!("n{}_{k}", n.id), label, node: n.id, param: k, min, max, default: x.clamp(min, max) }
+            })
             .collect(),
     };
     Ok(Extract { sub, expose, input: src_from.first().copied(), out: outs[0] })

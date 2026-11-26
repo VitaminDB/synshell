@@ -35,6 +35,24 @@ pub const KINDS: &[(&str, &str, &[&str], &str)] = &[
     ("merge", "Слияние", &["bg", "fg"], "mode (normal|screen|add|multiply|overlay|darken|lighten|soft_light|hard_light|difference), opacity 0–1"),
 ];
 
+/// Подпись и пределы числового параметра ноды графа кадра (холст, вынесенные параметры блоков).
+pub fn param_spec(kind: &str, name: &str) -> Option<(&'static str, f32, f32)> {
+    Some(match (kind, name) {
+        ("color", "brightness") => ("Яркость", -1.0, 1.0),
+        ("color", "contrast") => ("Контраст", -1.0, 1.0),
+        ("color", "saturation") => ("Насыщенность", -1.0, 1.0),
+        ("color", "temperature") => ("Температура", -1.0, 1.0),
+        ("blur", "radius") => ("Радиус, пикс.", 0.0, 60.0),
+        ("sharpen", "amount") => ("Сила", 0.0, 2.0),
+        ("vignette", "amount") => ("Сила", 0.0, 1.0),
+        ("lut", "strength") => ("Сила", 0.0, 1.0),
+        ("glow", "size") => ("Размер, пикс.", 0.0, 100.0),
+        ("glow", "strength") => ("Сила", 0.0, 2.0),
+        ("merge", "opacity") => ("Непрозрачность", 0.0, 1.0),
+        _ => return None,
+    })
+}
+
 pub fn kind_title(k: &str) -> &'static str {
     KINDS.iter().find(|x| x.0 == k).map(|x| x.1).unwrap_or("Нода")
 }

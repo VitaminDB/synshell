@@ -228,12 +228,24 @@ pub(super) fn effect_title(kind: &str) -> &'static str {
 
 const ROW_H: f32 = 28.0;
 
+/// Номер правки, сделанной самим инспектором: числа из своих правок сетку не
+/// перестраивают (протяжка ползунка не рвётся), правки извне (холст, агент,
+/// отмена) — перестраивают, иначе значения в сетке устаревали.
+static OWN_REV: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+static IN_EDIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Номер последней правки извне — часть ключа (свои правки его не меняют).
+static EXT_REV: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn view(st: St) -> impl Widget {
     // ключ пересчитывается по каждой правке, сетка — только при его смене
     create_effect(move || {
-        let _ = st.rev.get();
+        let rev = st.rev.get();
         let _ = st.ph.get();
-        let k = key();
+        let own = IN_EDIT.load(std::sync::atomic::Ordering::Relaxed) || OWN_REV.load(std::sync::atomic::Ordering::Relaxed) == rev;
+        if !own {
+            EXT_REV.store(rev, std::sync::atomic::Ordering::Relaxed);
+        }
+        let k = format!("{}#{}", key(), EXT_REV.load(std::sync::atomic::Ordering::Relaxed));
         if st.insp_key.get_untracked() != k {
             st.insp_key.set(k);
         }
@@ -264,7 +276,10 @@ pub fn view(st: St) -> impl Widget {
             .auto_height(true)
             .on_change(move |i, v| {
                 if let Some(Some(f)) = handlers.get(i) {
+                    IN_EDIT.store(true, std::sync::atomic::Ordering::Relaxed);
                     f(st, v);
+                    OWN_REV.store(ed().revision, std::sync::atomic::Ordering::Relaxed);
+                    IN_EDIT.store(false, std::sync::atomic::Ordering::Relaxed);
                 }
             })
             .on_mark(move |i| {

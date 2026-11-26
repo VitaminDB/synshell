@@ -139,6 +139,8 @@ impl std::fmt::Debug for PortsSpec {
 pub enum FieldType {
     Text,
     Float,
+    /// Число в пределах (ползунок от `min` до `max`; значение хранится как `Float`).
+    Range { min: f32, max: f32 },
     Int,
     Bool,
     Color,

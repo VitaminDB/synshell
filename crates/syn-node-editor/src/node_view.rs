@@ -677,6 +677,15 @@ fn field_row(schema: FieldSchema, fields: Arc<Mutex<std::collections::HashMap<&'
                     .class("node-input-slider"),
             )
         }),
+        (FieldType::Range { min, max }, Some(FieldValue::Float(sig))) => follow(sig, move |initial, mine| {
+            Box::new(
+                Slider::new()
+                    .range(min, max)
+                    .value(initial.clamp(min, max))
+                    .on_change(move |v| put(sig, mine, v.clamp(min, max)))
+                    .class("node-input-slider"),
+            )
+        }),
         (FieldType::Int, Some(FieldValue::Int(sig))) => follow(sig, move |initial, mine| {
             Box::new(
                 SpinBox::new()

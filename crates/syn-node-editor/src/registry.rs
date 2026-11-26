@@ -1047,6 +1047,7 @@ pub fn default_fields(kind: NodeKind) -> Arc<Mutex<HashMap<&'static str, FieldVa
         let v = match f.ty {
             FieldType::Text => FieldValue::Text(use_signal(String::new())),
             FieldType::Float => FieldValue::Float(use_signal(0.0_f32)),
+            FieldType::Range { min, max } => FieldValue::Float(use_signal(0.0_f32.clamp(min, max))),
             FieldType::Int => FieldValue::Int(use_signal(0_i32)),
             FieldType::Bool => FieldValue::Bool(use_signal(false)),
             FieldType::Color => FieldValue::Color(use_signal(Color::from_hex("#3B82F6"))),
