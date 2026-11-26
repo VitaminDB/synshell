@@ -744,6 +744,12 @@ pub struct Activity {
     pub tps: f32,
     #[serde(default)]
     pub error: Option<String>,
+    /// Этап генерации словами («загрузка DiT: блок 12/50», «денойз», «декодер VAE»).
+    #[serde(default)]
+    pub phase: Option<String>,
+    /// Блоки (слои) модели этапа: на карте и на хосте.
+    #[serde(default)]
+    pub blocks: Option<LayerPlacement>,
 }
 
 /// Точка истории: раз в секунду.

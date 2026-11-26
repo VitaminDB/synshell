@@ -1041,3 +1041,5 @@
 "60 к/с" = "60 fps"
 "Открыть папку записей" = "Abrir la carpeta de grabaciones"
 "Параметры записи…" = "Ajustes de grabación…"
+"блоки: все {t} в VRAM" = "bloques: los {t} en VRAM"
+"блоки: VRAM {a} · RAM {b} из {t} — блоки из RAM приезжают на каждом шаге" = "bloques: VRAM {a} · RAM {b} de {t} — los bloques en RAM se transfieren en cada paso"

@@ -309,8 +309,10 @@ pub fn with_progress<T: Send>(cx: &mut Cx, f: impl FnOnce(&(dyn Fn(usize, usize)
         cx.cancel.on_cancel(move || s.store(true, Ordering::SeqCst))
     };
     let (step, total, done) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicBool::new(false));
+    let live = crate::server::activity::current();
     std::thread::scope(|scope| {
         let h = scope.spawn(|| {
+            let _work = crate::server::activity::adopt(live);
             let progress = |s: usize, t: usize| {
                 step.store(s, Ordering::Relaxed);
                 total.store(t, Ordering::Relaxed);

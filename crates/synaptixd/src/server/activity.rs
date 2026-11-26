@@ -157,6 +157,22 @@ pub fn current() -> Option<Arc<Live>> {
     CURRENT.with(|c| c.borrow().clone())
 }
 
+/// Работа соединения — в рабочий поток (шаг графа, долгий вызов): без
+/// этого модель, «идёт», токены и ход из потока терялись, и работа навсегда
+/// оставалась «ждёт модель или устройство». Страж снимает её по выходу.
+pub fn adopt(live: Option<Arc<Live>>) -> Adopted {
+    CURRENT.with(|c| *c.borrow_mut() = live);
+    Adopted
+}
+
+pub struct Adopted;
+
+impl Drop for Adopted {
+    fn drop(&mut self) {
+        CURRENT.with(|c| *c.borrow_mut() = None);
+    }
+}
+
 /// Работа идёт, пока жив страж; по его концу — в недавние.
 pub struct Guard(Arc<Live>);
 
@@ -336,6 +352,13 @@ pub fn snapshot(history: bool) -> Snapshot {
     let r = REG.lock().unwrap();
     let mut running: Vec<Activity> = r.running.values().map(|l| l.state.lock().unwrap().clone()).collect();
     running.sort_by_key(|a| a.started_ms);
+    // Этап генерации (видео, картинки) — у идущей на устройстве работы.
+    if let Some(g) = synaptix_core::gen_status::get() {
+        for a in running.iter_mut().filter(|a| a.state == ActivityState::Running) {
+            a.phase = Some(g.phase.clone());
+            a.blocks = g.blocks.map(|(v, t)| crate::LayerPlacement { total: t, vram: v, ram: t.saturating_sub(v) });
+        }
+    }
     let mut apps: Vec<AppUsage> = Vec::new();
     fn usage(apps: &mut Vec<AppUsage>, app: &AppInfo) -> usize {
         match apps.iter().position(|u| u.app.pid == app.pid && u.app.label == app.label) {
@@ -449,6 +472,32 @@ mod tests {
     fn desktop_entry() {
         let t = "[Desktop Entry]\nName=Synthos\nName[ru]=Синтоз\nIcon=synthos\nExec=env FOO=1 /usr/bin/synthos %U\n[Desktop Action x]\nName=Другое\n";
         assert_eq!(parse_desktop(t), Some(("synthos".into(), "Синтоз".into(), "synthos".into())));
+    }
+
+    #[test]
+    fn worker_thread_sees_activity_and_phase() {
+        let app = AppInfo { pid: std::process::id(), name: "w".into(), id: "w".into(), ..Default::default() };
+        let g = begin(&app, "flow");
+        let live = current();
+        std::thread::scope(|sc| {
+            sc.spawn(|| {
+                let _w = adopt(live.clone());
+                let l = current().expect("работа видна в рабочем потоке");
+                l.model("minimax-h3");
+                l.running();
+                l.progress(3, 20);
+            });
+        });
+        synaptix_core::gen_status::phase("денойз");
+        synaptix_core::gen_status::blocks(36, 50);
+        let a = snapshot(false).running.into_iter().find(|a| a.op == "flow" && a.app.id == "w").unwrap();
+        synaptix_core::gen_status::clear();
+        assert_eq!(a.models, vec!["minimax-h3".to_string()]);
+        assert_eq!(a.state, ActivityState::Running);
+        assert_eq!(a.step, Some((3, 20)));
+        assert_eq!(a.phase.as_deref(), Some("денойз"));
+        assert_eq!(a.blocks, Some(crate::LayerPlacement { total: 50, vram: 36, ram: 14 }));
+        drop(g);
     }
 
     #[test]

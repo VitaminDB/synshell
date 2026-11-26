@@ -1041,3 +1041,5 @@
 "60 к/с" = "60 fps"
 "Открыть папку записей" = "Kayıt klasörünü aç"
 "Параметры записи…" = "Kayıt ayarları…"
+"блоки: все {t} в VRAM" = "bloklar: {t} bloğun tümü VRAM'de"
+"блоки: VRAM {a} · RAM {b} из {t} — блоки из RAM приезжают на каждом шаге" = "bloklar: VRAM {a} · RAM {b} / {t} — RAM'deki bloklar her adımda aktarılır"

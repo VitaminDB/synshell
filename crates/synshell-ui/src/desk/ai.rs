@@ -166,10 +166,15 @@ fn activity_row(s: &AiSnap, a: &Activity, cx: &Cx, stop: bool, with_models: bool
     if with_models && !models.is_empty() {
         head.push_str(&format!(" · {}", models.join(" + ")));
     }
-    let detail = match (a.state, a.step) {
-        (ActivityState::Waiting, _) => t!("ждёт модель или устройство").into(),
-        (_, Some((st, total))) => t!("шаг {s} из {t}", s = st, t = total).to_string(),
-        _ if a.op == "generate" => t!("{n} ток · {v} ток/с", n = a.tokens, v = format!("{:.0}", a.tps)).to_string(),
+    // Этап (видео, картинки) и шаг — даже если работа числится ждущей:
+    // ход уже идёт, «ждёт модель» поверх шага вводило в заблуждение.
+    let step = a.step.map(|(st, total)| t!("шаг {s} из {t}", s = st, t = total).to_string());
+    let detail = match (&a.phase, step) {
+        (Some(p), Some(st)) => format!("{p} · {st}"),
+        (Some(p), None) => p.clone(),
+        (None, Some(st)) => st,
+        (None, None) if a.state == ActivityState::Waiting => t!("ждёт модель или устройство").into(),
+        _ if a.op == "generate" || a.tokens > 0 => t!("{n} ток · {v} ток/с", n = a.tokens, v = format!("{:.0}", a.tps)).to_string(),
         _ => String::new(),
     };
     let mut info = Column::new()
@@ -180,6 +185,18 @@ fn activity_row(s: &AiSnap, a: &Activity, cx: &Cx, stop: bool, with_models: bool
         .child(Text::new(detail).max_lines(1).class("desk-k"));
     if let Some((st, total)) = a.step {
         info = info.child(bar(st as f32 / total.max(1) as f32 * 100.0, (cx.w - 40.0).max(40.0), 4.0, cx.color));
+    }
+    // Блоки модели этапа: на карте и на хосте (приезжают на каждом шаге).
+    if let Some(l) = a.blocks.filter(|l| l.total > 0) {
+        info = info.child(place_bar(l.vram, l.ram, 0, (cx.w - 40.0).max(40.0), cx.color)).child(
+            Text::new(if l.ram == 0 {
+                t!("блоки: все {t} в VRAM", t = l.total).to_string()
+            } else {
+                t!("блоки: VRAM {a} · RAM {b} из {t} — блоки из RAM приезжают на каждом шаге", a = l.vram, b = l.ram, t = l.total).to_string()
+            })
+            .max_lines(2)
+            .class(if l.ram > 0 { "desk-ai-warn" } else { "desk-ai-tier" }),
+        );
     }
     let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(info);
     if stop {
