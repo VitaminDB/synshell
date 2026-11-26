@@ -174,7 +174,7 @@ static EXPORT: Command = Command {
     shortcut: "Ctrl+E",
     keywords: "export render рендер экспорт mp4 сохранить видео вывести",
     help: "Отрендерить таймлайн в видеофайл (mp4, mov, mkv, webm) с титрами, эффектами и звуком; кадры — тот же композитор, что в просмотре. start/end — только часть. Перезаписывает файл, если он есть.",
-    args: &[req("path", Ty::Str, "файл результата (.mp4)"), arg("crf", Ty::Num, "качество x264: 18 — высокое (по умолчанию), 23 — меньше файл"), arg("start", Ty::Time, "с какого момента"), arg("end", Ty::Time, "по какой момент"), arg("encoder", Ty::Choice(&["auto", "nvenc", "x264"]), "кодер: auto — NVENC на карте NVIDIA, иначе x264")],
+    args: &[req("path", Ty::Str, "файл результата (.mp4)"), arg("crf", Ty::Num, "качество x264: 18 — высокое (по умолчанию), 23 — меньше файл"), arg("start", Ty::Time, "с какого момента"), arg("end", Ty::Time, "по какой момент"), arg("encoder", Ty::Choice(&["auto", "nvenc", "x264"]), "кодер: auto — NVENC на карте NVIDIA, иначе x264"), arg("loudness", Ty::Num, "громкость итога, LUFS: −16 по умолчанию (норма роликов), −14 — громче (соцсети), 0 — сведение как есть")],
     danger: false,
     run: export,
 };
@@ -191,6 +191,9 @@ fn export(ed: &mut Editor, a: &Args) -> Res {
     }
     if let Some(e) = a.str("encoder")? {
         args.push(format!("encoder={e}"));
+    }
+    if let Some(l) = a.num("loudness")? {
+        args.push(format!("loudness={l}"));
     }
     let r = crate::render::run_child(&ed.project, &args, |i, n| syn_assist::tools::progress(i, n, "кадры"))?;
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);

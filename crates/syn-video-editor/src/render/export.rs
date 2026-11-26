@@ -20,11 +20,14 @@ pub struct Opts {
     pub range: Option<(f64, f64)>,
     /// Кодер: auto (NVENC, если есть, иначе x264), nvenc, x264.
     pub encoder: Option<String>,
+    /// Громкость итога, LUFS (EBU R128, loudnorm): −16 — норма роликов и соцсетей;
+    /// `None` — сведение как есть (звук нейросетей бывает на −30…−35 дБ).
+    pub loudness: Option<f64>,
 }
 
 impl Default for Opts {
     fn default() -> Self {
-        Self { crf: 18, range: None, encoder: None }
+        Self { crf: 18, range: None, encoder: None, loudness: Some(-16.0) }
     }
 }
 
@@ -101,7 +104,12 @@ fn export_once(p: &Project, out: &Path, opts: &Opts, progress: &mut impl FnMut(u
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
     cmd.args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{h}"), "-r", &format!("{fps}"), "-i", "-"]);
-    if let Some((inputs, filter)) = audio_graph(p, t0, t1, 1) {
+    if let Some((inputs, mut filter)) = audio_graph(p, t0, t1, 1) {
+        if let Some(lufs) = opts.loudness.filter(|l| *l < 0.0) {
+            // выравнивание громкости итога: loudnorm (истинный пик −1.5 дБ), частота — как в проекте
+            filter = filter.replacen("[aout]", "[amix]", 1);
+            filter.push_str(&format!(";[amix]loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample={}[aout]", p.settings.sample_rate));
+        }
         cmd.args(&inputs);
         cmd.args(["-filter_complex", &filter, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]);
     } else {

@@ -89,11 +89,12 @@ if params.music != () {
 // 6. спокойные надписи: название и финальная карточка (проявление без прыжков)
 let titles = 0;
 if params.title != () {
-    cmd("title.add", #{text: params.title, at: 0.6, duration: 3.0, style: #{position: "center", size: num(s.height) * 0.07, "in": "fade", out: "fade", anim: 0.8, font: "Playfair Display"}});
+    // крупно и с подложкой: на светлом кадре тонкий текст терялся
+    cmd("title.add", #{text: params.title, at: 0.6, duration: 3.0, style: #{position: "center", size: num(s.height) * 0.11, "in": "fade", out: "fade", anim: 0.8, font: "Playfair Display", box: true}});
     titles += 1;
 }
 if params.credits != () {
-    cmd("title.add", #{text: params.credits, at: max(0.0, total - 3.5), duration: 3.3, style: #{position: "center", size: num(s.height) * 0.05, "in": "fade", out: "fade", anim: 1.0}});
+    cmd("title.add", #{text: params.credits, at: max(0.0, total - 3.5), duration: 3.3, style: #{position: "center", size: num(s.height) * 0.065, "in": "fade", out: "fade", anim: 1.0, box: true}});
     titles += 1;
 }
 print(`Кинематографичный монтаж: прямых склеек ${clips.len() - 1 - soft}, наплывов ${soft}, каше ${bars > 0}, зерно ${grain > 0}, надписей ${titles}`);
