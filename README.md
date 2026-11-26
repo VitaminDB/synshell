@@ -121,6 +121,7 @@ Every application has its own README with screenshots and a command-line referen
 |---|---|
 | [syn-notes](crates/syn-notes/README.md) | **Notes.** Pages and free canvases with kanban boards, Gantt charts, mind maps, a calendar and charts, handwriting and a book reader, all in one `.syn` project file. |
 | [synpass](crates/syn-pass/README.md) | **Password manager.** An encrypted vault under one master password, synced with your other synshell devices. |
+| [syn-models](crates/syn-models/README.md) | **Models.** Hugging Face search and downloads, a library of `.syn` model packages and packing models into them with quantization in the neural service. |
 | [synassistant](crates/syn-assistant/README.md) | **The synshell assistant.** Chat and voice conversations with local neural networks that can control the system, files, notes and the web. |
 | [syn-vm](crates/syn-vm/README.md) | **Virtual machines.** QEMU/KVM with a native UI, a scriptable CLI and an MCP server for AI agents. |
 
@@ -263,7 +264,7 @@ syngui package -w -f arch -t linux-aarch64                   # packages for phon
 | `synshell-link` | link between computer and phone: screen, input, files, notifications (synlink) |
 | `synshell-ai` | assistant (needs the `synaptix` service) |
 | `synaptix` | neural network service synaptixd — one package for every device: NVIDIA GPU, Intel NPU or CPU (CUDA and NPU are loaded at run time) |
-| `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | applications, one package each (group `synshell-apps`) |
+| `syn-notes`, `syn-models`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | applications, one package each (group `synshell-apps`) |
 | `synshell` | meta package: core plus the applications above, without neural networks |
 
 Then pick “synshell” in your display manager, or use the bundled login screen: on a system

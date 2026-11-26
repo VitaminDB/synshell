@@ -122,6 +122,7 @@ Arrow Lake выводит изображение на встроенную па�
 |---|---|
 | [syn-notes](crates/syn-notes/README.ru.md) | **Заметки.** Страницы и свободные холсты с канбан-досками, диаграммами Ганта, картами мыслей, календарём и графиками, рукописный ввод и читалка книг — всё в одном файле проекта `.syn`. |
 | [synpass](crates/syn-pass/README.ru.md) | **Пароли.** Зашифрованное хранилище под одним мастер-паролем, синхронизируется с другими вашими устройствами synshell. |
+| [syn-models](crates/syn-models/README.ru.md) | **Модели.** Поиск и загрузка моделей с Hugging Face, библиотека пакетов `.syn` и упаковка моделей в них с квантованием в службе нейросетей. |
 | [synassistant](crates/syn-assistant/README.ru.md) | **Ассистент synshell.** Чат и голосовой разговор с локальными нейросетями, которые умеют управлять системой, файлами, заметками и искать в интернете. |
 | [syn-vm](crates/syn-vm/README.ru.md) | **Виртуальные машины.** QEMU/KVM с родным интерфейсом, командной строкой для скриптов и MCP-сервером для ИИ-агентов. |
 
@@ -264,7 +265,7 @@ syngui package -w -f arch -t linux-aarch64                   # пакеты дл
 | `synshell-link` | связь компьютера и телефона: экран, ввод, файлы, уведомления (synlink) |
 | `synshell-ai` | ассистент (нужна служба `synaptix`) |
 | `synaptix` | служба нейросетей synaptixd — один пакет для любого устройства: видеокарта NVIDIA, нейропроцессор Intel или процессор (CUDA и NPU подгружаются во время работы) |
-| `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | приложения, по пакету на каждое (группа `synshell-apps`) |
+| `syn-notes`, `syn-models`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | приложения, по пакету на каждое (группа `synshell-apps`) |
 | `synshell` | метапакет: основа и все приложения выше, без нейросетей |
 
 Затем выберите «synshell» в своём диспетчере входа или включите встроенный экран входа: в
