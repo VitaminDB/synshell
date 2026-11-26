@@ -392,7 +392,7 @@ fn fill_text(p: &mut Project, cid: Id, text: &str) -> Result<String, String> {
 
 fn slot_fill(ed: &mut Editor, a: &Args) -> Res {
     let cid = find_slot(&ed.project, a)?;
-    let (file, media, text, offset) = (a.str("file")?, a.id("media")?, a.str("text")?, a.time("offset")?);
+    let (file, media, text, offset) = (a.str("file")?, a.id("media")?, a.str("text")?.map(|t| t.replace("\\n", "\n")), a.time("offset")?);
     if file.is_none() && media.is_none() && text.is_none() {
         return Err("укажите file, media или text".into());
     }

@@ -184,7 +184,7 @@ fn apply(ed: &mut Editor, a: &Args) -> Res {
     let root = fusion::parse(&text).map_err(|e| format!("{tname}: {e}"))?;
     let layers = fusion::text_layers(&root);
     let main = layers.iter().max_by(|a, b| a.size.total_cmp(&b.size));
-    let body = match a.str("text")? {
+    let body = match a.str("text")?.map(|t| t.replace("\\n", "\n")) {
         Some(t) => t.replace("\\n", "\n"),
         None if !layers.is_empty() => layers.iter().map(|l| l.text.clone()).collect::<Vec<_>>().join("\n"),
         None => tname.replace('_', " "),

@@ -401,7 +401,8 @@ static TITLE_ADD: Command = Command {
 };
 
 fn title_add(ed: &mut Editor, a: &Args) -> Res {
-    let text = a.need_str("text")?;
+    // модели часто присылают перенос строки экранированным («\\n» в JSON) — это перенос, а не текст
+    let text = a.need_str("text")?.replace("\\n", "\n");
     let at = a.time("at")?.unwrap_or(ed.playhead);
     let duration = a.time("duration")?.unwrap_or(TITLE);
     let style = a.object("style")?.unwrap_or_default();
@@ -779,7 +780,7 @@ fn clip_set_one(ed: &mut Editor, a: &Args) -> Res {
     if volume.is_some_and(|v| !(0.0..=4.0).contains(&v)) {
         return Err("громкость вне 0–4".into());
     }
-    let (text, shape, style) = (a.str("text")?, a.str("shape")?, a.object("style")?);
+    let (text, shape, style) = (a.str("text")?.map(|t| t.replace("\\n", "\n")), a.str("shape")?, a.object("style")?);
     if text.is_some() && !matches!(c.source, Source::Title { .. }) {
         return Err(format!("c{id} не титр"));
     }
