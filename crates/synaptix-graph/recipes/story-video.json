@@ -36,7 +36,7 @@
     {
       "id": "plan",
       "op": "llm",
-      "prompt": "Раздели историю «{{story}}» на {{scenes}} сцен, которые продолжают друг друга без смены места, как один непрерывный кадр. Для каждой сцены дай одну строку — подробное описание по-английски: персонажи (всегда одинаково описанные), место, действие, движение камеры и звук сцены (шумы, музыка) и реплики героев. Реплики — дословно в кавычках, ТОЛЬКО на языке «{{lang}}» (не переводи их на английский), с пометкой кто говорит, например: the duck says in {{lang}}: «…». Без нумерации и пояснений. Ровно {{scenes}} строк."
+      "prompt": "You are a storyboard writer for an original animated film. Story idea: «{{story}}». Write exactly {{scenes}} consecutive scenes in one continuous location, like one uninterrupted shot. For each scene write ONE line in English describing: the characters (always described with the same words in every line), the place, the action, the camera movement, the scene sound (noises, music), and invent one or two short lines the characters say — write those spoken lines in {{lang}} inside «» quotes, marking who speaks, for example: the duck says in {{lang}}: «…». Output only the {{scenes}} lines, one scene per line — no preamble, no numbering, no comments."
     },
     {
       "id": "opening",
