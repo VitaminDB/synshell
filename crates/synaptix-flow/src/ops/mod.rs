@@ -11,6 +11,7 @@ use crate::run::OpFn;
 use crate::schema::{field, port, FieldType as F, NodeSpec, PortType as P};
 
 mod data;
+pub use data::split_lines;
 pub mod media;
 pub mod stages;
 
@@ -66,7 +67,7 @@ pub static LINES: NodeSpec = NodeSpec {
     category: DATA,
     inputs: &[port("text", n_!("Многострочный текст"), P::Text).hint(n_!("Текст с переносами строк (например, ответ LLM со списком сцен)"))],
     outputs: &[port("list", n_!("Список строк"), P::List).hint(n_!("Пакет строк: подключите ко входу «Описание» или «Шаблон текста», чтобы прогнать каждую строку отдельно"))],
-    fields: &[],
+    fields: &[field("expect", n_!("Ожидается строк"), F::Number, "0").hint(n_!("Если строк получилось другое число — ошибка (0 — не проверять)")).advanced()],
     stage: false,
 };
 

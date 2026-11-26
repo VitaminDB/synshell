@@ -45,18 +45,81 @@ pub fn format(cx: &mut Cx) -> R {
     Ok(())
 }
 
-/// Непустые строки без маркеров списка («- », «1. », «• »).
+/// Непустые строки без маркеров списка («- », «1. », «• », «Сцена 1:»).
+/// Пункты, слитые LLM в одну строку («1) … 2) … 3) …»), делятся на отдельные.
 pub fn split_lines(text: &str) -> Vec<String> {
     text.lines()
-        .map(|l| l.trim().trim_start_matches(|c: char| c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.' || c == ')').trim())
+        .flat_map(split_inline)
+        .map(strip_marker)
         .filter(|l| !l.is_empty())
         .map(String::from)
         .collect()
 }
 
+fn strip_marker(l: &str) -> &str {
+    let l = l.trim().trim_start_matches(['-', '*', '•']).trim_start();
+    for w in ["Сцена", "Scene", "сцена", "scene"] {
+        if let Some(r) = l.strip_prefix(w) {
+            let r = r.trim_start();
+            let d = r.len() - r.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+            if d > 0 {
+                return r[d..].trim_start_matches([':', '.', ')', ' ']).trim();
+            }
+        }
+    }
+    l.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ')').trim()
+}
+
+/// Позиция маркера пункта `n` в `s` начиная с `from`: «n)», «n.», «Сцена n:»
+/// после пробела (или в начале строки) и перед пробелом.
+fn marker_at(s: &str, n: usize, from: usize) -> Option<usize> {
+    let pats = [format!("{n})"), format!("{n}."), format!("Сцена {n}:"), format!("Scene {n}:"), format!("Сцена {n}."), format!("Scene {n}.")];
+    let mut best: Option<usize> = None;
+    for p in &pats {
+        let mut i = from;
+        while let Some(off) = s[i..].find(p.as_str()) {
+            let at = i + off;
+            let before_ok = at == 0 || s[..at].ends_with(char::is_whitespace);
+            let end = at + p.len();
+            let after_ok = end == s.len() || s[end..].starts_with(char::is_whitespace);
+            if before_ok && after_ok {
+                best = Some(best.map_or(at, |b: usize| b.min(at)));
+                break;
+            }
+            i = at + p.len();
+        }
+    }
+    best
+}
+
+fn split_inline(line: &str) -> Vec<&str> {
+    let t = line.trim().trim_start_matches(['-', '*', '•']).trim_start();
+    if marker_at(t, 1, 0) != Some(0) {
+        return vec![line];
+    }
+    let mut out = Vec::new();
+    let (mut start, mut n) = (0usize, 2usize);
+    while let Some(at) = marker_at(t, n, start + t[start..].chars().next().map_or(1, char::len_utf8)) {
+        out.push(&t[start..at]);
+        start = at;
+        n += 1;
+    }
+    out.push(&t[start..]);
+    out
+}
+
 pub fn lines(cx: &mut Cx) -> R {
     let t = cx.val("text").text();
-    cx.out("list", Val::List(split_lines(&t).into_iter().map(Val::Text).collect()));
+    let items = split_lines(&t);
+    // Ожидаемое число пунктов (рецепт: сцен столько, сколько заказано) —
+    // иначе ошибка, а не молча меньше роликов.
+    if let Some(n) = cx.pos("expect").map(|v| v.round() as usize) {
+        if items.len() != n {
+            let msg = cx.str("expect_msg").unwrap_or_else(|| "получено {k} строк из {n}".into());
+            return Err(msg.replace("{k}", &items.len().to_string()).replace("{n}", &n.to_string()));
+        }
+    }
+    cx.out("list", Val::List(items.into_iter().map(Val::Text).collect()));
     Ok(())
 }
 
@@ -72,4 +135,30 @@ pub fn list(cx: &mut Cx) -> R {
     }
     cx.out("list", Val::List(out));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_lines;
+
+    #[test]
+    fn split_lines_inline_numbered() {
+        // Реальный ответ LLM из story-video: шесть сцен одной строкой.
+        let t = "1) A troll cook at the counter, \"Grimza, hurry!\". 2) Grimza growls, steam. 3) Same kitchen, 12 spoons fall. 4) Kreya hops. 5) Both dive in. 6) Banquet, fanfare.";
+        let v = split_lines(t);
+        assert_eq!(v.len(), 6, "{v:?}");
+        assert_eq!(v[0], "A troll cook at the counter, \"Grimza, hurry!\".");
+        assert_eq!(v[2], "Same kitchen, 12 spoons fall.");
+        assert_eq!(v[5], "Banquet, fanfare.");
+    }
+
+    #[test]
+    fn split_lines_scene_words_and_plain() {
+        let v = split_lines("Сцена 1: утка говорит. Сцена 2: тролль ворчит.\n\nСцена 3: суп готов.");
+        assert_eq!(v, vec!["утка говорит.", "тролль ворчит.", "суп готов."]);
+        let v = split_lines("- first scene with 2. items\n2. second\n• third");
+        assert_eq!(v, vec!["first scene with 2. items", "second", "third"]);
+        // Строка без маркера «1» не режется по случайным «2.».
+        assert_eq!(split_lines("Walks 2. steps then 3. more").len(), 1);
+    }
 }

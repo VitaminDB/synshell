@@ -197,6 +197,21 @@ impl<'g> Compiler<'g> {
             }),
             None => None,
         };
+        if let (Some(c), Some(Src::Port(l, _))) = (&n.each_count, &each) {
+            let l = *l;
+            let src = self.lines.iter().find(|(_, v)| **v == l).map(|(k, _)| k.clone());
+            match (src, self.value(n, "each_count", c, None)?) {
+                (Some(src), Src::Static(v)) => {
+                    let k = v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())).unwrap_or(0.0);
+                    if k > 0.0 {
+                        self.set(l, "expect", Value::from(k));
+                        self.set(l, "expect_msg", Value::String(format!("«{src}» дал {{k}} пунктов из {{n}} для «{}» — ответ не разбит по строкам", n.id)));
+                    }
+                }
+                (None, _) => return Err(format!("узел «{}»: each_count — только для each по {{{{узел.lines}}}}", n.id)),
+                _ => return Err(format!("узел «{}»: each_count должен быть числом или параметром", n.id)),
+            }
+        }
         let id = self.add(&n.op, n.id.clone());
         self.ids.insert(n.id.clone(), id);
         for (k, v) in &n.args {
@@ -269,6 +284,10 @@ mod tests {
         assert_eq!(shots.fields["seconds"], 10);
         let plan = f.node(by("plan")).unwrap();
         assert!(plan.fields["prompt"].as_str().unwrap().contains("«ёж»"));
+        // Число сцен проверяется: план не той длины — ошибка, а не меньше роликов.
+        let ln = f.node(lines).unwrap();
+        assert_eq!(ln.fields["expect"].as_f64(), Some(6.0));
+        assert!(ln.fields["expect_msg"].as_str().unwrap().contains("«plan» дал {k} пунктов из {n}"));
     }
 
     #[test]

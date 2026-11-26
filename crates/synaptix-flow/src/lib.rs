@@ -109,6 +109,22 @@ mod tests {
     }
 
     #[test]
+    fn lines_expect_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut n = FlowNode::new(9, "lines");
+        n.fields.insert("expect".into(), serde_json::json!(6));
+        n.fields.insert("expect_msg".into(), serde_json::json!("план дал {k} сцен из {n}"));
+        let mut inputs = HashMap::new();
+        inputs.insert("text".to_string(), Val::Text("одна сцена".into()));
+        let e = run_node(&n, inputs, dir.path(), &Cancel::new(), &mut |_| {}).unwrap_err();
+        assert!(e.contains("план дал 1 сцен из 6"), "{e}");
+        let mut inputs = HashMap::new();
+        inputs.insert("text".to_string(), Val::Text("1) a 2) b 3) c 4) d 5) e 6) f".into()));
+        let (o, _) = run_node(&n, inputs, dir.path(), &Cancel::new(), &mut |_| {}).unwrap();
+        assert!(matches!(&o["list"], Val::List(v) if v.len() == 6));
+    }
+
+    #[test]
     fn cancel_stops_before_node() {
         let dir = tempfile::tempdir().unwrap();
         let f = flow(serde_json::json!({"nodes": [{"id": 1, "kind": "text", "fields": {"text": "x"}}]}));

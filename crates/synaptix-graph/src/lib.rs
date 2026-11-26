@@ -78,6 +78,10 @@ pub struct Node {
     /// Выполнить для каждого элемента списка (`{{item}}` внутри полей).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub each: Option<String>,
+    /// Сколько элементов должно быть в `each` (например `{{scenes}}`): иначе
+    /// рецепт падает с понятной ошибкой, а не делает меньше роликов.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub each_count: Option<Value>,
     /// Остальные поля операции.
     #[serde(flatten)]
     pub args: Map<String, Value>,
@@ -145,6 +149,9 @@ impl Node {
         }
         if let Some(e) = &self.each {
             r.extend(refs(e));
+        }
+        if let Some(c) = &self.each_count {
+            value_refs(c, &mut r);
         }
         let mut ids: Vec<String> = r.into_iter().filter_map(|x| x.split_once('.').map(|(n, _)| n.to_string())).collect();
         ids.sort();
@@ -247,14 +254,7 @@ impl Scope<'_> {
                     "files" => Value::Array(o.files.iter().map(|p| Value::String(p.display().to_string())).collect()),
                     "label" => Value::String(o.label.clone()),
                     // Непустые строки текста (без маркеров списка) — для `each` по сценам.
-                    "lines" => Value::Array(
-                        o.text
-                            .lines()
-                            .map(|l| l.trim().trim_start_matches(|c: char| c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.' || c == ')').trim())
-                            .filter(|l| !l.is_empty())
-                            .map(|l| Value::String(l.to_string()))
-                            .collect(),
-                    ),
+                    "lines" => Value::Array(synaptix_flow::ops::split_lines(&o.text).into_iter().map(Value::String).collect()),
                     _ => return None,
                 })
             }

@@ -44,6 +44,7 @@
       "id": "shots",
       "op": "video",
       "each": "{{plan.lines}}",
+      "each_count": "{{scenes}}",
       "prompt": "{{item}}, {{style}}",
       "first_frame": "{{opening.file}}",
       "seconds": "{{shot}}",
