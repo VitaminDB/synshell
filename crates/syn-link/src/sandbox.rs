@@ -250,6 +250,10 @@ pub fn stop(name: &str) -> Result<()> {
     let s: Sandbox = serde_json::from_slice(&std::fs::read(&path).with_context(|| t!("песочницы «{name}» нет", name = name))?)?;
     if s.socket.exists() {
         if let Ok(mut c) = Client::connect_to(&s.socket) {
+            // Зависший synwm (главный поток встал) не отвечает: без предела
+            // stop ждал вечно, а с ним — весь MCP (вызовы идут по одному).
+            // Не ответил — дальше SIGTERM группе.
+            c.set_timeout(Duration::from_secs(2)).ok();
             let _ = c.request(&Request::Action { action: Action::Quit });
         }
     }

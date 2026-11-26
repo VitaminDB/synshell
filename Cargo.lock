@@ -8199,6 +8199,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-models"
+version = "0.2.0"
+dependencies = [
+ "futures-util",
+ "libc",
+ "log",
+ "reqwest",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "synaptix",
+ "synaptix-bundle",
+ "synaptix-gguf",
+ "synaptixd",
+ "syngui",
+ "synshell-common",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+]
+
+[[package]]
 name = "syn-modem"
 version = "0.2.0"
 dependencies = [
@@ -9700,6 +9725,7 @@ dependencies = [
  "synaptix-tts-supertonic",
  "synaptix-tts-vibevoice",
  "synaptix-tts-voxcpm",
+ "synaptix-vfx",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "tracing",

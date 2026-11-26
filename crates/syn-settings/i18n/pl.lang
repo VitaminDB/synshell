@@ -2397,3 +2397,6 @@
 "Помощник {p} не установлен — переустановите synshell." = "Pomocnik {p} nie jest zainstalowany — zainstaluj ponownie synshell."
 "В системе нет обычных пользователей." = "W systemie nie ma zwykłych użytkowników."
 "Настройка хранится в {f} и действует при следующем включении компьютера; после выхода из сеанса показывается обычный экран входа. Изменение спрашивает пароль администратора." = "Ustawienie jest zapisane w {f} i działa od następnego włączenia komputera; po wylogowaniu pokazuje się zwykły ekran logowania. Zmiana wymaga hasła administratora."
+"Скачать или упаковать модель" = "Pobierz lub spakuj model"
+"Поиск и загрузка с Hugging Face, упаковка в .syn с квантованием — в программе «Модели»" = "Wyszukiwanie i pobieranie z Hugging Face, pakowanie do .syn z kwantyzacją — w aplikacji „Modele”"
+"Открыть «Модели»" = "Otwórz „Modele”"

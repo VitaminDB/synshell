@@ -16,7 +16,7 @@ features_env = "SYNAPTIXD_FEATURES"
 [packages.synshell]
 description = "Окружение рабочего стола synshell: основа и приложения (без нейросетей)"
 description_en = "synshell desktop environment: core and applications (without the neural-network service)"
-depends = ["synshell-core", "synshell-link", "synshell-game", "syn-notes", "syn-vm", "syn-video-player", "syn-video-editor", "syn-audio-player", "syn-audio-recorder", "synpass", "syn-maps", "syn-remote", "syn-systeminfo", "syn-themeeditor", "syn-woman-cycle", "syndroid", "syn-wine-helper", "syncamera", "syn-blocks"]
+depends = ["synshell-core", "synshell-link", "synshell-game", "syn-notes", "syn-models", "syn-vm", "syn-video-player", "syn-video-editor", "syn-audio-player", "syn-audio-recorder", "synpass", "syn-maps", "syn-remote", "syn-systeminfo", "syn-themeeditor", "syn-woman-cycle", "syndroid", "syn-wine-helper", "syncamera", "syn-blocks"]
 optdepends = [
   "synshell-ai: ассистент (нужна служба нейросетей synaptix)",
   "synshell-mobile: оболочка и службы телефона",
@@ -300,6 +300,13 @@ optdepends_en = [
 files = [
   { from = "crates/syn-notes/data/syn-notes-autostart.desktop", to = "etc/xdg/autostart/syn-notes.desktop" },
 ]
+
+[packages.syn-models]
+description = "Модели synshell: поиск и загрузка с Hugging Face, библиотека пакетов .syn и упаковка в них (квантование — в службе нейросетей)"
+description_en = "synshell Models: Hugging Face search and downloads, .syn package library and packing (quantization runs in the neural service)"
+depends = ["synshell-core"]
+apps = ["syn-models"]
+groups = ["synshell-apps"]
 
 [packages.syn-vm]
 description = "Виртуальные машины synshell на QEMU/KVM: мастер, встроенный экран, снимки, USB и PCI, гостевой агент, CLI и MCP"

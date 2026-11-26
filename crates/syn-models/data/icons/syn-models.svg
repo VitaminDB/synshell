@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7c8cff"/>
+      <stop offset="1" stop-color="#4f5bd5"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6e9f5"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="108" height="108" rx="26" fill="url(#bg)"/>
+  <!-- пакет -->
+  <path d="M64 30 L96 46 L96 84 L64 100 L32 84 L32 46 Z" fill="url(#box)"/>
+  <path d="M32 46 L64 62 L96 46" fill="none" stroke="#b8bfdc" stroke-width="3" stroke-linejoin="round"/>
+  <line x1="64" y1="62" x2="64" y2="100" stroke="#b8bfdc" stroke-width="3"/>
+  <!-- нейросеть на грани -->
+  <g fill="#4f5bd5">
+    <circle cx="44" cy="66" r="4"/>
+    <circle cx="44" cy="82" r="4"/>
+    <circle cx="56" cy="74" r="4"/>
+  </g>
+  <g stroke="#4f5bd5" stroke-width="2">
+    <line x1="44" y1="66" x2="56" y2="74"/>
+    <line x1="44" y1="82" x2="56" y2="74"/>
+  </g>
+  <!-- загрузка -->
+  <circle cx="92" cy="92" r="16" fill="#34c38f"/>
+  <path d="M92 83 L92 99 M85 93 L92 100 L99 93" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

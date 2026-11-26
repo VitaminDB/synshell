@@ -57,6 +57,7 @@ members = [
     "crates/syn-assist-voice",
     "crates/syn-assistant",
     "crates/syn-notes",
+    "crates/syn-models",
     "crates/syn-notes-proto",
     "crates/syn-blocks",
     "crates/syn-dlss",
@@ -95,6 +96,7 @@ syn-node-editor = { path = "crates/syn-node-editor" }
 synaptix = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
 synaptix-core = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-bundle = { git = "https://github.com/VitaminDB/synaptix.git" }
+synaptix-gguf = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-io = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
 synaptix-audio = { git = "https://github.com/VitaminDB/synaptix.git", default-features = false }
 synaptix-vfx = { git = "https://github.com/VitaminDB/synaptix.git" }

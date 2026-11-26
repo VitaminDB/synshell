@@ -2396,3 +2396,6 @@
 "Помощник {p} не установлен — переустановите synshell." = "{p} yardımcısı yüklü değil — synshell’i yeniden yükleyin."
 "В системе нет обычных пользователей." = "Sistemde normal kullanıcı yok."
 "Настройка хранится в {f} и действует при следующем включении компьютера; после выхода из сеанса показывается обычный экран входа. Изменение спрашивает пароль администратора." = "Ayar {f} içinde saklanır ve bilgisayarın bir sonraki açılışında geçerli olur; oturum kapatıldıktan sonra normal giriş ekranı gösterilir. Değiştirmek yönetici parolası ister."
+"Скачать или упаковать модель" = "Model indir veya paketle"
+"Поиск и загрузка с Hugging Face, упаковка в .syn с квантованием — в программе «Модели»" = "Hugging Face'te arama ve indirme, nicemleme ile .syn'e paketleme — “Modeller” uygulamasında"
+"Открыть «Модели»" = "“Modeller”i aç"

@@ -29,6 +29,8 @@ pub struct WinitBackend {
     backend: WinitGraphicsBackend<GlesRenderer>,
     damage_tracker: OutputDamageTracker,
     pub output: Output,
+    /// eglSwapInterval(0) поставлен (в первом кадре, когда контекст текущий).
+    swap_interval_set: bool,
 }
 
 impl WinitBackend {
@@ -88,7 +90,7 @@ impl WinitBackend {
             })
             .map_err(|e| anyhow::anyhow!("winit source: {e}"))?;
 
-        Ok(Self { backend, damage_tracker, output })
+        Ok(Self { backend, damage_tracker, output, swap_interval_set: false })
     }
 
     /// Глобалы, зависящие от рендерера: dmabuf, форматы shm.
@@ -149,7 +151,12 @@ impl WinitBackend {
                 }
             };
             let (elements, clear) = crate::render::output_elements(core, renderer, output, true);
-            self.damage_tracker.render_output(renderer, &mut fb, age, &elements, clear)
+            let r = self.damage_tracker.render_output(renderer, &mut fb, age, &elements, clear);
+            if !self.swap_interval_set {
+                self.swap_interval_set = true;
+                no_swap_wait(renderer);
+            }
+            r
         };
         match result {
             Ok(r) => {
@@ -262,5 +269,20 @@ mod tests {
         assert_eq!(super::parse_size("400x880"), Some((400.0, 880.0)));
         assert_eq!(super::parse_size("400"), None);
         assert_eq!(super::parse_size("10x10"), None);
+    }
+}
+
+/// Обмен буферов без ожидания кадра у композитора-хозяина. С интервалом 1
+/// EGL ждёт его frame callback, а хозяин не шлёт их свёрнутому или
+/// закрытому другим окну: главный поток вставал в eglSwapBuffers навсегда,
+/// с ним — IPC (снимки, synlink) и клиенты. Темп кадров и так задаёт свой
+/// таймер (16 мс) и damage. Вызывать, когда контекст и поверхность текущие.
+fn no_swap_wait(renderer: &mut GlesRenderer) {
+    let display = renderer.egl_context().display().get_display_handle();
+    let ok = unsafe { smithay::backend::egl::ffi::egl::SwapInterval(display.handle, 0) };
+    if ok == 0 {
+        tracing::warn!("вложенный режим: eglSwapInterval(0) не принят — обмен буферов может ждать хозяина");
+    } else {
+        tracing::info!("вложенный режим: обмен буферов без ожидания хозяина");
     }
 }

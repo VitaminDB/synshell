@@ -1,0 +1,59 @@
+[package]
+name = "syn-models"
+description = "Модели synshell: поиск и загрузка моделей с Hugging Face, библиотека пакетов .syn и перепаковка в них (квантование — в службе нейросетей)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "syn-models"
+path = "src/main.rs"
+
+[features]
+default = ["gguf"]
+# Перевод скачанного GGUF в пакет .syn (на процессоре, без службы).
+gguf = ["dep:synaptix-gguf"]
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = [
+    "winit",
+    "msdf",
+    "effects",
+    "wayland-dnd",
+    "material-icons",
+    "tokio",
+    "markdown",
+    "markdown-syntax",
+    "image",
+    "image-network",
+    "color-emoji",
+    "svg",
+    "clipboard",
+    "i18n",
+    "single-instance",
+    "code-editor",
+] }
+synaptixd.workspace = true
+synaptix.workspace = true
+synaptix-gguf = { workspace = true, optional = true }
+synaptix-bundle = { workspace = true, features = ["sha256", "blake3"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "charset", "http2"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "sync", "fs", "io-util"] }
+sha2 = "0.10"
+libc.workspace = true
+log = "0.4"
+urlencoding = "2"
+
+[dev-dependencies]
+tempfile = "3"

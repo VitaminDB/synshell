@@ -775,6 +775,13 @@ fn storage_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 Text::new(""),
             ),
             row_inline(
+                t!("Скачать или упаковать модель"),
+                t!("Поиск и загрузка с Hugging Face, упаковка в .syn с квантованием — в программе «Модели»"),
+                button(t!("Открыть «Модели»"), || {
+                    let _ = std::process::Command::new("syn-models").spawn();
+                }),
+            ),
+            row_inline(
                 t!("Обновить список"),
                 t!("После добавления или удаления файлов"),
                 button(t!("Обновить"), move || act(sig, |c| c.call(synaptixd::Request::Rescan, &[]).map(|_| ()))),
