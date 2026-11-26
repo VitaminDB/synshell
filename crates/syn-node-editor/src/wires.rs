@@ -56,8 +56,11 @@ pub fn view() -> impl Widget {
         }
         c.set_stroke_width(2.0);
 
+        let own = crate::group::owners(&nodes);
         for conn in &conns {
-            draw_connection(c, &nodes, conn);
+            // провод к скрытой ноде — к порту её группы; внутри группы — не рисуется
+            let Some((f, fp, t, tp)) = crate::group::visible_wire(&nodes, &own, conn) else { continue };
+            draw_connection(c, &nodes, &Connection { from_node: f, from_port: fp, to_node: t, to_port: tp });
         }
         if let Some(p) = pending {
             draw_pending(c, &nodes, &p);

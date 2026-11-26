@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32};
 
 use syngui::audio::{Biquad, BiquadMode, SchroederReverb};
 
-use crate::icons::{
+use crate::icons::{MI_LAYERS, 
     MI_ADD, MI_APPS, MI_ARTICLE, MI_AUTO_AWESOME, MI_BLUR_ON,
     MI_EDIT_NOTE, MI_FILTER_ALT, MI_FOLDER_OPEN, MI_GRAPHIC_EQ, 
     MI_HUB, MI_IMAGE_ICON, MI_LANGUAGE, MI_LIBRARY_MUSIC, 
@@ -19,7 +19,7 @@ use crate::icons::{
     MI_TUNE,
 };
 
-use super::eval::NodeExecutor;
+use super::eval::{EvalContext, NodeExecutor};
 use super::nodes::{
     flow,
     audio_equalizer,
@@ -597,6 +597,32 @@ const EQUALIZER_30: NodeKindMeta = NodeKindMeta {
     runtime: None,
 };
 
+// ── Подграф на холсте (порты — по проводам через границу группы) ──────────
+
+struct GroupExec;
+impl NodeExecutor for GroupExec {
+    fn evaluate(&self, _ctx: &mut EvalContext<'_>) {}
+}
+static GROUP_EXEC: GroupExec = GroupExec;
+
+const GROUP: NodeKindMeta = NodeKindMeta {
+    kind: NodeKind::Group,
+    icon: MI_LAYERS,
+    title: "Subgraph",
+    category: NodeCategory::Misc,
+    subcategory: None,
+    inputs: PortsSpec::Dynamic { pool: &[], runtime: crate::group::inputs },
+    outputs: PortsSpec::Dynamic { pool: &[], runtime: crate::group::outputs },
+    fields: NO_FIELDS,
+    body: Some(crate::group::body),
+    ports_layout: PortsLayout::Rows,
+    port_row_extra: None,
+    executor: &GROUP_EXEC,
+    on_run: None,
+    busy_signal: None,
+    runtime: Some(crate::group::new_runtime),
+};
+
 // ── Mixer (вариативные input'ы через PortsSpec::Dynamic) ─────────────────
 
 const MIXER: NodeKindMeta = NodeKindMeta {
@@ -865,6 +891,7 @@ const BUILTIN: &[NodeKindMeta] = &[
     FFMPEG_PLAYER,
     IMAGE_LOAD,
     IMAGE_SAVE,
+    GROUP,
 ];
 
 // ── Equalizer helper'ы ───────────────────────────────────────────────────

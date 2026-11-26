@@ -165,6 +165,10 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let style: NodeStyle = style_signal.get();
         let enabled: bool = enabled_signal.get();
+        // подграф: порты меняются с проводами — карточка пересобирается
+        if let Some(g) = crate::group::state(&node_for_body) {
+            let _ = g.ver.get();
+        }
 
         let body = Column::new()
             .gap(0.0)
@@ -175,8 +179,9 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                     node_for_body.pos,
                     node_for_body.timing,
                     ectx,
-                    match node_for_body.fields.lock().ok().and_then(|m| m.get("title").cloned()) {
-                        Some(crate::types::FieldValue::Text(sig)) if matches!(kind, NodeKind::FlowSubflow) => sig,
+                    match (crate::group::state(&node_for_body), node_for_body.fields.lock().ok().and_then(|m| m.get("title").cloned())) {
+                        (Some(g), _) => g.title,
+                        (None, Some(crate::types::FieldValue::Text(sig))) if matches!(kind, NodeKind::FlowSubflow) => sig,
                         _ => node_for_body.title,
                     },
                 )) as Box<dyn Widget>,
@@ -240,6 +245,10 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
         items.push(MenuItem::new("shadow-toggle", shadow_label).icon(MI_WB_SHADE));
         let enabled_label = if enabled { tr!("nodes.menu.disable") } else { tr!("nodes.menu.enable") };
         items.push(MenuItem::new("enabled-toggle", enabled_label).icon(MI_POWER_SETTINGS));
+        if matches!(kind, NodeKind::Group) {
+            items.push(MenuItem::separator());
+            items.push(MenuItem::new("group-ungroup", "Разгруппировать"));
+        }
         if matches!(kind, NodeKind::FlowSubflow) {
             items.push(MenuItem::separator());
             items.push(MenuItem::new("subflow-ungroup", "Разгруппировать подграф"));
@@ -280,6 +289,11 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                     "enabled-toggle" => {
                         let cur = node_for_select.enabled.get_untracked();
                         node_for_select.enabled.set(!cur);
+                    }
+                    "group-ungroup" => {
+                        if let Err(e) = crate::group::ungroup(&nctx, id) {
+                            crate::host::notify(crate::host::Notice::Error, e.clone());
+                        }
                     }
                     "subflow-ungroup" => {
                         if let Err(e) = crate::nodes::flow::ungroup_node(&nctx, id) {

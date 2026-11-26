@@ -99,6 +99,12 @@ impl NodeEditorCtx {
         });
 
         ctx.install_node_timers();
+        let gctx = ctx;
+        create_effect(move || {
+            let _ = gctx.nodes.get();
+            let _ = gctx.connections.get();
+            crate::group::refresh(&gctx);
+        });
 
         ctx
     }
@@ -198,6 +204,21 @@ impl NodeEditorCtx {
     /// Удалить ноду + все её связи.
     pub fn remove_node(&self, id: NodeId) {
         let mut v = self.nodes.get_untracked();
+        // подграф удаляется вместе со всем, что внутри
+        let mut gone = crate::group::descendants(&v, id);
+        gone.insert(id);
+        if let Some(parent) = crate::group::owners(&v).get(&id).and_then(|p| v.iter().find(|n| n.id == *p)).and_then(crate::group::state) {
+            parent.members.update(|m| m.retain(|x| *x != id));
+        }
+        if gone.len() > 1 {
+            v.retain(|n| !gone.contains(&n.id));
+            self.nodes.set(v);
+            let mut c = self.connections.get_untracked();
+            c.retain(|c| !gone.contains(&c.from_node) && !gone.contains(&c.to_node));
+            self.connections.set(c);
+            self.picked.update(|p| p.retain(|x| !gone.contains(x)));
+            return;
+        }
         v.retain(|n| n.id != id);
         self.nodes.set(v);
         let mut c = self.connections.get_untracked();
@@ -242,6 +263,9 @@ impl NodeEditorCtx {
     /// копируются с оригинала — пользователь ожидает «такая же, но рядом».
     pub fn duplicate_node(&self, id: NodeId) {
         let v = self.nodes.get_untracked();
+        if v.iter().any(|n| n.id == id && n.kind == NodeKind::Group) {
+            return; // подграф не дублируется (его участники — живые ноды графа)
+        }
         if let Some(orig) = v.iter().find(|n| n.id == id).cloned() {
             let pos = orig.pos.get_untracked();
             let new_id = self.add_node(orig.kind, Point::new(pos.x + 24.0, pos.y + 24.0));
@@ -317,7 +341,8 @@ impl NodeEditorCtx {
         // canvas-local — приводим world к ней для корректного distance-check.
         let world = self.to_canvas_local(world);
         let nodes = self.nodes.get_untracked();
-        for node in &nodes {
+        let own = crate::group::owners(&nodes);
+        for node in nodes.iter().filter(|n| !own.contains_key(&n.id)) {
             let meta = registry::meta(node.kind);
             for p in meta.inputs.resolve(node) {
                 if let Some((center, _)) =
@@ -337,10 +362,14 @@ impl NodeEditorCtx {
     /// Завершить drag: если to_node/to_port валидны — добавить connection.
     pub fn complete_wire(&self, to_node: NodeId, to_port: &'static str) {
         if let Some(p) = self.pending.get_untracked() {
-            if p.from_node != to_node {
+            // порты подграфа — к настоящим внутренним нодам
+            let nodes = self.nodes.get_untracked();
+            let (from_node, from_port) = crate::group::real_port(&nodes, p.from_node, PortSide::Output, p.from_port).unwrap_or((p.from_node, p.from_port));
+            let (to_node, to_port) = crate::group::real_port(&nodes, to_node, PortSide::Input, to_port).unwrap_or((to_node, to_port));
+            if from_node != to_node {
                 let conn = Connection {
-                    from_node: p.from_node,
-                    from_port: p.from_port,
+                    from_node,
+                    from_port,
                     to_node,
                     to_port,
                 };
@@ -380,6 +409,7 @@ impl NodeEditorCtx {
     /// `side == Output` — удаляет все исходящие связи с этого output'а.
     /// Возвращает количество удалённых связей.
     pub fn disconnect_port(&self, id: NodeId, port: &'static str, side: PortSide) -> usize {
+        let (id, port) = crate::group::real_port(&self.nodes.get_untracked(), id, side, port).unwrap_or((id, port));
         let before = self.connections.get_untracked();
         let mut after = before.clone();
         match side {

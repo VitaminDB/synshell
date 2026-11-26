@@ -262,6 +262,8 @@ pub enum NodeKind {
     FlowVfxInterpolate,
     /// Подграф: несколько нод ядра, свёрнутых в одну.
     FlowSubflow,
+    /// Подграф на холсте: любые ноды, свёрнутые в одну (см. [`crate::group`]).
+    Group,
     // Стадии моделей в службе: картинки (FLUX.1/FLUX.2/Qwen-Image/SDXL) и MiniMax-H3.
     FlowImageModel,
     FlowImageEncode,
@@ -373,6 +375,7 @@ impl NodeKind {
         NodeKind::FlowVfxUpscale,
         NodeKind::FlowVfxInterpolate,
         NodeKind::FlowSubflow,
+        NodeKind::Group,
         NodeKind::FlowImageModel,
         NodeKind::FlowImageEncode,
         NodeKind::FlowImageRefs,
@@ -1208,6 +1211,8 @@ pub enum NodeRuntime {
     },
     /// Нода ядра synaptix-flow: прогон в потоке, выходы — значения ядра.
     Flow(super::nodes::flow::FlowRuntime),
+    /// Нода-группа (подграф на холсте).
+    Group(crate::group::GroupState),
     ImageSave {
         path: RwSignal<Option<PathBuf>>,
         running: RwSignal<bool>,
@@ -1356,6 +1361,7 @@ impl std::fmt::Debug for NodeRuntime {
         match self {
             NodeRuntime::None => f.write_str("NodeRuntime::None"),
             NodeRuntime::Flow(_) => f.write_str("NodeRuntime::Flow{..}"),
+            NodeRuntime::Group(_) => f.write_str("NodeRuntime::Group{..}"),
             NodeRuntime::Ext(_) => f.write_str("NodeRuntime::Ext{..}"),
             NodeRuntime::AudioFile { .. } => f.write_str("NodeRuntime::AudioFile{..}"),
             NodeRuntime::AudioPlayer { .. } => f.write_str("NodeRuntime::AudioPlayer{..}"),

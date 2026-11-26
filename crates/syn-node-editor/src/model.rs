@@ -230,6 +230,18 @@ pub enum NodeStateData {
     ImageSave(ImageSaveStateData),
     /// Состояние ноды вида программы ([`crate::types::ExtRuntime::save_state`]).
     Ext(serde_json::Value),
+    /// Подграф на холсте: название, участники (id шаблона), центр при объединении.
+    Group(GroupStateData),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GroupStateData {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub members: Vec<u64>,
+    #[serde(default)]
+    pub origin: (f32, f32),
 }
 
 /// State ноды Image: путь к картинке.

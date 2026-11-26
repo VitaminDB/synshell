@@ -168,7 +168,8 @@ fn node_color(kind: NodeKind) -> Color {
         | NodeKind::Equalizer10
         | NodeKind::Equalizer20
         | NodeKind::Equalizer30 => Color::new(0.95, 0.55, 0.78, 1.0), // pink
-        NodeKind::Mixer => Color::new(0.55, 0.85, 0.62, 1.0),         // mint
+        NodeKind::Mixer => Color::new(0.55, 0.85, 0.62, 1.0),
+        NodeKind::Group => Color::new(0.62, 0.62, 0.78, 1.0),         // mint
         NodeKind::MarkdownView => Color::new(0.72, 0.74, 0.82, 1.0),  // slate (декоративная)
         NodeKind::TextView => Color::new(0.92, 0.70, 0.20, 1.0),       // amber (текст)
         // ACE-Step семейство — единая палитра в фиолетово-розовой гамме,

@@ -17,6 +17,7 @@ pub mod canvas;
 pub mod controls;
 pub mod convert;
 pub mod eval;
+pub mod group;
 pub mod help;
 pub mod host;
 pub mod i18n;

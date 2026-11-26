@@ -346,6 +346,10 @@ fn subscribe_node_signals(node: &NodeInstance) {
 fn subscribe_runtime_signals(rt: &NodeRuntime) {
     match rt {
         NodeRuntime::None | NodeRuntime::Flow(_) => {}
+        NodeRuntime::Group(g) => {
+            let _ = g.title.get();
+            let _ = g.members.get();
+        }
         NodeRuntime::Ext(e) => e.subscribe(),
         NodeRuntime::ImageLoad { path, error, .. } => {
             let _ = path.get();

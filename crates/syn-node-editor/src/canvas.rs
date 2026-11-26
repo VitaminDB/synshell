@@ -118,9 +118,11 @@ fn world_layer(ctx: NodeEditorCtx) -> impl Widget {
         // согласованно для wires::view() и node_view::view(node).
         provide_context(ctx);
         let nodes = ctx.nodes.get();
+        let own = crate::group::owners(&nodes);
         let mut stack = Stack::new();
         stack = stack.child(wires::view());
-        for node in nodes {
+        // ноды внутри подграфов скрыты — видна их группа
+        for node in nodes.into_iter().filter(|n| !own.contains_key(&n.id)) {
             stack = stack.children(vec![node_view::view(node)]);
         }
         // Без DecoratedBox-обёртки: оборачивание в DecoratedBox с прозрачным
@@ -214,6 +216,8 @@ fn build_bg_menu(ctx: NodeEditorCtx) -> Box<dyn Widget> {
                     m.category == *cat
                         && m.subcategory.is_none()
                         && !(matches!(m.kind, NodeKind::Mixer) && *cat == NodeCategory::DspEffects)
+                        // подграф создаётся объединением выделенных нод, не из меню
+                        && !matches!(m.kind, NodeKind::Group)
                 })
                 .map(|m| MenuItem::new(format!("add:{}", m.title), crate::i18n::node_title(m)).icon(m.icon))
                 .collect();
@@ -304,11 +308,11 @@ fn selection_bar(ctx: NodeEditorCtx, size: RwSignal<syngui::core::Size>) -> impl
             return Vec::new();
         }
         let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("Выделено нод: {}", picked.len())).class("ne-selbar-text"));
-        // встроенное: ноды ядра — в подграф одной нодой
-        if crate::nodes::flow::can_group(&ctx, &picked) {
+        // встроенное: любые ноды — в подграф одной нодой
+        {
             let sel = picked.clone();
             row = row.child(Button::new("Объединить в подграф").class("ne-selbar-btn").on_click(move || {
-                if let Err(e) = crate::nodes::flow::group_nodes(&ctx, &sel) {
+                if let Err(e) = crate::group::group(&ctx, &sel, "") {
                     tracing::warn!("подграф: {e}");
                     crate::host::notify(crate::host::Notice::Error, e.clone());
                 }

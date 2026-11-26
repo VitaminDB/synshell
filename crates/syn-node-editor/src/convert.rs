@@ -195,6 +195,14 @@ pub fn apply_to_ctx(ctx: &NodeEditorCtx, t: &Template, offset: Point) {
         nodes_vec.push(inst);
         id_map.insert(nd.id, new_id);
     }
+    // участники групп — из id шаблона в id холста (не вошедшие в шаблон — прочь)
+    let added: std::collections::HashSet<NodeId> = id_map.values().copied().collect();
+    for n in nodes_vec.iter().filter(|n| n.kind == NodeKind::Group && added.contains(&n.id)) {
+        if let Some(g) = crate::group::state(n) {
+            let m: Vec<NodeId> = g.members.get_untracked().iter().filter_map(|x| id_map.get(&x.0).copied()).collect();
+            g.members.set(m);
+        }
+    }
     ctx.nodes.set(nodes_vec);
     ctx.next_id.set(next_id);
 
@@ -235,6 +243,10 @@ pub fn apply_to_ctx(ctx: &NodeEditorCtx, t: &Template, offset: Point) {
 pub fn runtime_to_state(rt: &NodeRuntime) -> Option<NodeStateData> {
     match rt {
         NodeRuntime::None | NodeRuntime::Flow(_) => None,
+        NodeRuntime::Group(g) => {
+            let o = g.origin.get_untracked();
+            Some(NodeStateData::Group(crate::model::GroupStateData { title: g.title.get_untracked(), members: g.members.get_untracked().iter().map(|m| m.0).collect(), origin: (o.x, o.y) }))
+        }
         NodeRuntime::Ext(e) => e.save_state().map(NodeStateData::Ext),
         NodeRuntime::ImageLoad { path, .. } => Some(NodeStateData::ImageLoad(ImageLoadStateData {
             image_path: path.get_untracked().map(|p| p.to_string_lossy().to_string()),
@@ -348,6 +360,12 @@ pub fn runtime_to_state(rt: &NodeRuntime) -> Option<NodeStateData> {
 pub fn apply_state_to_runtime(rt: &NodeRuntime, state: &NodeStateData) {
     match (rt, state) {
         (NodeRuntime::Ext(e), NodeStateData::Ext(v)) => e.load_state(v),
+        // участники — id шаблона; в id холста их переводит `apply_to_ctx`
+        (NodeRuntime::Group(g), NodeStateData::Group(d)) => {
+            g.title.set(d.title.clone());
+            g.members.set(d.members.iter().map(|m| NodeId(*m)).collect());
+            g.origin.set(Point::new(d.origin.0, d.origin.1));
+        }
         (
             NodeRuntime::MarkdownView {
                 content,
