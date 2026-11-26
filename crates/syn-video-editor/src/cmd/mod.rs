@@ -16,6 +16,7 @@ mod blocks;
 mod recipe;
 mod script;
 mod index;
+mod skill;
 pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
@@ -141,6 +142,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(recipe::COMMANDS);
     v.extend(script::COMMANDS);
     v.extend(index::COMMANDS);
+    v.extend(skill::COMMANDS);
     v.extend(edit::COMMANDS);
     v
 }

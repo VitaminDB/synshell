@@ -132,6 +132,11 @@ fn from_dyn(d: &Dynamic) -> Result<Value, Box<EvalAltResult>> {
 /// Выполнить сценарий правок над редактором. Всё — один шаг отмены; ошибка
 /// откатывает сделанное сценарием. Возвращает вывод `print` и результаты.
 pub fn run(ed: &mut Editor, code: &str) -> Result<String, String> {
+    run_with(ed, code, Value::Null)
+}
+
+/// То же с параметрами: в сценарии — переменная `params` (объект).
+pub fn run_with(ed: &mut Editor, code: &str, params: Value) -> Result<String, String> {
     let shared = Rc::new(RefCell::new(std::mem::take(ed)));
     let out = Rc::new(RefCell::new(Vec::<String>::new()));
     let calls = Rc::new(RefCell::new(0usize));
@@ -157,7 +162,8 @@ pub fn run(ed: &mut Editor, code: &str) -> Result<String, String> {
                 let r = crate::cmd::run_cmd(&mut ed.borrow_mut(), c, &args).map_err(err)?;
                 let mut m = Map::new();
                 m.insert("text".into(), Dynamic::from(r.text));
-                m.insert("data".into(), to_dyn(&r.data));
+                // нет данных — пустой объект: `r.data.поле` даёт (), а не ошибку
+                m.insert("data".into(), if r.data.is_null() { Dynamic::from(Map::new()) } else { to_dyn(&r.data) });
                 Ok(m)
             }
         };
@@ -172,7 +178,15 @@ pub fn run(ed: &mut Editor, code: &str) -> Result<String, String> {
         e.register_fn("selection", move || -> Array { ed.borrow().selection.iter().map(|i| Dynamic::from(*i as i64)).collect() });
         let ed = shared.clone();
         e.register_fn("playhead", move || ed.borrow().playhead);
-        e.eval::<Dynamic>(code)
+        // список из JSON: пустые поля проекта не пишутся — () → []
+        e.register_fn("list", |d: Dynamic| -> Array { d.try_cast::<Array>().unwrap_or_default() });
+        // число из JSON (целое или дробное) → дробное
+        e.register_fn("num", |d: Dynamic| -> f64 { d.as_float().or_else(|_| d.as_int().map(|i| i as f64)).unwrap_or(0.0) });
+        e.register_fn("num", |d: Dynamic, def: f64| -> f64 { if d.is_unit() { def } else { d.as_float().or_else(|_| d.as_int().map(|i| i as f64)).unwrap_or(def) } });
+        let mut scope = Scope::new();
+        let p = if params.is_null() { Dynamic::from(Map::new()) } else { to_dyn(&params) };
+        scope.push("params", p);
+        e.eval_with_scope::<Dynamic>(&mut scope, code)
     };
     *ed = Rc::try_unwrap(shared).map(RefCell::into_inner).unwrap_or_default();
     let mut lines = out.take();

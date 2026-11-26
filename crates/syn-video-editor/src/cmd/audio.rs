@@ -107,15 +107,32 @@ static SUBTITLES: Cmd = Cmd {
     title: "Субтитры из речи",
     shortcut: "",
     keywords: "subtitles субтитры титры речь расшифровка captions",
-    help: "Субтитры по расшифровке (media.transcribe): для клипов ids (по умолчанию все клипы с расшифровкой) фразы встают титрами на дорожку «Субтитры» внизу кадра, по времени речи с учётом сдвига и скорости клипа. max_chars — длина строки (42), size — размер шрифта (52). Прежние субтитры на этом отрезке заменяются.",
-    args: &[arg("ids", Ty::Ids, "клипы (c…)"), arg("max_chars", Ty::Num, "символов в фразе (42)"), arg("size", Ty::Num, "размер шрифта (52)")],
+    help: "Субтитры по расшифровке (media.transcribe): для клипов ids (по умолчанию все клипы с расшифровкой) фразы встают титрами на дорожку «Субтитры» внизу кадра, по времени речи с учётом сдвига и скорости клипа. max_chars — длина строки (42), size — размер шрифта (52). style — оформление: classic (белые внизу), reels (крупные по центру, слова появляются по одному с «pop» — Reels/Shorts), boxed (на тёмной плашке), karaoke (жёлтые, слова проявляются по очереди) или объект ключей титра (position, size, color, font, by, in, out, box). Прежние субтитры на этом отрезке заменяются.",
+    args: &[arg("ids", Ty::Ids, "клипы (c…)"), arg("max_chars", Ty::Num, "символов в фразе (42)"), arg("size", Ty::Num, "размер шрифта (52)"), arg("style", Ty::Any, "classic | reels | boxed | karaoke или объект")],
     danger: false,
     run: subtitles,
 };
 
 fn subtitles(ed: &mut Editor, a: &Args) -> Res {
     let max_chars = a.num("max_chars")?.unwrap_or(42.0).clamp(8.0, 200.0) as usize;
-    let size = a.num("size")?.unwrap_or(52.0).clamp(10.0, 300.0);
+    // оформление: готовое по имени или свои ключи титра
+    let preset = |name: &str| -> Option<serde_json::Map<String, serde_json::Value>> {
+        let v = match name {
+            "classic" | "" => json!({}),
+            "reels" | "shorts" => json!({"position": "center", "size": 78, "by": "word", "in": "pop", "stagger": 0.08, "out": "none"}),
+            "boxed" => json!({"box": true, "size": 46}),
+            "karaoke" => json!({"color": "#FFD54F", "by": "word", "in": "fade", "stagger": 0.12, "out": "none"}),
+            _ => return None,
+        };
+        v.as_object().cloned()
+    };
+    let extra: serde_json::Map<String, serde_json::Value> = match a.value("style") {
+        None => serde_json::Map::new(),
+        Some(serde_json::Value::String(n)) => preset(n.trim()).ok_or_else(|| format!("subtitles.add: оформления «{n}» нет — classic, reels, boxed, karaoke"))?,
+        Some(serde_json::Value::Object(o)) => o,
+        Some(_) => return Err("subtitles.add: style — имя или объект".into()),
+    };
+    let size = a.num("size")?.or_else(|| extra.get("size").and_then(serde_json::Value::as_f64)).unwrap_or(52.0).clamp(10.0, 300.0);
     let p = &ed.project;
     let with_t = |c: &crate::doc::Clip| c.media().and_then(|m| p.media(m)).is_some_and(|m| m.transcript.is_some());
     // видео со связанным звуком — один раз (по звуковому клипу, если он есть)
@@ -179,6 +196,11 @@ fn subtitles(ed: &mut Editor, a: &Args) -> Res {
         style.insert("color".into(), json!("#ffffff"));
         style.insert("in".into(), json!("none"));
         style.insert("out".into(), json!("none"));
+        for (k, v) in &extra {
+            if k != "size" {
+                style.insert(k.clone(), v.clone());
+            }
+        }
         p.tracks[ti].clips.push(crate::doc::Clip { id, source: crate::doc::Source::Title { text, style }, start: s, duration: e - s, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None });
     }
     p.tracks[ti].clips.sort_by(|a, b| a.start.total_cmp(&b.start));

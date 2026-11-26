@@ -105,17 +105,13 @@ pub fn beats(pcm: &[f32], rate: f64) -> (Vec<f64>, Option<f64>) {
     // музыка с ударами — 15+, речь и шумы сцены — 5–6
     let confident = best.0 > 0 && best.1 > 0.0 && ratio > 9.0;
     let bpm = confident.then(|| (6000.0 / best.0 as f64 * 10.0).round() / 10.0);
-    // удары: локальные максимумы потока выше порога, не чаще периода/2
-    let thr = mean * 2.5;
-    let min_gap = if best.0 > 0 { best.0 / 2 } else { 20 };
-    let mut out = Vec::new();
-    let mut last: Option<usize> = None;
-    for i in 1..flux.len().saturating_sub(1) {
-        if flux[i] > thr && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1] && last.is_none_or(|l| i - l >= min_gap) {
-            out.push(i as f64 * hop as f64 / rate);
-            last = Some(i);
-        }
-    }
+    // удары — ровная сетка по темпу (для монтажа нужен ритм, а не каждый всплеск):
+    // фаза — сдвиг, при котором сумма всплесков в узлах сетки наибольшая
+    let Some(_) = bpm else { return (Vec::new(), None) };
+    let period = best.0;
+    let score = |ph: usize| -> f32 { (ph..flux.len()).step_by(period).map(|i| flux[i.saturating_sub(1)].max(flux[i]).max(flux[(i + 1).min(flux.len() - 1)])).sum() };
+    let phase = (0..period).max_by(|a, b| score(*a).total_cmp(&score(*b))).unwrap_or(0);
+    let out: Vec<f64> = (phase..flux.len()).step_by(period).map(|i| i as f64 * hop as f64 / rate).collect();
     (out, bpm)
 }
 
