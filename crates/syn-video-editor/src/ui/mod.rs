@@ -17,6 +17,7 @@ mod framegraph_ui;
 pub mod socket;
 mod coverage_ui;
 mod project_templates;
+mod args_dialog;
 mod curves;
 mod color;
 mod xform;
@@ -174,6 +175,8 @@ pub struct St {
     pub proj_draft: RwSignal<Option<project_templates::Draft>>,
     /// Готовые превью шаблонов проектов (счётчик для перерисовки).
     pub tpl_thumbs: RwSignal<u64>,
+    /// Окно аргументов команды (ручной запуск пункта меню с аргументами).
+    pub args_draft: RwSignal<Option<args_dialog::Draft>>,
     /// Выделенные файлы медиатеки (по порядку щелчков).
     pub media_sel: RwSignal<Vec<u64>>,
     /// Открыто окно «Свойства» файла медиатеки.
@@ -193,6 +196,7 @@ impl St {
         let (view, spec) = crate::layout::load_current();
         let st = Self::make(view, spec);
         thumbs::bind(st.thumbs);
+        install_ui_bridge(st);
         st
     }
 
@@ -244,6 +248,7 @@ impl St {
             coverage_report: use_signal(None),
             proj_draft: use_signal(None),
             tpl_thumbs: use_signal(0),
+            args_draft: use_signal(None),
             media_sel: use_signal(Vec::new()),
             media_props: use_signal(None),
             viewer_zoom: use_signal(None),
@@ -278,7 +283,7 @@ impl St {
     }
 
     /// Команда из меню, палитры или клавиш: без аргументов — сразу; с
-    /// обязательными аргументами — просьба к агенту в панели ИИ.
+    /// обязательными аргументами — окно аргументов.
     pub fn run_menu(self, id: &str) {
         match id {
             "view.palette" => return self.palette_open.set(true),
@@ -326,10 +331,11 @@ impl St {
             _ => {}
         }
         let Some(c) = cmd::find(id) else { return };
-        if c.args.iter().any(|a| a.required) {
-            self.dock.open("ai", Some("inspector"));
-            self.toast.set(Some(format!("«{}»: скажите агенту, что именно (панель ИИ)", c.title)));
-            return;
+        // руками: окно аргументов по схеме команды (то же умеет и агент); без
+        // обязательных, но бессмысленные пустыми — тоже через окно
+        const FORM: &[&str] = &["clip.set", "lut.apply", "slot.fill"];
+        if c.args.iter().any(|a| a.required) || FORM.contains(&c.id) {
+            return args_dialog::open(self, c.id);
         }
         let args = if id == "project.save" && ed().path.is_none() { json!({"path": default_path()}) } else { json!({}) };
         self.exec(id, args);
@@ -625,6 +631,41 @@ impl St {
     }
 }
 
+static UI_ST: OnceLock<St> = OnceLock::new();
+
+/// Мост действий окна для агента и сокета (`ui.list`, `ui.run`): всё из меню и
+/// палитры, что не команда документа.
+fn install_ui_bridge(st: St) {
+    let _ = UI_ST.set(st);
+    cmd::ui_bridge::install(cmd::ui_bridge::Bridge {
+        list: || {
+            palette()
+                .into_iter()
+                .filter(|c| cmd::find(&c.id).is_none())
+                .map(|c| (c.id, c.category, c.title, c.shortcut))
+                .collect()
+        },
+        run: |id| {
+            let id = id.to_string();
+            let Some(st) = UI_ST.get().copied() else { return Err("окна нет".into()) };
+            let title = palette().into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_else(|| id.clone());
+            syngui::async_runtime::run_on_main_thread(move || st.run_menu(&id));
+            Ok(format!("выполнено в окне: {title}"))
+        },
+        state: || {
+            let Some(st) = UI_ST.get().copied() else { return "нет окна".into() };
+            let w = st.window.get_untracked();
+            let zoom = st.viewer_zoom.get_untracked().map(|z| format!("{:.0}%", z * 100.0)).unwrap_or_else(|| "вписать".into());
+            format!(
+                "вид «{}», просмотр {zoom}{}{}",
+                st.view.get_untracked(),
+                if w.fullscreen { ", во весь экран" } else { "" },
+                if w.maximized { ", развёрнуто" } else { "" }
+            )
+        },
+    });
+}
+
 fn default_path() -> String {
     let dir = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default().join("Videos");
     let name = ed().project.name.replace('/', "_");
@@ -863,6 +904,7 @@ pub fn root(st: St) -> impl Widget {
         .child(layouts_ui::view(st))
         .child(coverage_ui::view(st))
         .child(project_templates::dialog(st))
+        .child(args_dialog::view(st))
         .child(panels::media_props_view(st))
 }
 
@@ -901,7 +943,7 @@ fn by_chord(key: Key, mods: Modifiers) -> Option<&'static str> {
 }
 
 fn palette() -> Vec<PaletteCommand> {
-    let mut v: Vec<PaletteCommand> = cmd::all().into_iter().map(|c| PaletteCommand::new(c.id, c.title).category(c.category).shortcut(c.shortcut).keywords(c.keywords).description(c.help)).collect();
+    let mut v: Vec<PaletteCommand> = cmd::all().into_iter().filter(|c| !c.id.starts_with("ui.")).map(|c| PaletteCommand::new(c.id, c.title).category(c.category).shortcut(c.shortcut).keywords(c.keywords).description(c.help)).collect();
     for (id, t, k) in VIEW_ITEMS {
         v.push(PaletteCommand::new(*id, *t).category("Вид").shortcut(*k));
     }
@@ -940,7 +982,8 @@ fn view_menu() -> Vec<MenuItem> {
 
 fn menus() -> Vec<(&'static str, Vec<MenuItem>)> {
     let mut out: Vec<(&'static str, Vec<MenuItem>)> = Vec::new();
-    for c in cmd::all() {
+    // ui.* — мост действий окна для агента; в меню они уже есть сами по себе
+    for c in cmd::all().into_iter().filter(|c| !c.id.starts_with("ui.")) {
         let item = MenuItem::new(c.id, c.title).shortcut(c.shortcut);
         match out.iter_mut().find(|(t, _)| *t == c.category) {
             Some((_, items)) => items.push(item),
