@@ -45,6 +45,11 @@ fn install(m: &Arc<Manager>) {
         sf::ops::provide("voxcpm", voxcpm);
         sf::ops::provide("vibevoice", vibevoice);
         sf::ops::provide("diarize", diarize);
+        #[cfg(feature = "cuda")]
+        {
+            sf::ops::provide("vfx_upscale", super::vfx::upscale);
+            sf::ops::provide("vfx_interpolate", super::vfx::interpolate);
+        }
         stages::install();
         let _ = std::thread::Builder::new().name("flow-cache".into()).spawn(|| loop {
             std::thread::sleep(Duration::from_secs(60));

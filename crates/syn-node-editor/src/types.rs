@@ -257,6 +257,9 @@ pub enum NodeKind {
     FlowFrame,
     FlowTrim,
     FlowStill,
+    /// Нейрофильтры synaptix-vfx (служба, CUDA).
+    FlowVfxUpscale,
+    FlowVfxInterpolate,
     // Стадии моделей в службе: картинки (FLUX.1/FLUX.2/Qwen-Image/SDXL) и MiniMax-H3.
     FlowImageModel,
     FlowImageEncode,
@@ -365,6 +368,8 @@ impl NodeKind {
         NodeKind::FlowFrame,
         NodeKind::FlowTrim,
         NodeKind::FlowStill,
+        NodeKind::FlowVfxUpscale,
+        NodeKind::FlowVfxInterpolate,
         NodeKind::FlowImageModel,
         NodeKind::FlowImageEncode,
         NodeKind::FlowImageRefs,

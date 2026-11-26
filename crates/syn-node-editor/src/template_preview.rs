@@ -112,7 +112,9 @@ fn node_color(kind: NodeKind) -> Color {
         | NodeKind::FlowMux
         | NodeKind::FlowFrame
         | NodeKind::FlowTrim
-        | NodeKind::FlowStill => Color::new(0.20, 0.72, 0.86, 1.0),
+        | NodeKind::FlowStill
+        | NodeKind::FlowVfxUpscale
+        | NodeKind::FlowVfxInterpolate => Color::new(0.20, 0.72, 0.86, 1.0),
         // Стадии моделей в службе — гаммы прежних родных нод FLUX и H3.
         NodeKind::FlowImageModel
         | NodeKind::FlowImageEncode

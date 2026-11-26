@@ -14,6 +14,8 @@ mod registry;
 mod runners;
 mod train;
 mod voices;
+#[cfg(feature = "cuda")]
+mod vfx;
 
 use std::ffi::CStr;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};

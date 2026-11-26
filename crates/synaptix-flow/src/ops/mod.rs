@@ -407,6 +407,36 @@ pub static STILL: NodeSpec = NodeSpec {
     stage: false,
 };
 
+pub const UPSCALE_FACTORS: &[&str] = &["2", "4"];
+
+pub static VFX_UPSCALE: NodeSpec = NodeSpec {
+    kind: "vfx_upscale",
+    title: n_!("Нейроувеличение"),
+    description: n_!("Увеличивает ролик или картинку в 2 или 4 раза нейросетью synaptix-vfx (PLKSR, SPAN, Compact) покадрово на видеокарте; звук ролика сохраняется. Нужна CUDA и модели в папке vfx библиотеки нейросетей."),
+    category: EDIT,
+    inputs: &[port("video", n_!("Ролик или картинка"), P::Media).hint(n_!("Видео (MP4 и др.) или изображение для увеличения"))],
+    outputs: &[port("video", n_!("Увеличенный"), P::Media).hint(n_!("MP4 (или PNG для картинки) в 2–4 раза больше"))],
+    fields: &[
+        field("scale", n_!("Во сколько раз"), F::Choice(UPSCALE_FACTORS), "2").hint(n_!("2 или 4; модель другого масштаба доводится до него")),
+        field("model", n_!("Модель"), F::Text, "").hint(n_!("Часть имени или вид модели: plksr, span, compact; пусто — первая подходящая")).advanced(),
+    ],
+    stage: false,
+};
+
+pub static VFX_INTERPOLATE: NodeSpec = NodeSpec {
+    kind: "vfx_interpolate",
+    title: n_!("Плавность RIFE"),
+    description: n_!("Дорисовывает промежуточные кадры нейросетью RIFE (synaptix-vfx): поднимает частоту ролика до нужной (например 24 → 60 к/с) или делает плавное замедление; на склейках сцен промежуточные не рисуются. Звук сохраняется (при замедлении — растягивается). Нужна CUDA и модель rife в папке vfx."),
+    category: EDIT,
+    inputs: &[port("video", n_!("Ролик"), P::Video).hint(n_!("Исходное видео"))],
+    outputs: &[port("video", n_!("Плавный ролик"), P::Video).hint(n_!("MP4 с новой частотой кадров"))],
+    fields: &[
+        field("fps", n_!("Частота, к/с"), F::Number, "60").hint(n_!("Частота кадров результата")),
+        field("slowmo", n_!("Замедление, раз"), F::Number, "1").hint(n_!("1 — без замедления; 2 — вдвое медленнее (кадры дорисовываются)")),
+    ],
+    stage: false,
+};
+
 /// Виды нод и их исполнители в этом процессе. Генерация (`None`) —
 /// только в службе: она подставляет исполнителей через [`provide`].
 static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
@@ -430,6 +460,9 @@ static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
     (&FRAME, Some(media::frame)),
     (&TRIM, Some(media::trim)),
     (&STILL, Some(media::still)),
+    // нейрофильтры synaptix-vfx: исполнитель — в службе (CUDA)
+    (&VFX_UPSCALE, None),
+    (&VFX_INTERPOLATE, None),
 ];
 
 fn provided() -> &'static RwLock<HashMap<&'static str, OpFn>> {

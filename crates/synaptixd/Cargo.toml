@@ -32,7 +32,7 @@ daemon = [
 ]
 # Поиск моделей видеофильтров (`vfx`) в библиотеках службы — для программ (плеер, видеоредактор).
 vfx-models = ["dep:synaptix-bundle"]
-cuda = ["daemon", "dep:synaptix-kernels-cuda"]
+cuda = ["daemon", "vfx-models", "dep:synaptix-kernels-cuda", "dep:synaptix-vfx"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
 
 [[bin]]
@@ -52,6 +52,8 @@ tracing-subscriber = { workspace = true, optional = true }
 synaptix-core = { workspace = true, optional = true }
 synaptix-kernels-cpu = { workspace = true, optional = true }
 synaptix-kernels-cuda = { workspace = true, optional = true }
+# нейрофильтры как ноды flow (vfx_upscale, vfx_interpolate)
+synaptix-vfx = { workspace = true, optional = true }
 synaptix-kernels-npu = { workspace = true, optional = true }
 synaptix-asr-wav2vec2 = { workspace = true, optional = true }
 synaptix-align-mfa = { workspace = true, optional = true }

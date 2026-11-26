@@ -43,7 +43,7 @@ use crate::icons::{
     MI_ARTICLE, MI_ASPECT_RATIO, MI_AUDIOTRACK, MI_AUTO_AWESOME, MI_CHEVRON_RIGHT, MI_CROP_SQUARE, MI_EDIT_NOTE,
     MI_EXPAND_MORE, MI_FOLDER_OPEN, MI_GRAPHIC_EQ, MI_GROUPS, MI_IMAGE_ICON, MI_INVENTORY_2, MI_LANGUAGE, MI_LAYERS,
     MI_LIBRARY_MUSIC, MI_MERGE_TYPE, MI_MIC, MI_MOVIE, MI_PALETTE, MI_PSYCHOLOGY, MI_RECORD_VOICE_OVER, MI_TRANSLATE,
-    MI_TUNE,
+    MI_TUNE, MI_ZOOM_IN,
 };
 
 /// Вид ноды Synthos ↔ вид ноды ядра.
@@ -64,6 +64,8 @@ const KINDS: &[(NodeKind, &str, &str, &str)] = &[
     (NodeKind::FlowFrame, "frame", "Flow Frame", MI_IMAGE_ICON),
     (NodeKind::FlowTrim, "trim", "Flow Trim", MI_MOVIE),
     (NodeKind::FlowStill, "still", "Flow Still Video", MI_LANGUAGE),
+    (NodeKind::FlowVfxUpscale, "vfx_upscale", "Flow Upscale", MI_ZOOM_IN),
+    (NodeKind::FlowVfxInterpolate, "vfx_interpolate", "Flow RIFE", MI_MOVIE),
     (NodeKind::FlowImageModel, "image_model", "Image Model", MI_INVENTORY_2),
     (NodeKind::FlowImageEncode, "image_encode", "Prompt Encoder", MI_TRANSLATE),
     (NodeKind::FlowImageRefs, "image_refs", "References", MI_LAYERS),
