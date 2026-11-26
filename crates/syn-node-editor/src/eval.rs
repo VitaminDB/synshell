@@ -166,6 +166,7 @@ mod tests {
             style: use_signal(crate::types::NodeStyle::default()),
             enabled: use_signal(true),
             timing: crate::timing::Stopwatch::new(),
+            title: use_signal(String::new()),
         }
     }
 

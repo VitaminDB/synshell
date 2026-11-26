@@ -437,6 +437,27 @@ pub static VFX_INTERPOLATE: NodeSpec = NodeSpec {
     stage: false,
 };
 
+pub static SUBFLOW: NodeSpec = NodeSpec {
+    kind: "subflow",
+    title: n_!("Подграф"),
+    description: n_!("Несколько нод, свёрнутых в одну: внутри — свой граф, снаружи — до 4 входов и 4 выходов. Объединить выделенные ноды — «Объединить в подграф», развернуть обратно — «Разгруппировать»."),
+    category: DATA,
+    inputs: &[
+        port("in1", n_!("Вход 1"), P::Any),
+        port("in2", n_!("Вход 2"), P::Any),
+        port("in3", n_!("Вход 3"), P::Any),
+        port("in4", n_!("Вход 4"), P::Any),
+    ],
+    outputs: &[
+        port("out1", n_!("Выход 1"), P::Any),
+        port("out2", n_!("Выход 2"), P::Any),
+        port("out3", n_!("Выход 3"), P::Any),
+        port("out4", n_!("Выход 4"), P::Any),
+    ],
+    fields: &[field("title", n_!("Название"), F::Text, "Подграф").hint(n_!("Имя подграфа в шапке ноды"))],
+    stage: false,
+};
+
 /// Виды нод и их исполнители в этом процессе. Генерация (`None`) —
 /// только в службе: она подставляет исполнителей через [`provide`].
 static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
@@ -463,6 +484,7 @@ static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
     // нейрофильтры synaptix-vfx: исполнитель — в службе (CUDA)
     (&VFX_UPSCALE, None),
     (&VFX_INTERPOLATE, None),
+    (&SUBFLOW, Some(crate::run::subflow)),
 ];
 
 fn provided() -> &'static RwLock<HashMap<&'static str, OpFn>> {

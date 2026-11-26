@@ -1450,6 +1450,8 @@ pub struct NodeInstance {
     /// бейджем в шапке карточки (`timing::node_timer_badge`). Не
     /// персистится: измерение принадлежит сессии, а не графу.
     pub timing: super::timing::Stopwatch,
+    /// Свой заголовок карточки (имя блока, подграфа); пусто — заголовок вида ноды.
+    pub title: RwSignal<String>,
 }
 
 impl PartialEq for NodeInstance {

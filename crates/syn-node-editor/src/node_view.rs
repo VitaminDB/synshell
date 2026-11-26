@@ -175,6 +175,7 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                     node_for_body.pos,
                     node_for_body.timing,
                     ectx,
+                    node_for_body.title,
                 )) as Box<dyn Widget>,
                 ports_and_fields(node_for_body.clone(), meta),
             ]);
@@ -293,8 +294,10 @@ fn header_widget(
     pos_signal: RwSignal<Point>,
     timing: super::timing::Stopwatch,
     ectx: NodeEditorCtx,
+    own_title: RwSignal<String>,
 ) -> impl Widget {
-    let title = crate::i18n::node_title(meta);
+    let own = own_title.get_untracked();
+    let title = if own.is_empty() { crate::i18n::node_title(meta).to_string() } else { own };
     let icon = meta.icon;
     // Title-group слева (icon + title) и close-кнопка справа в общем Row
     // с MainAxisAlignment::SpaceBetween — распределение к краям не зависит

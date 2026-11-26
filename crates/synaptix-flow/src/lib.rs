@@ -44,6 +44,7 @@ pub mod ops;
 pub mod order;
 pub mod run;
 pub mod schema;
+pub mod subflow;
 pub mod value;
 
 pub use doc::{Flow, FlowNode, Link};

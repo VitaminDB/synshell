@@ -235,6 +235,8 @@ fn fill(ctx: NodeEditorCtx, g: &FrameGraph) {
             style: use_signal(Default::default()),
             enabled: use_signal(true),
             timing: syn_node_editor::timing::Stopwatch::new(),
+            // нода-блок — с именем блока в шапке
+            title: use_signal(n.params.get("block").and_then(Value::as_str).map(|b| format!("Блок «{b}»")).unwrap_or_default()),
         };
         set_fields(&inst, n);
         nodes.push(inst);

@@ -346,7 +346,8 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
     // Пакетные входы: список на одиночном порту.
     let batch: Vec<(String, Vec<Val>)> = inputs
         .iter()
-        .filter(|(name, v)| matches!(v, Val::List(_)) && spec.input(name).map(|p| p.ty != PortType::List).unwrap_or(false))
+        // подграф получает список целиком (внутри его разберут свои ноды)
+        .filter(|(name, v)| node.kind != "subflow" && matches!(v, Val::List(_)) && spec.input(name).map(|p| p.ty != PortType::List).unwrap_or(false))
         .map(|(n, v)| (n.clone(), v.items()))
         .collect();
     let stem = if node.label.is_empty() { format!("n{}", node.id) } else { sanitize(&node.label) };
@@ -588,4 +589,40 @@ mod tests {
         b.insert("context".into(), Val::Handle(Handle::new("t2", 2u32)));
         assert_ne!(cache_key(&node, &a), cache_key(&node, &b));
     }
+}
+
+/// Нода-подграф ([`crate::subflow`]): вложенный прогон внутреннего графа;
+/// значения портов `in1…` подаются на сопоставленные входы внутренних нод,
+/// выходы `out1…` — с выходов внутренних нод.
+pub fn subflow(cx: &mut Cx) -> Result<(), String> {
+    let def = crate::subflow::SubflowDef::of(cx.node)?;
+    let mut inputs = HashMap::new();
+    for si in &def.inputs {
+        if let Some(v) = cx.inputs.get(&si.port).filter(|v| !v.is_empty()) {
+            for (n, p) in &si.targets {
+                inputs.insert((*n, p.clone()), v.clone());
+            }
+        }
+    }
+    let opts = RunOpts { cancel: cx.cancel.clone(), inputs, sandbox: cx.sandbox.cloned(), cache: None };
+    let dir = cx.base.join("subflow");
+    let total = def.flow.nodes.len().max(1);
+    let mut done = 0usize;
+    let rep = {
+        let progress = &mut cx.progress;
+        run_with(&def.flow, &dir, &opts, &mut |e| {
+            if let Event::Finished { .. } | Event::Skipped { .. } = e {
+                done += 1;
+                (progress)(done, total);
+            }
+        })?
+    };
+    for so in &def.outputs {
+        if let Some(v) = rep.values.get(&so.node).and_then(|o| o.get(&so.from_port)) {
+            cx.out(&so.port, v.clone());
+        }
+    }
+    let title = cx.node.fields.get("title").and_then(|v| v.as_str()).unwrap_or("подграф").to_string();
+    cx.label = format!("«{title}»: нод {}", def.flow.nodes.len());
+    Ok(())
 }

@@ -148,6 +148,7 @@ impl NodeEditorCtx {
             style: use_signal(crate::types::NodeStyle::default()),
             enabled: use_signal(true),
             timing: super::timing::Stopwatch::new(),
+            title: use_signal(String::new()),
         };
         let mut v = self.nodes.get_untracked();
         v.push(inst);

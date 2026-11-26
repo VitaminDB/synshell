@@ -182,6 +182,7 @@ pub fn apply_to_ctx(ctx: &NodeEditorCtx, t: &Template, offset: Point) {
             style: use_signal(style),
             enabled: use_signal(nd.enabled),
             timing: crate::timing::Stopwatch::new(),
+            title: use_signal(String::new()),
         };
         // Per-kind state из шаблона → бампаем сигналы свежесозданного runtime'а.
         // Тяжёлые объекты (Transcriber/Pipeline) остаются дефолтными — модели
