@@ -659,6 +659,8 @@ fn fusion_transition_set_render_and_params() {
         parent: None,
         link: None,
         graph: None,
+        fit: String::new(),
+        slot: None,
     });
     ed.project.tracks[0].clips.push(crate::doc::Clip {
         id: c2,
@@ -676,6 +678,8 @@ fn fusion_transition_set_render_and_params() {
         parent: None,
         link: None,
         graph: None,
+        fit: String::new(),
+        slot: None,
     });
     let _ = v1;
 
@@ -1068,4 +1072,45 @@ fn phrases_break_at_commas() {
     let words: Vec<TranscriptWord> = text.split(' ').enumerate().map(|(i, w)| TranscriptWord { text: w.into(), start: i as f64 * 0.4, end: i as f64 * 0.4 + 0.3 }).collect();
     let ph: Vec<String> = crate::cmd::audio::phrases(&words, 42).into_iter().map(|p| p.2).collect();
     assert_eq!(ph, vec!["Сначала уберём паузы,", "потом добавим субтитры и музыку,", "в конце экспортируем видео."]);
+}
+
+#[test]
+fn project_templates_build_and_fill() {
+    use crate::doc::Source;
+    let dir = std::env::temp_dir().join(format!("sve-tpl-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let img = dir.join("a.png");
+    image::RgbaImage::from_pixel(64, 36, image::Rgba([200, 100, 50, 255])).save(&img).unwrap();
+    let img = img.display().to_string();
+    // все встроенные строятся, у каждого есть места
+    for t in slots::all().into_iter().filter(|t| t.path.is_none()) {
+        let p = slots::build(&t).unwrap_or_else(|e| panic!("{}: {e}", t.name));
+        assert!(!slots::slots(&p).is_empty(), "{}", t.name);
+        assert!(p.tracks.iter().all(|tr| !tr.clips.is_empty()), "{}: пустые дорожки", t.name);
+    }
+    let mut ed = Editor::new();
+    let out = run(&mut ed, "template.project.use", &json!({"name": "reels_slideshow", "files": [img, "", img], "repeat": false, "texts": {"Заголовок": "ПРИВЕТ"}})).unwrap();
+    assert!(out.text.contains("пустые места"), "{}", out.text);
+    let sl = slots::slots(&ed.project);
+    let media: Vec<&crate::doc::Clip> = sl.iter().filter(|x| x.2 == "media").map(|x| x.0).collect();
+    // пустая строка пропускает место 2
+    assert!(media[0].slot.as_ref().unwrap().filled && !media[1].slot.as_ref().unwrap().filled && media[2].slot.as_ref().unwrap().filled);
+    assert_eq!(media[0].fit, "cover");
+    // фото с наездом: ключи масштаба
+    assert!(media[0].keys.keys().any(|k| k.ends_with(".scale")));
+    assert!(sl.iter().any(|x| matches!(&x.0.source, Source::Title { text, .. } if text == "ПРИВЕТ")));
+    // заполнить место по подписи и очистить
+    let id2 = media[1].id;
+    run(&mut ed, "slot.fill", &json!({"label": "Кадр 2", "file": img})).unwrap();
+    assert!(ed.project.clip(id2).unwrap().slot.as_ref().unwrap().filled);
+    run(&mut ed, "slot.clear", &json!({"id": id2, "empty": true})).unwrap();
+    let c = ed.project.clip(id2).unwrap();
+    assert!(matches!(c.source, Source::Color { .. }) && c.keys.is_empty() && c.effects.iter().all(|e| e.kind != "transform"));
+    // отмена возвращает пустой проект
+    while ed.undo().is_some() {}
+    assert!(ed.project.tracks.iter().all(|t| t.clips.is_empty()));
+    // файлов меньше, чем мест, — по кругу
+    let out = run(&mut ed, "template.project.use", &json!({"name": "travel", "files": [img]})).unwrap();
+    assert!(slots::slots(&ed.project).iter().filter(|x| x.2 == "media").all(|x| x.0.slot.as_ref().unwrap().filled), "{}", out.text);
+    let _ = std::fs::remove_dir_all(&dir);
 }

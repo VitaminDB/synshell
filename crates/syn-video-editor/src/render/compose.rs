@@ -303,6 +303,15 @@ fn layer_gpu_effect(c: &Clip) -> Option<syngui::effects::Effect> {
     }
 }
 
+/// Множитель кадра медиа: `contain` — целиком в кадре, `cover` — заполнить кадр.
+pub fn fit_k(c: &Clip, kw: f32, kh: f32) -> f32 {
+    if c.fit == "cover" {
+        kw.max(kh)
+    } else {
+        kw.min(kh)
+    }
+}
+
 /// Кадр в момент `t` размером `w × h` (масштаб `scale` от размера проекта).
 pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn Widget> {
     let w = p.settings.width as f32 * scale;
@@ -351,8 +360,8 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
         let layer: Box<dyn Widget> = match &c.source {
             Source::Media { .. } => {
                 let Some(f) = frames.get(&c.id) else { continue };
-                // вписать кадр (contain) в кадр проекта
-                let fk = (w / f.width as f32).min(h / f.height as f32) * k;
+                // вписать кадр (contain) в кадр проекта или заполнить его (cover)
+                let fk = fit_k(c, w / f.width as f32, h / f.height as f32) * k;
                 let (iw, ih) = (f.width as f32 * fk, f.height as f32 * fk);
                 // адрес буфера в ключе: обработанный кадр (коррекция, LUT, граф) — новая текстура,
                 // иначе после правки коррекции просмотр показывал прежнюю из кэша
@@ -381,7 +390,23 @@ pub fn frame_widget(p: &Project, t: f64, frames: &Frames, scale: f32) -> Box<dyn
                 if !filter.is_empty() {
                     b = b.style("filter", StyleValue::String(filter.clone()));
                 }
-                Box::new(Positioned::new(b).at(x * w, y * h).dimensions(w, h))
+                let plate: Box<dyn Widget> = Box::new(Positioned::new(b).at(x * w, y * h).dimensions(w, h));
+                // незаполненное место шаблона — плашка с подписью
+                match c.slot.as_ref().filter(|s| !s.filled) {
+                    Some(s) => {
+                        let mut st = Map::new();
+                        // подпись сверху: по центру обычно стоит текст шаблона
+                        st.insert("position".into(), Value::from("top"));
+                        st.insert("color".into(), Value::from("#ffffff90"));
+                        st.insert("box".into(), Value::Bool(true));
+                        st.insert("size".into(), Value::from((p.settings.width.min(p.settings.height) as f64) * 0.04));
+                        st.insert("in".into(), Value::from("none"));
+                        st.insert("out".into(), Value::from("none"));
+                        let label = format!("＋ {}", if s.label.is_empty() { "ваш файл" } else { &s.label });
+                        Box::new(Stack::new().child(plate).child(title(&label, &st, lt, c.duration, alpha as f32, (x, y, 1.0, 0.0), w, h, scale, None)))
+                    }
+                    None => plate,
+                }
             }
             Source::Title { text, style } => {
                 if let Some(f) = frames.get(&c.id) {
@@ -1334,20 +1359,26 @@ fn clip_to_fusion_image(c: &Clip, frame: Option<&syngui::video::RgbaFrame>, fw: 
         let mut out = FImg::solid(fw, fh, bg);
         let sw = fr.width.max(1) as f32;
         let sh = fr.height.max(1) as f32;
-        let k = (fw as f32 / sw).min(fh as f32 / sh);
-        let dw = (sw * k).round().max(1.0) as u32;
-        let dh = (sh * k).round().max(1.0) as u32;
-        let ox = (fw.saturating_sub(dw)) / 2;
-        let oy = (fh.saturating_sub(dh)) / 2;
+        let k = fit_k(c, fw as f32 / sw, fh as f32 / sh);
+        let (dw, dh) = (sw * k, sh * k);
+        let (ox, oy) = ((fw as f32 - dw) / 2.0, (fh as f32 - dh) / 2.0);
         let src = &fr.rgba;
-        for dy in 0..dh.min(fh.saturating_sub(oy)) {
-            let sy = ((dy as f32 + 0.5) / dh as f32 * sh).clamp(0.0, sh - 1.0) as u32;
-            for dx in 0..dw.min(fw.saturating_sub(ox)) {
-                let sx = ((dx as f32 + 0.5) / dw as f32 * sw).clamp(0.0, sw - 1.0) as u32;
+        for y in 0..fh {
+            let v = (y as f32 + 0.5 - oy) / dh;
+            if !(0.0..1.0).contains(&v) {
+                continue;
+            }
+            let sy = (v * sh).clamp(0.0, sh - 1.0) as u32;
+            for x in 0..fw {
+                let u = (x as f32 + 0.5 - ox) / dw;
+                if !(0.0..1.0).contains(&u) {
+                    continue;
+                }
+                let sx = (u * sw).clamp(0.0, sw - 1.0) as u32;
                 let si = ((sy * fr.width + sx) * 4) as usize;
                 let a = src[si + 3] as f32 / 255.0;
                 let sc = Color4::from_straight(src[si] as f32 / 255.0, src[si + 1] as f32 / 255.0, src[si + 2] as f32 / 255.0, a);
-                let di = (((oy + dy) * fw + (ox + dx)) * 4) as usize;
+                let di = ((y * fw + x) * 4) as usize;
                 let inv = 1.0 - sc.a;
                 out.data[di] = sc.r + out.data[di] * inv;
                 out.data[di + 1] = sc.g + out.data[di + 1] * inv;

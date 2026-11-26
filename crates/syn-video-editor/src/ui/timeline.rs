@@ -406,11 +406,28 @@ pub fn view(st: St) -> impl Widget {
                 if !c.effects.is_empty() {
                     marks.push_str(&format!("  ✦{}", c.effects.len()));
                 }
+                // место для вставки шаблона: пустое — «＋», заполненное — «⊕»
+                let slot_pick = match &c.slot {
+                    Some(sl) if !matches!(c.source, crate::doc::Source::Title { .. }) => {
+                        marks.insert_str(0, if sl.filled { "⊕ " } else { "＋ " });
+                        Some(tr.kind == TrackKind::Audio)
+                    }
+                    Some(_) => {
+                        marks.insert_str(0, "✎ ");
+                        None
+                    }
+                    None => None,
+                };
                 let w = (c.duration as f32 * zoom - 2.0).max(3.0);
-                let body = DecoratedBox::new().clip(true).child(clip_content(p, tr.kind, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" }).class(if (tr.hidden && tr.kind == TrackKind::Video) || (tr.muted && tr.kind == TrackKind::Audio) { "clip-off" } else { "" });
+                let body_box = DecoratedBox::new().clip(true).child(clip_content(p, tr.kind, c, format!("{name}{marks}"), w, h - 6.0, zoom)).class(class).class(if selected { "clip-selected" } else { "" }).class(if (tr.hidden && tr.kind == TrackKind::Video) || (tr.muted && tr.kind == TrackKind::Audio) { "clip-off" } else { "" });
                 // клип можно тащить по таймлайну (payload — id клипа); щелчок — выделить
                 let cid = c.id;
-                let body = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || select_click(st, cid)).child(body);
+                let mut body = Draggable::new(DRAG_CLIP, cid.to_string()).label(name.clone()).on_click(move || select_click(st, cid));
+                if let Some(audio) = slot_pick {
+                    // 2×щелчок по месту шаблона — выбрать свой файл
+                    body = body.on_double_click(move || super::project_templates::pick_for_slot(st, cid, audio));
+                }
+                let body = body.child(body_box);
                 // где курсор на клипе — чтобы при переносе клип не прыгал началом к курсору
                 let body = EventHook::new().on_hover_at(move |p| {
                     if let Some((p, _)) = p {
@@ -1009,6 +1026,25 @@ fn on_drop(st: St, data: &DragData, x: f32, y: f32) {
             st.dock.activate("inspector");
         }
         return;
+    }
+    // медиа на место шаблона — заполнить место
+    if data.drag_type == super::panels::DRAG_MEDIA {
+        let zoom = st.zoom.get_untracked();
+        let t = (x / zoom).max(0.0) as f64;
+        let slot = {
+            let e = ed();
+            let p = &e.project;
+            match row_under(&rows(p), y) {
+                Some((RowKind::Track(i), _, _)) => p.tracks[i].clips.iter().find(|c| c.start <= t && t < c.end() && c.slot.is_some() && !matches!(c.source, crate::doc::Source::Title { .. })).map(|c| c.id),
+                _ => None,
+            }
+        };
+        if let (Some(cid), Ok(mid)) = (slot, data.payload.trim().parse::<u64>()) {
+            if st.exec("slot.fill", json!({"id": cid, "media": mid})).is_some() {
+                st.exec("selection.set", json!({"ids": [cid]}));
+            }
+            return;
+        }
     }
     let Some(dr) = dragged(st, data, x) else { return };
     let (kind, s, d, except) = (dr.kind, dr.start, dr.dur, dr.clip);

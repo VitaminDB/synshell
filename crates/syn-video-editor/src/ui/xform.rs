@@ -93,7 +93,7 @@ fn geo(p: &Project, c: &Clip, t: f64) -> Option<Geo> {
         Source::Media { media } => {
             let m = p.media(*media)?;
             let (mw, mh) = (m.width.max(1) as f32, m.height.max(1) as f32);
-            let fk = (w / mw).min(h / mh) * k;
+            let fk = crate::render::compose::fit_k(c, w / mw, h / mh) * k;
             (mw * fk, mh * fk, cy)
         }
         Source::Color { .. } => (w * k, h * k, cy),

@@ -16,6 +16,7 @@ mod luts;
 mod framegraph_ui;
 pub mod socket;
 mod coverage_ui;
+mod project_templates;
 mod curves;
 mod color;
 mod xform;
@@ -169,6 +170,10 @@ pub struct St {
     pub layout_desc: RwSignal<String>,
     /// Окно отчёта покрытия шаблонов Fusion (C2).
     pub coverage_report: RwSignal<Option<crate::fusion::report::CoverageReport>>,
+    /// Окно «Ролик по шаблону» (G3).
+    pub proj_draft: RwSignal<Option<project_templates::Draft>>,
+    /// Готовые превью шаблонов проектов (счётчик для перерисовки).
+    pub tpl_thumbs: RwSignal<u64>,
     /// Выделенные файлы медиатеки (по порядку щелчков).
     pub media_sel: RwSignal<Vec<u64>>,
     /// Открыто окно «Свойства» файла медиатеки.
@@ -237,6 +242,8 @@ impl St {
             layout_name: use_signal(String::new()),
             layout_desc: use_signal(String::new()),
             coverage_report: use_signal(None),
+            proj_draft: use_signal(None),
+            tpl_thumbs: use_signal(0),
             media_sel: use_signal(Vec::new()),
             media_props: use_signal(None),
             viewer_zoom: use_signal(None),
@@ -293,6 +300,20 @@ impl St {
                 return;
             }
             "template.coverage" => return coverage_ui::open(self),
+            // шаблоны проектов (G): галерея «Проекты», сохранение текущего проекта шаблоном
+            "template.project.use" | "template.project.list" => {
+                self.tpl_cat.set("Проекты".into());
+                self.open_panel("templates");
+                return;
+            }
+            "template.project.save" => {
+                let name = ed().project.name.clone();
+                if let Some(o) = self.exec("template.project.save", json!({"name": name})) {
+                    self.toast.set(Some(o.text));
+                    self.tpl_thumbs.update(|n| *n += 1);
+                }
+                return;
+            }
             v if v.starts_with("view.layout.") => return self.set_view(&v["view.layout.".len()..]),
             v if v.starts_with("view.panel.") => return self.open_panel(&v["view.panel.".len()..]),
             // свои диалоги вместо аргументов
@@ -841,6 +862,7 @@ pub fn root(st: St) -> impl Widget {
         .child(fontpick::view(st))
         .child(layouts_ui::view(st))
         .child(coverage_ui::view(st))
+        .child(project_templates::dialog(st))
         .child(panels::media_props_view(st))
 }
 

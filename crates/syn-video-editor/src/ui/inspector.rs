@@ -472,6 +472,47 @@ fn clip(r: &mut Rows, p: &crate::doc::Project, c: &crate::doc::Clip, base: &crat
             st.exec("clip.set", json!({"id": id, "parent": k}));
         });
     }
+    // G1: вписать / заполнить кадр и место для вставки шаблона проекта
+    if is_video && (c.media().is_some() || matches!(c.source, Source::Color { .. })) {
+        r.choice("Кадр", &[("contain", "Вписать целиком"), ("cover", "Заполнить кадр")], if c.fit == "cover" { "cover" } else { "contain" }, move |st, f| {
+            st.exec("clip.set", json!({"id": id, "fit": f}));
+        });
+    }
+    if !matches!(c.source, Source::Shape { .. }) {
+        match &c.slot {
+            None => r.action("Шаблон", "Сделать местом для вставки", move |st| {
+                st.exec("slot.set", json!({"id": id}));
+            }),
+            Some(sl) => {
+                r.header("Место для вставки");
+                r.add(Property::text("Подпись", sl.label.clone()), move |st, v| {
+                    if let PropertyValue::Text(s) = v {
+                        st.exec("slot.set", json!({"id": id, "label": s}));
+                    }
+                });
+                r.range("Порядок", sl.n as f64, 0.0, 99.0, 1.0, move |st, x| {
+                    st.exec("slot.set", json!({"id": id, "n": x}));
+                });
+                let is_text = matches!(c.source, Source::Title { .. });
+                if !is_text {
+                    r.add(Property::boolean("Наезд на фото", sl.motion), move |st, v| {
+                        if let PropertyValue::Bool(b) = v {
+                            st.exec("slot.set", json!({"id": id, "motion": b}));
+                        }
+                    });
+                    r.action("Файл", if sl.filled { "Заменить…" } else { "Выбрать…" }, move |st| super::project_templates::pick_for_slot(st, id, !is_video));
+                    if sl.filled {
+                        r.action("Содержимое", "Очистить место", move |st| {
+                            st.exec("slot.clear", json!({"id": id, "empty": true}));
+                        });
+                    }
+                }
+                r.action("Пометка", "Не место для вставки", move |st| {
+                    st.exec("slot.clear", json!({"id": id}));
+                });
+            }
+        }
+    }
     if let Some(mid) = c.media() {
         let linked = p.linked_peer(id);
         let mk = p.media(mid).map(|m| (m.kind, m.duration));

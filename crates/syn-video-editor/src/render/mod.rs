@@ -77,7 +77,7 @@ pub fn child_main(args: &[String]) -> Result<String, String> {
                     println!("progress {i} {n}");
                 }
             })?;
-            let mut s = format!("{} ({:.1} с)", out.display(), started.elapsed().as_secs_f64());
+            let mut s = format!("{} (ролик {}, экспорт занял {:.1} с)", out.display(), crate::doc::tc(opts.range.map(|(a, b)| b - a).unwrap_or(p.duration())), started.elapsed().as_secs_f64());
             for n in notes {
                 s.push_str(&format!("; {n}"));
             }

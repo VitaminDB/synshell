@@ -45,7 +45,7 @@ fn track_kind(s: &str) -> Result<TrackKind, String> {
     }
 }
 
-fn add_track(p: &mut Project, kind: TrackKind, name: Option<String>) -> Id {
+pub(crate) fn add_track(p: &mut Project, kind: TrackKind, name: Option<String>) -> Id {
     let n = p.tracks.iter().filter(|t| t.kind == kind).count() + 1;
     let name = name.unwrap_or_else(|| format!("{}{n}", if kind == TrackKind::Video { "V" } else { "A" }));
     let id = p.alloc();
@@ -193,7 +193,7 @@ fn place_with_splits(p: &mut Project, ti: usize, mut clip: Clip, insert: bool) -
     (id, splits)
 }
 
-fn place(p: &mut Project, ti: usize, clip: Clip, insert: bool) -> Id {
+pub(crate) fn place(p: &mut Project, ti: usize, clip: Clip, insert: bool) -> Id {
     place_with_splits(p, ti, clip, insert).0
 }
 
@@ -229,7 +229,7 @@ fn expand_linked(p: &Project, ids: &[Id]) -> Vec<Id> {
 }
 
 /// Свободен ли интервал `[s, s+d)` на дорожке `ti`.
-fn track_free(p: &Project, ti: usize, s: f64, d: f64, except: Option<Id>) -> bool {
+pub(crate) fn track_free(p: &Project, ti: usize, s: f64, d: f64, except: Option<Id>) -> bool {
     p.tracks[ti].clips.iter().all(|o| Some(o.id) == except || o.end() <= s + EPS || o.start >= s + d - EPS)
 }
 
@@ -295,7 +295,7 @@ fn split_clip(p: &mut Project, id: Id, at: f64) -> Option<Id> {
 }
 
 /// Индекс дорожки: указанная или первая подходящего вида (нет — создаётся).
-fn target_track(p: &mut Project, track: Option<Id>, kind: TrackKind) -> Result<usize, String> {
+pub(crate) fn target_track(p: &mut Project, track: Option<Id>, kind: TrackKind) -> Result<usize, String> {
     if let Some(t) = track {
         let i = p.tracks.iter().position(|x| x.id == t).ok_or_else(|| format!("нет дорожки t{t}"))?;
         if p.tracks[i].kind != kind {
@@ -368,8 +368,8 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
         let vid = p.alloc();
         let aid = p.alloc();
         let ati = audio_track_for_video(p, ti, start, duration, insert);
-        let v_clip = Clip { id: vid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 0.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(aid), graph: None };
-        let a_clip = Clip { id: aid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(vid), graph: None };
+        let v_clip = Clip { id: vid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 0.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(aid), graph: None, fit: String::new(), slot: None };
+        let a_clip = Clip { id: aid, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: Some(vid), graph: None, fit: String::new(), slot: None };
         let (_, v_splits) = place_with_splits(p, ti, v_clip, insert);
         let (_, a_splits) = place_with_splits(p, ati, a_clip, insert);
         relink_splits(p, &v_splits, &a_splits);
@@ -382,7 +382,7 @@ fn clip_add(ed: &mut Editor, a: &Args) -> Res {
         ));
     }
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
+    let clip = Clip { id, source: Source::Media { media: mid }, start, duration, offset, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None, fit: String::new(), slot: None };
     place(p, ti, clip, insert);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} {} на t{} {}–{}", m.name(), p.tracks[ti].id, tc(c.start), tc(c.end())), json!({"id": id})))
@@ -419,7 +419,7 @@ fn title_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
+    let clip = Clip { id, source: Source::Title { text: text.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None, fit: String::new(), slot: None };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} титр «{text}» {}–{}", tc(c.start), tc(c.end())), json!({"id": id})))
@@ -459,7 +459,7 @@ fn shape_add(ed: &mut Editor, a: &Args) -> Res {
         },
     };
     let id = p.alloc();
-    let clip = Clip { id, source: Source::Shape { kind: kind.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None };
+    let clip = Clip { id, source: Source::Shape { kind: kind.clone(), style }, start: at, duration, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None, fit: String::new(), slot: None };
     place(p, ti, clip, false);
     let c = p.clip(id).unwrap();
     Ok(Out::with(format!("c{id} фигура {} {}–{}", crate::doc::shape_title(&kind), tc(c.start), tc(c.end())), json!({"id": id})))
@@ -723,7 +723,7 @@ static CLIP_SET: Command = Command {
     title: "Свойства клипа",
     shortcut: "",
     keywords: "clip speed volume скорость громкость текст имя фигура наложение blend родитель parent",
-    help: "Один клип (id) или несколько сразу (ids: [c1, c2] — одним шагом отмены, при ошибке у любого не меняется ни один). Скорость (speed: 2 — вдвое быстрее, длина клипа меняется), громкость (volume: 0–4), имя, текст титра, вид фигуры (shape), стиль титра или фигуры (style), режим наложения слоя (blend: normal|multiply|screen|overlay|add|darken|lighten|soft_light|hard_light|difference), родительский клип (parent: c… или 0/\"\" чтобы отвязать).",
+    help: "Один клип (id) или несколько сразу (ids: [c1, c2] — одним шагом отмены, при ошибке у любого не меняется ни один). Скорость (speed: 2 — вдвое быстрее, длина клипа меняется), громкость (volume: 0–4), имя, текст титра, вид фигуры (shape), стиль титра или фигуры (style), режим наложения слоя (blend: normal|multiply|screen|overlay|add|darken|lighten|soft_light|hard_light|difference), родительский клип (parent: c… или 0/\"\" чтобы отвязать), fit: contain|cover — вписать видео/фото целиком или заполнить кадр.",
     args: &[
         arg("id", Ty::Id, "клип (c…)"),
         arg("ids", Ty::Ids, "несколько клипов сразу (вместо id)"),
@@ -735,6 +735,7 @@ static CLIP_SET: Command = Command {
         arg("style", Ty::Object, "стиль титра или фигуры (поля сливаются)"),
         arg("blend", Ty::Str, "режим наложения слоя"),
         arg("parent", Ty::Any, "родительский клип (c… или 0/\"\" чтобы отвязать)"),
+        arg("fit", Ty::Choice(&["contain", "cover"]), "как видео/фото ложится в кадр: contain — целиком (поля), cover — заполнить кадр (края обрезаются)"),
     ],
     danger: false,
     run: clip_set,
@@ -857,6 +858,9 @@ fn clip_set_one(ed: &mut Editor, a: &Args) -> Res {
     }
     if let Some(b) = blend {
         cm.blend = if b == "normal" { String::new() } else { b };
+    }
+    if let Some(f) = a.str("fit")? {
+        cm.fit = if f == "cover" { f } else { String::new() };
     }
     if let Some(par) = parent_opt {
         cm.parent = par;

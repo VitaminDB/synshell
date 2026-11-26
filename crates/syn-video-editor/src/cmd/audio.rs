@@ -201,7 +201,7 @@ fn subtitles(ed: &mut Editor, a: &Args) -> Res {
                 style.insert(k.clone(), v.clone());
             }
         }
-        p.tracks[ti].clips.push(crate::doc::Clip { id, source: crate::doc::Source::Title { text, style }, start: s, duration: e - s, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None });
+        p.tracks[ti].clips.push(crate::doc::Clip { id, source: crate::doc::Source::Title { text, style }, start: s, duration: e - s, offset: 0.0, speed: 1.0, volume: 1.0, name: String::new(), effects: Vec::new(), transition: None, keys: Default::default(), blend: String::new(), parent: None, link: None, graph: None, fit: String::new(), slot: None });
     }
     p.tracks[ti].clips.sort_by(|a, b| a.start.total_cmp(&b.start));
     Ok(Out::with(format!("Субтитров: {n} ({}–{})", tc(lo), tc(hi)), json!({"count": n})))

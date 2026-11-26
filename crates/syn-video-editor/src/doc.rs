@@ -21,6 +21,9 @@ pub struct Project {
     pub tracks: Vec<Track>,
     #[serde(default = "first_id")]
     pub next_id: Id,
+    /// Проект — шаблон с местами для вставки (G).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<TemplateInfo>,
 }
 
 fn first_id() -> Id {
@@ -246,7 +249,42 @@ pub struct Clip {
     /// при графе `color/blur/sharpen/vignette/lut/upscale` берутся только из него.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<crate::framegraph::FrameGraph>,
+    /// Как медиа ложится в кадр: пусто — вписать целиком, `cover` — заполнить (с обрезкой краёв).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fit: String,
+    /// Место для вставки шаблона проекта (G): сюда пользователь подставляет свой файл или текст.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<Slot>,
 }
+
+/// Место для вставки: подпись, порядок заполнения; медиа или текст — по
+/// источнику клипа (титр — текст, остальное — файл). Незаполненное медиа-место —
+/// клип-заливка (плашка с подписью), заполненное — клип с медиа.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Slot {
+    pub label: String,
+    /// Порядок заполнения (файлы раскладываются по возрастанию).
+    #[serde(default)]
+    pub n: u32,
+    /// Фото — плавный наезд или панорама (Ken Burns) при заполнении.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub motion: bool,
+    /// Место заполнено (очистка возвращает плашку).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub filled: bool,
+}
+
+/// Описание шаблона проекта (G).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct TemplateInfo {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Раздел: reels, slideshow, intro, promo, music…
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub category: String,
+}
+
+pub const PLACEHOLDER_COLOR: &str = "#2b3140";
 
 fn is_normal_blend(s: &String) -> bool {
     s.is_empty() || s == "normal"
@@ -550,7 +588,7 @@ impl Default for Project {
 
 impl Project {
     pub fn new(name: &str) -> Self {
-        let mut p = Self { version: FORMAT_VERSION, name: name.to_string(), settings: Settings::default(), media: Vec::new(), tracks: Vec::new(), next_id: 1 };
+        let mut p = Self { version: FORMAT_VERSION, name: name.to_string(), settings: Settings::default(), media: Vec::new(), tracks: Vec::new(), next_id: 1, template: None };
         let v = p.alloc();
         p.tracks.push(Track { id: v, kind: TrackKind::Video, name: "V1".into(), muted: false, hidden: false, clips: Vec::new() });
         let a = p.alloc();
@@ -662,6 +700,9 @@ impl Project {
         let s = &self.settings;
         let mut o = String::new();
         let _ = writeln!(o, "Проект «{}»: {}x{} @ {} fps, длительность {}", self.name, s.width, s.height, fmt_fps(s.fps), tc(self.duration()));
+        if let Some(t) = &self.template {
+            let _ = writeln!(o, "Шаблон проекта{}: места для вставки — slot.list / slot.fill", if t.description.is_empty() { String::new() } else { format!(" ({})", t.description) });
+        }
         if self.media.is_empty() {
             let _ = writeln!(o, "Медиатека пуста");
         } else {
@@ -703,7 +744,14 @@ impl Project {
                     Source::Shape { kind, .. } => format!("фигура {}", shape_title(kind)),
                 };
                 let mut extra = Vec::new();
-                if !c.name.trim().is_empty() {
+                if let Some(sl) = &c.slot {
+                    let state = if matches!(c.source, Source::Title { .. }) { "текст" } else if sl.filled { "заполнено" } else { "пусто" };
+                    extra.push(format!("МЕСТО №{} «{}» ({state}{})", sl.n, sl.label, if sl.motion { ", наезд" } else { "" }));
+                }
+                if c.fit == "cover" {
+                    extra.push("заполняет кадр".into());
+                }
+                if !c.name.trim().is_empty() && c.slot.as_ref().is_none_or(|sl| sl.label != c.name) {
                     extra.push(format!("имя «{}»", c.name.trim()));
                 }
                 if c.offset > 0.0 {

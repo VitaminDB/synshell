@@ -619,6 +619,8 @@ pub fn view(st: St) -> impl Widget {
     top_list.sort_by(|a, b| priority(&a.0).cmp(&priority(&b.0)).then_with(|| a.0.cmp(&b.0)));
     // D5: графы сценария (рецепты ассистента) — свой раздел галереи
     top_list.push(("Графы".into(), 0));
+    // G3: шаблоны проектов (готовые ролики с местами для своих файлов)
+    top_list.insert(0, ("Проекты".into(), 0));
 
     let search_bar = Row::new()
         .gap(6.0)
@@ -718,6 +720,9 @@ pub fn view(st: St) -> impl Widget {
         let tile_size = st.tile_size.get().clamp(100.0, 280.0);
         if top == "Графы" {
             return vec![graphs_view(st, &q, tile_size, sub_cat)];
+        }
+        if top == "Проекты" {
+            return vec![super::project_templates::view(st, &q, tile_size)];
         }
         let all = catalog();
         if all.is_empty() {
