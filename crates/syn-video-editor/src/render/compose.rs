@@ -1155,7 +1155,23 @@ impl FrameSource {
                             f0.clone()
                         } else {
                             let ov = crate::fusion::overrides_from_title(&comp, text, style);
-                            let f = crate::fusion::eval::render(&comp, fw, fh, lt, c.duration, p.settings.fps, &[], &ov);
+                            // Шаблоны рассчитаны на 16:9: в вертикальном кадре граф
+                            // исполняется полосой 16:9 во всю ширину по центру, иначе
+                            // текст и плашки (размеры — доля ширины, места — доля высоты)
+                            // разъезжаются и вылезают за край.
+                            let f = if fh > fw {
+                                let bh = ((fw * 9 / 16) & !1).max(2);
+                                let band = crate::fusion::eval::render(&comp, fw, bh, lt, c.duration, p.settings.fps, &[], &ov);
+                                let mut rgba = vec![0u8; (fw * fh * 4) as usize];
+                                let y0 = ((fh - bh) / 2) as usize;
+                                let row = (fw * 4) as usize;
+                                for y in 0..(band.height as usize).min(fh as usize - y0) {
+                                    rgba[(y0 + y) * row..(y0 + y + 1) * row].copy_from_slice(&band.rgba[y * row..(y + 1) * row]);
+                                }
+                                syngui::video::RgbaFrame { width: fw, height: fh, pts: band.pts, rgba: Arc::new(rgba) }
+                            } else {
+                                crate::fusion::eval::render(&comp, fw, fh, lt, c.duration, p.settings.fps, &[], &ov)
+                            };
                             self.fusion_last.insert(c.id, (sig, f.clone()));
                             f
                         };

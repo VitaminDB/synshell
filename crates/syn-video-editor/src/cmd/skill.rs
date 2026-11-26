@@ -17,6 +17,9 @@ const BUILTIN: &[(&str, &str)] = &[
     ("talking_head", include_str!("../../library/skills/talking_head.rhai")),
     ("podcast", include_str!("../../library/skills/podcast.rhai")),
     ("beat_clip", include_str!("../../library/skills/beat_clip.rhai")),
+    ("bright_montage", include_str!("../../library/skills/bright_montage.rhai")),
+    ("cinematic_montage", include_str!("../../library/skills/cinematic_montage.rhai")),
+    ("calm_montage", include_str!("../../library/skills/calm_montage.rhai")),
 ];
 
 pub struct Skill {
@@ -95,7 +98,7 @@ static RUN: Command = Command {
     title: "Выполнить навык монтажа",
     shortcut: "",
     keywords: "навык skill reels shorts вертикальный говорящая голова подкаст клип под музыку по битам",
-    help: "Выполнить навык монтажа (skill.list): reels — вертикальный ролик 9:16 с вырезанными паузами и крупными субтитрами; talking_head — говорящая голова: паузы, наезды на чередующихся кусках, субтитры; podcast — подкаст: паузы, подписи дикторов; beat_clip — клип под музыку: нарезка роликов по ударам трека. params — объект параметров навыка. Всё — одним шагом отмены.",
+    help: "Выполнить навык монтажа (skill.list): reels — вертикальный ролик 9:16 с вырезанными паузами и крупными субтитрами; talking_head — говорящая голова: паузы, наезды на чередующихся кусках, субтитры; podcast — подкаст: паузы, подписи дикторов; beat_clip — клип под музыку: нарезка роликов по ударам трека; bright_montage — яркий промо-монтаж (Fusion-переходы, наезды, блики, свуши, титры шаблонами), cinematic_montage — кинематографичный (прямые склейки, наплывы, каше, зерно), calm_montage — спокойный (наплывы, нижние трети). params — объект параметров навыка. Всё — одним шагом отмены.",
     args: &[req("name", Ty::Str, "навык"), arg("params", Ty::Object, "параметры навыка")],
     danger: false,
     run,

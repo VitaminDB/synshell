@@ -72,7 +72,21 @@ fn eff(c: &Clip, kind: &str) -> Option<f64> {
 }
 
 /// Экспортировать проект в `out` (mp4/mov/mkv/webm по расширению). `progress(кадр, всего)`.
+/// Аппаратный кодер NVENC отказал (видеопамять занята нейросетями) — повтор на x264.
 pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usize, usize)) -> Result<Vec<String>, String> {
+    match export_once(p, out, opts, &mut progress) {
+        Err(e) if opts.encoder.as_deref().is_none_or(|x| x == "auto") && nvenc_ok() && (e.contains("nvenc") || e.contains("NVENC") || e.contains("CUDA") || e.contains("Broken pipe") || e.contains("OpenEncodeSessionEx")) => {
+            let mut o = opts.clone();
+            o.encoder = Some("x264".into());
+            let mut notes = export_once(p, out, &o, &mut progress)?;
+            notes.push(format!("NVENC отказал ({}) — кодер x264", e.lines().next().unwrap_or("")));
+            Ok(notes)
+        }
+        r => r,
+    }
+}
+
+fn export_once(p: &Project, out: &Path, opts: &Opts, progress: &mut impl FnMut(usize, usize)) -> Result<Vec<String>, String> {
     let (w, h) = (p.settings.width & !1, p.settings.height & !1);
     let fps = p.settings.fps;
     let (t0, t1) = opts.range.unwrap_or((0.0, p.duration()));
@@ -136,7 +150,10 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
                 for (i, t, frames) in frx {
                     let pa = shared.clone();
                     let fr = frames.clone();
-                    let mut r = off.render(move || compose::frame_widget(&pa, t, &frames, 1.0));
+                    // паника wgpu на дискретной карте (буфер испорчен нехваткой
+                    // видеопамяти) — как ошибка кадра: дальше на встроенной
+                    let mut r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off.render(move || compose::frame_widget(&pa, t, &frames, 1.0))))
+                        .unwrap_or_else(|e| Err(format!("GPU: {}", e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "паника".into()).lines().next().unwrap_or(""))));
                     if let (Err(e), false) = (&r, off.low_power) {
                         tracing::warn!("экспорт: {e} — дальше на встроенной видеокарте");
                         notes_gpu.push(format!("кадры с {} — на встроенной видеокарте ({e})", crate::doc::tc(t)));
@@ -171,10 +188,12 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
         (result.and(w), notes)
     });
     let out_ = child.wait_with_output().map_err(|e| format!("ffmpeg: {e}"))?;
-    result?;
+    // кодер упал — его сообщение важнее нашего «Broken pipe»
     if !out_.status.success() {
-        return Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out_.stderr).trim()));
+        let err = String::from_utf8_lossy(&out_.stderr).trim().to_string();
+        return Err(format!("ffmpeg: {}", if err.is_empty() { result.err().unwrap_or_default() } else { err }));
     }
+    result?;
     let mut notes = notes;
     notes.dedup();
     notes.push(format!("кодер {}", codec.name));

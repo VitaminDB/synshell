@@ -498,6 +498,10 @@ impl<'a> RenderCtx<'a> {
         } else if let Some(idx) = self.text_order.iter().position(|n| n == name) {
             if let Some(s) = self.overrides.texts.get(idx) {
                 s.clone()
+            } else if !self.overrides.texts.is_empty() {
+                // строк у пользователя меньше, чем текстовых слоёв: лишние слои
+                // пусты, а не заглушка шаблона («TEMPLATE», «SUPER LOWER THIRD…»)
+                String::new()
             } else {
                 self.read_text_input(name)
             }
@@ -512,9 +516,13 @@ impl<'a> RenderCtx<'a> {
             if self.comp.tools.get(sop).is_some_and(|t| t.ty == "StyledTextFollower") {
                 let op = self.num(sop, "Opacity1", 1.0, frame) as f32;
                 follower_alpha = op.clamp(0.0, 1.0);
-                let off = self.pt(sop, "Offset1", (0.5, 0.5), frame);
-                if (off.0 - 0.5).abs() > 1e-4 || (off.1 - 0.5).abs() > 1e-4 {
-                    follower_offset = (off.0 - 0.5, off.1 - 0.5);
+                // Offset у Follower — сдвиг от места (по умолчанию 0,0), не точка
+                // кадра: путь PolyPath даёт 0.5 + точка, и шаблоны рассчитаны на это
+                // (Lower_Third_01: путь X 3.5 → −0.5 — буквы въезжают справа и
+                // встают на место при сдвиге 0).
+                let off = self.pt(sop, "Offset1", (0.0, 0.0), frame);
+                if off.0.abs() > 1e-4 || off.1.abs() > 1e-4 {
+                    follower_offset = (off.0, off.1);
                 }
             }
         }

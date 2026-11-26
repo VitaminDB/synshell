@@ -7,7 +7,12 @@ description: Смонтировать ролик из своего матери�
 1. **Материал.** `media_import` (файлы или папку целиком) → `media_list`. Длинное видео с речью — `media_index` (расшифровка, сцены, дикторы), чтобы потом находить моменты через `media_search`.
 2. **Отбор.** Нужные куски — `media_search` («где кот включает фонарь») → `clip_add {media, offset, duration}`. Паузы в речи — `clip_cut_silence`, лишние фразы — `clip_cut_ranges` по таймкодам `media_transcript`.
 3. **Порядок и ритм.** `clip_move`, `clip_trim`, `clip_split`; удалять со сдвигом — `clip_remove ripple:true`. Однотипные правки по многим клипам — одним `script_run`.
-4. **Склейки.** `transition_set` на стык (`transition_list` — что есть; Fusion-переходы — навык fusion-templates). Не ставь переход на каждую склейку: 1–3 на ролик.
+4. **Стиль монтажа — по жанру** (после того как нарезка собрана, одним `skill_run`; не смешивай стили):
+   - промо, реклама, Reels, клип, анонс → `skill_run bright_montage` (mood: epic | warm | energetic; title, subtitle, cta, music) — переходы Fusion из библиотеки, наезды, LUT, свечение, блики на склейках, свуши, анимированные титры из шаблонов;
+   - фильм, мультфильм, история, сцены с сюжетом → `skill_run cinematic_montage` (title, credits, music) — прямые склейки по действию, редкие наплывы, проявление и затемнение, кинокаше 2.39:1, плёночное зерно; без свушей, глитчей и прыгающих титров;
+   - инструкция, интервью, обзор, презентация → `skill_run calm_montage` (title, notes, music);
+   - жанр неясен — спроси или возьми calm_montage.
+   Отдельные переходы вручную — `transition_set` (`transition_list`; Fusion — навык fusion-templates).
 5. **Звук.** Музыка — навык music-for-video. Громкость клипов — `clip_set volume`, плавно — `effect_add audio_fade_in/out`.
 6. **Титры.** `title_add` (стиль и анимация — навык motion-graphics), субтитры — навык subtitles.
 7. **Цвет.** Навык color-grade.

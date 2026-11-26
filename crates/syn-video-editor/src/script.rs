@@ -178,6 +178,19 @@ pub fn run_with(ed: &mut Editor, code: &str, params: Value) -> Result<String, St
         e.register_fn("selection", move || -> Array { ed.borrow().selection.iter().map(|i| Dynamic::from(*i as i64)).collect() });
         let ed = shared.clone();
         e.register_fn("playhead", move || ed.borrow().playhead);
+        // файлы библиотеки ассетов (DaVinci Resolve: Футажи, Звуки, LUT…):
+        // library("Звуки/Свуши", "whoosh", 10) — пути, отобранные по словам
+        e.register_fn("library", |sub: &str, query: &str, limit: i64| -> Array {
+            let root = crate::fusion::library().join(sub);
+            let q: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
+            let mut v: Vec<std::path::PathBuf> = walkdir_files(&root);
+            v.retain(|p| {
+                let n = p.to_string_lossy().to_lowercase();
+                q.iter().all(|w| n.contains(w.as_str()))
+            });
+            v.sort();
+            v.into_iter().take(limit.max(1) as usize).map(|p| Dynamic::from(p.display().to_string())).collect()
+        });
         // список из JSON: пустые поля проекта не пишутся — () → []
         e.register_fn("list", |d: Dynamic| -> Array { d.try_cast::<Array>().unwrap_or_default() });
         // число из JSON (целое или дробное) → дробное
@@ -239,4 +252,22 @@ pub fn check(code: &str) -> Result<(), String> {
             _ => e.to_string(),
         }
     })
+}
+
+/// Файлы каталога рекурсивно (медиа, звук, .setting, .cube).
+fn walkdir_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    out
 }

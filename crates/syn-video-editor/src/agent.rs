@@ -38,7 +38,7 @@ pub const SYSTEM: &str = "Ты — монтажёр во встроенном И
 - Время — секунды числом или «м:сс.ммм».
 - Проект сохраняет программа сама. project_save с path, project_new и project_open — только если пользователь прямо просит другой файл или новый проект.
 - Видео со звуком clip_add ставит связанной парой: картинка на V-дорожку, звук на A-дорожку (правки идут синхронно); clip_detach_audio разрывает связь.
-- Готовые сценарии монтажа — skill_list / skill_run (reels, talking_head, podcast, beat_clip); найти момент в материале — media_search (после media_index).
+- Готовые сценарии монтажа — skill_list / skill_run (reels, talking_head, podcast, beat_clip); стиль монтажа — по жанру: промо/Reels/клип → bright_montage, фильм/мультфильм/история → cinematic_montage, инструкция/интервью → calm_montage (неясно — спроси или calm_montage); найти момент в материале — media_search (после media_index).
 - Всё, что есть в меню окна (вид, панели, масштаб просмотра, галереи), — ui_list и ui_run.
 - Если чего-то сделать нельзя (нет инструмента) — так и скажи, не выдумывай.";
 

@@ -134,6 +134,7 @@ fn handle(st: St, req: Value) -> Value {
                 match l {
                     super::AiLine::Text(t) => text.push_str(t),
                     super::AiLine::Tool(t) => tools.push(Value::from(t.clone())),
+                    super::AiLine::Result(r) => tools.push(Value::from(format!("  = {r}"))),
                     super::AiLine::Error(e) => {
                         text.push_str("\nОшибка: ");
                         text.push_str(e);
