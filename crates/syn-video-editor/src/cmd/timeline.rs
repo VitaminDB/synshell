@@ -394,7 +394,7 @@ static TITLE_ADD: Command = Command {
     title: "Добавить титр",
     shortcut: "Ctrl+T",
     keywords: "title text титр надпись текст подпись анимация печать разброс символы слова строки",
-    help: "Текстовый титр поверх видео. Без track — на верхнюю видеодорожку «Титры» (создаётся). style: {size, color, font, position: top|center|bottom, box: bool, by: all|char|word|line (целиком, по символам, словам, строкам), in/out: fade|slide|pop|scatter|type|none (появление, сдвиг, выпрыгивание, разброс, печать), anim: с (0.4), stagger: 0–1 (разбег элементов, 0.65), ease: out|ease|linear|in|back|elastic|bounce}.",
+    help: "Текстовый титр поверх видео (отдельная надпись; название и финальные титры всего ролика — параметрами стиля монтажа skill.run bright_montage | cinematic_montage | calm_montage). Без track — на верхнюю видеодорожку «Титры» (создаётся). style: {size, color, font, position: top|center|bottom, box: bool, by: all|char|word|line (целиком, по символам, словам, строкам), in/out: fade|slide|pop|scatter|type|none (появление, сдвиг, выпрыгивание, разброс, печать), anim: с (0.4), stagger: 0–1 (разбег элементов, 0.65), ease: out|ease|linear|in|back|elastic|bounce}.",
     args: &[req("text", Ty::Str, "текст"), arg("at", Ty::Time, "начало (по умолчанию — позиция воспроизведения)"), arg("duration", Ty::Time, "длительность (3 с)"), arg("track", Ty::Id, "видеодорожка (t…)"), arg("style", Ty::Object, "оформление")],
     danger: false,
     run: title_add,

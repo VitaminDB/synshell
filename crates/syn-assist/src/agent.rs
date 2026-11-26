@@ -116,7 +116,14 @@ pub struct Agent {
     pub params: Params,
     /// Навыки приложения ([`Agent::with_skill_dirs`]) — без системных `models`/`nodes`.
     pub app_skills: bool,
+    /// Подсказка модели, когда повтор вызова пропущен: у каждой программы своя
+    /// (реверс — про run_rhai и decompile, монтаж — про команды редактора);
+    /// `None` — общая [`REPEAT_HINT`].
+    pub repeat_hint: Option<String>,
 }
+
+/// Общая подсказка при пропущенном повторе вызова.
+pub const REPEAT_HINT: &str = "Похожий вызов уже повторялся — пропущен. Не повторяй одно и то же: смени подход, объедини проверки в один вызов (сценарий с циклом), а если нужного не получается — переходи к следующему пункту запроса, сохрани уже полученное и честно скажи, что не вышло.";
 
 /// Забирает накопившиеся сообщения пользователя (пусто — нет новых).
 pub type Inbox = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
@@ -133,7 +140,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new(), app_skills: false }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new(), app_skills: false, repeat_hint: None }
     }
 
     /// Очередь сообщений пользователя во время хода (см. [`Agent::inbox`]).
@@ -490,7 +497,7 @@ impl Agent {
                         &call.name,
                         synshell_tr::t!("повтор — пропущено"),
                         false,
-                        "Похожий вызов уже повторялся — пропущен. Не долби одно и то же (hexdump кусков, disasm соседних адресов): много проверок делай ОДНИМ run_rhai (цикл внутри скрипта), а не десятком вызовов. Сведения о файле — file_info() (формат, сегменты, VA, entry, энтропия), не hexdump заголовка и не bash (file/struct/xxd/readelf). Данные по имени символа — read_data (не bytes/search/strings); строки с подстрокой и их функции-ссылатели — run_rhai string_refs(\"…\"); кто вызывает функцию с аргументами-константами — call_args(\"имя\", N); кто ссылается/вызывает — decompile_export refs_to/calls; декомпиляция — decompile/decompile_export. Адреса — это виртуальные адреса образа (VA, как в листинге), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное.".into(),
+                        self.repeat_hint.clone().unwrap_or_else(|| REPEAT_HINT.to_string()),
                         Vec::new(),
                     )
                 } else {
@@ -719,6 +726,7 @@ impl Agent {
             inbox: None,
             params: self.params.clone(),
             app_skills: self.app_skills,
+            repeat_hint: self.repeat_hint.clone(),
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();
