@@ -116,6 +116,14 @@ fn handle(st: St, req: Value) -> Value {
                 "duration": e.project.duration(),
             }})
         }),
+        // новый чат агента (чистая лента для автоматического прогона)
+        Some("ai_new") => on_main(move || {
+            if st.ai_busy.get_untracked() {
+                return json!({"ok": false, "error": "агент занят"});
+            }
+            super::ai_chat::new_chat(st);
+            json!({"ok": true, "text": "новый чат"})
+        }),
         // ход агента: занят ли и что он написал в последнем ходе (для автоматических прогонов)
         Some("ai_state") => on_main(move || {
             let log = st.ai_log.get_untracked();

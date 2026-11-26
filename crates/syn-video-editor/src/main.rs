@@ -83,6 +83,7 @@ fn main() {
             }
             "--remote-state" => serde_json::json!({"op": "state"}),
             "--remote-ai-state" => serde_json::json!({"op": "ai_state"}),
+            "--remote-ai-new" => serde_json::json!({"op": "ai_new"}),
             "--remote-ai" => serde_json::json!({"ai": raw.get(1).cloned().unwrap_or_default()}),
             _ => {
                 eprintln!("{}", usage());

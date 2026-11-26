@@ -20,6 +20,11 @@
       "type": "text",
       "description": "визуальный стиль по-английски (например 3D cartoon, anime, cinematic)",
       "default": "cinematic"
+    },
+    "model": {
+      "type": "text",
+      "description": "видеомодель: minimax-h3-fl2va (MiniMax-H3) или ltx-2-3-22b-distilled-1-1 (LTX-2.3); пусто — по умолчанию",
+      "default": ""
     }
   },
   "nodes": [
@@ -42,7 +47,8 @@
       "prompt": "{{item}}, {{style}}",
       "first_frame": "{{opening.file}}",
       "seconds": "{{shot}}",
-      "chain": true
+      "chain": true,
+      "model": "{{model}}"
     },
     {
       "id": "film",
