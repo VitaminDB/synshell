@@ -52,6 +52,13 @@ impl Tool for CmdTool {
         format!("{} {a}", self.cmd.title)
     }
     fn run(&self, args: &Value) -> ToolResult {
+        // команды окна (графы панели «Граф», действия окна) идут в главный поток и
+        // ждут его — без блокировки документа, иначе главный поток, ждущий её для
+        // отрисовки, и агент ждали бы друг друга
+        if self.cmd.id.starts_with("nodes.") || self.cmd.id.starts_with("ui.") {
+            let mut scratch = crate::editor::Editor::new();
+            return cmd::run_cmd(&mut scratch, self.cmd, args).map(|o| ToolOutput::text(o.text));
+        }
         let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
         cmd::run_cmd(&mut ed, self.cmd, args).map(|o| ToolOutput::text(o.text))
     }

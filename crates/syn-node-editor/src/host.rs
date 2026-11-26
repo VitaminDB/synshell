@@ -37,7 +37,8 @@ pub trait EditorHost: Send + Sync + 'static {
 
     /// Файл открытых графов (`EditorWorkspace`).
     fn workspace_path(&self) -> PathBuf {
-        home().join(".config").join(self.app_name()).join("workspace.json")
+        // XDG_CONFIG_HOME, как у остальной программы; иначе ~/.config
+        std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join(self.app_name()).join("workspace.json")
     }
 
     /// Открыть файл или папку системной программой.

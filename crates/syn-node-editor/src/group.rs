@@ -372,11 +372,20 @@ pub fn describe(ctx: &NodeEditorCtx) -> String {
     }
     let _ = writeln!(o, "Провода:");
     for c in &conns {
-        let inner = match (own.get(&c.from_node), own.get(&c.to_node)) {
-            (Some(a), Some(b)) if top(&own, *a) == top(&own, *b) => " (внутри подграфа)",
-            _ => "",
+        let (tf, tt) = (top(&own, c.from_node), top(&own, c.to_node));
+        let note = if tf == tt && (tf != c.from_node || tt != c.to_node) {
+            " (внутри подграфа)".to_string()
+        } else {
+            let mut v = Vec::new();
+            if tf != c.from_node {
+                v.push(format!("из выхода подграфа #{}", tf.0));
+            }
+            if tt != c.to_node {
+                v.push(format!("во вход подграфа #{}", tt.0));
+            }
+            if v.is_empty() { String::new() } else { format!(" ({})", v.join(", ")) }
         };
-        let _ = writeln!(o, "  #{}.{} → #{}.{}{inner}", c.from_node.0, c.from_port, c.to_node.0, c.to_port);
+        let _ = writeln!(o, "  #{}.{} → #{}.{}{note}", c.from_node.0, c.from_port, c.to_node.0, c.to_port);
     }
     o
 }

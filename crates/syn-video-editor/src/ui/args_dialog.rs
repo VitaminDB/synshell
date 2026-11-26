@@ -76,6 +76,8 @@ fn parse(ty: Ty, s: &str) -> std::result::Result<Value, String> {
         Ty::Ids => Value::Array(list(&[',', ' ', ';'])),
         Ty::Paths => Value::Array(list(&['\n', ';'])),
         Ty::Object | Ty::Array => serde_json::from_str(t).map_err(|e| format!("JSON: {e}"))?,
+        // список или объект — JSON (expose блока и т. п.), иначе число, иначе строка
+        Ty::Any if t.starts_with('[') || t.starts_with('{') => serde_json::from_str(t).map_err(|e| format!("JSON: {e}"))?,
         Ty::Any => t.replace(',', ".").parse::<f64>().map(Value::from).unwrap_or_else(|_| Value::from(t.to_string())),
     })
 }
@@ -217,6 +219,7 @@ fn card(st: St, c: &'static cmd::Command, d: &Draft) -> impl Widget {
                     Ty::Ids => "c1, c2",
                     Ty::Object => "{\"ключ\": значение}",
                     Ty::Array => "[…]",
+                    Ty::Any => "число, текст или JSON [..] / {..}",
                     _ => "",
                 };
                 Box::new(TextField::new().text(v).placeholder(ph).on_change(move |s: &str| set_val(st, i, s.to_string())))

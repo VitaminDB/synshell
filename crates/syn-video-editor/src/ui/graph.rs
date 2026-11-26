@@ -309,7 +309,9 @@ static JOB_EXEC: JobExec = JobExec;
 fn input_files(node: &syn_node_editor::types::NodeInstance, ctx: &syn_node_editor::NodeEditorCtx, port: &str) -> Vec<PathBuf> {
     let conns = ctx.connections.get_untracked();
     let Some(c) = conns.iter().find(|c| c.to_node == node.id && c.to_port == port) else { return Vec::new() };
-    ctx.values.get_untracked().get(&(c.from_node, c.from_port)).map(files_of).unwrap_or_default()
+    let v = ctx.values.get_untracked().get(&(c.from_node, c.from_port)).cloned();
+    tracing::info!(target: "node-editor.run", from = c.from_node.0, port = c.from_port, value = ?v.as_ref().map(|v| format!("{v:?}").chars().take(160).collect::<String>()), "вход ноды");
+    v.as_ref().map(files_of).unwrap_or_default()
 }
 
 fn field_f(node: &syn_node_editor::types::NodeInstance, name: &str, d: f32) -> f32 {
@@ -434,6 +436,7 @@ fn run_vfx(node: &syn_node_editor::types::NodeInstance, ctx: &syn_node_editor::N
         return;
     }
     let files = input_files(node, ctx, "media");
+    tracing::info!(target: "node-editor.run", node = node.id.0, kind, files = files.len(), "нейрофильтр: вход");
     if files.is_empty() {
         if let Some(st) = ST.get().copied() {
             st.toast.set(Some("Нейрофильтр: подайте на вход файлы (например, «Медиатека проекта»)".into()));
