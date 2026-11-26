@@ -576,3 +576,13 @@
 "нет ответа сети" = "şebekeden yanıt yok"
 "(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(şebeke yanıt bekliyor: synmodem ussd reply METİN)"
 "{e}. Разблокируйте iPhone и нажмите «Доверять»" = "{e}. iPhone’un kilidini açın ve “Güven”e dokunun"
+
+# src/screenrec.rs
+"уже идёт запись в {path}" = "zaten {path} dosyasına kaydediliyor"
+"не запустилась syn-screencast" = "syn-screencast başlamadı"
+"запись не началась ({code}): {why}" = "kayıt başlamadı ({code}): {why}"
+"запись не началась за 20 с: {why}" = "kayıt 20 sn içinde başlamadı: {why}"
+"запись не идёт" = "kayıt yapılmıyor"
+"записи не было" = "kayıt yoktu"
+"запись не завершилась (pid {pid})" = "kayıt bitmedi (pid {pid})"
+"нет сведений о записи" = "kayıt bilgisi yok"

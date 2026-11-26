@@ -398,7 +398,7 @@ pub const PAGES: &[PageDef] = &[
         title: n_!("Сеанс"),
         icon: icons::SETTINGS,
         group: n_!("Система"),
-        keywords: n_!("оболочка переменные окружения xwayland x11 разрешение wine игры мелкий интерфейс снимки"),
+        keywords: n_!("оболочка переменные окружения xwayland x11 разрешение wine игры мелкий интерфейс снимки запись экрана видео микрофон"),
         build: system::general,
     },
     PageDef {

@@ -305,7 +305,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 let _ = std::fs::create_dir_all(&d);
                 crate::launchers::open_path(&d);
             }))
-            .child(crate::popup::menu_item(gl::SETTINGS, t!("Параметры записи…"), || crate::actions::spawn("synsettings session")));
+            .child(crate::popup::menu_item(gl::SETTINGS, t!("Параметры записи…"), || crate::actions::spawn("synsettings general")));
         Box::new(col) as Box<dyn Widget>
     }))
 }

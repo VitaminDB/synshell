@@ -1,0 +1,11 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/record.rs
+"размер экрана изменился ({w}x{h}) — запись остановлена" = "ekran boyutu değişti ({w}x{h}) — kayıt durduruldu"
+"для записи области нужна --region X,Y,Ш,В" = "alan kaydı için --region X,Y,G,Y gerekir"
+"нет окна {id}" = "{id} penceresi yok"
+"нет активного окна" = "etkin pencere yok"
+"слишком маленькая область" = "alan çok küçük"
+"композитор не отдал кадр за 5 с" = "birleştirici 5 sn içinde kare vermedi"
+"нет видеокодера: {errs}" = "video kodlayıcı yok: {errs}"

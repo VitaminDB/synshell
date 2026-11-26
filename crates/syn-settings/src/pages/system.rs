@@ -1076,9 +1076,52 @@ pub fn general() -> W {
                     text_row(&t!("Каталог снимков экрана"), "", op!["general", "screenshot_dir"], &g.screenshot_dir, "~/Pictures/Screenshots"),
                 ],
             ),
+            recording_group(&c.recording),
             x11_modes_group(&c),
             x11_group(&c),
             group(&t!("Переменные окружения"), env_rows),
+        ],
+    )
+}
+
+fn recording_group(r: &synshell_common::config::Recording) -> W {
+    let fps = Dropdown::new()
+        .width(220.0)
+        .item(DropdownItem::new("30", t!("30 к/с")))
+        .item(DropdownItem::new("60", t!("60 к/с")))
+        .selected(if r.fps <= 30 { "30" } else { "60" })
+        .on_change(|v: &str| set(&op!["recording", "fps"], v.parse::<i64>().unwrap_or(60)));
+    group(
+        &t!("Запись экрана"),
+        vec![
+            text_row(t!("Папка записей"), t!("Пусто — «Видео/Записи экрана»"), op!["recording", "dir"], &r.dir, "~/Videos/Записи экрана"),
+            choice_row(
+                t!("Что записывать по кнопке"),
+                t!("Кнопка на панели и Super+Alt+R"),
+                op!["recording", "mode"],
+                &r.mode,
+                &[("screen", t!("Весь экран")), ("area", t!("Область")), ("window", t!("Активное окно"))],
+            ),
+            row(t!("Частота кадров"), "", fps),
+            switch_row(t!("Звук системы"), t!("Всё, что играет в колонках"), op!["recording", "audio"], r.audio),
+            switch_row(t!("Микрофон"), "", op!["recording", "mic"], r.mic),
+            switch_row(t!("Указатель мыши"), "", op!["recording", "cursor"], r.cursor),
+            choice_row(t!("Кодек"), t!("H.264 открывается везде, у HEVC файл меньше"), op!["recording", "codec"], &r.codec, &[("h264", "H.264"), ("hevc", "HEVC (H.265)")]),
+            choice_row(
+                t!("Кодировщик"),
+                t!("Авто: NVENC, затем VAAPI, затем x264 на процессоре"),
+                op!["recording", "encoder"],
+                &r.encoder,
+                &[("auto", t!("Авто")), ("nvenc", "NVENC (NVIDIA)".to_string()), ("vaapi", "VAAPI (Intel, AMD)".to_string()), ("x264", t!("x264 (процессор)"))],
+            ),
+            choice_row(
+                t!("Качество"),
+                "",
+                op!["recording", "quality"],
+                &r.quality,
+                &[("high", t!("Высокое")), ("medium", t!("Среднее")), ("low", t!("Маленький файл"))],
+            ),
+            switch_row(t!("Кнопка записи на панели"), t!("Перед часами"), op!["recording", "panel_button"], r.panel_button),
         ],
     )
 }

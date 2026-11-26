@@ -750,7 +750,7 @@ fn main() {
     let r = match args.first().map(String::as_str) {
         Some("--list") => list(),
         Some("--record") => {
-            synshell_common::tr_init(&[]);
+            synshell_common::tr_init(&synshell_common::catalogs!("../i18n"));
             record::run(record::Args::parse(&args))
         }
         Some("--stream") => stream(&args.get(1).cloned().unwrap_or_default(), cursor, opt("--fps").and_then(|s| s.parse().ok()).unwrap_or(60)),

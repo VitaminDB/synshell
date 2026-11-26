@@ -291,6 +291,7 @@ applets = [
 ]
 # link — связанные устройства (synlink): телефон по USB/Wi-Fi, экран, файлы, снимок, ssh.
 # clipboard — история буфера обмена (Super+V): текст, Markdown, ссылки, цвета, картинки, файлы.
+# record — запись экрана: щелчок — старт/стоп (красная точка и таймер), правый щелчок — режим и звук.
 # call — плашка идущего звонка (трубка и таймер, нажатие — «Телефон»); без неё в списке
 # встаёт сама после часов.
 # Другие апплеты: separator, show-desktop, layout, cpu, memory,
@@ -391,6 +392,19 @@ max_items = 200                # сколько записей хранить (�
 images = true                  # запоминать картинки
 max_image_mb = 32              # картинки больше — не запоминать
 ignore_apps = []               # программы, из которых не запоминать (id .desktop или app_id)
+
+# Запись экрана: кнопка на панели (перед часами), Super+Alt+R, `synshot --record start|stop`.
+[recording]
+dir = ""                       # пусто — «Видео/Записи экрана»
+mode = "screen"                # что пишет кнопка: screen | area | window (активное окно, следом за ним)
+fps = 60                       # 30 | 60
+audio = true                   # звук системы (всё, что играет в колонках)
+mic = false                    # микрофон
+cursor = true                  # указатель мыши в кадре
+codec = "h264"                 # h264 | hevc
+encoder = "auto"               # auto (NVENC → VAAPI → x264) | nvenc | vaapi | x264
+quality = "high"               # high | medium | low
+panel_button = true            # кнопка записи на панели с часами (апплет record ставит её вручную)
 
 [lock]
 command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"

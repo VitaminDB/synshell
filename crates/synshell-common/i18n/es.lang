@@ -576,3 +576,13 @@
 "нет ответа сети" = "sin respuesta de la red"
 "(сеть ждёт ответа: synmodem ussd reply ТЕКСТ)" = "(la red espera respuesta: synmodem ussd reply TEXTO)"
 "{e}. Разблокируйте iPhone и нажмите «Доверять»" = "{e}. Desbloquea el iPhone y toca «Confiar»"
+
+# src/screenrec.rs
+"уже идёт запись в {path}" = "ya se está grabando en {path}"
+"не запустилась syn-screencast" = "syn-screencast no se inició"
+"запись не началась ({code}): {why}" = "la grabación no empezó ({code}): {why}"
+"запись не началась за 20 с: {why}" = "la grabación no empezó en 20 s: {why}"
+"запись не идёт" = "no se está grabando"
+"записи не было" = "no hubo grabación"
+"запись не завершилась (pid {pid})" = "la grabación no terminó (pid {pid})"
+"нет сведений о записи" = "no hay datos de la grabación"

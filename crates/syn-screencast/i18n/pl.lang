@@ -1,0 +1,11 @@
+@tag = "pl"
+@name = "Polski"
+
+# src/record.rs
+"размер экрана изменился ({w}x{h}) — запись остановлена" = "zmienił się rozmiar ekranu ({w}x{h}) — nagrywanie zatrzymane"
+"для записи области нужна --region X,Y,Ш,В" = "do nagrania obszaru potrzebne jest --region X,Y,S,W"
+"нет окна {id}" = "brak okna {id}"
+"нет активного окна" = "brak aktywnego okna"
+"слишком маленькая область" = "obszar jest za mały"
+"композитор не отдал кадр за 5 с" = "kompozytor nie przekazał klatki w ciągu 5 s"
+"нет видеокодера: {errs}" = "brak kodera wideo: {errs}"

@@ -1,0 +1,11 @@
+@tag = "en"
+@name = "English"
+
+# src/record.rs
+"размер экрана изменился ({w}x{h}) — запись остановлена" = "screen size changed ({w}x{h}) — recording stopped"
+"для записи области нужна --region X,Y,Ш,В" = "recording an area needs --region X,Y,W,H"
+"нет окна {id}" = "no window {id}"
+"нет активного окна" = "no active window"
+"слишком маленькая область" = "the area is too small"
+"композитор не отдал кадр за 5 с" = "the compositor did not provide a frame within 5 s"
+"нет видеокодера: {errs}" = "no video encoder: {errs}"

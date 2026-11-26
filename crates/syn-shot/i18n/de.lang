@@ -23,3 +23,10 @@
 "Сохранить и скопировать путь к файлу (Ctrl+Shift+C)" = "Speichern und Dateipfad kopieren (Strg+Umschalt+C)"
 "Открыть" = "Öffnen"
 "Сохранить и открыть (Ctrl+O)" = "Speichern und öffnen (Strg+O)"
+
+# src/record.rs, src/ui.rs
+"область задаётся как X,Y,Ш,В: {v}" = "Bereich als X,Y,B,H angeben: {v}"
+"Выделите область для записи или щёлкните по окну" = "Bereich zum Aufnehmen auswählen oder ein Fenster anklicken"
+"Enter — записать весь экран · Esc — отмена" = "Enter — ganzen Bildschirm aufnehmen · Esc — abbrechen"
+"Записать" = "Aufnehmen"
+"Начать запись выделенной области (Enter)" = "Aufnahme des ausgewählten Bereichs starten (Enter)"
