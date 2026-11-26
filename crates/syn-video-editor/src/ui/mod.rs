@@ -3,6 +3,7 @@
 //! команда из [`crate::cmd`] (через [`St::exec`]), как у агента.
 
 pub mod graph;
+mod graph_presets;
 pub(super) mod inspector;
 mod panels;
 pub(super) mod templates;

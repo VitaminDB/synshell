@@ -29,7 +29,7 @@ use syngui::layout::CrossAxisAlignment;
 use syngui::prelude::*;
 use syngui::widgets::input::dropdown::DropdownItem;
 use syngui::widgets::input::MultilineTextEdit;
-use syngui::widgets::{Column, Reactive, Row, ToolButton};
+use syngui::widgets::{Column, DecoratedBox, GestureDetector, Padding, Reactive, Row, ToolButton, TooltipPosition};
 
 use super::super::eval::{EvalContext, NodeExecutor};
 use super::super::registry::{NodeCategory, NodeKindMeta};
@@ -38,12 +38,12 @@ use super::super::types::{
     DataBlob, FieldSchema, FieldType, FieldValue, ImageData, NodeId, NodeInstance, NodeKind, NodeRuntime, PortKind,
     PortSchema, PortValue, PortsLayout, PortsSpec,
 };
-use super::common::field_row;
 use super::{log_worker_done, log_worker_start};
 use crate::icons::{
-    MI_ARTICLE, MI_ASPECT_RATIO, MI_AUDIOTRACK, MI_AUTO_AWESOME, MI_CROP_SQUARE, MI_EDIT_NOTE, MI_FOLDER_OPEN, MI_GRAPHIC_EQ, MI_GROUPS,
-    MI_IMAGE_ICON, MI_INVENTORY_2, MI_LANGUAGE, MI_LAYERS, MI_LIBRARY_MUSIC, MI_MERGE_TYPE, MI_MIC, MI_MOVIE, MI_PALETTE,
-    MI_PSYCHOLOGY, MI_RECORD_VOICE_OVER, MI_TRANSLATE, MI_TUNE,
+    MI_ARTICLE, MI_ASPECT_RATIO, MI_AUDIOTRACK, MI_AUTO_AWESOME, MI_CHEVRON_RIGHT, MI_CROP_SQUARE, MI_EDIT_NOTE,
+    MI_EXPAND_MORE, MI_FOLDER_OPEN, MI_GRAPHIC_EQ, MI_GROUPS, MI_IMAGE_ICON, MI_INVENTORY_2, MI_LANGUAGE, MI_LAYERS,
+    MI_LIBRARY_MUSIC, MI_MERGE_TYPE, MI_MIC, MI_MOVIE, MI_PALETTE, MI_PSYCHOLOGY, MI_RECORD_VOICE_OVER, MI_TRANSLATE,
+    MI_TUNE,
 };
 
 /// Вид ноды Synthos ↔ вид ноды ядра.
@@ -544,7 +544,7 @@ fn model_control(kind: synaptixd::ModelKind, filter: Option<&'static str>, sig: 
         Dropdown::with_items(items)
             .selected(if current.is_empty() { auto.clone() } else { current })
             .on_change(move |val| sig.set(if val == auto { String::new() } else { val.to_string() }))
-            .class("node-input-dropdown"),
+            .class("node-input-dropdown flow-node-dropdown"),
     )
 }
 
@@ -676,16 +676,226 @@ fn result_view(rt: &FlowRuntime, spec: &'static sf::NodeSpec) -> Vec<Box<dyn Wid
     out
 }
 
+fn field_is_modified(f: &'static sf::FieldSpec, value: &FieldValue) -> bool {
+    match (f.ty, value) {
+        (FT::Text | FT::LongText | FT::File, FieldValue::Text(sig)) => sig.get() != f.default,
+        (FT::Number, FieldValue::Float(sig)) => {
+            let def = f.default.parse::<f32>().unwrap_or(0.0);
+            (sig.get() - def).abs() > 1e-4
+        }
+        (FT::Bool, FieldValue::Bool(sig)) => sig.get() != (f.default == "true"),
+        (FT::Choice(opts), FieldValue::Choice(sig)) => {
+            let def = opts.iter().position(|x| *x == f.default).unwrap_or(0);
+            sig.get() != def
+        }
+        _ => false,
+    }
+}
+
+fn label_with_tooltip(label: &str, f: &'static sf::FieldSpec) -> Box<dyn Widget> {
+    let text = Text::new(label).class("node-card-field-label");
+    if f.hint.is_empty() {
+        Box::new(text)
+    } else {
+        Box::new(crate::help::with_rich_tooltip(
+            text,
+            crate::help::field_tooltip_content(label, &syngui::i18n::t(f.hint), f.default),
+            TooltipPosition::Above,
+            280.0,
+        ))
+    }
+}
+
+fn flow_field_row(fk: &str, f: &'static sf::FieldSpec, value: FieldValue) -> Box<dyn Widget> {
+    let label = syngui::i18n::t(f.label);
+    if f.ty == FT::LongText {
+        let mut children: Vec<Box<dyn Widget>> = vec![label_with_tooltip(&label, f)];
+        // Для «Шаблон текста» — кликабельные чипы вставки меток {{a}}…{{f}}.
+        if fk == "format" && f.name == "template" {
+            if let FieldValue::Text(sig) = value {
+                let mut chips: Vec<Box<dyn Widget>> = Vec::new();
+                for (i, key) in ["a", "b", "c", "d", "e", "f"].iter().enumerate() {
+                    let token = format!("{{{{{key}}}}}");
+                    let tok_click = token.clone();
+                    let hint = format!("Вставить {token} — значение со входа «Вставка {}»", i + 1);
+                    let chip = GestureDetector::new()
+                        .cursor(syngui::input::CursorIcon::Pointer)
+                        .on_click(move || {
+                            sig.update(|s| {
+                                if !s.is_empty() && !s.ends_with(' ') && !s.ends_with('\n') {
+                                    s.push(' ');
+                                }
+                                s.push_str(&tok_click);
+                            });
+                        })
+                        .child(
+                            DecoratedBox::new()
+                                .child(Padding::symmetric(6.0, 2.0).child(Text::new(token).class("flow-chip-text")))
+                                .class("flow-placeholder-chip"),
+                        );
+                    chips.push(Box::new(crate::help::with_rich_tooltip(
+                        chip,
+                        crate::help::field_tooltip_content(&format!("Вставка {}", i + 1), &hint, ""),
+                        TooltipPosition::Above,
+                        250.0,
+                    )));
+                }
+                children.push(Box::new(
+                    Row::new()
+                        .gap(4.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .children(chips),
+                ));
+            }
+        }
+        children.push(field_control(fk, f, value));
+        return Box::new(
+            Padding::symmetric(10.0, 2.0).child(
+                Column::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .children(children),
+            ),
+        );
+    }
+
+    let label_cell = DecoratedBox::new()
+        .child(label_with_tooltip(&label, f))
+        .class("flow-field-label-cell");
+    let mut ctrl_box = DecoratedBox::new();
+    ctrl_box.child = Some(field_control(fk, f, value));
+    let control_cell = ctrl_box.class("flow-field-control-cell");
+    Box::new(
+        Padding::symmetric(10.0, 2.0).child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .children(vec![Box::new(label_cell) as Box<dyn Widget>, Box::new(control_cell)]),
+        ),
+    )
+}
+
+fn render_field(node_id: NodeId, spec: &'static sf::NodeSpec, f: &'static sf::FieldSpec, value: FieldValue) -> Box<dyn Widget> {
+    // Если у поля есть одноимённый входной порт и к нему подключён провод —
+    // показываем компактную плашку вместо пустого поля ввода.
+    if spec.input(f.name).is_some() {
+        let port_name = f.name;
+        let label = syngui::i18n::t(f.label);
+        return Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let connected = use_context::<NodeEditorCtx>()
+                .connections
+                .get()
+                .iter()
+                .any(|c| c.to_node == node_id && c.to_port == port_name);
+            if connected {
+                vec![Box::new(
+                    Padding::symmetric(10.0, 2.0).child(
+                        DecoratedBox::new()
+                            .child(
+                                Padding::symmetric(8.0, 4.0).child(
+                                    Text::new(format!("← {label}: берётся со входа")).class("flow-wired-pill-text"),
+                                ),
+                            )
+                            .class("flow-wired-pill"),
+                    ),
+                )]
+            } else {
+                vec![flow_field_row(spec.kind, f, value.clone())]
+            }
+        }));
+    }
+    flow_field_row(spec.kind, f, value)
+}
+
+fn utility_banner(fk: &str) -> Option<&'static str> {
+    match fk {
+        "concat" => Some("Подключите «Список клипов» или отдельные «Клип 1…4» по порядку."),
+        "lines" => Some("Каждая непустая строка становится отдельным запуском следующей ноды."),
+        _ => None,
+    }
+}
+
+fn is_wide_flow(fk: &str) -> bool {
+    matches!(
+        fk,
+        "llm" | "video" | "image" | "music" | "speak" | "omnivoice" | "voxcpm" | "vibevoice" | "h3_encode" | "ltx_encode"
+    )
+}
+
 pub fn body(node: &NodeInstance) -> Box<dyn Widget> {
     let (Some(rt), Some(spec)) = (runtime(node), spec(node.kind)) else {
         return Box::new(Column::new());
     };
+    let node_id = node.id;
     let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if let Some(banner) = utility_banner(spec.kind) {
+        col = col.children(vec![Box::new(
+            Padding::symmetric(10.0, 2.0).child(
+                DecoratedBox::new()
+                    .child(Padding::symmetric(8.0, 6.0).child(Text::new(banner).class("flow-banner-text")))
+                    .class("flow-banner"),
+            ),
+        ) as Box<dyn Widget>]);
+    }
     let map = node.fields.lock().map(|m| m.clone()).unwrap_or_default();
+    let mut adv_fields: Vec<(&'static sf::FieldSpec, FieldValue)> = Vec::new();
     for f in spec.fields {
-        if let Some(v) = map.get(f.name).cloned() {
-            col = col.children(vec![field_row(&syngui::i18n::t(f.label), field_control(spec.kind, f, v))]);
+        let Some(v) = map.get(f.name).cloned() else { continue };
+        if f.advanced {
+            adv_fields.push((f, v));
+        } else {
+            col = col.children(vec![render_field(node_id, spec, f, v)]);
         }
+    }
+    if !adv_fields.is_empty() {
+        let expanded = use_signal(false);
+        let adv_for_view = adv_fields.clone();
+        col = col.children(vec![Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let is_open = expanded.get();
+            let modified = adv_for_view.iter().filter(|(f, v)| field_is_modified(f, v)).count();
+            let chevron = if is_open { MI_EXPAND_MORE } else { MI_CHEVRON_RIGHT };
+            let mut header_children: Vec<Box<dyn Widget>> = vec![
+                Box::new(Text::new(chevron).class("flow-adv-chevron")),
+                Box::new(Text::new("Дополнительно").class("flow-adv-title")),
+            ];
+            if modified > 0 {
+                header_children.push(Box::new(
+                    DecoratedBox::new()
+                        .child(Padding::symmetric(6.0, 1.0).child(Text::new(format!("{modified} изм.")).class("flow-adv-badge-text")))
+                        .class("flow-adv-badge"),
+                ));
+            }
+            let toggle = GestureDetector::new()
+                .cursor(syngui::input::CursorIcon::Pointer)
+                .on_click(move || expanded.set(!expanded.get_untracked()))
+                .child(
+                    DecoratedBox::new()
+                        .child(
+                            Padding::symmetric(8.0, 4.0).child(
+                                Row::new()
+                                    .gap(6.0)
+                                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                                    .children(header_children),
+                            ),
+                        )
+                        .class("flow-adv-toggle"),
+                );
+            let mut out: Vec<Box<dyn Widget>> = vec![Box::new(Padding::symmetric(10.0, 2.0).child(toggle))];
+            if is_open {
+                let mut adv_col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                for (f, v) in &adv_for_view {
+                    adv_col = adv_col.children(vec![render_field(node_id, spec, f, v.clone())]);
+                }
+                out.push(Box::new(
+                    Padding::only(6.0, 2.0, 6.0, 4.0).child(
+                        DecoratedBox::new()
+                            .child(Padding::symmetric(0.0, 4.0).child(adv_col))
+                            .class("flow-adv-panel"),
+                    ),
+                ));
+            }
+            out
+        })) as Box<dyn Widget>]);
     }
     let (running, error, status, progress, version) = (rt.running, rt.error, rt.status, rt.progress, rt.version);
     col = col.children(vec![super::common::progress_row(running, progress)]);
@@ -694,20 +904,21 @@ pub fn body(node: &NodeInstance) -> Box<dyn Widget> {
         version.get();
         let mut v: Vec<Box<dyn Widget>> = Vec::new();
         if let Some(e) = error.get() {
-            v.push(Box::new(Text::new(tr!("nodes.common.error", error = e)).class("audio-node-error")));
+            v.push(Box::new(Padding::symmetric(10.0, 2.0).child(Text::new(tr!("nodes.common.error", error = e)).class("audio-node-error"))));
         }
         let s = status.get();
         if running.get() {
-            v.push(Box::new(Text::new(if s.is_empty() { tr!("nodes.flow.running") } else { s }).class("audio-node-meta")));
+            v.push(Box::new(Padding::symmetric(10.0, 2.0).child(Text::new(if s.is_empty() { tr!("nodes.flow.running") } else { s }).class("audio-node-meta"))));
             return v;
         }
         if !s.is_empty() {
-            v.push(Box::new(Text::new(s).class("audio-node-meta")));
+            v.push(Box::new(Padding::symmetric(10.0, 2.0).child(Text::new(s).class("audio-node-meta"))));
         }
         v.extend(result_view(&rt2, spec));
         v
     })) as Box<dyn Widget>]);
-    Box::new(col)
+    let host_class = if is_wide_flow(spec.kind) { "flow-node-host-wide" } else { "flow-node-host" };
+    Box::new(DecoratedBox::new().child(col).class(host_class))
 }
 
 #[cfg(test)]

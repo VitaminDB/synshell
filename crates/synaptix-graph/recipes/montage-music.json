@@ -1,0 +1,37 @@
+{
+  "name": "montage-music",
+  "description": "Склейка двух роликов + подмешивание сгенерированной фоновой музыки (mix)",
+  "params": {
+    "clip1": { "type": "file", "description": "первый ролик" },
+    "clip2": { "type": "file", "description": "второй ролик" },
+    "music_style": {
+      "type": "text",
+      "description": "стиль фоновой музыки по-английски",
+      "default": "warm acoustic guitar and soft piano, cozy cinematic ambient"
+    },
+    "seconds": { "type": "number", "description": "длина музыки, с", "default": 12 }
+  },
+  "nodes": [
+    {
+      "id": "joined",
+      "op": "concat",
+      "in1": "{{clip1}}",
+      "in2": "{{clip2}}"
+    },
+    {
+      "id": "bgm",
+      "op": "music",
+      "prompt": "{{music_style}}",
+      "seconds": "{{seconds}}"
+    },
+    {
+      "id": "final",
+      "op": "mux",
+      "video": "{{joined.file}}",
+      "audio": "{{bgm.file}}",
+      "mode": "mix",
+      "volume": 0.45
+    }
+  ],
+  "output": ["final"]
+}

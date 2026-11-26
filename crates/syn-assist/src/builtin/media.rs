@@ -151,6 +151,7 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
         control: str_arg(args, "control").map(String::from),
         two_stage: args.get("two_stage").and_then(Value::as_bool).unwrap_or(false),
         strength: args.get("strength").and_then(Value::as_f64).map(|v| v as f32),
+        ..Default::default()
     };
     // Перерисовка ролика (restyle) — у MiniMax-H3.
     let restyle = args.get("restyle").and_then(Value::as_bool).unwrap_or(false) && p.source_video.is_some();

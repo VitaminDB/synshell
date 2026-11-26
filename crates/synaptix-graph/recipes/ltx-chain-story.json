@@ -1,0 +1,49 @@
+{
+  "name": "ltx-chain-story",
+  "description": "Быстрая цепочка из 2 сцен (LTX-2.3 Distilled, латентный хвост): Сцена 1 → продолжение по хвосту → Сцена 2 → склейка",
+  "params": {
+    "scene1": {
+      "type": "text",
+      "description": "сцена 1",
+      "default": "cinematic shot of a red vintage tram gliding along a rainy European street at dusk, warm glowing windows, soft rain and distant tram bell"
+    },
+    "scene2": {
+      "type": "text",
+      "description": "сцена 2 (продолжение с хвоста)",
+      "default": "the red vintage tram turns smoothly around a cobblestone corner, golden cafe lights reflecting on wet pavement, camera tracks alongside, gentle rain"
+    },
+    "shot": {
+      "type": "number",
+      "description": "длина каждой сцены, с",
+      "default": 4
+    }
+  },
+  "nodes": [
+    {
+      "id": "scene1",
+      "op": "video",
+      "prompt": "{{scene1}}",
+      "model": "ltx-2-3-22b-distilled-1-1",
+      "width": 1024,
+      "height": 576,
+      "seconds": "{{shot}}"
+    },
+    {
+      "id": "scene2",
+      "op": "video",
+      "prompt": "{{scene2}}",
+      "context": "{{scene1.tail}}",
+      "model": "ltx-2-3-22b-distilled-1-1",
+      "width": 1024,
+      "height": 576,
+      "seconds": "{{shot}}"
+    },
+    {
+      "id": "film",
+      "op": "concat",
+      "in1": "{{scene1.file}}",
+      "in2": "{{scene2.file}}"
+    }
+  ],
+  "output": ["film"]
+}

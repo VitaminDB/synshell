@@ -717,7 +717,7 @@ pub fn view(st: St) -> impl Widget {
         let limit = page_limit.get();
         let tile_size = st.tile_size.get().clamp(100.0, 280.0);
         if top == "Графы" {
-            return vec![graphs_view(st, &q, tile_size)];
+            return vec![graphs_view(st, &q, tile_size, sub_cat)];
         }
         let all = catalog();
         if all.is_empty() {
@@ -936,23 +936,141 @@ fn tpl_tile(st: St, entry: &TemplateEntry) -> Box<dyn Widget> {
     )
 }
 
-// ── D5: шаблоны графов сценария (рецепты) ───────────────────────────────
+// ── D5: шаблоны графов (готовые заготовки видеоредактора + рецепты) ───
 
-/// Плитки рецептов: схема узлов, описание; двойной щелчок — открыть графом.
-fn graphs_view(st: St, query: &str, tile: f32) -> Box<dyn Widget> {
+/// Плитки готовых графов и рецептов с фильтром по категориям: двойной щелчок — открыть в «Графе».
+fn graphs_view(st: St, query: &str, tile: f32, sub_cat: RwSignal<String>) -> Box<dyn Widget> {
     let q = query.trim().to_lowercase();
-    let all: Vec<synaptix_graph::Graph> = synaptix_graph::recipes::list(&crate::recipe::dir()).into_iter().filter(|g| q.is_empty() || format!("{} {}", g.name, g.description).to_lowercase().contains(&q)).collect();
-    let mut grid = Grid::new(16).min_column_width(tile.max(200.0)).gap(8.0);
-    for g in &all {
-        grid = grid.child(graph_tile(st, g.clone()));
+    let cur = sub_cat.get();
+    let cats: &[(&str, &str)] = &[
+        ("", "Все"),
+        ("Видео и сцены", "Видео и сцены"),
+        ("Монтаж и VFX", "Монтаж и VFX"),
+        ("Картинки", "Картинки"),
+        ("Музыка и речь", "Музыка и речь"),
+        ("Рецепты", "Рецепты"),
+    ];
+
+    let mut pills = Flex::new().wrap().gap(4.0);
+    for &(key, label) in cats {
+        let active = cur == key;
+        let cls = if active { "cv-chip cv-chip-on" } else { "cv-chip" };
+        let key_s = key.to_string();
+        pills = pills.child(
+            GestureDetector::new()
+                .on_click(move || sub_cat.set(key_s.clone()))
+                .child(DecoratedBox::new().class(cls).child(Text::new(label).class("cv-chip-text"))),
+        );
     }
+
+    let show_presets = cur != "Рецепты";
+    let show_recipes = cur.is_empty() || cur == "Рецепты";
+
+    let presets: Vec<super::graph_presets::GraphPreset> = if show_presets {
+        super::graph_presets::all()
+            .into_iter()
+            .filter(|p| cur.is_empty() || p.cat.label() == cur)
+            .filter(|p| {
+                q.is_empty()
+                    || format!("{} {} {} {} {}", p.id, p.title, p.description, p.chain, p.badge)
+                        .to_lowercase()
+                        .contains(&q)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let recipes: Vec<synaptix_graph::Graph> = if show_recipes {
+        synaptix_graph::recipes::list(&crate::recipe::dir())
+            .into_iter()
+            .filter(|g| q.is_empty() || format!("{} {}", g.name, g.description).to_lowercase().contains(&q))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut col = Column::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .class("panel-list")
+        .child(pills)
+        .child(
+            Text::new(format!(
+                "Заготовок: {} · Рецептов: {} · 2×клик — открыть в «Графе»",
+                presets.len(),
+                recipes.len()
+            ))
+            .max_lines(2)
+            .class("panel-hint"),
+        );
+
+    if !presets.is_empty() {
+        let mut grid = Grid::new(16).min_column_width(tile.max(200.0)).gap(8.0);
+        for p in presets {
+            grid = grid.child(preset_tile(st, p));
+        }
+        col = col.child(grid);
+    }
+
+    if !recipes.is_empty() {
+        col = col.child(Text::new("Рецепты ассистента (ПКМ — сразу прогнать в проект)").max_lines(2).class("panel-hint"));
+        let mut grid = Grid::new(16).min_column_width(tile.max(200.0)).gap(8.0);
+        for g in &recipes {
+            grid = grid.child(graph_tile(st, g.clone()));
+        }
+        col = col.child(grid);
+    }
+
+    Box::new(col)
+}
+
+fn open_preset_template(st: St, t: syn_node_editor::model::Template) {
+    let Some(ws) = super::graph::workspace() else {
+        st.toast.set(Some("Редактор узлов не подключён".into()));
+        return;
+    };
+    super::framegraph_ui::current().set(None);
+    ws.open_template(&t);
+    st.open_panel("graph");
+    st.dock.activate("graph");
+}
+
+fn preset_tile(st: St, p: super::graph_presets::GraphPreset) -> Box<dyn Widget> {
+    let build_dbl = p.build;
+    let build_menu = p.build;
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(
+            AspectRatio::new(16.0 / 9.0).child(
+                DecoratedBox::new()
+                    .class("tile-thumb graph-thumb")
+                    .child(Center::new().child(Text::new(p.chain).max_lines(4).class("graph-chain"))),
+            ),
+        )
+        .child(Text::new(p.title).max_lines(1).elide(Elide::End).class("row-title"))
+        .child(Text::new(p.description).max_lines(2).elide(Elide::End).class("row-sub"))
+        .child(Text::new(p.badge).max_lines(1).elide(Elide::End).class("row-sub"));
+    let menu = vec![MenuItem::new("open", "Открыть как граф")];
+    let tip = format!("{}\n\n{}\nЦепочка: {}", p.title, p.description, p.chain);
     Box::new(
-        Column::new()
-            .gap(6.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .class("panel-list")
-            .child(Text::new(format!("Графов сценария: {} · 2×клик — открыть в «Графе», правый щелчок — прогнать в проект", all.len())).max_lines(2).class("panel-hint"))
-            .child(grid),
+        ContextMenu::new()
+            .items(menu)
+            .on_select(move |id: &str| {
+                if id == "open" {
+                    open_preset_template(st, (build_menu)());
+                }
+            })
+            .child(
+                Tooltip::new(
+                    GestureDetector::new()
+                        .on_double_click(move || open_preset_template(st, (build_dbl)()))
+                        .child(DecoratedBox::new().class("tile").child(body)),
+                    tip,
+                )
+                .delay_ms(300)
+                .max_width(300.0),
+            ),
     )
 }
 
@@ -992,6 +1110,7 @@ fn graph_tile(st: St, g: synaptix_graph::Graph) -> Box<dyn Widget> {
         .child(Text::new(g.description.clone()).max_lines(2).elide(Elide::End).class("row-sub"))
         .child(Text::new(params).max_lines(1).elide(Elide::End).class("row-sub"));
     let menu = vec![MenuItem::new("open", "Открыть как граф"), MenuItem::new("run", "Прогнать в проект…")];
+    let tip = format!("{}\n\n{}\nЦепочка: {}", g.name, g.description, graph_chain(&g));
     Box::new(
         ContextMenu::new()
             .items(menu)
@@ -1003,6 +1122,15 @@ fn graph_tile(st: St, g: synaptix_graph::Graph) -> Box<dyn Widget> {
                 }
                 _ => {}
             })
-            .child(GestureDetector::new().on_double_click(move || open_graph(st, &g_dbl)).child(DecoratedBox::new().class("tile").child(body))),
+            .child(
+                Tooltip::new(
+                    GestureDetector::new()
+                        .on_double_click(move || open_graph(st, &g_dbl))
+                        .child(DecoratedBox::new().class("tile").child(body)),
+                    tip,
+                )
+                .delay_ms(300)
+                .max_width(300.0),
+            ),
     )
 }

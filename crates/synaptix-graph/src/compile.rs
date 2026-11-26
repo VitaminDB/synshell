@@ -68,6 +68,10 @@ impl<'g> Compiler<'g> {
         match field {
             "text" => Ok(text_port.map(|p| Src::Port(src, p)).unwrap_or(Src::Static(Value::String(String::new())))),
             "file" | "files" => Ok(Src::Port(src, main)),
+            "tail" => spec
+                .output("tail")
+                .map(|p| Src::Port(src, p.name))
+                .ok_or_else(|| format!("узел «{node}» не выдаёт хвост (tail)")),
             "label" => Ok(Src::Static(Value::String(String::new()))),
             "lines" => {
                 let Some(tp) = text_port else {
@@ -265,5 +269,23 @@ mod tests {
         assert_eq!(shots.fields["seconds"], 10);
         let plan = f.node(by("plan")).unwrap();
         assert!(plan.fields["prompt"].as_str().unwrap().contains("«ёж»"));
+    }
+
+    #[test]
+    fn tail_reference_wires_to_context() {
+        let g: Graph = serde_json::from_value(serde_json::json!({
+            "name": "manual-chain",
+            "title": "Ручная цепочка",
+            "nodes": [
+                {"id": "a", "op": "video", "prompt": "сцена 1", "context_frames": 7},
+                {"id": "b", "op": "video", "prompt": "сцена 2", "context": "{{a.tail}}"}
+            ],
+            "output": ["b"]
+        }))
+        .unwrap();
+        let f = to_flow(&g, &Map::new()).unwrap();
+        f.validate().unwrap();
+        let by = |l: &str| f.nodes.iter().find(|n| n.label == l).unwrap().id;
+        assert!(f.links.iter().any(|l| l.from_node == by("a") && l.from_port == "tail" && l.to_node == by("b") && l.to_port == "context"));
     }
 }

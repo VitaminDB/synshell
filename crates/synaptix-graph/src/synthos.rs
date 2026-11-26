@@ -80,7 +80,48 @@ fn field_data(f: &synaptix_flow::FieldSpec, v: Option<&Value>) -> Value {
     }
 }
 
-/// Граф ядра → JSON шаблона Synthos; раскладка — столбцы по глубине.
+/// Оценка высоты карточки ноды в редакторе узлов (с учётом сворачиваемого
+/// раздела «Дополнительно», автосворачивания подключённых полей и переносов).
+fn estimate_node_height(flow: &Flow, id: u64, n: &FlowNode, spec: &synaptix_flow::NodeSpec) -> f32 {
+    use synaptix_flow::FieldType as F;
+    let ports = spec.inputs.len().max(spec.outputs.len());
+    let mut h = 44.0 + (ports as f32) * 24.0;
+    if matches!(spec.kind, "concat" | "lines") {
+        h += 54.0;
+    }
+    let mut has_adv = false;
+    for f in spec.fields {
+        if f.advanced {
+            has_adv = true;
+            continue;
+        }
+        let wired = spec.input(f.name).is_some()
+            && flow.links.iter().any(|l| l.to_node == id && l.to_port == f.name);
+        if wired {
+            h += 36.0;
+        } else if f.ty == F::LongText {
+            let txt = n
+                .fields
+                .get(f.name)
+                .and_then(|v| v.as_str())
+                .unwrap_or(f.default);
+            let chars = txt.chars().count();
+            let est_lines = txt.lines().count().max((chars / 32) + 1).clamp(3, 14);
+            h += 34.0 + (est_lines as f32) * 19.0;
+            if spec.kind == "format" && f.name == "template" {
+                h += 30.0;
+            }
+        } else {
+            h += 34.0;
+        }
+    }
+    if has_adv {
+        h += 40.0;
+    }
+    h + 24.0
+}
+
+/// Граф ядра → JSON шаблона Synthos; раскладка — столбцы по глубине без наложений.
 pub fn flow_to_template(flow: &Flow, name: &str, description: &str) -> Result<Value, String> {
     let order = flow.order()?;
     let mut depth: HashMap<u64, usize> = HashMap::new();
@@ -95,8 +136,8 @@ pub fn flow_to_template(flow: &Flow, name: &str, description: &str) -> Result<Va
         let spec = synaptix_flow::ops::spec(&n.kind).ok_or_else(|| format!("неизвестный вид ноды «{}»", n.kind))?;
         let d = depth[&id];
         let y = rows.entry(d).or_insert(40.0);
-        let pos = json!({"x": 40.0 + d as f32 * 460.0, "y": *y});
-        *y += 120.0 + 46.0 * spec.fields.len().max(spec.inputs.len()) as f32;
+        let pos = json!({"x": 40.0 + d as f32 * 430.0, "y": *y});
+        *y += estimate_node_height(flow, id, n, spec) + 56.0;
         let fields: Map<String, Value> = spec.fields.iter().map(|f| (f.name.to_string(), field_data(f, n.fields.get(f.name)))).collect();
         nodes.push(json!({"id": id, "kind": format!("flow_{}", n.kind), "pos": pos, "fields": fields, "style": {"tint": null, "shadow": true}, "enabled": n.enabled, "state": null}));
     }
@@ -106,7 +147,24 @@ pub fn flow_to_template(flow: &Flow, name: &str, description: &str) -> Result<Va
 
 /// Граф → JSON шаблона Synthos.
 pub fn to_template(g: &Graph, params: &Map<String, Value>) -> Result<Value, String> {
-    let params = crate::exec::with_defaults(g, params);
+    let mut params = crate::exec::with_defaults(g, params);
+    // Заполняем пустые обязательные текстовые параметры понятными примерами,
+    // чтобы в экспортированном шаблоне не появлялись «» и висячие запятые.
+    for (k, p) in &g.params {
+        let missing = params.get(k).map(|v| v.is_null() || v.as_str().is_some_and(|s| s.trim().is_empty())).unwrap_or(true);
+        if missing && p.kind == "text" {
+            let sample = match k.as_str() {
+                "story" => "рыжий кот находит на чердаке старый фонарик и включает его",
+                "topic" => "ночной город после дождя и тёплые огни витрин",
+                "about" => "уютная кофейня ранним утром",
+                "text" => "Привет! Это пример озвучки в Synthos.",
+                _ => p.description.as_str(),
+            };
+            if !sample.is_empty() {
+                params.insert(k.clone(), Value::String(sample.to_string()));
+            }
+        }
+    }
     let mut graph = g.clone();
     graph.normalize_output()?;
     let mut flow = crate::compile::to_flow(&graph, &params)?;

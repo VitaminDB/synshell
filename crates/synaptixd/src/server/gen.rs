@@ -92,6 +92,10 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
         control: p.control,
         two_stage: p.two_stage,
         strength: p.strength,
+        context: p.context.map(PathBuf::from),
+        context_frames: p.context_frames,
+        tail_out: p.tail_out.map(PathBuf::from),
+        model_id: Some(model.clone()),
     };
     mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация видео");
     let r = mgr.run(&model, |m| m.video(&req, cancel, progress));

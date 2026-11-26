@@ -8912,6 +8912,7 @@ dependencies = [
 name = "synaptix-gen"
 version = "0.1.1"
 dependencies = [
+ "safetensors",
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
@@ -9196,6 +9197,7 @@ dependencies = [
  "synaptix-nn",
  "synaptix-ops",
  "synaptix-tokenizer",
+ "synaptix-vlm-minicpm",
  "thiserror 2.0.21",
 ]
 

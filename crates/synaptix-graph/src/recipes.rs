@@ -7,6 +7,9 @@ use std::path::Path;
 use crate::Graph;
 
 const BUILTIN: &[&str] = &[
+    include_str!("../recipes/h3-chain-story.json"),
+    include_str!("../recipes/ltx-chain-story.json"),
+    include_str!("../recipes/montage-music.json"),
     include_str!("../recipes/talking-avatar.json"),
     include_str!("../recipes/music-video.json"),
     include_str!("../recipes/animate-photos.json"),

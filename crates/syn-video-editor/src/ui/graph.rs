@@ -126,6 +126,7 @@ pub fn init() {
     syn_node_editor::host::set_host(Host);
     super::framegraph_ui::register();
     register_jobs();
+    syngui::i18n::set_source_language(syngui::i18n::Lang::new("ru"));
     syngui::i18n::register_catalogs(&syn_node_editor::i18n::CATALOGS);
     syngui::i18n::register_catalogs(&synaptix_flow::CATALOGS);
     registry::register_category(CategoryInfo { key: "video_editor", label: "Видеоредактор", icon: "\u{E02C}" });

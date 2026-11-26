@@ -15,7 +15,7 @@ use synaptix_gen::image_stages as img;
 use synaptix_gen::music_stages as mus;
 use crate::{DeviceKind, ModelKind};
 
-use crate::server::flow::{mgr, with_progress};
+use crate::server::flow::{mgr, read_context_tail, with_progress, VideoTailHandle};
 use crate::server::{devices, manager};
 
 type R = Result<(), String>;
@@ -264,13 +264,14 @@ fn h3_latent(cx: &mut Cx) -> R {
 fn h3_encode(cx: &mut Cx) -> R {
     let m = cx.handle::<H3Model>("model")?;
     let size = cx.opt_handle::<h3::Size>("latent")?.map(|s| *s).unwrap_or_default();
+    let ctx_tail = read_context_tail(cx)?.map(|(_, t)| (*t).clone());
     let prompt = cx.need("prompt")?;
     let negative = cx.str("negative");
-    let first = cx.file("first_frame").map(PathBuf::from);
+    let first = if ctx_tail.is_some() { None } else { cx.file("first_frame").map(PathBuf::from) };
     let last = cx.file("last_frame").map(PathBuf::from);
     let refs: Vec<PathBuf> = cx.files("refs").into_iter().map(PathBuf::from).collect();
     let ref_size = if cx.str("ref_size").as_deref() == Some("max") { h3::RefSize::Max } else { h3::RefSize::Match };
-    let cond = with_progress(cx, |_, _| on_device(&m.id, m.dev, "кодировщик H3", || m.m.encode(size, &prompt, negative.as_deref(), first.as_deref(), last.as_deref(), &refs, ref_size)))?;
+    let cond = with_progress(cx, |_, _| on_device(&m.id, m.dev, "кодировщик H3", || m.m.encode_with_context(size, &prompt, negative.as_deref(), first.as_deref(), last.as_deref(), &refs, ref_size, ctx_tail, Some(&m.id))))?;
     let label = format!("условие H3 {}", cond.label());
     cx.label = label.clone();
     cx.out("cond", Val::Handle(Handle::new(label, cond)));
@@ -284,12 +285,18 @@ fn h3_sample(cx: &mut Cx) -> R {
     let steps = cx.pos("steps").unwrap_or(20.0) as usize;
     let cfg = cx.num("guidance").filter(|v| *v > 0.0).unwrap_or(5.0) as f32;
     let strength = cx.pos("strength").map(|v| v as f32);
+    let ctx_frames = cx.pos("context_frames").map(|v| v as usize).unwrap_or(0);
     let seed = seed(cx);
     let lat = with_progress(cx, |progress, stop| on_device(&m.id, m.dev, "сэмплер H3", || m.m.sample(&cond, steps, cfg, seed, source.as_deref(), strength, stop, progress)))
         .map_err(|e| if cx.cancel.is_cancelled() { "прогон остановлен".into() } else { e })?;
+    let tail = lat.tail(ctx_frames, &m.id)?;
+    let tail_path = cx.out_path("tail.safetensors");
+    tail.save(&tail_path)?;
+    let tail_lbl = tail.label();
     let label = format!("{}, сид {seed}", lat.label);
     cx.label = label.clone();
     cx.out("latent", Val::Handle(Handle::new(label, lat)));
+    cx.out("tail", Val::Handle(Handle::new(tail_lbl, VideoTailHandle { path: tail_path, tail: Arc::new(tail) })));
     Ok(())
 }
 
@@ -442,10 +449,17 @@ fn ltx_stage1(cx: &mut Cx) -> R {
     let cond = cx.handle::<ltx::LtxCond>("cond")?;
     let nag = cx.opt_handle::<ltx::LtxNag>("nag")?;
     let image = cx.opt_handle::<ltx::LtxImage>("image")?;
+    let ctx_tail = read_context_tail(cx)?.map(|(_, t)| t);
     let shape = ltx_shape(cx);
+    let ctx_frames = cx.pos("context_frames").map(|v| v as usize).unwrap_or(0);
     let seed = seed(cx);
-    let lat = ltx_run(cx, &m, "Stage1 LTX", |h| m.m.stage1(&cond, nag.as_deref(), image.as_deref(), shape, seed, h))?;
+    let lat = ltx_run(cx, &m, "Stage1 LTX", |h| m.m.stage1_with_context(&cond, nag.as_deref(), image.as_deref(), ctx_tail.as_deref(), Some(&m.id), shape, seed, h))?;
+    let tail = lat.tail(ctx_frames, &m.id)?;
+    let tail_path = cx.out_path("tail.safetensors");
+    tail.save(&tail_path)?;
+    let tail_lbl = tail.label();
     ltx_latent(cx, lat, Some(seed));
+    cx.out("tail", Val::Handle(Handle::new(tail_lbl, VideoTailHandle { path: tail_path, tail: Arc::new(tail) })));
     Ok(())
 }
 
@@ -462,9 +476,16 @@ fn ltx_stage2(cx: &mut Cx) -> R {
     let lat = cx.handle::<ltx::LtxLatent>("latent")?;
     let cond = cx.handle::<ltx::LtxCond>("cond")?;
     let image = cx.opt_handle::<ltx::LtxImage>("image")?;
+    let ctx_tail = read_context_tail(cx)?.map(|(_, t)| t);
+    let ctx_frames = cx.pos("context_frames").map(|v| v as usize).unwrap_or(0);
     let seed = seed(cx);
-    let out = ltx_run(cx, &m, "Stage2 LTX", |h| m.m.stage2(&lat, &cond, image.as_deref(), seed, h))?;
+    let out = ltx_run(cx, &m, "Stage2 LTX", |h| m.m.stage2_with_context(&lat, &cond, image.as_deref(), ctx_tail.as_deref(), seed, h))?;
+    let tail = out.tail(ctx_frames, &m.id)?;
+    let tail_path = cx.out_path("tail.safetensors");
+    tail.save(&tail_path)?;
+    let tail_lbl = tail.label();
     ltx_latent(cx, out, Some(seed));
+    cx.out("tail", Val::Handle(Handle::new(tail_lbl, VideoTailHandle { path: tail_path, tail: Arc::new(tail) })));
     Ok(())
 }
 

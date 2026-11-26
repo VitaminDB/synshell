@@ -30,12 +30,16 @@ fn expand_home(p: &str) -> String {
     }
 }
 
-/// Подставить `{{a}}` … `{{f}}` (и с пробелами внутри скобок).
+/// Подставить `{{a}}` … `{{f}}` (а также `{1}` … `{6}` и варианты с пробелами).
 pub fn format(cx: &mut Cx) -> R {
     let mut s = cx.val("template").text();
-    for k in ["a", "b", "c", "d", "e", "f"] {
+    for (idx, k) in ["a", "b", "c", "d", "e", "f"].iter().enumerate() {
         let v = cx.val(k).text();
-        s = s.replace(&format!("{{{{{k}}}}}"), &v).replace(&format!("{{{{ {k} }}}}"), &v);
+        let n = idx + 1;
+        s = s
+            .replace(&format!("{{{{{k}}}}}"), &v)
+            .replace(&format!("{{{{ {k} }}}}"), &v)
+            .replace(&format!("{{{n}}}"), &v);
     }
     cx.out("text", Val::Text(s));
     Ok(())

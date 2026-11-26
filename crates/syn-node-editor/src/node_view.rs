@@ -28,8 +28,8 @@ use syngui::widgets::containers::Positioned;
 use syngui::widget::WidgetExt;
 
 use crate::icons::{
-    MI_ASPECT_RATIO, MI_CIRCLE, MI_CLOSE, MI_CONTENT_COPY, MI_EDIT_NOTE, MI_PALETTE,
-    MI_POWER_SETTINGS, MI_REMOVE_CIRCLE_OUTLINE, MI_WB_SHADE,
+    MI_ASPECT_RATIO, MI_CIRCLE, MI_CLOSE, MI_CONTENT_COPY, MI_EDIT_NOTE, MI_HELP_OUTLINE,
+    MI_PALETTE, MI_POWER_SETTINGS, MI_REMOVE_CIRCLE_OUTLINE, MI_WB_SHADE,
 };
 
 use super::registry::{self, NodeKindMeta};
@@ -295,14 +295,21 @@ fn header_widget(
         })
         .class("node-card-close");
 
-    // Правая группа шапки: [таймер] ×. Бейдж таймера ставится только у
-    // нод с явным запуском (у них есть `busy_signal` — по нему и меряется
-    // длительность); у реактивных Number/Add мерить нечего. Сам бейдж
-    // прячется, пока у ноды не было ни одного прогона.
+    let help_badge = crate::help::with_rich_tooltip(
+        DecoratedBox::new()
+            .child(Center::new().child(Text::new(MI_HELP_OUTLINE).class("node-card-help-icon")))
+            .class("node-card-help"),
+        crate::help::node_tooltip_content(meta),
+        syngui::widgets::TooltipPosition::Above,
+        340.0,
+    );
+
+    // Правая группа шапки: [таймер] [?] ×.
     let mut tail: Vec<Box<dyn Widget>> = Vec::new();
     if meta.busy_signal.is_some() {
         tail.push(super::timing::node_timer_badge(timing));
     }
+    tail.push(Box::new(help_badge) as Box<dyn Widget>);
     tail.push(Box::new(close_btn) as Box<dyn Widget>);
     let tail_group = Row::new()
         .gap(6.0)
@@ -347,7 +354,7 @@ fn ports_and_fields(node: NodeInstance, meta: &'static NodeKindMeta) -> Box<dyn 
     for i in 0..port_count {
         let in_port = inputs.get(i).copied();
         let out_port = outputs.get(i).copied();
-        col = col.children(vec![port_row(node.id, in_port, out_port)]);
+        col = col.children(vec![port_row(node.id, meta.kind, in_port, out_port)]);
     }
 
     if let Some(builder) = meta.body {
@@ -519,23 +526,50 @@ fn value_display(id: NodeId, port: &'static str, css_class: &'static str) -> Box
     }))
 }
 
-fn port_row(node_id: NodeId, in_port: Option<PortSchema>, out_port: Option<PortSchema>) -> Box<dyn Widget> {
-    let in_label = in_port.map(|p| syngui::i18n::t(p.label)).unwrap_or_default();
-    let out_label = out_port.map(|p| syngui::i18n::t(p.label)).unwrap_or_default();
+fn port_row(node_id: NodeId, node_kind: NodeKind, in_port: Option<PortSchema>, out_port: Option<PortSchema>) -> Box<dyn Widget> {
     let in_color = in_port.map(|p| wire_color(p.kind, false));
     let out_color = out_port.map(|p| wire_color(p.kind, false));
 
-    Box::new(mgui! {
+    let in_label_widget: Box<dyn Widget> = match in_port {
+        Some(p) => {
+            let lbl = Padding::symmetric(6.0, 0.0)
+                .child(Text::new(syngui::i18n::t(p.label)).class("node-card-port-label-in"));
+            Box::new(crate::help::with_rich_tooltip(
+                lbl,
+                crate::help::port_tooltip_content(node_kind, PortSide::Input, p),
+                syngui::widgets::TooltipPosition::Below,
+                280.0,
+            ))
+        }
+        None => Box::new(Padding::symmetric(6.0, 0.0).child(Text::new("").class("node-card-port-label-in"))),
+    };
+
+    let out_label_widget: Box<dyn Widget> = match out_port {
+        Some(p) => {
+            let lbl = Padding::symmetric(6.0, 0.0)
+                .child(Text::new(syngui::i18n::t(p.label)).class("node-card-port-label-out"));
+            Box::new(crate::help::with_rich_tooltip(
+                lbl,
+                crate::help::port_tooltip_content(node_kind, PortSide::Output, p),
+                syngui::widgets::TooltipPosition::Below,
+                280.0,
+            ))
+        }
+        None => Box::new(Padding::symmetric(6.0, 0.0).child(Text::new("").class("node-card-port-label-out"))),
+    };
+
+    Box::new(
         Row::new()
             .gap(0.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center) => [
-                PortDot::new(node_id, in_port, PortSide::Input, in_color),
-                Padding::symmetric(6.0, 0.0).child(Text::new(in_label).class("node-card-port-label-in")),
-                PortLabelSpacer,
-                Padding::symmetric(6.0, 0.0).child(Text::new(out_label).class("node-card-port-label-out")),
-                PortDot::new(node_id, out_port, PortSide::Output, out_color),
-            ]
-    })
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .children(vec![
+                Box::new(PortDot::new(node_id, in_port, PortSide::Input, in_color)) as Box<dyn Widget>,
+                in_label_widget,
+                Box::new(PortLabelSpacer),
+                out_label_widget,
+                Box::new(PortDot::new(node_id, out_port, PortSide::Output, out_color)),
+            ]),
+    )
 }
 
 /// Поле карточки следует за своим сигналом: внешняя правка (отмена, агент,

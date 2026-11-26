@@ -156,3 +156,202 @@
     font-weight: 500;
     text-align: right;
 }
+
+/* ── Кнопка справки `?` в шапке ноды ────────────────────────────────── */
+.node-card-help {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background-color: transparent;
+    transition: background-color 140ms ease-out;
+}
+
+.node-card-help:hover {
+    background-color: rgba(255, 255, 255, 0.10);
+}
+
+.node-card-help-icon {
+    icon-size: 15px;
+    color: var(--ne-text-muted, #98A0AD);
+}
+
+/* ── Красивые rich-tooltip карточки ─────────────────────────────────── */
+.ne-rich-tooltip {
+    background-color: #1D202A;
+    border-color: rgba(255, 255, 255, 0.14);
+    border-width: 1px;
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+.ne-tip-body {
+    width: 310px;
+    background-color: transparent;
+}
+
+.ne-tip-body-compact {
+    width: 252px;
+    background-color: transparent;
+}
+
+.ne-tip-icon {
+    icon-size: 16px;
+    color: var(--primary);
+}
+
+.ne-tip-title {
+    color: #F4F6FA;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ne-tip-badge {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+
+.ne-tip-badge-text {
+    color: #C7CEDB;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.ne-tip-desc {
+    color: #B8C0CE;
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.ne-tip-meta {
+    color: #8892A4;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.ne-tip-callout {
+    background-color: rgba(238, 94, 72, 0.10);
+    border: 1px solid rgba(238, 94, 72, 0.28);
+    border-radius: 6px;
+}
+
+.ne-tip-callout-title {
+    color: #FF9A8A;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.ne-tip-callout-text {
+    color: #E2E6EE;
+    font-size: 11px;
+    font-weight: 400;
+}
+
+/* ── Переформатированные ноды synaptix-flow ─────────────────────────── */
+.flow-node-host {
+    width: 280px;
+    background-color: transparent;
+}
+
+.flow-node-host-wide {
+    width: 332px;
+    background-color: transparent;
+}
+
+.flow-field-label-cell {
+    width: 118px;
+    min-width: 118px;
+    background-color: transparent;
+}
+
+.flow-field-control-cell {
+    flex-grow: 1;
+    background-color: transparent;
+}
+
+.flow-node-longtext {
+    width: 100%;
+    min-height: 58px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.flow-wired-pill {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+}
+
+.flow-wired-pill-text {
+    color: #9FA8B8;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.flow-banner {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+.flow-banner-text {
+    color: #AEB6C5;
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.flow-placeholder-chip {
+    background-color: rgba(238, 94, 72, 0.14);
+    border: 1px solid rgba(238, 94, 72, 0.32);
+    border-radius: 5px;
+    transition: background-color 120ms ease-out;
+}
+
+.flow-placeholder-chip:hover {
+    background-color: rgba(238, 94, 72, 0.26);
+}
+
+.flow-chip-text {
+    color: #FFD2CA;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.flow-adv-toggle {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    transition: background-color 140ms ease-out;
+}
+
+.flow-adv-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.flow-adv-chevron {
+    icon-size: 16px;
+    color: #98A0AD;
+}
+
+.flow-adv-title {
+    color: #B7BDC9;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.flow-adv-badge {
+    background-color: rgba(238, 94, 72, 0.20);
+    border-radius: 4px;
+}
+
+.flow-adv-badge-text {
+    color: #FFB4A8;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.flow-adv-panel {
+    background-color: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}

@@ -132,3 +132,16 @@
     background-color: #1F2230;
     border-color: rgba(255, 255, 255, 0.20);
 }
+
+/* Многострочные текстовые поля в переформатированных flow-нодах */
+.node-input-text.flow-node-longtext {
+    width: 100%;
+    height: auto;
+    min-height: 62px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.node-input-dropdown.flow-node-dropdown {
+    width: 176px;
+}

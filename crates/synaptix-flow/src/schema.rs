@@ -53,10 +53,19 @@ pub struct PortSpec {
     pub name: &'static str,
     pub label: &'static str,
     pub ty: PortType,
+    /// Подсказка для tooltip порта (пусто — автоописание по типу).
+    pub hint: &'static str,
+}
+
+impl PortSpec {
+    pub const fn hint(mut self, hint: &'static str) -> Self {
+        self.hint = hint;
+        self
+    }
 }
 
 pub const fn port(name: &'static str, label: &'static str, ty: PortType) -> PortSpec {
-    PortSpec { name, label, ty }
+    PortSpec { name, label, ty, hint: "" }
 }
 
 /// Тип поля ноды.
@@ -80,10 +89,26 @@ pub struct FieldSpec {
     pub ty: FieldType,
     /// Значение по умолчанию строкой (`""` — пусто); число — `"24"`, флаг — `"true"`.
     pub default: &'static str,
+    /// Подсказка для tooltip поля.
+    pub hint: &'static str,
+    /// Прятать в сворачиваемый раздел «Дополнительно» редактора узлов.
+    pub advanced: bool,
+}
+
+impl FieldSpec {
+    pub const fn hint(mut self, hint: &'static str) -> Self {
+        self.hint = hint;
+        self
+    }
+
+    pub const fn advanced(mut self) -> Self {
+        self.advanced = true;
+        self
+    }
 }
 
 pub const fn field(name: &'static str, label: &'static str, ty: FieldType, default: &'static str) -> FieldSpec {
-    FieldSpec { name, label, ty, default }
+    FieldSpec { name, label, ty, default, hint: "", advanced: false }
 }
 
 /// Описание типа ноды. Поле и входной порт с одним именем — одно значение:

@@ -365,10 +365,13 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
     let mut lists: BTreeMap<String, Vec<Val>> = spec.outputs.iter().map(|p| (p.name.to_string(), Vec::new())).collect();
     let mut label = String::new();
     let mut cacheable = true;
-    // Цепочка роликов: каждый следующий начинается с последнего кадра
-    // предыдущего — одна непрерывная сцена вместо склейки несвязанных.
+    // Цепочка роликов: каждый следующий продолжается с латента хвоста (`tail` →
+    // `context`) предыдущего; если модель не отдаёт хвост — откат на последний
+    // кадр PNG с явной пометкой в `label`.
     let chain = node.kind == "video" && node.fields.get("chain").is_some_and(|v| v.as_bool() == Some(true) || matches!(v.as_str(), Some("true" | "1")));
+    let mut last_tail: Option<Val> = None;
     let mut last_frame: Option<PathBuf> = None;
+    let mut fallback_png = false;
     for k in 0..n {
         cancel.check()?;
         on_event(Event::Started { id: node.id, name: name.clone(), item: Some((k + 1, n)) });
@@ -376,7 +379,11 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
         for (port, items) in &batch {
             inp.insert(port.clone(), items.get(k).or(items.last()).cloned().unwrap_or_default());
         }
-        if let Some(f) = last_frame.take() {
+        if let Some(tail) = last_tail.take() {
+            inp.insert("context".into(), tail);
+            // При продолжении с хвоста картинка first_frame не используется.
+            inp.remove("first_frame");
+        } else if let Some(f) = last_frame.take() {
             inp.insert("first_frame".into(), Val::File(f));
         }
         let id = node.id;
@@ -384,14 +391,20 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
         let mut cx = Cx { node, spec, inputs: &inp, outputs: Outputs::new(), base: dir.join(format!("{stem}-{k:03}")), progress: &mut prog, cancel, sandbox, label: String::new(), uncached: false };
         op(&mut cx).map_err(|e| format!("элемент {} из {n}: {e}", k + 1))?;
         if chain && k + 1 < n {
-            if let Some(Val::File(v)) = cx.outputs.get("video") {
+            if let Some(t) = cx.outputs.get("tail").filter(|v| !v.is_empty()) {
+                last_tail = Some(t.clone());
+            } else if let Some(Val::File(v)) = cx.outputs.get("video") {
                 let png = dir.join(format!("{stem}-{k:03}-last.png"));
                 let (vs, ps) = (v.display().to_string(), png.display().to_string());
                 ops::media::ffmpeg(&["-sseof", "-0.2", "-i", &vs, "-frames:v", "1", "-update", "1", &ps]).map_err(|e| format!("последний кадр ролика {}: {e}", k + 1))?;
                 last_frame = Some(png);
+                fallback_png = true;
             }
         }
         label = cx.label;
+        if fallback_png && k + 1 == n && !label.contains("по кадру") {
+            label.push_str(", цепочка по кадру (без латента)");
+        }
         cacheable &= !cx.uncached;
         for (port, v) in cx.outputs {
             lists.entry(port).or_default().push(v);
@@ -513,5 +526,66 @@ fn summarize(outs: &Outputs, label: &str) -> String {
         (true, _) => label.to_string(),
         (false, true) => what,
         (false, false) => format!("{what}, {label}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Handle;
+    use std::sync::Mutex;
+
+    static CALLS: Mutex<Vec<(String, bool, bool)>> = Mutex::new(Vec::new());
+
+    fn mock_video_tail(cx: &mut Cx) -> Result<(), String> {
+        let prompt = cx.str("prompt").unwrap_or_default();
+        let has_ctx = cx.val("context").handle().is_some();
+        let has_first = cx.file("first_frame").is_some();
+        let mp4 = cx.out_path("mp4");
+        std::fs::write(&mp4, b"dummy").map_err(|e| e.to_string())?;
+        cx.out("video", Val::File(mp4));
+        cx.out("tail", Val::Handle(Handle::new(format!("tail-{prompt}"), prompt.clone())));
+        cx.label = if has_ctx { "с хвоста".into() } else { "с кадра".into() };
+        if let Ok(mut l) = CALLS.lock() {
+            l.push((prompt, has_ctx, has_first));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn chain_passes_tail_to_context_and_drops_first_frame() {
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _g = LOCK.lock().unwrap();
+        CALLS.lock().unwrap().clear();
+        let prev_dir = std::env::temp_dir().join(format!("sf-chain-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prev_dir);
+        ops::provide("video", mock_video_tail);
+
+        let mut node = FlowNode::new(1, "video");
+        node.fields.insert("chain".into(), serde_json::json!(true));
+        let mut inputs = HashMap::new();
+        inputs.insert("prompt".into(), Val::List(vec![Val::Text("s1".into()), Val::Text("s2".into()), Val::Text("s3".into())]));
+        inputs.insert("first_frame".into(), Val::File(PathBuf::from("/tmp/opening.png")));
+
+        let (outs, label) = run_node(&node, inputs, &prev_dir, &Cancel::new(), &mut |_| {}).unwrap();
+        assert_eq!(outs["video"].files().len(), 3);
+        assert!(label.contains("с хвоста") && !label.contains("без латента"), "label={label}");
+
+        let calls = CALLS.lock().unwrap().clone();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0], ("s1".into(), false, true));
+        assert_eq!(calls[1], ("s2".into(), true, false));
+        assert_eq!(calls[2], ("s3".into(), true, false));
+        let _ = std::fs::remove_dir_all(&prev_dir);
+    }
+
+    #[test]
+    fn cache_key_changes_when_context_handle_changes() {
+        let node = FlowNode::new(1, "h3_encode");
+        let mut a = HashMap::new();
+        a.insert("context".into(), Val::Handle(Handle::new("t1", 1u32)));
+        let mut b = HashMap::new();
+        b.insert("context".into(), Val::Handle(Handle::new("t2", 2u32)));
+        assert_ne!(cache_key(&node, &a), cache_key(&node, &b));
     }
 }

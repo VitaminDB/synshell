@@ -1496,6 +1496,12 @@ pub struct VideoParams {
     pub control: Option<String>,
     pub two_stage: bool,
     pub strength: Option<f32>,
+    /// Файл латента хвоста (`.safetensors`): продолжить с хвоста без PNG.
+    pub context: Option<String>,
+    /// Сколько латентных кадров сохранять в хвост (None/0 — по модели).
+    pub context_frames: Option<usize>,
+    /// Куда записать `.safetensors` латента хвоста этого ролика.
+    pub tail_out: Option<String>,
 }
 
 /// Готовая музыка: WAV в fd ответа.

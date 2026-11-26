@@ -402,23 +402,80 @@ fn image(cx: &mut Cx) -> R {
     Ok(())
 }
 
+/// Дескриптор латента хвоста ролика (передаётся между `video.tail` → `video.context`,
+/// а также в стадийные ноды `h3_encode`/`h3_sample` и `ltx_stage1`/`ltx_stage2`).
+/// Держит путь к `.safetensors` в каталоге прогона и копию CPU-тензоров в памяти
+/// (несколько МБ) на случай, если стадия взята из кэша после удаления старого каталога.
+pub struct VideoTailHandle {
+    pub path: PathBuf,
+    pub tail: Arc<synaptix_gen::tail::TailLatent>,
+}
+
+impl VideoTailHandle {
+    pub fn from_file(path: PathBuf) -> Result<Self, String> {
+        let tail = synaptix_gen::tail::TailLatent::load(&path)?;
+        Ok(Self { path, tail: Arc::new(tail) })
+    }
+
+    /// Гарантировать наличие `.safetensors` на диске (если путь из кэша удалён — записать в `fallback`).
+    pub fn ensure_file(&self, fallback: PathBuf) -> Result<PathBuf, String> {
+        if self.path.is_file() {
+            return Ok(self.path.clone());
+        }
+        self.tail.save(&fallback)?;
+        Ok(fallback)
+    }
+}
+
+/// Прочитать вход `context` (`Val::Handle(VideoTailHandle)` или путь к `.safetensors`).
+pub fn read_context_tail(cx: &Cx) -> Result<Option<(PathBuf, Arc<synaptix_gen::tail::TailLatent>)>, String> {
+    if let Some(h) = cx.opt_handle::<VideoTailHandle>("context")? {
+        let fallback = cx.scratch().join("context.safetensors");
+        let path = h.ensure_file(fallback)?;
+        return Ok(Some((path, h.tail.clone())));
+    }
+    if let Some(p) = cx.file("context") {
+        let pb = PathBuf::from(p);
+        let tail = synaptix_gen::tail::TailLatent::load(&pb)?;
+        return Ok(Some((pb, Arc::new(tail))));
+    }
+    Ok(None)
+}
+
 /// Модель видео по нужным возможностям (как у инструмента media).
-fn video_model(cx: &Cx, p: &crate::VideoParams) -> String {
+fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::tail::TailLatent>) -> Result<String, String> {
+    if let Some(tail) = ctx_tail {
+        if let Some(explicit) = cx.str("model") {
+            let resolved = mgr().resolve_id(&explicit, ModelKind::Video).map_err(|e| e.message)?;
+            let want_fam = if resolved.contains("ltx") { "ltx" } else { "h3" };
+            tail.meta.check_compat(want_fam, Some(&resolved), p.width, p.height, None)?;
+            return Ok(resolved);
+        }
+        if !tail.meta.model.is_empty() {
+            return Ok(tail.meta.model.clone());
+        }
+        return Ok(match tail.meta.family.as_str() {
+            "ltx" => "ltx-2-3-22b-distilled-1-1".into(),
+            _ => "minimax-h3-fl2va".into(),
+        });
+    }
     if let Some(m) = cx.str("model") {
-        return m;
+        return Ok(m);
     }
     let restyle = cx.bool("restyle") && p.source_video.is_some();
     let ltx_only = !restyle && (p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage);
-    if ltx_only {
+    Ok(if ltx_only {
         "ltx-2-3-22b-distilled-1-1".into()
     } else if p.first_frame.is_some() || p.last_frame.is_some() || restyle {
         "minimax-h3-fl2va".into()
     } else {
         String::new()
-    }
+    })
 }
 
 fn video(cx: &mut Cx) -> R {
+    let ctx = read_context_tail(cx)?;
+    let tail_out = cx.out_path("tail.safetensors");
     let p = crate::VideoParams {
         negative: cx.str("negative"),
         width: cx.pos("width").map(|v| v as usize),
@@ -427,7 +484,8 @@ fn video(cx: &mut Cx) -> R {
         steps: cx.pos("steps").map(|v| v as usize),
         guidance: cx.pos("guidance").map(|v| v as f32),
         seed: cx.pos("seed").map(|v| v as u64),
-        first_frame: cx.file("first_frame"),
+        // При продолжении с хвоста first_frame не используется.
+        first_frame: if ctx.is_some() { None } else { cx.file("first_frame") },
         last_frame: cx.file("last_frame"),
         refs: cx.files("refs"),
         audio: cx.file("audio"),
@@ -441,14 +499,23 @@ fn video(cx: &mut Cx) -> R {
         control: cx.str("control"),
         two_stage: cx.bool("two_stage"),
         strength: cx.pos("strength").map(|v| v as f32),
+        context: ctx.as_ref().map(|(p, _)| p.display().to_string()),
+        context_frames: cx.pos("context_frames").map(|v| v as usize),
+        tail_out: Some(tail_out.display().to_string()),
     };
-    let model = video_model(cx, &p);
+    let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
     let prompt = cx.need("prompt")?;
     let r = with_progress(cx, |progress, stop| gen::video(mgr(), &model, prompt, p, stop, progress)).map_err(|e| stopped(cx, e.message))?;
     let path = cx.out_path("mp4");
     std::fs::write(&path, &r.mp4).map_err(|e| e.to_string())?;
     cx.label = r.out.label;
     cx.out("video", Val::File(path));
+    if let Some(tp) = r.out.tail.filter(|p| p.is_file()) {
+        if let Ok(th) = VideoTailHandle::from_file(tp) {
+            let lbl = th.tail.label();
+            cx.out("tail", Val::Handle(sf::Handle::new(lbl, th)));
+        }
+    }
     Ok(())
 }
 
