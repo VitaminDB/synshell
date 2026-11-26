@@ -28,7 +28,8 @@ fn temp_project(p: &Project) -> Result<PathBuf, String> {
 /// дочернего процесса — в `progress`.
 pub fn run_child(p: &Project, args: &[String], mut progress: impl FnMut(usize, usize)) -> Result<String, String> {
     let tmp = temp_project(p)?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // после обновления пакета работающее окно видит «/usr/bin/… (deleted)» — берём новый файл
+    let exe = synshell_common::paths::self_exe("syn-video-editor");
     let mut child = Command::new(exe).arg("--render-child").arg(&tmp).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().unwrap();
     let mut last = String::new();

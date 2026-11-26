@@ -183,7 +183,8 @@ pub fn ensure_fx_strips() {
         return;
     }
     std::thread::spawn(|| {
-        if let Ok(exe) = std::env::current_exe() {
+        {
+            let exe = synshell_common::paths::self_exe("syn-video-editor");
             let _ = std::process::Command::new(exe).arg("--preview-strips").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
         }
         if let Some(rev) = REV.get().copied() {
