@@ -19,6 +19,7 @@ mod index;
 mod skill;
 pub mod slots;
 pub mod ui_bridge;
+pub mod nodegraph;
 pub use timeline::EFFECTS;
 
 use serde_json::{json, Map, Value};
@@ -147,6 +148,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(skill::COMMANDS);
     v.extend(slots::COMMANDS);
     v.extend(ui_bridge::COMMANDS);
+    v.extend(nodegraph::COMMANDS);
     v.extend(edit::COMMANDS);
     v
 }

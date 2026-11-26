@@ -334,6 +334,53 @@ pub fn ungroup(ctx: &NodeEditorCtx, gid: NodeId) -> std::result::Result<Vec<Node
     Ok(members)
 }
 
+/// Вид ноды словами: ядро (вид synaptix-flow), программа (свой вид), подграф, встроенная.
+pub fn kind_word(n: &NodeInstance) -> String {
+    match n.kind {
+        NodeKind::Group => "подграф".into(),
+        NodeKind::Ext(e) => format!("программа: {}", e.0),
+        k => match k.flow_kind() {
+            Some(fk) => format!("ядро: {fk}"),
+            None => format!("встроенная: {}", crate::i18n::node_kind_key(k)),
+        },
+    }
+}
+
+/// Холст текстом (для агента): ноды с id, видом и подграфом-владельцем,
+/// порты подграфов, провода (внутри подграфов — тоже, с пометкой).
+pub fn describe(ctx: &NodeEditorCtx) -> String {
+    use std::fmt::Write;
+    let nodes = ctx.nodes.get_untracked();
+    let conns = ctx.connections.get_untracked();
+    let own = owners(&nodes);
+    let mut o = String::new();
+    let _ = writeln!(o, "Нод: {} (видимых {}), проводов: {}", nodes.len(), nodes.iter().filter(|n| !own.contains_key(&n.id)).count(), conns.len());
+    for n in &nodes {
+        let inside = own.get(&n.id).map(|g| format!(" — внутри подграфа #{}", g.0)).unwrap_or_default();
+        let _ = writeln!(o, "#{} {} [{}]{inside}", n.id.0, node_label(n), kind_word(n));
+        if let Some(g) = state(n) {
+            let p = g.ports.lock().map(|p| p.clone()).unwrap_or_default();
+            let members: Vec<String> = g.members.get_untracked().iter().map(|m| format!("#{}", m.0)).collect();
+            let _ = writeln!(o, "    состав: {}", members.join(", "));
+            for x in &p.ins {
+                let _ = writeln!(o, "    вход → #{}.{}", x.node.0, x.port);
+            }
+            for x in &p.outs {
+                let _ = writeln!(o, "    выход ← #{}.{}", x.node.0, x.port);
+            }
+        }
+    }
+    let _ = writeln!(o, "Провода:");
+    for c in &conns {
+        let inner = match (own.get(&c.from_node), own.get(&c.to_node)) {
+            (Some(a), Some(b)) if top(&own, *a) == top(&own, *b) => " (внутри подграфа)",
+            _ => "",
+        };
+        let _ = writeln!(o, "  #{}.{} → #{}.{}{inner}", c.from_node.0, c.from_port, c.to_node.0, c.to_port);
+    }
+    o
+}
+
 /// Тело карточки группы: название (правится) и сколько внутри.
 pub fn body(node: &NodeInstance) -> Box<dyn Widget> {
     let Some(g) = state(node) else { return Box::new(Text::new("")) };

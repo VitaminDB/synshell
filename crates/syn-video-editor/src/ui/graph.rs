@@ -172,6 +172,7 @@ pub fn mount(st: St) {
     super::framegraph_ui::init();
     let ws = EditorWorkspace::new_or_restore();
     let _ = WS.set(ws);
+    install_node_bridge();
     if ws.active.get_untracked().is_none() {
         ws.new_untitled();
     }
@@ -537,4 +538,55 @@ fn register_jobs() {
     reg("ve_vfx_upscale", "\u{E8FF}", "Нейроувеличение (vfx)", IN_MEDIA, OUT_FILES, F_UP, run_up);
     reg("ve_vfx_interpolate", "\u{E01F}", "Плавность RIFE (vfx)", IN_MEDIA, OUT_FILES, F_RIFE, run_rife);
     reg("ve_export", "\u{E2C4}", "Экспорт таймлайна", &[], OUT_FILE, F_EXPORT, run_export);
+}
+
+
+/// Мост команд `nodes.*` (агент, сокет): работа с активной вкладкой графа в
+/// главном потоке окна.
+fn install_node_bridge() {
+    use crate::cmd::nodegraph::{install, Bridge};
+    use std::time::Duration;
+    fn on_main<R: Send + 'static>(f: impl FnOnce() -> std::result::Result<R, String> + Send + 'static) -> std::result::Result<R, String> {
+        syngui::async_runtime::call_on_main_thread(Duration::from_secs(10), f).unwrap_or_else(|| Err("окно не ответило".into()))
+    }
+    fn active() -> std::result::Result<syn_node_editor::NodeEditorCtx, String> {
+        let ws = workspace().ok_or("панель «Граф» ещё не открывалась")?;
+        ws.active_ctx_untracked().ok_or_else(|| "в панели «Граф» нет открытой вкладки — nodes.tabs activate=…".to_string())
+    }
+    install(Bridge {
+        tabs: |activate| {
+            on_main(move || {
+                let ws = workspace().ok_or("панель «Граф» ещё не открывалась")?;
+                let tabs = ws.tabs.get_untracked();
+                if let Some(q) = activate.map(|q| q.to_lowercase()) {
+                    let t = tabs.iter().find(|t| t.title.get_untracked().to_lowercase().contains(&q)).ok_or_else(|| format!("нет вкладки «{q}»"))?;
+                    ws.activate(t.id);
+                    if let Some(st) = ST.get().copied() {
+                        st.open_panel("graph");
+                    }
+                }
+                let act = ws.active.get_untracked();
+                Ok(tabs.iter().map(|t| format!("{} {}", if Some(t.id) == act { "▶" } else { " " }, t.title.get_untracked())).collect::<Vec<_>>().join("\n"))
+            })
+        },
+        show: || on_main(|| Ok(syn_node_editor::group::describe(&active()?))),
+        group: |ids, title| {
+            on_main(move || {
+                let ctx = active()?;
+                let ids: Vec<syn_node_editor::types::NodeId> = ids.into_iter().map(syn_node_editor::types::NodeId).collect();
+                let g = syn_node_editor::group::group(&ctx, &ids, &title)?;
+                let nodes = ctx.nodes.get_untracked();
+                let st = nodes.iter().find(|n| n.id == g).and_then(syn_node_editor::group::state).ok_or("подграф не создан")?;
+                let p = st.ports.lock().map(|p| p.clone()).unwrap_or_default();
+                Ok(format!("подграф #{} «{}»: нод {}, входов {}, выходов {}", g.0, st.title.get_untracked(), ids.len(), p.ins.len(), p.outs.len()))
+            })
+        },
+        ungroup: |id| {
+            on_main(move || {
+                let ctx = active()?;
+                let back = syn_node_editor::group::ungroup(&ctx, syn_node_editor::types::NodeId(id))?;
+                Ok(format!("подграф #{id} развёрнут: {}", back.iter().map(|n| format!("#{}", n.0)).collect::<Vec<_>>().join(", ")))
+            })
+        },
+    });
 }
