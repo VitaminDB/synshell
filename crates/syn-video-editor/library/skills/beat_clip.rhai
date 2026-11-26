@@ -33,13 +33,13 @@ let beats = [];
 for b in list(m.index.beats) { if num(b) < len { beats.push(num(b)); } }
 let cuts = [0.0];
 let i = every;
-while i < beats.len() { cuts.push(beats[i]); i += every; }
+// склейки не ближе 0.3 с друг к другу и к концу — без коротких обрывков и зазоров
+while i < beats.len() { if beats[i] - cuts[cuts.len() - 1] >= 0.3 && len - beats[i] >= 0.3 { cuts.push(beats[i]); } i += every; }
 cuts.push(len);
 let k = 0;
 let n = 0;
 for j in 0..cuts.len() - 1 {
     let a = cuts[j]; let b = cuts[j + 1];
-    if b - a < 0.15 { continue; }
     let vi = k % vids.len();
     let d = b - a;
     if offs[vi] + d > durs[vi] { offs[vi] = 0.0; }

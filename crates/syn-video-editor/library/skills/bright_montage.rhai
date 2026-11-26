@@ -47,9 +47,11 @@ for c in clips {
         let prev = clips[i - 1];
         if (num(prev.start) + num(prev.duration) - num(c.start)).abs() < 0.05 {
             let tpl = pool[(i - 1) % pool.len()];
+            // склейка не встык (зазор в доли кадра) — переход пропускается, а не роняет весь стиль
+            let ok = true;
             try { cmd("transition.set", #{id: c.id, kind: "fusion", template: tpl, duration: 0.7}); }
-            catch { cmd("transition.set", #{id: c.id, kind: "zoom", duration: 0.5}); }
-            cuts.push(num(c.start));
+            catch { try { cmd("transition.set", #{id: c.id, kind: "zoom", duration: 0.5}); } catch { ok = false; } }
+            if ok { cuts.push(num(c.start)); }
         }
     }
     i += 1;
