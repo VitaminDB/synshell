@@ -38,6 +38,7 @@ const MI_BOOKMARK_BORDER: &str = "\u{e867}";
 const MI_TOC: &str = "\u{e8de}";
 const MI_FORMAT_SIZE: &str = "\u{e245}";
 const MI_HIGHLIGHT: &str = "\u{e25f}";
+const MI_PRINT: &str = "\u{e8ad}";
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::new(Point::new(x, y), Size::new(w, h))
@@ -68,6 +69,18 @@ static OVERLAY: OnceLock<OverlayFactory> = OnceLock::new();
 /// Слой пометок пером поверх страниц книги (ставит модуль рукописного ввода).
 pub fn set_overlay_factory(f: OverlayFactory) {
     let _ = OVERLAY.set(f);
+}
+
+/// PDF для окна печати: страницы в настоящем размере, растр — poppler под размер на листе.
+pub fn pdf_print_document(title: &str, w: &super::pdf::PdfWorker, current: usize) -> syngui::print::PageDocument {
+    let pt = syngui::print::PageDocument::pt_to_mm;
+    let sizes: Vec<(f32, f32)> = w.info.sizes.iter().map(|(a, b)| (pt(*a), pt(*b))).collect();
+    let worker = w.clone();
+    syngui::print::PageDocument::new(title, sizes, current, move |i, px_w, _px_h| {
+        let (pw, _) = worker.info.sizes.get(i).copied().unwrap_or((595.0, 842.0));
+        let b = worker.render_blocking(i, px_w as f32 / pw.max(1.0)).ok_or_else(|| format!("PDF: page {} was not rendered", i + 1))?;
+        Ok(syngui::print::PrintImage { width: b.width, height: b.height, rgba: b.rgba })
+    })
 }
 
 // ─────────────────────────── Состояние экрана ───────────────────────────
@@ -125,6 +138,19 @@ pub struct Ctl {
     pub part: RwSignal<usize>,
     /// Правка заметки выделения (id).
     pub note_edit: RwSignal<Option<String>>,
+    /// Окно печати и что в нём печатается.
+    pub print_open: RwSignal<bool>,
+    pub print_doc: RwSignal<Option<PrintDoc>>,
+}
+
+/// Документ окна печати (номер — чтобы окно пересоздавалось при новой печати).
+#[derive(Clone)]
+pub struct PrintDoc(pub u64, pub Arc<dyn syngui::print::PrintDocument>);
+
+impl PartialEq for PrintDoc {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0
+    }
 }
 
 /// Хозяйство, которое живёт вне сигналов: книга, вёрстка, растры PDF.
@@ -197,6 +223,8 @@ impl Reader {
             hit: use_signal(None),
             part: use_signal(0),
             note_edit: use_signal(None),
+            print_open: use_signal(false),
+            print_doc: use_signal(None),
         };
         let core = Core {
             book,
@@ -244,6 +272,28 @@ impl Reader {
 
     pub fn book(&self) -> Option<Arc<Book>> {
         self.core.lock().unwrap().book.clone()
+    }
+
+    /// Книгу можно напечатать (PDF: страницы рисует poppler в нужном размере).
+    pub fn can_print(&self) -> bool {
+        self.book().is_some_and(|b| matches!(b.content, Content::Pdf(_)))
+    }
+
+    /// Окно печати: страницы PDF в настоящем размере, выбор страниц, масштаб,
+    /// несколько страниц на листе. `false` — печатать нечего (книга не PDF или не открылась).
+    pub fn print(&self) -> bool {
+        let Some(book) = self.book() else { return false };
+        let Content::Pdf(w) = &book.content else { return false };
+        let total = w.page_count();
+        let current = self.ctl.state.get_untracked().pos.page().min(total.saturating_sub(1));
+        let doc = pdf_print_document(&book.title, w, current)
+        // Длинную книгу целиком по ошибке не печатаем: сначала — текущая страница.
+        .default_range(if total > 30 { syngui::print::PageRange::Current } else { syngui::print::PageRange::All });
+        let seq = self.ctl.print_doc.get_untracked().map(|d| d.0 + 1).unwrap_or(1);
+        self.ctl.panel.set(Panel::None);
+        self.ctl.print_doc.set(Some(PrintDoc(seq, Arc::new(doc))));
+        self.ctl.print_open.set(true);
+        true
     }
 
     fn flow(&self) -> Option<Arc<FlowDoc>> {
@@ -1226,13 +1276,27 @@ impl Element for PageElement {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
-                // Прокрутка жестом приходит десятками событий подряд: листать
-                // только если включено, и не чаще страницы за жест (пауза
-                // в прокрутке ≥ 350 мс начинает новый жест).
                 if !crate::notes::prefs::get().wheel_turns {
                     return EventResult::Handled;
                 }
+                // Щелчок колеса мыши (строки winit — ровно по 40 px) — страница.
+                // Тачпад шлёт десятки событий в пикселях подряд: не больше
+                // страницы за жест (пауза ≥ 350 мс начинает новый жест).
                 let now = Instant::now();
+                let lines = delta / 40.0;
+                if lines.abs() >= 0.99 && (lines - lines.round()).abs() < 0.01 {
+                    self.wheel_at = Some(now);
+                    self.wheel_done = true;
+                    // Несколько щелчков одним событием — столько же страниц.
+                    for _ in 0..(lines.abs().round() as u32).min(10) {
+                        if *delta < 0.0 {
+                            self.reader.next();
+                        } else {
+                            self.reader.prev();
+                        }
+                    }
+                    return EventResult::Handled;
+                }
                 let new_gesture = self.wheel_at.map_or(true, |t| now.duration_since(t) >= Duration::from_millis(350));
                 self.wheel_at = Some(now);
                 if new_gesture {
@@ -1240,7 +1304,7 @@ impl Element for PageElement {
                     self.wheel_done = false;
                 }
                 self.wheel += delta;
-                if !self.wheel_done && self.wheel.abs() >= 1.0 {
+                if !self.wheel_done && self.wheel.abs() >= 24.0 {
                     if self.wheel < 0.0 {
                         self.reader.next();
                     } else {
@@ -1460,6 +1524,19 @@ pub fn reader_view(r: Reader) -> impl Widget {
             out
         })
     };
+    // Окно печати поверх всего.
+    let print_layer = Reactive::new(move || -> Vec<W> {
+        let Some(doc) = ctl.print_doc.get() else { return vec![] };
+        vec![Box::new(
+            syngui::print::PrintDialog::new(ctl.print_open, doc.1)
+                .on_done(|r| {
+                    if let Ok(o) = r {
+                        use_context::<crate::context::AppCtx>().notifications.success(syngui::print::outcome_text(&o));
+                    }
+                })
+                .build(),
+        )]
+    });
     DecoratedBox::new().class("reader").child(
         Stack::new()
             .fit(StackFit::Expand)
@@ -1470,7 +1547,8 @@ pub fn reader_view(r: Reader) -> impl Widget {
                     .child(footer)
                     .class("grow"),
             )
-            .child(fill(overlay)),
+            .child(fill(overlay))
+            .child(print_layer),
     )
 }
 
@@ -1498,6 +1576,12 @@ fn menu(r: Reader) -> impl Widget {
             icon_btn(if marked { MI_BOOKMARK } else { MI_BOOKMARK_BORDER }, tr!("notes.reader.bookmark"), move || r.toggle_bookmark())
         })
         .child(icon_btn(MI_SEARCH, tr!("notes.reader.search"), move || ctl.panel.set(Panel::Search)));
+    if r.can_print() {
+        let r = r.clone();
+        top = top.child(icon_btn(MI_PRINT, tr!("notes.reader.print"), move || {
+            r.print();
+        }));
+    }
     let pages = match num {
         Some((n, t)) => format!("{n} / {t}"),
         None => String::new(),
@@ -2010,4 +2094,17 @@ pub fn header_actions(r: Reader) -> impl Widget {
         .child(icon_btn(MI_FORMAT_SIZE, tr!("notes.reader.text"), move || ctl.panel.set(Panel::Text)))
         .child(pen)
         .child(bm)
+        .child({
+            let r = r.clone();
+            Reactive::new(move || -> Vec<W> {
+                let _ = ctl.load.get();
+                if !r.can_print() {
+                    return vec![];
+                }
+                let r = r.clone();
+                vec![Box::new(icon_btn(MI_PRINT, tr!("notes.reader.print"), move || {
+                    r.print();
+                }))]
+            })
+        })
 }

@@ -684,4 +684,58 @@ mod tests {
         assert_eq!(r[0].page, 1);
         assert!(r[0].snippet.contains("Second"));
     }
+
+    /// Печать PDF из читалки: страницы 2-5 по две на листе, 50 %, в PDF-файл;
+    /// результат открывается тем же poppler и сверяется по размерам листов и тексту.
+    #[test]
+    fn print_pdf_pages_scaled_two_per_sheet() {
+        use syngui::print::{write_pdf, PageRange, PrintDocument, PrintSettings, Scale, PDF_DESTINATION};
+        if !available() {
+            eprintln!("poppler-glib нет — тест пропущен");
+            return;
+        }
+        let pdf = make_test_pdf(&["One", "Two", "Three", "Four", "Five"]);
+        let w = PdfWorker::open(pdf).unwrap();
+        let doc = super::super::view::pdf_print_document("book.pdf", &w, 0);
+        assert_eq!(doc.len(), 5);
+        let (pw, ph) = doc.page_size_mm(0).unwrap();
+        assert!((pw - 215.9).abs() < 0.1 && (ph - 279.4).abs() < 0.1, "Letter в мм: {pw}×{ph}");
+        let s = PrintSettings {
+            printer: PDF_DESTINATION.into(),
+            paper: "A4".into(),
+            range: PageRange::Custom("2-5".into()),
+            per_sheet: 2,
+            scale: Scale::Percent(50),
+            ..Default::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out.pdf");
+        assert_eq!(write_pdf(&doc, &s, &out, &|_, _| {}).unwrap(), 2);
+        let r = PdfWorker::open(std::fs::read(&out).unwrap()).unwrap();
+        assert_eq!(r.page_count(), 2);
+        // Альбомный A4 (842×595 pt).
+        let (sw, sh) = r.info.sizes[0];
+        assert!((sw - 841.9).abs() < 1.0 && (sh - 595.3).abs() < 1.0, "лист {sw}×{sh}");
+        // На листе — растр двух страниц: левая и правая половины не пустые,
+        // а при 50 % верх и низ листа — белые.
+        let bmp = r.render_blocking(0, 1.0).unwrap();
+        if let Ok(p) = std::env::var("PRINT_TEST_PNG") {
+            let _ = image::save_buffer(p, &bmp.rgba, bmp.width, bmp.height, image::ColorType::Rgba8);
+        }
+        let (bw, bh) = (bmp.width as usize, bmp.height as usize);
+        let dark_in = |x0: usize, x1: usize, y0: usize, y1: usize| {
+            let mut n = 0;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if bmp.rgba[(y * bw + x) * 4] < 245 {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        assert!(dark_in(0, bw / 2, 0, bh) > 10, "левая страница пустая");
+        assert!(dark_in(bw / 2, bw, 0, bh) > 10, "правая страница пустая");
+        assert_eq!(dark_in(0, bw, 0, bh / 5), 0, "при 50 % верх листа должен быть пустым");
+    }
 }

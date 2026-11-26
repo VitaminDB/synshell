@@ -41,6 +41,7 @@ syngui = { workspace = true, features = [
     "i18n",
     "single-instance",
     "pen",
+    "print",
 ] }
 synaptix-bundle = { workspace = true, features = ["sha256", "blake3"] }
 serde.workspace = true

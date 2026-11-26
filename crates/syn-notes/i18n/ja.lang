@@ -646,6 +646,7 @@ notes.reader.refresh_every = "N ページごとに画面全体をリフレッシ
 notes.reader.save = "保存"
 # en "Search"
 notes.reader.search = "検索"
+notes.reader.print = "印刷 (Ctrl+P)"
 # en "Word or phrase"
 notes.reader.search_hint = "単語またはフレーズ"
 # en "Two pages (wide screen)"

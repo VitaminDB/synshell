@@ -38,7 +38,9 @@ pub struct Prefs {
     /// Поменять «назад» и «вперёд» местами.
     pub tap_invert: bool,
     pub swipe: SwipeDir,
-    /// Колесо мыши и прокрутка жестом листают (по странице за жест).
+    /// Колесо мыши листает (по странице за щелчок колеса, тачпад — за жест).
+    /// Ключ новый: прежний `wheel_turns` был выключен по умолчанию.
+    #[serde(rename = "wheel_pages")]
     pub wheel_turns: bool,
     /// Рукопись: рисовать пальцем.
     pub ink_finger: bool,
@@ -56,7 +58,7 @@ impl Default for Prefs {
             tap_mode: TapMode::LeftRight,
             tap_invert: false,
             swipe: SwipeDir::Horizontal,
-            wheel_turns: false,
+            wheel_turns: true,
             ink_finger: false,
             ink_crisp: eink,
             ink_hold_shape: true,

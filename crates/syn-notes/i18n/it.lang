@@ -651,6 +651,7 @@ notes.reader.refresh_every = "Aggiornamento completo dello schermo ogni N pagine
 notes.reader.save = "Salva"
 # en "Search"
 notes.reader.search = "Cerca"
+notes.reader.print = "Stampa (Ctrl+P)"
 # en "Word or phrase"
 notes.reader.search_hint = "Parola o frase"
 # en "Two pages (wide screen)"

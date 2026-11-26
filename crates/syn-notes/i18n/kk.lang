@@ -651,6 +651,7 @@ notes.reader.refresh_every = "Экранды толық жаңарту әр N б
 notes.reader.save = "Сақтау"
 # en "Search"
 notes.reader.search = "Іздеу"
+notes.reader.print = "Басып шығару (Ctrl+P)"
 # en "Word or phrase"
 notes.reader.search_hint = "Сөз немесе сөз тіркесі"
 # en "Two pages (wide screen)"

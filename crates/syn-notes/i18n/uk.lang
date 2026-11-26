@@ -656,6 +656,7 @@ notes.reader.refresh_every = "Повне оновлення екрана кож�
 notes.reader.save = "Зберегти"
 # en "Search"
 notes.reader.search = "Пошук"
+notes.reader.print = "Друк (Ctrl+P)"
 # en "Word or phrase"
 notes.reader.search_hint = "Слово або фраза"
 # en "Two pages (wide screen)"

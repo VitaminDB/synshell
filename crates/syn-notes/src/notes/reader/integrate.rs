@@ -55,6 +55,12 @@ fn current() -> &'static Mutex<Option<(PathBuf, String, Reader)>> {
     R.get_or_init(Default::default)
 }
 
+/// Ctrl+P: печать открытой книги `page_id` (PDF). `false` — эта книга не открыта или не PDF.
+pub fn print_book(page_id: &str) -> bool {
+    let r = current().lock().unwrap().as_ref().filter(|(_, id, _)| id == page_id).map(|(_, _, r)| r.clone());
+    r.is_some_and(|r| r.print())
+}
+
 fn reader_for(ctx: NotesCtx, lib: Library, page_id: &str) -> Option<Reader> {
     let project = ctx.project_path.get_untracked();
     if let Some((p, id, r)) = current().lock().unwrap().as_ref() {

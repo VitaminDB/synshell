@@ -176,6 +176,8 @@ pub fn run() {
         .app_id(APP_ID)
         .size(1280, 820)
         .min_size(360, 480)
+        // На компьютере окно открывается развёрнутым (на телефоне оно и так во весь экран).
+        .maximized(!is_phone())
         .frameless()
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
@@ -355,10 +357,18 @@ fn keys(inner: impl Widget + 'static) -> W {
     Box::new(
         EventHook::new()
             .on_back(back)
-            .on_key_down(move |k, _m| {
+            .on_key_down(move |k, m| {
                 if k == Key::F11 {
                     syngui::signal::toggle_fullscreen();
                     return KeyReply::Handled;
+                }
+                // Ctrl+P — печать открытой книги (PDF).
+                if k == Key::P && m.ctrl {
+                    if let notes::library::Screen::Open(id) = use_context::<notes::library::Library>().screen.get_untracked() {
+                        if notes::reader::print_book(&id) {
+                            return KeyReply::Handled;
+                        }
+                    }
                 }
                 KeyReply::Ignore
             })
@@ -416,10 +426,12 @@ fn frame(wide: RwSignal<bool>, chrome: bool, window: bool, title: bool) -> W {
     }
     let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
     if chrome || title {
-        // Чтение на весь экран — без заголовка окна (меню читалки — тапом).
+        // Чтение на весь экран — без заголовка окна (меню читалки — тапом); на
+        // компьютере окно остаётся окном: заголовок с кнопками и рамка видны всегда.
         let lib = use_context::<notes::library::Library>();
+        let phone = is_phone();
         col = col.child(Reactive::new(move || -> Vec<W> {
-            if lib.immersive.get() {
+            if lib.immersive.get() && phone {
                 vec![]
             } else {
                 vec![titlebar()]
