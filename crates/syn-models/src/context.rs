@@ -19,6 +19,7 @@ pub enum Page {
     HuggingFace,
     Library,
     Settings,
+    Training,
 }
 
 impl Page {
@@ -26,6 +27,7 @@ impl Page {
         match s {
             "syn_explorer" | "library" => Page::Library,
             "settings" => Page::Settings,
+            "training" => Page::Training,
             _ => Page::HuggingFace,
         }
     }
@@ -35,6 +37,7 @@ impl Page {
             Page::HuggingFace => "huggingface",
             Page::Library => "syn_explorer",
             Page::Settings => "settings",
+            Page::Training => "training",
         }
     }
 }

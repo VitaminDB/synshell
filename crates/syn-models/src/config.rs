@@ -34,9 +34,12 @@ pub struct AppConfig {
     pub hf_right_split_ratio: f32,
     pub huggingface_left: bool,
     pub huggingface_right: bool,
+    /// «Обучение»: видимость и ширина (доля окна) левой панели.
+    pub training_left: bool,
+    pub training_left_split_ratio: f32,
     /// Каталог моделей (`.syn`, LoRA, каталоги HF).
     pub models_dir: String,
-    /// Открытый раздел: `huggingface`, `syn_explorer` или `settings`.
+    /// Открытый раздел: `huggingface`, `syn_explorer`, `settings` или `training`.
     pub page: String,
 }
 
@@ -62,6 +65,8 @@ impl Default for AppConfig {
             hf_right_split_ratio: 0.70,
             huggingface_left: true,
             huggingface_right: true,
+            training_left: true,
+            training_left_split_ratio: 0.24,
             models_dir: default_models_dir(),
             page: "huggingface".into(),
         }

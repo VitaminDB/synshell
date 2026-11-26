@@ -1,5 +1,5 @@
 //! Окно «Моделей»: свой заголовок (CSD) с разделами «Hugging Face»,
-//! «Библиотека» и «Настройки», под ним — открытый раздел.
+//! «Библиотека», «Настройки» и «Обучение», под ним — открытый раздел.
 //!
 //! Один экземпляр: второй запуск поднимает окно первого (очередь загрузок и
 //! её файл состояния — у одного процесса).
@@ -14,7 +14,7 @@ use synshell_common::Config;
 
 use crate::config::AppConfig;
 use crate::context::{AppCtx, Page};
-use crate::pages::{huggingface, syn_explorer};
+use crate::pages::{huggingface, syn_explorer, training};
 
 pub mod theme;
 
@@ -49,7 +49,7 @@ fn parse_args() -> Args {
                 }
             }
             "-h" | "--help" => {
-                println!("syn-models [--page huggingface|library|settings] [--screenshot out.png [--size ШxВ]]");
+                println!("syn-models [--page huggingface|library|settings|training] [--screenshot out.png [--size ШxВ]]");
                 std::process::exit(0);
             }
             _ => {}
@@ -127,6 +127,7 @@ fn install_state(live: bool) {
     provide_context(syn_explorer::SynExplorerCtx::new(&cfg));
     let hf = huggingface::HuggingFaceCtx::new(&cfg);
     provide_context(hf);
+    provide_context(training::TrainingCtx::new(cfg.training_left, cfg.training_left_split_ratio));
     if !live {
         return;
     }
@@ -155,6 +156,7 @@ fn notify_quarantined(file: &std::path::Path, backup: &std::path::Path) {
 fn install_config_autosave(app: AppCtx, base: AppConfig) {
     let syn = use_context::<syn_explorer::state::SynExplorerCtx>();
     let hf = use_context::<huggingface::HuggingFaceCtx>();
+    let train = use_context::<training::TrainingCtx>();
     let last = use_signal(base.clone());
     create_effect(move || {
         let cfg = AppConfig {
@@ -177,6 +179,8 @@ fn install_config_autosave(app: AppCtx, base: AppConfig) {
             hf_right_split_ratio: app.hf_right_split_ratio.get(),
             huggingface_left: app.panels.huggingface.0.get(),
             huggingface_right: app.panels.huggingface.1.get(),
+            training_left: train.left_visible.get(),
+            training_left_split_ratio: train.left_ratio.get(),
             models_dir: syn.models_dir.get().display().to_string(),
             page: app.page.get().as_config().to_string(),
         };
@@ -211,6 +215,22 @@ fn tab(page: Page, icon: &'static str, label: String) -> W {
     )
 }
 
+/// Вкладка «Обучение»: бейдж — число идущих и ждущих задач в службе.
+fn training_tab() -> W {
+    let count = use_context::<training::TrainingCtx>().active_jobs();
+    let btn = tab(Page::Training, crate::icons::MI_MODEL_TRAINING, syngui::tr!("models.page.training"));
+    if count == 0 {
+        return btn;
+    }
+    Box::new(
+        Row::new()
+            .gap(2.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(btn)
+            .child(Badge::new(count.to_string()).small()),
+    )
+}
+
 /// Свой заголовок окна: значок и имя, разделы, кнопки окна.
 fn titlebar() -> W {
     let window = use_context::<WindowCtx>().state;
@@ -223,7 +243,8 @@ fn titlebar() -> W {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(tab(Page::HuggingFace, crate::icons::MI_CLOUD_DOWNLOAD, "Hugging Face".into()))
                 .child(tab(Page::Library, crate::icons::MI_INVENTORY_2, syngui::tr!("models.page.library")))
-                .child(tab(Page::Settings, crate::icons::MI_SETTINGS, syngui::tr!("models.page.settings"))),
+                .child(tab(Page::Settings, crate::icons::MI_SETTINGS, syngui::tr!("models.page.settings")))
+                .child(training_tab()),
         )]
     });
     let controls = Reactive::new(move || -> Vec<W> {
@@ -267,6 +288,7 @@ fn page_view() -> W {
                 Page::HuggingFace => vec![Box::new(huggingface::view())],
                 Page::Library => vec![Box::new(syn_explorer::view())],
                 Page::Settings => vec![Box::new(crate::pages::settings::view())],
+                Page::Training => vec![Box::new(training::view())],
             }
         },
     ))))
@@ -302,12 +324,13 @@ fn frame(window: bool) -> impl Widget {
         .child(toasts);
     let keys = EventHook::new()
         .on_key_down(move |k, m| {
-            // Ctrl+1/2/3 — разделы.
+            // Ctrl+1/2/3/4 — разделы по порядку вкладок.
             if m.ctrl {
                 let page = match k {
                     Key::Num1 => Some(Page::HuggingFace),
                     Key::Num2 => Some(Page::Library),
                     Key::Num3 => Some(Page::Settings),
+                    Key::Num4 => Some(Page::Training),
                     _ => None,
                 };
                 if let Some(p) = page {

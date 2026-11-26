@@ -25,6 +25,7 @@ const STYLES: &[&str] = &[
     include_str!("../../styles/hf_dock.mss"),
     include_str!("../../styles/hf_dialog.mss"),
     include_str!("../../styles/syn_explorer.mss"),
+    include_str!("../../styles/training.mss"),
     include_str!("../../styles/app.mss"),
     include_str!("../../styles/models.mss"),
 ];
