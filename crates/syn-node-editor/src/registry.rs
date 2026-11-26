@@ -619,7 +619,7 @@ const GROUP: NodeKindMeta = NodeKindMeta {
     port_row_extra: None,
     executor: &GROUP_EXEC,
     on_run: None,
-    busy_signal: None,
+    busy_signal: Some(crate::group::busy_signal),
     runtime: Some(crate::group::new_runtime),
 };
 

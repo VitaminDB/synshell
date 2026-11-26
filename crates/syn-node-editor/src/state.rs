@@ -105,6 +105,12 @@ impl NodeEditorCtx {
             let _ = gctx.connections.get();
             crate::group::refresh(&gctx);
         });
+        // занятость подграфов — по нодам внутри (подписка на их busy-сигналы)
+        let bctx = ctx;
+        create_effect(move || {
+            let nodes = bctx.nodes.get();
+            crate::group::track_busy(&nodes);
+        });
 
         ctx
     }

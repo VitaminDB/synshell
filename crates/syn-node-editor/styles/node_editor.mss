@@ -115,3 +115,6 @@
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 }
 .ne-selbar-text { color: var(--fg, #e6e6e6); font-size: 13px; }
+
+/* Подграф: идёт прогон внутри. */
+.flow-status-running { color: var(--primary); }

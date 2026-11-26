@@ -43,11 +43,13 @@ pub struct GroupState {
     pub ports: Arc<Mutex<GroupPorts>>,
     /// Номер набора портов — карточка пересобирается при изменении.
     pub ver: RwSignal<u64>,
+    /// Занята: идёт прогон хотя бы одной ноды внутри (таймер шапки, «занята»).
+    pub busy: RwSignal<bool>,
 }
 
 impl GroupState {
     pub fn new() -> Self {
-        Self { title: use_signal("Подграф".to_string()), members: use_signal(Vec::new()), origin: use_signal(Point::zero()), ports: Arc::new(Mutex::new(GroupPorts::default())), ver: use_signal(0) }
+        Self { title: use_signal("Подграф".to_string()), members: use_signal(Vec::new()), origin: use_signal(Point::zero()), ports: Arc::new(Mutex::new(GroupPorts::default())), ver: use_signal(0), busy: use_signal(false) }
     }
 }
 
@@ -390,17 +392,38 @@ pub fn describe(ctx: &NodeEditorCtx) -> String {
     o
 }
 
+/// `busy_signal` ноды-группы.
+pub fn busy_signal(node: &NodeInstance) -> Option<RwSignal<bool>> {
+    state(node).map(|g| g.busy)
+}
+
+/// Занятость групп по занятости нод внутри (вызывается из эффекта — подписывается на них).
+pub fn track_busy(nodes: &[NodeInstance]) {
+    for g in nodes.iter().filter(|n| n.kind == NodeKind::Group) {
+        let Some(st) = state(g) else { continue };
+        let desc = descendants(nodes, g.id);
+        let busy = nodes.iter().filter(|n| desc.contains(&n.id) && n.kind != NodeKind::Group).any(|n| registry::meta(n.kind).busy_signal.and_then(|f| f(n)).is_some_and(|s| s.get()));
+        if st.busy.get_untracked() != busy {
+            st.busy.set(busy);
+        }
+    }
+}
+
 /// Тело карточки группы: название (правится) и сколько внутри.
 pub fn body(node: &NodeInstance) -> Box<dyn Widget> {
     let Some(g) = state(node) else { return Box::new(Text::new("")) };
     let title = g.title;
+    let busy = g.busy;
     let n = g.members.get_untracked().len();
     Box::new(
         Padding::symmetric(10.0, 6.0).child(
             Column::new()
                 .gap(4.0)
                 .child(syngui::widgets::TextField::new().text(title.get_untracked()).on_change(move |s: &str| title.set(s.to_string())).class("flow-field-input"))
-                .child(Text::new(format!("внутри нод: {n} · правый щелчок — «Разгруппировать»")).class("node-card-hint")),
+                .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                    let t = if busy.get() { format!("выполняется… · внутри нод: {n}") } else { format!("внутри нод: {n} · правый щелчок — «Разгруппировать»") };
+                    vec![Box::new(Text::new(t).class(if busy.get() { "node-card-hint flow-status-running" } else { "node-card-hint" }))]
+                })),
         ),
     )
 }
