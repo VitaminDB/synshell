@@ -110,7 +110,7 @@ Every application has its own README with screenshots and a command-line referen
 | [synsettings](crates/syn-settings/README.md) | **System settings.** Themes, wallpaper, panels, input, displays, network, sound and the rest of `config.toml` in one window. |
 | [synfiles](crates/syn-files/README.md) | **File manager.** Tabs, two panes, archives as folders, network locations, phones and drives, a built-in image viewer. |
 | [syn-terminal](crates/syn-terminal/README.md) | **Terminal.** Tabs in the title bar, color schemes, font settings; on a phone, a row of keys the on-screen keyboard lacks. |
-| [synshot](crates/syn-shot/README.md) | **Screenshots.** The screen freezes, you select an area or click a window, then copy, save or open it. |
+| [synshot](crates/syn-shot/README.md) | **Screenshots and screen recording.** The screen freezes, you select an area or click a window, then copy, save or open it; a panel button or Super+Alt+R records the screen, an area or a window to MP4 with hardware encoding and sound. |
 | [synpkg](crates/syn-pkg/README.md) | **Software center.** Browse, install, remove and update programs from the Arch Linux repositories and AUR. |
 | [syn-systeminfo](crates/syn-systeminfo/README.md) | **System monitor.** Processor, graphics and video memory, NPU, memory, network, storage, sensors, power and processes. |
 | [syn-themeeditor](crates/syn-themeeditor/README.md) | **Theme editor.** Palette, shape and MSS styles with a live preview of the desktop and System Settings. |
