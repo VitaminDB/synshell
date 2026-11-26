@@ -71,8 +71,14 @@ static LIST: Command = Command {
     run: list,
 };
 
+/// Включённые сценарии (выключенные — в «Настройки → Скилы»).
+fn enabled() -> Vec<Skill> {
+    let set = crate::settings::load();
+    all().into_iter().filter(|s| set.skill_on(&s.name)).collect()
+}
+
 fn list(_ed: &mut Editor, _a: &Args) -> Res {
-    let v = all();
+    let v = enabled();
     let lines: Vec<String> = v.iter().map(|s| format!("{} — {}: {}{}", s.name, s.title, s.description, if s.params.is_empty() { String::new() } else { format!(" | параметры: {}", s.params) })).collect();
     let data: Vec<Value> = v.iter().map(|s| json!({"name": s.name, "title": s.title, "description": s.description, "params": s.params, "path": s.path.as_ref().map(|p| p.display().to_string())})).collect();
     Ok(Out::with(lines.join("\n"), Value::Array(data)))
@@ -92,7 +98,7 @@ static RUN: Command = Command {
 
 fn run(ed: &mut Editor, a: &Args) -> Res {
     let name = a.need_str("name")?;
-    let s = all().into_iter().find(|s| s.name == name.trim()).ok_or_else(|| format!("навыка «{name}» нет — skill.list"))?;
+    let s = enabled().into_iter().find(|s| s.name == name.trim()).ok_or_else(|| format!("навыка «{name}» нет или он выключен в настройках — skill.list"))?;
     let params = a.raw("params").cloned().unwrap_or(Value::Null);
     let own = !ed.in_group();
     let snapshot = (!own).then(|| (ed.project.clone(), ed.selection.clone()));

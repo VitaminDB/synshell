@@ -16,7 +16,7 @@ mod blocks;
 mod recipe;
 mod script;
 mod index;
-mod skill;
+pub mod skill;
 pub mod slots;
 pub mod ui_bridge;
 pub mod nodegraph;

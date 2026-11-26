@@ -57,7 +57,9 @@ pub fn transcribe_file(path: &std::path::Path, lang: Option<&str>) -> Result<cra
     let pcm = pcm16k(&path.to_string_lossy())?;
     syn_assist::tools::progress(0, 0, "распознавание");
     let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
-    let t = c.transcribe_words("", &pcm, 16000, lang, false).map_err(|e| format!("распознавание: {e}"))?;
+    let set = crate::settings::load();
+    let lang = lang.map(str::to_string).or_else(|| Some(set.asr_language.trim().to_string()).filter(|l| !l.is_empty()));
+    let t = c.transcribe_words(&set.model("asr"), &pcm, 16000, lang.as_deref(), false).map_err(|e| format!("распознавание: {e}"))?;
     let words: Vec<TranscriptWord> = t.words.iter().map(|w| TranscriptWord { text: w.text.trim().to_string(), start: w.start as f64, end: w.end as f64 }).filter(|w| !w.text.is_empty()).collect();
     Ok(crate::doc::Transcript { text: t.text.trim().to_string(), language: t.language.clone(), words })
 }

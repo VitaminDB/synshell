@@ -163,7 +163,7 @@ fn ensure_vectors(ed: &mut Editor, c: &mut synaptixd::Client, ids: &[u64]) -> Re
         if chunks.is_empty() {
             continue;
         }
-        let model = m.index.as_ref().map(|i| i.embed_model.clone()).filter(|s| !s.is_empty()).unwrap_or_default();
+        let model = m.index.as_ref().map(|i| i.embed_model.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| crate::settings::load().model("embed"));
         let file = index::vectors_file(&m.path, &model);
         let cached: Option<Vectors> = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok());
         if cached.as_ref().is_some_and(|v| v.chunks == chunks) {
@@ -205,7 +205,7 @@ fn search(ed: &mut Editor, a: &Args) -> Res {
     for id in &ids {
         let Some(m) = ed.project.media(*id) else { continue };
         let chunks = index::chunks(m);
-        let model = m.index.as_ref().map(|i| i.embed_model.clone()).unwrap_or_default();
+        let model = m.index.as_ref().map(|i| i.embed_model.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| crate::settings::load().model("embed"));
         let v: Option<Vectors> = std::fs::read_to_string(index::vectors_file(&m.path, &model)).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(|v: &Vectors| v.chunks == chunks);
         match v {
             Some(v) => all.extend(v.chunks.into_iter().zip(v.vectors.into_iter().map(Some))),
@@ -215,7 +215,7 @@ fn search(ed: &mut Editor, a: &Args) -> Res {
     if all.is_empty() {
         return Err("в медиатеке нечего искать — сначала media.index (или media.transcribe)".into());
     }
-    let qv = if semantic { c.as_mut().and_then(|c| c.embed("", &[q.clone()]).ok()).and_then(|e| e.vectors.into_iter().next()) } else { None };
+    let qv = if semantic { c.as_mut().and_then(|c| c.embed(&crate::settings::load().model("embed"), &[q.clone()]).ok()).and_then(|e| e.vectors.into_iter().next()) } else { None };
     let ql = q.to_lowercase();
     let words: Vec<&str> = ql.split_whitespace().filter(|w| w.chars().count() > 2).collect();
     let mut scored: Vec<(f32, &index::Chunk)> = all

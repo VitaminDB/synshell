@@ -16,6 +16,8 @@ mod luts;
 mod framegraph_ui;
 pub mod socket;
 mod coverage_ui;
+pub mod ai_chat;
+pub mod settings_page;
 mod project_templates;
 pub(crate) mod args_dialog;
 mod curves;
@@ -65,6 +67,19 @@ pub mod icons {
     pub const SNAP: &str = "\u{E157}";
     pub const ZOOM_OUT: &str = "\u{E900}";
     pub const FAVORITE: &str = "\u{E87D}";
+    pub const DESCRIPTION: &str = "\u{E873}";
+    pub const PSYCHOLOGY: &str = "\u{EA4A}";
+    pub const BUILD: &str = "\u{E869}";
+    pub const HUB: &str = "\u{E9F4}";
+    pub const ACCOUNT_TREE: &str = "\u{E97A}";
+    pub const TUNE: &str = "\u{E429}";
+    pub const REFRESH: &str = "\u{E5D5}";
+    pub const RESTORE: &str = "\u{E8B3}";
+    pub const COPY: &str = "\u{E14D}";
+    pub const EDIT: &str = "\u{E3C9}";
+    pub const CHECK: &str = "\u{E5CA}";
+    pub const DELETE: &str = "\u{E872}";
+    pub const SETTINGS: &str = "\u{E8B8}";
 }
 
 static EDITOR: OnceLock<Shared> = OnceLock::new();
@@ -122,6 +137,17 @@ pub struct St {
     pub toast: RwSignal<Option<String>>,
     pub ai_log: RwSignal<Vec<AiLine>>,
     pub ai_busy: RwSignal<bool>,
+    /// Открыта страница «Настройки» (вместо монтажа).
+    pub page: RwSignal<bool>,
+    /// Номер правки настроек — страница и шапка ИИ перечитывают по нему.
+    pub set_rev: RwSignal<u64>,
+    /// Чаты агента (список), текущий чат, контекст (занято, окно).
+    pub ai_chats: RwSignal<Vec<syn_assist::chat::ChatSummary>>,
+    pub ai_chat: RwSignal<String>,
+    pub ai_ctx: RwSignal<(usize, usize)>,
+    /// Сведения о модели агента и список LLM службы.
+    pub ai_info: RwSignal<Option<synaptixd::LlmInfo>>,
+    pub ai_models: RwSignal<Vec<(String, String)>>,
     pub view: RwSignal<String>,
     pub playing: RwSignal<bool>,
     /// Готовы новые ленты превью медиатеки.
@@ -197,6 +223,7 @@ impl St {
         let st = Self::make(view, spec);
         thumbs::bind(st.thumbs);
         install_ui_bridge(st);
+        ai_chat::init(st);
         st
     }
 
@@ -217,6 +244,13 @@ impl St {
             toast: use_signal(None),
             ai_log: use_signal(Vec::new()),
             ai_busy: use_signal(false),
+            page: use_signal(false),
+            set_rev: use_signal(0),
+            ai_chats: use_signal(Vec::new()),
+            ai_chat: use_signal(String::new()),
+            ai_ctx: use_signal((0, 0)),
+            ai_info: use_signal(None),
+            ai_models: use_signal(Vec::new()),
             view: use_signal(view),
             playing: use_signal(false),
             thumbs: use_signal(0),
@@ -585,10 +619,14 @@ impl St {
         let rev_before = ed().revision;
         std::thread::spawn(move || {
             use syn_assist::agent::AgentEvent;
-            static AGENT: OnceLock<syn_assist::agent::Agent> = OnceLock::new();
-            static CHAT: OnceLock<Mutex<syn_assist::chat::Chat>> = OnceLock::new();
-            let agent = AGENT.get_or_init(|| crate::agent::agent(shared()));
-            let mut chat = CHAT.get_or_init(|| Mutex::new(syn_assist::chat::Chat::new())).lock().unwrap_or_else(|e| e.into_inner());
+            // агент заново на каждый ход — правки «Настроек» действуют сразу
+            let set = crate::settings::load();
+            let agent = crate::agent::agent_with(shared(), &set);
+            let mut chat = ai_chat::take();
+            crate::agent::prepare_chat(&mut chat, &set);
+            if chat.title.trim().is_empty() {
+                chat.title = syn_assist::chat::title_from(&text);
+            }
             // «Стоп» из панели — флаг хода (агент проверяет его между шагами)
             let cancel = &AI_CANCEL;
             let push = move |line: AiLine| {
@@ -600,7 +638,7 @@ impl St {
                     self.rev.set(ed().revision);
                 });
             };
-            let r = crate::agent::run_turn(agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
+            let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
                 AgentEvent::ToolStart { summary, .. } => push(AiLine::Tool(summary)),
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
@@ -623,7 +661,11 @@ impl St {
             if let Some((lines, rev)) = diff.filter(|(l, _)| !l.is_empty()) {
                 push(AiLine::Diff { lines, rev, undone: false });
             }
+            chat.updated = syn_assist::chat::now();
+            let shown = chat.clone();
+            ai_chat::put(chat);
             syngui::async_runtime::run_on_main_thread(move || {
+                ai_chat::after_turn(self, &shown);
                 self.ai_busy.set(false);
                 self.rev.set(ed().revision);
             });
@@ -780,7 +822,14 @@ pub fn root(st: St) -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(titlebar(st))
                 .child(toolbar(st))
-                .child(DecoratedBox::new().class("grow").class("dock-area-pad").child(dock(st)))
+                .child(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                    // страница «Настройки» вместо монтажа (вкладки в заголовке)
+                    if st.page.get() {
+                        vec![Box::new(DecoratedBox::new().class("grow").class("dock-area-pad").child(settings_page::view(st)))]
+                    } else {
+                        vec![Box::new(DecoratedBox::new().class("grow").class("dock-area-pad").child(dock(st)))]
+                    }
+                })))
                 .child(statusbar(st)),
         ),
     );
@@ -1042,6 +1091,7 @@ fn titlebar(st: St) -> Box<dyn Widget> {
                 )
                 .child(build_chip())
                 .child(menu.build())
+                .child(page_tabs(st))
                 .child(DecoratedBox::new().class("grow"))
                 .child(
                     GestureDetector::new().on_click(move || st.palette_open.set(true)).child(
@@ -1061,6 +1111,32 @@ fn titlebar(st: St) -> Box<dyn Widget> {
                 .child(DecoratedBox::new().class("window-controls").child(controls)),
         ),
     ))
+}
+
+/// Вкладки страниц окна (как в Hexspire): монтаж и настройки.
+fn page_tabs(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let settings = st.page.get();
+        let tab = move |on: bool, page: bool, icon: &'static str, title: String| {
+            GestureDetector::new().on_click(move || {
+                st.page.set(page);
+                if page {
+                    settings_page::load_models(st);
+                }
+            }).child(
+                DecoratedBox::new().class(if on { "page-tab on" } else { "page-tab" }).child(
+                    Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icon).class("page-tab-icon")).child(Text::new(title).max_lines(1).class("page-tab-text")),
+                ),
+            )
+        };
+        vec![Box::new(
+            Row::new()
+                .gap(2.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(tab(!settings, false, icons::MOVIE, tr!("page.edit")))
+                .child(tab(settings, true, icons::SETTINGS, tr!("page.settings"))),
+        )]
+    })
 }
 
 fn sep() -> impl Widget {

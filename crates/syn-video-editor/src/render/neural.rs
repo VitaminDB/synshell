@@ -32,7 +32,10 @@ pub struct Interp {
 #[cfg(target_arch = "x86_64")]
 impl Interp {
     pub fn open() -> Result<Self, String> {
-        let (_, path) = model(|_, arch| arch == "rife", "rife-4-25").ok_or("моделей RIFE нет (rife-*.syn в папке vfx библиотеки нейросетей)")?;
+        // модель из настроек («Модели → Плавность RIFE»), иначе rife-4-25
+        let want = crate::settings::load().model("rife");
+        let prefer = if want.is_empty() { "rife-4-25".to_string() } else { want };
+        let (_, path) = model(|_, arch| arch == "rife", &prefer).ok_or("моделей RIFE нет (rife-*.syn в папке vfx библиотеки нейросетей)")?;
         let w = synaptix_vfx::weights::Weights::open(&path).map_err(|e| e.to_string())?;
         let g = synaptix_vfx::gpu::Gpu::new(0).map_err(|e| e.to_string())?;
         let rife = synaptix_vfx::rife::Rife::load(g, &w).map_err(|e| e.to_string())?;
@@ -81,7 +84,8 @@ pub struct Upscale {
 impl Upscale {
     /// `model` — часть id или arch (plksr, span, compact, nanovsr); пусто — любая покадровая.
     pub fn open(model_hint: &str) -> Result<Self, String> {
-        let hint = model_hint.to_ascii_lowercase();
+        // пустая подсказка — модель из настроек («Модели → Нейроувеличение»)
+        let hint = if model_hint.trim().is_empty() { crate::settings::load().model("upscale") } else { model_hint.to_string() }.to_ascii_lowercase();
         let (_, path) = model(|id, arch| arch != "rife" && arch != "nanovsr" && (hint.is_empty() || id.to_ascii_lowercase().contains(&hint) || arch.contains(&hint)), "").ok_or_else(|| format!("моделей увеличения{} нет в папке vfx", if hint.is_empty() { String::new() } else { format!(" «{hint}»") }))?;
         let up = synaptix_vfx::open_upscaler(&path, 0).map_err(|e| e.to_string())?;
         Ok(Self { up })

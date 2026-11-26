@@ -227,15 +227,16 @@ static CHECK: Command = Command {
     shortcut: "",
     keywords: "проверить кадр посмотреть зрение vision самопроверка титр обрезан читается цвет",
     help: "Самопроверка по кадру: кадр таймлайна в момент at (тот же композитор, что экспорт) показывается модели со зрением, ответ — что она видит. question — что проверить (по умолчанию: читаются ли титры, не обрезан ли текст или объект, нет ли пустого/чёрного кадра, пересвета, странного цвета). Использовать после монтажа титров, кадрирования, цветокоррекции: проверить 1–3 ключевых момента и исправить найденное.",
-    args: &[req("at", Ty::Time, "момент"), arg("question", Ty::Str, "что проверить на кадре"), arg("width", Ty::Num, "ширина кадра для модели (768)"), arg("model", Ty::Str, "модель со зрением (по умолчанию — найдётся сама)")],
+    args: &[req("at", Ty::Time, "момент"), arg("question", Ty::Str, "что проверить на кадре"), arg("width", Ty::Num, "ширина кадра для модели (768)"), arg("model", Ty::Str, "модель со зрением (по умолчанию — из настроек или найдётся сама)")],
     danger: false,
     run: check,
 };
 
-/// Модель со зрением: явно заданная; модель агента, если видит картинки; уже
-/// загруженная со зрением (без лишней загрузки); иначе первая со зрением.
+/// Модель со зрением: явно заданная; из настроек («Модели → Зрение»); модель
+/// агента, если видит картинки; уже загруженная со зрением (без лишней
+/// загрузки); иначе первая со зрением.
 pub(crate) fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> Result<String, String> {
-    if let Some(m) = want.filter(|m| !m.trim().is_empty()) {
+    if let Some(m) = want.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("vision")) {
         return Ok(m);
     }
     if c.llm_info("").map(|i| i.media).unwrap_or(false) {
@@ -256,7 +257,8 @@ pub(crate) fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> R
 fn check(ed: &mut Editor, a: &Args) -> Res {
     let t = a.need_time("at")?;
     let q = a.str("question")?.filter(|q| !q.trim().is_empty()).unwrap_or_else(|| "Это кадр смонтированного видео. Кратко и по делу: что на кадре; читаются ли титры и текст целиком (не обрезаны ли краями, не сливаются ли с фоном); не обрезан ли главный объект; нет ли пустого или чёрного кадра, пересвета, странного цвета. Перечисли найденные проблемы или скажи, что их нет.".into());
-    let width = a.num("width")?.unwrap_or(768.0).round().clamp(128.0, 1920.0) as u32;
+    let set = crate::settings::load();
+    let width = a.num("width")?.unwrap_or(set.vision_width as f64).round().clamp(128.0, 1920.0) as u32;
     let path = std::env::temp_dir().join(format!("syn-video-editor-check-{}-{}.png", std::process::id(), (t * 1000.0).round() as i64));
     crate::render::run_child(&ed.project, &["frame".into(), t.to_string(), path.display().to_string(), width.to_string()], |_, _| {})?;
     syn_assist::tools::progress(0, 0, "смотрю кадр");
@@ -264,7 +266,7 @@ fn check(ed: &mut Editor, a: &Args) -> Res {
     let model = vision_model(&mut c, a.str("model")?)?;
     let mut m = synaptixd::Message::user(format!("[file 1: кадр {}]\n{}\n{q}", crate::doc::tc(t), synaptixd::MEDIA_MARK));
     m.media = vec![synaptixd::Media { kind: synaptixd::MediaKind::Image, path: path.display().to_string() }];
-    let r = c.generate(&model, vec![m], 700, Some(0.2), |_| {}).map_err(|e| format!("модель зрения: {e}"))?;
+    let r = c.generate(&model, vec![m], set.vision_max_tokens.clamp(64, 8192) as usize, Some(set.vision_temperature.clamp(0.0, 2.0)), |_| {}).map_err(|e| format!("модель зрения: {e}"))?;
     let text = r.text.trim().to_string();
     Ok(Out::with(format!("Кадр {} ({}): {text}", crate::doc::tc(t), path.display()), json!({"path": path, "model": model, "answer": text})))
 }

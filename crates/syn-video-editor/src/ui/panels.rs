@@ -782,6 +782,7 @@ fn ai(st: St) -> impl Widget {
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("ai-panel")
+        .child(super::ai_chat::head(st))
         .child(DecoratedBox::new().class("grow").child(ScrollView::new().vertical().follow_end(true).child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let log = st.ai_log.get();
             if log.is_empty() {

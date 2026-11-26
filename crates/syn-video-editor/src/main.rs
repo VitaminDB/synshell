@@ -22,6 +22,8 @@ fn usage() -> &'static str {
 }
 
 fn main() {
+    // модели нод графов из настроек («Настройки → Модели»)
+    syn_video_editor::settings::apply(&syn_video_editor::settings::load());
     // дочерний процесс рендера (экспорт, кадр): см. render::run_child
     let raw: Vec<String> = std::env::args().skip(1).collect();
     if raw.first().map(String::as_str) == Some("--preview-strips") {
@@ -189,6 +191,7 @@ fn main() {
         use syn_assist::agent::AgentEvent;
         let a = agent::agent(&shared);
         let mut chat = syn_assist::chat::Chat::new();
+        agent::prepare_chat(&mut chat, &syn_video_editor::settings::load());
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let r = agent::run_turn(&a, &shared, &mut chat, &task, &agent::AutoConfirm(yes), &cancel, &mut |ev| {
             match ev {
@@ -231,7 +234,7 @@ fn main() {
 fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
     use syn_video_editor::ui;
     use syngui::prelude::*;
-    synshell_common::i18n::init(&[]);
+    synshell_common::i18n::init(&syn_video_editor::i18n::CATALOGS);
     // без файла в аргументах — последний проект или автосохранение несохранённого
     if project.is_none() && shot.is_none() {
         let mut e = ui::ed();
