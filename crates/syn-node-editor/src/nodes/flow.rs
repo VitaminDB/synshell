@@ -164,14 +164,19 @@ pub fn metas() -> Vec<NodeKindMeta> {
         .filter_map(|&(kind, fk, title, icon)| {
             let s = sf::ops::spec(fk)?;
             let ports = |p: &'static [sf::PortSpec]| leak(p.iter().map(|p| PortSchema { name: p.name, label: p.label, kind: port_kind(p.ty) }).collect());
+            let (inputs, outputs) = if kind == NodeKind::FlowSubflow {
+                (PortsSpec::Dynamic { pool: ports(s.inputs), runtime: subflow_inputs }, PortsSpec::Dynamic { pool: ports(s.outputs), runtime: subflow_outputs })
+            } else {
+                (PortsSpec::Static(ports(s.inputs)), PortsSpec::Static(ports(s.outputs)))
+            };
             Some(NodeKindMeta {
                 kind,
                 icon,
                 title,
                 category: NodeCategory::Service,
                 subcategory: subcategory(s),
-                inputs: PortsSpec::Static(ports(s.inputs)),
-                outputs: PortsSpec::Static(ports(s.outputs)),
+                inputs,
+                outputs,
                 fields: leak(s.fields.iter().map(|f| FieldSchema { name: f.name, label: f.label, ty: field_type(f.ty) }).collect()),
                 body: Some(body),
                 ports_layout: PortsLayout::Rows,
@@ -954,6 +959,11 @@ mod tests {
         assert!(nodes.iter().any(|n| n.id == sid && n.kind == NodeKind::FlowSubflow));
         assert!(!nodes.iter().any(|n| n.id == f || n.id == l));
         assert!(ctx.connections.get_untracked().iter().any(|c| c.from_node == t && c.to_node == sid && c.to_port == "in1"));
+        let sn = ctx.nodes.get_untracked().into_iter().find(|n| n.id == sid).unwrap();
+        let ins = subflow_inputs(&sn);
+        assert_eq!(ins.len(), 1, "только задействованный вход");
+        assert!(ins[0].label.contains(": ") && !ins[0].label.starts_with("Вход"), "{}", ins[0].label);
+        assert!(subflow_outputs(&sn).iter().all(|p| p.label.contains(": ")));
         // внутренний граф — в скрытом поле, движок его читает
         let fl = canvas_flow(&ctx);
         let def = synaptix_flow::subflow::SubflowDef::of(fl.node(sid.0).unwrap()).unwrap();
@@ -1188,4 +1198,43 @@ pub fn ungroup_node(ctx: &NodeEditorCtx, id: NodeId) -> std::result::Result<Vec<
     ctx.connections.set(new_conns);
     ctx.pick_clear();
     Ok(added)
+}
+
+// ── Порты ноды-подграфа ядра: по описанию внутреннего графа ───────────────
+
+fn subflow_ports(node: &NodeInstance, input: bool) -> &'static [PortSchema] {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, &'static [PortSchema]>>> = std::sync::OnceLock::new();
+    let raw = match node.fields.lock().ok().and_then(|m| m.get("subflow").cloned()) {
+        Some(FieldValue::Text(sig)) => sig.get_untracked(),
+        _ => String::new(),
+    };
+    let key = format!("{}{raw}", if input { "i" } else { "o" });
+    let mut c = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(v) = c.get(&key) {
+        return v;
+    }
+    let Some(s) = spec(NodeKind::FlowSubflow) else { return &[] };
+    let pool = if input { s.inputs } else { s.outputs };
+    let def: Option<sf::subflow::SubflowDef> = serde_json::from_str(&raw).ok();
+    let v: Vec<PortSchema> = match &def {
+        // без описания — все порты (свежая нода)
+        None => pool.iter().map(|p| PortSchema { name: p.name, label: p.label, kind: port_kind(p.ty) }).collect(),
+        Some(d) => {
+            let used: Vec<(String, String)> = if input { d.inputs.iter().map(|i| (i.port.clone(), i.label.clone())).collect() } else { d.outputs.iter().map(|o| (o.port.clone(), o.label.clone())).collect() };
+            pool.iter()
+                .filter_map(|p| used.iter().find(|u| u.0 == p.name).map(|u| PortSchema { name: p.name, label: Box::leak(u.1.clone().into_boxed_str()), kind: port_kind(p.ty) }))
+                .collect()
+        }
+    };
+    let v: &'static [PortSchema] = Box::leak(v.into_boxed_slice());
+    c.insert(key, v);
+    v
+}
+
+fn subflow_inputs(node: &NodeInstance) -> &'static [PortSchema] {
+    subflow_ports(node, true)
+}
+
+fn subflow_outputs(node: &NodeInstance) -> &'static [PortSchema] {
+    subflow_ports(node, false)
 }

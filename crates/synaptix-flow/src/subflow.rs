@@ -62,7 +62,18 @@ impl SubflowDef {
 }
 
 fn node_name(f: &Flow, id: u64) -> String {
-    f.node(id).map(|n| n.name()).unwrap_or_else(|| format!("#{id}"))
+    let Some(n) = f.node(id) else { return format!("#{id}") };
+    if !n.label.is_empty() {
+        return n.label.clone();
+    }
+    crate::ops::spec(&n.kind).map(|s| s.title.to_string()).unwrap_or_else(|| n.name())
+}
+
+/// Подпись порта по внутренней ноде: «Нода: порт».
+fn port_label(f: &Flow, id: u64, port: &str, input: bool) -> String {
+    let spec = f.node(id).and_then(|n| crate::ops::spec(&n.kind));
+    let p = spec.and_then(|s| if input { s.input(port) } else { s.output(port) }).map(|p| p.label).unwrap_or(port);
+    format!("{}: {p}", node_name(f, id))
 }
 
 impl Flow {
@@ -118,9 +129,9 @@ impl Flow {
             inputs: ins
                 .iter()
                 .enumerate()
-                .map(|(i, (_, t))| SubIn { port: IN_PORTS[i].into(), label: format!("{}: {}", node_name(self, t[0].0), t[0].1), targets: t.clone() })
+                .map(|(i, (_, t))| SubIn { port: IN_PORTS[i].into(), label: port_label(self, t[0].0, &t[0].1, true), targets: t.clone() })
                 .collect(),
-            outputs: outs.iter().enumerate().map(|(i, (n, p))| SubOut { port: OUT_PORTS[i].into(), label: format!("{}: {p}", node_name(self, *n)), node: *n, from_port: p.clone() }).collect(),
+            outputs: outs.iter().enumerate().map(|(i, (n, p))| SubOut { port: OUT_PORTS[i].into(), label: port_label(self, *n, p, false), node: *n, from_port: p.clone() }).collect(),
             flow: inner,
             layout: BTreeMap::new(),
         };
@@ -237,6 +248,9 @@ mod tests {
         assert_eq!(f.nodes.len(), 3);
         assert_eq!(f.links.iter().filter(|l| l.to_node == id).count(), 2);
         assert_eq!(f.outputs, vec![id]);
+        let def = SubflowDef::of(f.node(id).unwrap()).unwrap();
+        assert!(def.inputs.iter().all(|i| i.label.contains(": ")), "{:?}", def.inputs);
+        assert!(def.inputs[0].label.contains("Вставка 1") || def.inputs[0].label.contains("{{a}}"), "{}", def.inputs[0].label);
         let r = run(&f, &dir, &Cancel::new(), &mut |_| {}).unwrap();
         assert_eq!(r.text, base.text, "подграф даёт то же, что исходный граф");
         let back = f.ungroup(id).unwrap();
