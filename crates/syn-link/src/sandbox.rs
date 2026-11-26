@@ -90,8 +90,17 @@ pub fn list() -> Vec<Sandbox> {
 impl Sandbox {
     /// Переменные окружения программ внутри песочницы.
     pub fn env(&self) -> Vec<(String, String)> {
+        // WAYLAND_DISPLAY — полным путём к сокету песочницы: короткое имя
+        // («wayland-1») ищется в XDG_RUNTIME_DIR, и если его кто-то вернёт к
+        // /run/user/UID (sh -c с чужим окружением, обёртки), программа
+        // откроется в ЖИВОМ сеансе на том же номере.
+        let wayland = if !self.runtime.as_os_str().is_empty() && !self.wayland.starts_with('/') {
+            self.runtime.join(&self.wayland).to_string_lossy().into_owned()
+        } else {
+            self.wayland.clone()
+        };
         let mut v = vec![
-            ("WAYLAND_DISPLAY".to_string(), self.wayland.clone()),
+            ("WAYLAND_DISPLAY".to_string(), wayland),
             ("DBUS_SESSION_BUS_ADDRESS".to_string(), self.dbus.clone()),
             ("SYNSHELL_SOCKET".to_string(), self.socket.to_string_lossy().into_owned()),
             ("SYNSHELL_CONFIG_DIR".to_string(), self.dir.join("config").to_string_lossy().into_owned()),
