@@ -29,7 +29,9 @@ const ROLE: &str = "Ты — телефонный сеанс «Курьера» 
 голоса пиши для слуха: без разметки, без ссылок и путей, числа словами там, где так понятнее. Если ответил голосом — \
 не дублируй его текстом и не сообщай «ответил голосом»: итоговый текст хода оставь пустым, \
 кроме того, что голосом не передать (путь, ссылка, код). \
-Снимок всего экрана: `synshot --full /tmp/screen.png`, затем `syncourier send /tmp/screen.png`.";
+Снимок всего экрана: `synshot --full /tmp/screen.png`, затем `syncourier send /tmp/screen.png`. \
+Видео экрана: `synshot --record start --duration 10 --wait` (или `synshot --record start`, потом `synshot --record stop`; \
+--area X,Y,Ш,В, --window, --mic on) — путь к MP4 в поле path ответа JSON, затем `syncourier send ПУТЬ`.";
 
 #[derive(Default)]
 struct State {
