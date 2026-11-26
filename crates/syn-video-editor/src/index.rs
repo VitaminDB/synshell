@@ -81,10 +81,24 @@ pub fn beats(pcm: &[f32], rate: f64) -> (Vec<f64>, Option<f64>) {
     if pcm.len() < hop * 300 {
         return (Vec::new(), None);
     }
-    let energy: Vec<f32> = pcm.chunks(hop).map(|c| c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32).collect();
-    // поток всплесков: рост лог-энергии
-    let log: Vec<f32> = energy.iter().map(|e| (e + 1e-9).ln()).collect();
-    let flux: Vec<f32> = (0..log.len()).map(|i| if i == 0 { 0.0 } else { (log[i] - log[i - 1]).max(0.0) }).collect();
+    // поток всплесков по полосам (спектральный поток на банке фильтров):
+    // у оркестра, хора, эмбиента удар литавр или атака струнных тонет в общей
+    // громкости, а в своей полосе виден. Каждая полоса нормирована своим
+    // средним, чтобы бас не забивал верх.
+    let bands: &[f64] = &[60.0, 150.0, 400.0, 1000.0, 2500.0, 5500.0];
+    let frames = pcm.len() / hop;
+    let mut flux = vec![0f32; frames];
+    for &fc in bands.iter().filter(|f| **f < rate * 0.45) {
+        let y = bandpass(pcm, rate, fc, 1.0);
+        let log: Vec<f32> = y.chunks(hop).take(frames).map(|c| (c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32 + 1e-10).ln()).collect();
+        let f: Vec<f32> = (0..log.len()).map(|i| if i == 0 { 0.0 } else { (log[i] - log[i - 1]).max(0.0) }).collect();
+        let m = f.iter().sum::<f32>() / f.len().max(1) as f32;
+        if m > 0.0 {
+            for (o, v) in flux.iter_mut().zip(&f) {
+                *o += v / m;
+            }
+        }
+    }
     let mean = flux.iter().sum::<f32>() / flux.len() as f32;
     // автокорреляция: лаг 0.33–1.0 с
     let (lo, hi) = (33usize, 100usize);
@@ -107,12 +121,64 @@ pub fn beats(pcm: &[f32], rate: f64) -> (Vec<f64>, Option<f64>) {
     let bpm = confident.then(|| (6000.0 / best.0 as f64 * 10.0).round() / 10.0);
     // удары — ровная сетка по темпу (для монтажа нужен ритм, а не каждый всплеск):
     // фаза — сдвиг, при котором сумма всплесков в узлах сетки наибольшая
-    let Some(_) = bpm else { return (Vec::new(), None) };
+    // ровного темпа нет (оркестр, эмбиент, свободный ритм) — сильные акценты:
+    // пики потока выше местного среднего + 1.5σ (окно 1.5 с), не чаще 0.5 с
+    let Some(_) = bpm else { return (accents(&flux, hop as f64 / rate), None) };
     let period = best.0;
     let score = |ph: usize| -> f32 { (ph..flux.len()).step_by(period).map(|i| flux[i.saturating_sub(1)].max(flux[i]).max(flux[(i + 1).min(flux.len() - 1)])).sum() };
     let phase = (0..period).max_by(|a, b| score(*a).total_cmp(&score(*b))).unwrap_or(0);
     let out: Vec<f64> = (phase..flux.len()).step_by(period).map(|i| i as f64 * hop as f64 / rate).collect();
     (out, bpm)
+}
+
+/// Акценты потока всплесков: местные пики выше среднего + 1.5σ окна ±0.75 с,
+/// не ближе 0.5 с друг к другу (из двух близких — сильнейший). `step` — с на кадр.
+fn accents(flux: &[f32], step: f64) -> Vec<f64> {
+    let half = (0.75 / step) as usize;
+    let gap = (0.5 / step) as usize;
+    let mut picks: Vec<(usize, f32)> = Vec::new();
+    for i in 1..flux.len().saturating_sub(1) {
+        let v = flux[i];
+        if v < flux[i - 1] || v < flux[i + 1] {
+            continue;
+        }
+        let w = &flux[i.saturating_sub(half)..(i + half).min(flux.len())];
+        let m = w.iter().sum::<f32>() / w.len() as f32;
+        let sd = (w.iter().map(|x| (x - m) * (x - m)).sum::<f32>() / w.len() as f32).sqrt();
+        if v <= m + 1.5 * sd || v <= 0.0 {
+            continue;
+        }
+        match picks.last_mut() {
+            Some(last) if i - last.0 < gap => {
+                if v > last.1 {
+                    *last = (i, v);
+                }
+            }
+            _ => picks.push((i, v)),
+        }
+    }
+    picks.into_iter().map(|(i, _)| (i as f64 * step * 1000.0).round() / 1000.0).collect()
+}
+
+/// Полосовой фильтр (biquad RBJ, пик 0 дБ) с добротностью `q`.
+fn bandpass(x: &[f32], rate: f64, fc: f64, q: f64) -> Vec<f32> {
+    let w = 2.0 * std::f64::consts::PI * fc / rate;
+    let alpha = w.sin() / (2.0 * q);
+    let a0 = 1.0 + alpha;
+    let (b0, b2) = (alpha / a0, -alpha / a0);
+    let (a1, a2) = (-2.0 * w.cos() / a0, (1.0 - alpha) / a0);
+    let (mut x1, mut x2, mut y1, mut y2) = (0f64, 0f64, 0f64, 0f64);
+    x.iter()
+        .map(|&s| {
+            let s = s as f64;
+            let y = b0 * s + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1;
+            x1 = s;
+            y2 = y1;
+            y1 = y;
+            y as f32
+        })
+        .collect()
 }
 
 /// Реплики дикторов из JSON разметки (`[{speaker, start_s, end_s, …}]`).

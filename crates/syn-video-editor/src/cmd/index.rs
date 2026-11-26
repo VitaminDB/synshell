@@ -88,7 +88,9 @@ fn index_media(ed: &mut Editor, a: &Args) -> Res {
                 Ok(pcm) => {
                     let (b, bpm) = index::beats(&pcm, 16000.0);
                     ix.bpm = bpm;
-                    if bpm.is_some() {
+                    // без ровного темпа — акценты, только у звуковых файлов (музыка):
+                    // у видео со звуком это были бы всплески речи и шумов
+                    if bpm.is_some() || m.kind == crate::doc::MediaKind::Audio {
                         ix.beats = b.into_iter().map(|x| (x * 1000.0).round() / 1000.0).collect();
                     }
                 }
@@ -126,6 +128,7 @@ fn index_media(ed: &mut Editor, a: &Args) -> Res {
             who.len(),
             match ix.bpm {
                 Some(b) => format!("темп {b} уд/мин, ударов {}", ix.beats.len()),
+                None if !ix.beats.is_empty() => format!("ровного темпа нет, сильных акцентов {} (по ним режет beat_clip)", ix.beats.len()),
                 None => "бита нет".into(),
             },
             transcript.as_ref().map(|t| format!(", расшифровано слов {}", t.words.len())).unwrap_or_default(),

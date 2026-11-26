@@ -18,7 +18,7 @@ if m.index == () || list(m.index.beats).is_empty() {
     cmd("media.index", #{ids: [mus], captions: false, speakers: false});
     for x in list(project().media) { if x.id == mus { m = x; } }
 }
-if list(m.index.beats).is_empty() { throw "в треке не найден бит (не музыка?)"; }
+if list(m.index.beats).is_empty() { throw "в треке не найдены ни бит, ни акценты (не музыка?)"; }
 let len = min(num(params.length, num(m.duration)), num(m.duration));
 len = min(len, 60.0);
 cmd("clip.add", #{media: mus, at: 0, duration: len});
@@ -49,4 +49,5 @@ for j in 0..cuts.len() - 1 {
     offs[vi] += d;
     k += 1; n += 1;
 }
-print(`темп ${m.index.bpm} уд/мин, кадров ${n} по ${every} удара, длина ${len} с`);
+let tempo = if m.index.bpm == () { "ровного темпа нет — по сильным акцентам" } else { `темп ${m.index.bpm} уд/мин` };
+print(`${tempo}, кадров ${n} по ${every} удара, длина ${len} с`);
