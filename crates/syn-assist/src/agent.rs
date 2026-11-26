@@ -111,6 +111,9 @@ pub struct Agent {
     /// после каждого шага модели (ответ допечатан, инструменты выполнены) —
     /// новые сообщения сразу входят в разговор, не дожидаясь конца всего хода.
     pub inbox: Option<Inbox>,
+    /// Параметры генерации каждого шага (`temperature`, `top_p`, `max_tokens`…) —
+    /// поверх настроек модели в службе; пусто — как настроено в службе.
+    pub params: Params,
 }
 
 /// Забирает накопившиеся сообщения пользователя (пусто — нет новых).
@@ -128,7 +131,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new() }
     }
 
     /// Очередь сообщений пользователя во время хода (см. [`Agent::inbox`]).
@@ -332,7 +335,7 @@ impl Agent {
     }
 
     fn generate(&self, chat: &mut Chat, history: Vec<Message>, tools: Vec<Value>, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<Generated, String> {
-        let mut params = Params::new();
+        let mut params = self.params.clone();
         if chat.thinking {
             params = params.with("thinking", true);
             // глубина размышлений (`low`, `medium`, `high`…), если модель умеет
@@ -709,6 +712,7 @@ impl Agent {
             knowledge: Vec::new(),
             recipes: None,
             inbox: None,
+            params: self.params.clone(),
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();

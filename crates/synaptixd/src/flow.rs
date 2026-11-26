@@ -184,6 +184,10 @@ pub fn run(flow: &Flow, dir: &Path, cancel: &synaptix_flow::Cancel, on_event: &m
 /// То же с готовыми входами (`opts.inputs`); песочница и кэш — дело службы.
 pub fn run_with(flow: &Flow, dir: &Path, opts: &RunOpts, on_event: &mut dyn FnMut(Event)) -> Result<Report, String> {
     flow.validate()?;
+    // пустые «Модель» — моделями, заданными программой (служба её настроек не знает)
+    let mut filled = flow.clone();
+    synaptix_flow::defaults::apply(&mut filled);
+    let flow = &filled;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let cancel = &opts.cancel;
     cancel.check()?;

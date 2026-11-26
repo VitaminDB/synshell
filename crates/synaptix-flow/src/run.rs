@@ -165,6 +165,12 @@ impl<'a> Cx<'a> {
                 return v;
             }
         }
+        // модель вида ноды, заданная программой (настройки), — раньше умолчания схемы
+        if name == "model" {
+            if let Some(m) = crate::defaults::model(&self.node.kind) {
+                return Val::Text(m);
+            }
+        }
         match self.spec.field(name) {
             Some(f) if !f.default.is_empty() => match f.ty {
                 FieldType::Number => f.default.parse().map(Val::Number).unwrap_or(Val::Empty),

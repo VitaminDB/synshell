@@ -39,6 +39,7 @@ pub const CATALOGS: [&str; 13] = [
     include_str!("../i18n/ko.lang"),
 ];
 
+pub mod defaults;
 pub mod doc;
 pub mod ops;
 pub mod order;
