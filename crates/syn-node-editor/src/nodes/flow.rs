@@ -66,6 +66,7 @@ const KINDS: &[(NodeKind, &str, &str, &str)] = &[
     (NodeKind::FlowStill, "still", "Flow Still Video", MI_LANGUAGE),
     (NodeKind::FlowVfxUpscale, "vfx_upscale", "Flow Upscale", MI_ZOOM_IN),
     (NodeKind::FlowVfxInterpolate, "vfx_interpolate", "Flow RIFE", MI_MOVIE),
+    (NodeKind::FlowSubflow, "subflow", "Flow Subgraph", MI_LAYERS),
     (NodeKind::FlowImageModel, "image_model", "Image Model", MI_INVENTORY_2),
     (NodeKind::FlowImageEncode, "image_encode", "Prompt Encoder", MI_TRANSLATE),
     (NodeKind::FlowImageRefs, "image_refs", "References", MI_LAYERS),
@@ -843,6 +844,9 @@ pub fn body(node: &NodeInstance) -> Box<dyn Widget> {
     let mut adv_fields: Vec<(&'static sf::FieldSpec, FieldValue)> = Vec::new();
     for f in spec.fields {
         let Some(v) = map.get(f.name).cloned() else { continue };
+        if f.hidden {
+            continue;
+        }
         if f.advanced {
             adv_fields.push((f, v));
         } else {
@@ -930,6 +934,39 @@ mod tests {
     use crate::convert::{resolve_field_name, resolve_port_name};
     use crate::model::Template;
 
+    /// Холст: «шаблон → строки» в подграф и обратно — поля, провода, внешний вход на месте.
+    #[test]
+    fn canvas_group_ungroup() {
+        let ctx = NodeEditorCtx::new();
+        let t = ctx.add_node(NodeKind::FlowText, Point::new(0.0, 0.0));
+        let f = ctx.add_node(NodeKind::FlowFormat, Point::new(300.0, 0.0));
+        let l = ctx.add_node(NodeKind::FlowLines, Point::new(600.0, 0.0));
+        let nodes = ctx.nodes.get_untracked();
+        let fi = nodes.iter().find(|n| n.id == f).unwrap();
+        set_field_json(fi, "template", &Json::from("{{a}} и кот"));
+        ctx.connections.set(vec![
+            Connection { from_node: t, from_port: "text", to_node: f, to_port: "a" },
+            Connection { from_node: f, from_port: "text", to_node: l, to_port: "text" },
+        ]);
+        let before = canvas_flow(&ctx);
+        let sid = group_nodes(&ctx, &[f, l]).unwrap();
+        let nodes = ctx.nodes.get_untracked();
+        assert!(nodes.iter().any(|n| n.id == sid && n.kind == NodeKind::FlowSubflow));
+        assert!(!nodes.iter().any(|n| n.id == f || n.id == l));
+        assert!(ctx.connections.get_untracked().iter().any(|c| c.from_node == t && c.to_node == sid && c.to_port == "in1"));
+        // внутренний граф — в скрытом поле, движок его читает
+        let fl = canvas_flow(&ctx);
+        let def = synaptix_flow::subflow::SubflowDef::of(fl.node(sid.0).unwrap()).unwrap();
+        assert_eq!(def.flow.nodes.len(), 2);
+        let added = ungroup_node(&ctx, sid).unwrap();
+        assert_eq!(added.len(), 2);
+        let after = canvas_flow(&ctx);
+        let tmpl = |fl: &synaptix_flow::Flow| fl.nodes.iter().find(|n| n.kind == "format").and_then(|n| n.fields.get("template").cloned());
+        assert_eq!(tmpl(&after), tmpl(&before));
+        assert_eq!(after.links.len(), before.links.len());
+        assert!(after.links.iter().any(|l| l.from_node == t.0 && l.to_port == "a"));
+    }
+
     /// Шаблон в форме экспорта synaptix-graph: виды, поля и порты резолвятся.
     #[test]
     fn exported_template_resolves() {
@@ -962,4 +999,193 @@ mod tests {
         }
         assert_eq!(metas().len(), synaptix_flow::ops::specs().count());
     }
+}
+
+// ── Подграф одной нодой ───────────────────────────────────────────────────
+
+use crate::types::Connection;
+
+/// Имя порта вида ноды как `&'static str` (для проводов холста).
+fn static_port(kind: NodeKind, input: bool, name: &str) -> Option<&'static str> {
+    let s = spec(kind)?;
+    let list = if input { s.inputs } else { s.outputs };
+    list.iter().find(|p| p.name == name).map(|p| p.name)
+}
+
+/// Значение поля ядра (JSON) → поле карточки.
+fn set_field_json(inst: &NodeInstance, name: &str, v: &Json) {
+    let Some(s) = spec(inst.kind) else { return };
+    let Some(f) = s.fields.iter().find(|f| f.name == name) else { return };
+    let map = inst.fields.lock().unwrap_or_else(|e| e.into_inner());
+    match (map.get(f.name), f.ty) {
+        (Some(FieldValue::Text(sig)), _) => sig.set(match v {
+            Json::String(s) => s.clone(),
+            Json::Null => String::new(),
+            o => o.to_string(),
+        }),
+        (Some(FieldValue::Float(sig)), _) => sig.set(v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0) as f32),
+        (Some(FieldValue::Bool(sig)), _) => sig.set(v.as_bool().unwrap_or(v.as_str() == Some("true"))),
+        (Some(FieldValue::Choice(sig)), FT::Choice(o)) => {
+            let s = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+            if let Some(i) = o.iter().position(|x| *x == s) {
+                sig.set(i);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Граф ядра со всех нод ядра холста (id холста = id графа).
+fn canvas_flow(ctx: &NodeEditorCtx) -> sf::Flow {
+    let nodes = ctx.nodes.get_untracked();
+    let conns = ctx.connections.get_untracked();
+    let is_flow = |id: NodeId| nodes.iter().any(|n| n.id == id && n.kind.flow_kind().is_some());
+    let mut flow = sf::Flow::default();
+    for n in nodes.iter().filter(|n| n.kind.flow_kind().is_some()) {
+        let mut f = sf::FlowNode::new(n.id.0, n.kind.flow_kind().unwrap());
+        f.fields = fields_json(n);
+        f.enabled = n.enabled.get_untracked();
+        flow.nodes.push(f);
+    }
+    for c in conns.iter().filter(|c| is_flow(c.from_node) && is_flow(c.to_node)) {
+        flow.links.push(sf::Link { from_node: c.from_node.0, from_port: c.from_port.into(), to_node: c.to_node.0, to_port: c.to_port.into() });
+    }
+    flow
+}
+
+/// Можно ли свернуть выделенные ноды в подграф (все — ноды ядра).
+pub fn can_group(ctx: &NodeEditorCtx, ids: &[NodeId]) -> bool {
+    let nodes = ctx.nodes.get_untracked();
+    !ids.is_empty() && ids.iter().all(|id| nodes.iter().any(|n| n.id == *id && n.kind.flow_kind().is_some()))
+}
+
+/// Свернуть выделенные ноды ядра в ноду-подграф на холсте.
+pub fn group_nodes(ctx: &NodeEditorCtx, ids: &[NodeId]) -> std::result::Result<NodeId, String> {
+    if !can_group(ctx, ids) {
+        return Err("в подграф объединяются только ноды ядра (генерация, данные, монтаж)".into());
+    }
+    let nodes = ctx.nodes.get_untracked();
+    let conns = ctx.connections.get_untracked();
+    // провод к ноде не из ядра в подграф не перенести
+    if conns.iter().any(|c| (ids.contains(&c.from_node) || ids.contains(&c.to_node)) && !(can_group(ctx, &[c.from_node]) && can_group(ctx, &[c.to_node]))) {
+        return Err("выделенная нода связана с нодой не из ядра — отключите этот провод или выделите иначе".into());
+    }
+    let mut flow = canvas_flow(ctx);
+    let n = ctx.picked.get_untracked().len().max(ids.len());
+    let word = match (n % 10, n % 100) {
+        (1, x) if x != 11 => "нода",
+        (2..=4, x) if !(12..=14).contains(&x) => "ноды",
+        _ => "нод",
+    };
+    let title = format!("Подграф ({n} {word})");
+    let raw: Vec<u64> = ids.iter().map(|i| i.0).collect();
+    let sid = flow.group(&raw, &title)?;
+    let sn = flow.node(sid).cloned().ok_or("подграф не создан")?;
+    let mut def = sf::subflow::SubflowDef::of(&sn)?;
+    let mut cx = 0.0f32;
+    let mut cy = 0.0f32;
+    for n in nodes.iter().filter(|n| ids.contains(&n.id)) {
+        let p = n.pos.get_untracked();
+        def.layout.insert(n.id.0, (p.x, p.y));
+        cx += p.x;
+        cy += p.y;
+    }
+    cx /= ids.len() as f32;
+    cy /= ids.len() as f32;
+    let new_id = NodeId(ctx.next_id.get_untracked());
+    ctx.next_id.set(new_id.0 + 1);
+    let inst = NodeInstance {
+        id: new_id,
+        kind: NodeKind::FlowSubflow,
+        pos: use_signal(Point::new(cx, cy)),
+        bounds: use_signal(syngui::core::Rect::zero()),
+        fields: default_fields(NodeKind::FlowSubflow),
+        runtime: crate::registry::default_runtime(NodeKind::FlowSubflow),
+        style: use_signal(Default::default()),
+        enabled: use_signal(true),
+        timing: crate::timing::Stopwatch::new(),
+        title: use_signal(String::new()),
+    };
+    set_field_json(&inst, "title", &Json::from(title));
+    set_field_json(&inst, "subflow", &Json::from(serde_json::to_string(&def).map_err(|e| e.to_string())?));
+    let cid = |x: u64| if x == sid { new_id } else { NodeId(x) };
+    let mut new_conns: Vec<Connection> = conns.iter().filter(|c| !ids.contains(&c.from_node) && !ids.contains(&c.to_node)).cloned().collect();
+    for l in flow.links.iter().filter(|l| l.from_node == sid || l.to_node == sid) {
+        let (fk, tk) = (if l.from_node == sid { NodeKind::FlowSubflow } else { nodes.iter().find(|n| n.id.0 == l.from_node).map(|n| n.kind).unwrap_or(NodeKind::FlowSubflow) }, if l.to_node == sid { NodeKind::FlowSubflow } else { nodes.iter().find(|n| n.id.0 == l.to_node).map(|n| n.kind).unwrap_or(NodeKind::FlowSubflow) });
+        let (Some(fp), Some(tp)) = (static_port(fk, false, &l.from_port), static_port(tk, true, &l.to_port)) else { continue };
+        new_conns.push(Connection { from_node: cid(l.from_node), from_port: fp, to_node: cid(l.to_node), to_port: tp });
+    }
+    let mut v: Vec<NodeInstance> = nodes.into_iter().filter(|n| !ids.contains(&n.id)).collect();
+    v.push(inst);
+    ctx.nodes.set(v);
+    ctx.connections.set(new_conns);
+    ctx.pick_clear();
+    Ok(new_id)
+}
+
+/// Развернуть ноду-подграф на холсте обратно в её ноды.
+pub fn ungroup_node(ctx: &NodeEditorCtx, id: NodeId) -> std::result::Result<Vec<NodeId>, String> {
+    let nodes = ctx.nodes.get_untracked();
+    let conns = ctx.connections.get_untracked();
+    let sub = nodes.iter().find(|n| n.id == id && n.kind == NodeKind::FlowSubflow).cloned().ok_or("это не подграф")?;
+    let mut flow = canvas_flow(ctx);
+    let def = sf::subflow::SubflowDef::of(flow.node(id.0).ok_or("подграф не найден")?)?;
+    let map = flow.ungroup(id.0)?;
+    // id из графа ядра могут совпасть с нодами холста не из ядра — новые свободные
+    let mut next = ctx.next_id.get_untracked();
+    let mut remap: HashMap<u64, NodeId> = HashMap::new();
+    for (_, fid) in &map {
+        let taken = nodes.iter().any(|n| n.id.0 == *fid && n.id != id);
+        let nid = if taken || *fid >= next { let x = NodeId(next); next += 1; x } else { NodeId(*fid) };
+        remap.insert(*fid, nid);
+    }
+    ctx.next_id.set(next.max(remap.values().map(|n| n.0 + 1).max().unwrap_or(next)));
+    let to_canvas = |x: u64| remap.get(&x).copied().unwrap_or(NodeId(x));
+    // положение: как было, со сдвигом за перенесённой нодой-подграфом
+    let sp = sub.pos.get_untracked();
+    let (lx, ly, ln) = def.layout.values().fold((0.0f32, 0.0f32, 0usize), |(a, b, n), (x, y)| (a + x, b + y, n + 1));
+    let (dx, dy) = if ln > 0 { (sp.x - lx / ln as f32, sp.y - ly / ln as f32) } else { (0.0, 0.0) };
+    let mut v: Vec<NodeInstance> = nodes.iter().filter(|n| n.id != id).cloned().collect();
+    let mut added = Vec::new();
+    for (inner, fid) in &map {
+        let Some(fnode) = flow.node(*fid) else { continue };
+        let Some(kind) = NodeKind::from_flow_kind(&fnode.kind) else { continue };
+        let (x, y) = def.layout.get(inner).map(|(x, y)| (x + dx, y + dy)).unwrap_or((sp.x + 40.0 * added.len() as f32, sp.y + 40.0 * added.len() as f32));
+        let nid = to_canvas(*fid);
+        let inst = NodeInstance {
+            id: nid,
+            kind,
+            pos: use_signal(Point::new(x, y)),
+            bounds: use_signal(syngui::core::Rect::zero()),
+            fields: default_fields(kind),
+            runtime: crate::registry::default_runtime(kind),
+            style: use_signal(Default::default()),
+            enabled: use_signal(fnode.enabled),
+            timing: crate::timing::Stopwatch::new(),
+            title: use_signal(String::new()),
+        };
+        for (k, val) in &fnode.fields {
+            set_field_json(&inst, k, val);
+        }
+        v.push(inst);
+        added.push(nid);
+    }
+    let kind_of = |nid: NodeId| v.iter().find(|n| n.id == nid).map(|n| n.kind);
+    let mut new_conns: Vec<Connection> = conns.iter().filter(|c| c.from_node != id && c.to_node != id).cloned().collect();
+    for l in &flow.links {
+        let (f, t) = (to_canvas(l.from_node), to_canvas(l.to_node));
+        if !added.contains(&f) && !added.contains(&t) {
+            continue;
+        }
+        let (Some(fk), Some(tk)) = (kind_of(f), kind_of(t)) else { continue };
+        let (Some(fp), Some(tp)) = (static_port(fk, false, &l.from_port), static_port(tk, true, &l.to_port)) else { continue };
+        let c = Connection { from_node: f, from_port: fp, to_node: t, to_port: tp };
+        if !new_conns.contains(&c) {
+            new_conns.push(c);
+        }
+    }
+    ctx.nodes.set(v);
+    ctx.connections.set(new_conns);
+    ctx.pick_clear();
+    Ok(added)
 }

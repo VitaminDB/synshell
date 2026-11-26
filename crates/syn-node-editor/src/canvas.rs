@@ -304,6 +304,16 @@ fn selection_bar(ctx: NodeEditorCtx, size: RwSignal<syngui::core::Size>) -> impl
             return Vec::new();
         }
         let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("Выделено нод: {}", picked.len())).class("ne-selbar-text"));
+        // встроенное: ноды ядра — в подграф одной нодой
+        if crate::nodes::flow::can_group(&ctx, &picked) {
+            let sel = picked.clone();
+            row = row.child(Button::new("Объединить в подграф").class("ne-selbar-btn").on_click(move || {
+                if let Err(e) = crate::nodes::flow::group_nodes(&ctx, &sel) {
+                    tracing::warn!("подграф: {e}");
+                    crate::host::notify(crate::host::Notice::Error, e.clone());
+                }
+            }));
+        }
         if let Some(h) = crate::node_menu() {
             for (k, label) in (h.items)(&ctx, picked[0], &picked) {
                 let sel = picked.clone();

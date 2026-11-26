@@ -43,13 +43,21 @@ pub struct SubflowDef {
     pub inputs: Vec<SubIn>,
     #[serde(default)]
     pub outputs: Vec<SubOut>,
+    /// Положение внутренних нод на холсте редактора (id → x, y) — чтобы
+    /// «Разгруппировать» вернуло их на место.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub layout: BTreeMap<u64, (f32, f32)>,
 }
 
 impl SubflowDef {
     /// Описание из полей ноды.
     pub fn of(node: &FlowNode) -> Result<Self, String> {
         let v = node.fields.get("subflow").ok_or("у ноды-подграфа нет внутреннего графа (поле subflow)")?;
-        serde_json::from_value(v.clone()).map_err(|e| format!("подграф: {e}"))
+        match v {
+            // из редактора узлов поле приходит строкой JSON
+            Json::String(s) => serde_json::from_str(s).map_err(|e| format!("подграф: {e}")),
+            v => serde_json::from_value(v.clone()).map_err(|e| format!("подграф: {e}")),
+        }
     }
 }
 
@@ -114,6 +122,7 @@ impl Flow {
                 .collect(),
             outputs: outs.iter().enumerate().map(|(i, (n, p))| SubOut { port: OUT_PORTS[i].into(), label: format!("{}: {p}", node_name(self, *n)), node: *n, from_port: p.clone() }).collect(),
             flow: inner,
+            layout: BTreeMap::new(),
         };
         let id = self.nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
         let mut node = FlowNode::new(id, "subflow");
@@ -142,8 +151,8 @@ impl Flow {
     }
 
     /// Развернуть ноду-подграф обратно: внутренние ноды (с новыми id, если
-    /// заняты) и провода к ним. Возвращает id вставленных нод.
-    pub fn ungroup(&mut self, id: u64) -> Result<Vec<u64>, String> {
+    /// заняты) и провода к ним. Возвращает id внутренней ноды → id в графе.
+    pub fn ungroup(&mut self, id: u64) -> Result<BTreeMap<u64, u64>, String> {
         let node = self.node(id).filter(|n| n.kind == "subflow").cloned().ok_or_else(|| format!("нода {id} — не подграф"))?;
         let def = SubflowDef::of(&node)?;
         let mut next = self.nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
@@ -192,7 +201,7 @@ impl Flow {
             }
         }
         self.validate()?;
-        Ok(map.values().copied().collect())
+        Ok(map)
     }
 }
 

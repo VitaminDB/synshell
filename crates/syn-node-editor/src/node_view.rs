@@ -175,7 +175,10 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                     node_for_body.pos,
                     node_for_body.timing,
                     ectx,
-                    node_for_body.title,
+                    match node_for_body.fields.lock().ok().and_then(|m| m.get("title").cloned()) {
+                        Some(crate::types::FieldValue::Text(sig)) if matches!(kind, NodeKind::FlowSubflow) => sig,
+                        _ => node_for_body.title,
+                    },
                 )) as Box<dyn Widget>,
                 ports_and_fields(node_for_body.clone(), meta),
             ]);
@@ -237,6 +240,10 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
         items.push(MenuItem::new("shadow-toggle", shadow_label).icon(MI_WB_SHADE));
         let enabled_label = if enabled { tr!("nodes.menu.disable") } else { tr!("nodes.menu.enable") };
         items.push(MenuItem::new("enabled-toggle", enabled_label).icon(MI_POWER_SETTINGS));
+        if matches!(kind, NodeKind::FlowSubflow) {
+            items.push(MenuItem::separator());
+            items.push(MenuItem::new("subflow-ungroup", "Разгруппировать подграф"));
+        }
         // пункты программы для этой ноды («Сделать блоком», «Разгруппировать»…);
         // над несколькими выделенными — полоса выделения над холстом
         let sel: Vec<NodeId> = vec![id];
@@ -274,6 +281,11 @@ fn node_card(node: NodeInstance, meta: &'static NodeKindMeta) -> impl Widget {
                         let cur = node_for_select.enabled.get_untracked();
                         node_for_select.enabled.set(!cur);
                     }
+                    "subflow-ungroup" => {
+                        if let Err(e) = crate::nodes::flow::ungroup_node(&nctx, id) {
+                            crate::host::notify(crate::host::Notice::Error, e.clone());
+                        }
+                    }
                     a if a.starts_with("host:") => {
                         if let Some(h) = crate::node_menu() {
                             (h.run)(&nctx, id, &sel_menu, &a["host:".len()..]);
@@ -296,8 +308,7 @@ fn header_widget(
     ectx: NodeEditorCtx,
     own_title: RwSignal<String>,
 ) -> impl Widget {
-    let own = own_title.get_untracked();
-    let title = if own.is_empty() { crate::i18n::node_title(meta).to_string() } else { own };
+    let base_title = crate::i18n::node_title(meta).to_string();
     let icon = meta.icon;
     // Title-group слева (icon + title) и close-кнопка справа в общем Row
     // с MainAxisAlignment::SpaceBetween — распределение к краям не зависит
@@ -311,7 +322,11 @@ fn header_widget(
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .children(vec![
             Box::new(Text::new(icon).class("node-card-icon")) as Box<dyn Widget>,
-            Box::new(Text::new(title).class("node-card-title")) as Box<dyn Widget>,
+            // свой заголовок (имя блока, подграфа) — реактивно, иначе заголовок вида
+            Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                let own = own_title.get();
+                vec![Box::new(Text::new(if own.trim().is_empty() { base_title.clone() } else { own }).class("node-card-title"))]
+            })) as Box<dyn Widget>,
         ]);
 
     let close_btn = ToolButton::new(MI_CLOSE)

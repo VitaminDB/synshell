@@ -454,7 +454,10 @@ pub static SUBFLOW: NodeSpec = NodeSpec {
         port("out3", n_!("Выход 3"), P::Any),
         port("out4", n_!("Выход 4"), P::Any),
     ],
-    fields: &[field("title", n_!("Название"), F::Text, "Подграф").hint(n_!("Имя подграфа в шапке ноды"))],
+    fields: &[
+        field("title", n_!("Название"), F::Text, "Подграф").hint(n_!("Имя подграфа в шапке ноды")),
+        field("subflow", n_!("Внутренний граф"), F::LongText, "").hidden(),
+    ],
     stage: false,
 };
 

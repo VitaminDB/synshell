@@ -93,6 +93,8 @@ pub struct FieldSpec {
     pub hint: &'static str,
     /// Прятать в сворачиваемый раздел «Дополнительно» редактора узлов.
     pub advanced: bool,
+    /// Служебное поле: хранится и передаётся, но не показывается (внутренний граф подграфа).
+    pub hidden: bool,
 }
 
 impl FieldSpec {
@@ -105,10 +107,15 @@ impl FieldSpec {
         self.advanced = true;
         self
     }
+
+    pub const fn hidden(mut self) -> Self {
+        self.hidden = true;
+        self
+    }
 }
 
 pub const fn field(name: &'static str, label: &'static str, ty: FieldType, default: &'static str) -> FieldSpec {
-    FieldSpec { name, label, ty, default, hint: "", advanced: false }
+    FieldSpec { name, label, ty, default, hint: "", advanced: false, hidden: false }
 }
 
 /// Описание типа ноды. Поле и входной порт с одним именем — одно значение:
