@@ -25,6 +25,10 @@ One window with four sections — tabs in the title bar, Ctrl+1 … Ctrl+4 (Hugg
 - **Settings** — token, download cache, parallel files, segments per file, speed limit, formats to skip and the packages folder.
 - **System Settings** — Neural networks → Model storage has an “Open Models” button.
 
+| Training: how it works | Dataset editor | LoRA adapter |
+|---|---|---|
+| ![Training: overview, jobs, datasets and adapters](docs/screenshots/training-ru.png) | ![Dataset editor with dialogue examples](docs/screenshots/training-dataset-ru.png) | ![A trained LoRA adapter: details, default switch and strength](docs/screenshots/training-adapter-ru.png) |
+
 Checked end to end: search for SmolLM2-135M-Instruct → download 260 MB → pack with MXFP8 into a 142 MB `.syn` → synaptixd loads the package and the model answers correctly.
 
 | Packing wizard | Library | Settings |
