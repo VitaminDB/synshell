@@ -148,10 +148,20 @@ fn drop_plain_titles(a, b) {
 // строка с \n — заголовок и подзаголовок шаблона
 let titles = 0;
 let dropped = 0;
+// шаблоны рассчитаны на 16:9 и в вертикальном кадре идут полосой по центру —
+// центральные заголовок и призыв там мелкие, их крупнее (нижняя треть у левого
+// края — как есть, иначе обрежется)
+let st = project().settings;
+let tall = st != () && num(st.height) > num(st.width);
+fn big(r, tall) {
+    if tall && r != () && r.data != () && r.data.id != () {
+        try { cmd("effect.add", #{ids: [r.data.id], kind: "transform", params: #{scale: 1.6}}); } catch {}
+    }
+}
 if params.title != () {
     let tpl = switch mood { "energetic" => "Minimal_Title_06", "warm" => "Minimal_Title_02", _ => "Minimal_Title_04" };
     dropped += drop_plain_titles(0.0, 3.0);
-    try { cmd("template.apply", #{name: tpl, text: params.title, at: 0.3, duration: 2.6}); titles += 1; } catch {}
+    try { let r = cmd("template.apply", #{name: tpl, text: params.title, at: 0.3, duration: 2.6}); big(r, tall); titles += 1; } catch {}
 }
 if params.subtitle != () && total > 6.0 {
     let lt = if mood == "energetic" { "Lower_Third_02" } else { "Lower_Third_01" };
@@ -160,7 +170,7 @@ if params.subtitle != () && total > 6.0 {
 }
 if params.cta != () {
     dropped += drop_plain_titles(total - 2.6, total);
-    try { cmd("template.apply", #{name: "Minimal_Title_06", text: params.cta, at: total - 2.6, duration: 2.5}); titles += 1; } catch {}
+    try { let r = cmd("template.apply", #{name: "Minimal_Title_06", text: params.cta, at: total - 2.6, duration: 2.5}); big(r, tall); titles += 1; } catch {}
 }
 
 print(`Яркий монтаж (${mood}): переходов Fusion ${cuts.len()}, наездов ${clips.len()}, бликов ${lanes}, звуков ${sfx}, титров из шаблонов ${titles} (простых надписей убрано ${dropped})`);
