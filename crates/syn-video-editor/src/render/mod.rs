@@ -92,9 +92,19 @@ pub fn child_main(args: &[String]) -> Result<String, String> {
             let (w, h) = (((p.settings.width as f32 * k) as u32) & !1, ((p.settings.height as f32 * k) as u32) & !1);
             let mut src = compose::FrameSource::new(w, h);
             let frames = src.frames(&p, t);
-            let mut off = syngui::offscreen::Offscreen::new((w, h), "")?;
+            let mut off = syngui::offscreen::Offscreen::new((w, h), "").or_else(|_| syngui::offscreen::Offscreen::low_power((w, h), ""))?;
             let pc = p.clone();
-            let rgba = off.render(move || compose::frame_widget(&pc, t, &frames, k))?;
+            let fr = frames.clone();
+            let rgba = match off.render(move || compose::frame_widget(&pc, t, &frames, k)) {
+                Ok(v) => v,
+                // дискретная видеокарта занята нейросетями — кадр на встроенной
+                Err(_) if !off.low_power => {
+                    let mut low = syngui::offscreen::Offscreen::low_power((w, h), "")?;
+                    let pc = p.clone();
+                    low.render(move || compose::frame_widget(&pc, t, &fr, k))?
+                }
+                Err(e) => return Err(e),
+            };
             image::save_buffer(out, &rgba, w, h, image::ExtendedColorType::Rgba8).map_err(|e| format!("{out}: {e}"))?;
             Ok(out.clone())
         }

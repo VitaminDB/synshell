@@ -126,12 +126,30 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
             Ok(())
         });
         let mut result: Result<(), String> = Ok(());
-        match syngui::offscreen::Offscreen::new((w, h), "") {
+        let mut notes_gpu: Vec<String> = Vec::new();
+        // дискретная видеокарта (быстрое чтение кадров); её память занята
+        // нейросетями — кадр уходит на встроенную, экспорт продолжается
+        let first = syngui::offscreen::Offscreen::new((w, h), "").or_else(|_| syngui::offscreen::Offscreen::low_power((w, h), ""));
+        match first {
             Err(e) => result = Err(format!("композитор: {e}")),
             Ok(mut off) => {
                 for (i, t, frames) in frx {
                     let pa = shared.clone();
-                    match off.render(move || compose::frame_widget(&pa, t, &frames, 1.0)) {
+                    let fr = frames.clone();
+                    let mut r = off.render(move || compose::frame_widget(&pa, t, &frames, 1.0));
+                    if let (Err(e), false) = (&r, off.low_power) {
+                        tracing::warn!("экспорт: {e} — дальше на встроенной видеокарте");
+                        notes_gpu.push(format!("кадры с {} — на встроенной видеокарте ({e})", crate::doc::tc(t)));
+                        match syngui::offscreen::Offscreen::low_power((w, h), "") {
+                            Ok(o) => {
+                                off = o;
+                                let pa = shared.clone();
+                                r = off.render(move || compose::frame_widget(&pa, t, &fr, 1.0));
+                            }
+                            Err(e2) => r = Err(format!("{e}; встроенная: {e2}")),
+                        }
+                    }
+                    match r {
                         Ok(v) => {
                             if wtx.send(v).is_err() {
                                 break;
@@ -148,7 +166,8 @@ pub fn export(p: &Project, out: &Path, opts: &Opts, mut progress: impl FnMut(usi
         }
         drop(wtx);
         let w = wr.join().unwrap_or_else(|_| Err("запись в ffmpeg упала".into()));
-        let notes = dec.join().unwrap_or_default();
+        let mut notes = dec.join().unwrap_or_default();
+        notes.extend(notes_gpu);
         (result.and(w), notes)
     });
     let out_ = child.wait_with_output().map_err(|e| format!("ffmpeg: {e}"))?;

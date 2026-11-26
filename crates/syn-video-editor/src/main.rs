@@ -37,6 +37,40 @@ fn main() {
         return;
     }
     // клиент сокета запущенного окна (E5)
+    // --remote-ai-wait «задача» [секунд]: передать агенту окна и дождаться конца хода
+    if raw.first().map(String::as_str) == Some("--remote-ai-wait") {
+        let task = raw.get(1).cloned().unwrap_or_default();
+        let limit = raw.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(7200);
+        let sock = syn_video_editor::ui::socket::request;
+        match sock(&serde_json::json!({"ai": task})) {
+            Ok(v) if v["ok"].as_bool() == Some(true) => {}
+            Ok(v) => {
+                eprintln!("{}", v["error"].as_str().unwrap_or("ошибка"));
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        let t0 = std::time::Instant::now();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        loop {
+            let v = sock(&serde_json::json!({"op": "ai_state"})).unwrap_or_default();
+            if v["data"]["busy"].as_bool() == Some(false) {
+                for t in v["data"]["tools"].as_array().into_iter().flatten() {
+                    eprintln!("→ {}", t.as_str().unwrap_or(""));
+                }
+                println!("{}", v["text"].as_str().unwrap_or(""));
+                std::process::exit(0);
+            }
+            if t0.elapsed().as_secs() > limit {
+                eprintln!("агент не закончил за {limit} с");
+                std::process::exit(3);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
+    }
     if let Some(first) = raw.first().map(String::as_str).filter(|f| f.starts_with("--remote")) {
         let req = match first {
             "--remote" => {
@@ -48,6 +82,7 @@ fn main() {
                 serde_json::json!({"cmd": id, "args": args})
             }
             "--remote-state" => serde_json::json!({"op": "state"}),
+            "--remote-ai-state" => serde_json::json!({"op": "ai_state"}),
             "--remote-ai" => serde_json::json!({"ai": raw.get(1).cloned().unwrap_or_default()}),
             _ => {
                 eprintln!("{}", usage());

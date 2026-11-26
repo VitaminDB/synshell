@@ -116,6 +116,25 @@ fn handle(st: St, req: Value) -> Value {
                 "duration": e.project.duration(),
             }})
         }),
+        // ход агента: занят ли и что он написал в последнем ходе (для автоматических прогонов)
+        Some("ai_state") => on_main(move || {
+            let log = st.ai_log.get_untracked();
+            let start = log.iter().rposition(|l| matches!(l, super::AiLine::User(_))).unwrap_or(0);
+            let mut text = String::new();
+            let mut tools = Vec::new();
+            for l in &log[start..] {
+                match l {
+                    super::AiLine::Text(t) => text.push_str(t),
+                    super::AiLine::Tool(t) => tools.push(Value::from(t.clone())),
+                    super::AiLine::Error(e) => {
+                        text.push_str("\nОшибка: ");
+                        text.push_str(e);
+                    }
+                    _ => {}
+                }
+            }
+            json!({"ok": true, "text": text, "data": {"busy": st.ai_busy.get_untracked(), "tools": tools}})
+        }),
         Some("commands") => {
             let v: Vec<Value> = cmd::all().iter().map(|c| json!({"id": c.id, "category": c.category, "title": c.title, "help": c.help, "args": c.schema()})).collect();
             json!({"ok": true, "data": v})
