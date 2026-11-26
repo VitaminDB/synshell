@@ -80,6 +80,7 @@ pub mod icons {
     pub const CHECK: &str = "\u{E5CA}";
     pub const DELETE: &str = "\u{E872}";
     pub const SETTINGS: &str = "\u{E8B8}";
+    pub const CODE: &str = "\u{E86F}";
 }
 
 static EDITOR: OnceLock<Shared> = OnceLock::new();
@@ -842,6 +843,10 @@ pub fn root(st: St) -> impl Widget {
             if key == Key::Escape && st.window.get_untracked().fullscreen {
                 st.set_fullscreen(false);
                 return KeyReply::Handled;
+            }
+            // на странице «Настройки» клавиши монтажа (пробел, S, N, Delete…) не действуют
+            if st.page.get_untracked() {
+                return KeyReply::Ignore;
             }
             if !mods.ctrl && !mods.alt && !mods.shift {
                 match key {

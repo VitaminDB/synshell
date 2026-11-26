@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n", "style"] }
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "ffmpeg", "wayland-dnd", "svg", "accessibility"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "ffmpeg", "wayland-dnd", "svg", "accessibility", "code-editor"] }
 syn-assist.workspace = true
 synaptix-graph.workspace = true
 syn-node-editor.workspace = true

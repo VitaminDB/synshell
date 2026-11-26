@@ -227,3 +227,16 @@ mod tests {
         assert!(eval_layout("42").is_err());
     }
 }
+
+/// Проверка синтаксиса сценария без запуска: `Ok(())` или ошибка с позицией
+/// («строка N, позиция M: …»).
+pub fn check(code: &str) -> Result<(), String> {
+    base_engine().compile(code).map(|_| ()).map_err(|e| {
+        let p = e.position();
+        match (p.line(), p.position()) {
+            (Some(l), Some(c)) => format!("строка {l}, позиция {c}: {}", e.err_type()),
+            (Some(l), None) => format!("строка {l}: {}", e.err_type()),
+            _ => e.to_string(),
+        }
+    })
+}

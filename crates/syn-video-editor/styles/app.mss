@@ -239,3 +239,11 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .cmp-line { background-color: rgba(255, 255, 255, 0.85); }
 .cmp-tag { background-color: rgba(0, 0, 0, 0.6); border-radius: 4px; padding: 2px 6px; }
 .cmp-tag-text { font-size: 11px; color: #ffffff; }
+
+/* настройки: редактор скилов и сценариев */
+.set-edit-list { width: 250px; padding: 10px 8px; background-color: var(--bg-panel); border-radius: 12px; }
+.set-code { height: 640px; border-radius: 8px; border: 1px solid var(--border); }
+.set-code-prompt { height: 460px; border-radius: 8px; border: 1px solid var(--border); }
+.set-status { font-size: 12px; color: var(--success); }
+.set-status.bad { color: var(--danger); }
+.mono { font-family: monospace; }

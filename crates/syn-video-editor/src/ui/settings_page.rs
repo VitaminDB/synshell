@@ -33,7 +33,7 @@ pub const SEC_MODELS: usize = 4;
 thread_local! {
     static SECTION: std::cell::RefCell<Option<RwSignal<usize>>> = const { std::cell::RefCell::new(None) };
     static SKILL_Q: std::cell::RefCell<Option<(RwSignal<String>, RwSignal<usize>)>> = const { std::cell::RefCell::new(None) };
-    static EDIT_SKILL: std::cell::RefCell<Option<RwSignal<Option<std::path::PathBuf>>>> = const { std::cell::RefCell::new(None) };
+    static EDIT_SKILL: std::cell::RefCell<Option<RwSignal<Option<Edit>>>> = const { std::cell::RefCell::new(None) };
     static PREVIEW: std::cell::RefCell<Option<RwSignal<u64>>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -45,8 +45,8 @@ fn skill_filter() -> (RwSignal<String>, RwSignal<usize>) {
     SKILL_Q.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(String::new()), use_signal(0))))
 }
 
-/// Навык, открытый в правке (путь SKILL.md).
-fn edit_skill() -> RwSignal<Option<std::path::PathBuf>> {
+/// Скил или сценарий, открытый в правке.
+fn edit_skill() -> RwSignal<Option<Edit>> {
     EDIT_SKILL.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal(None)))
 }
 
@@ -292,16 +292,22 @@ fn agent_chats(st: St) -> impl Widget {
 fn prompt_page(st: St, s: &Settings) -> impl Widget {
     let custom = !s.prompt.trim().is_empty();
     let text = crate::agent::base_prompt(s);
-    let editor = MultilineTextEdit::new()
-        .text(text)
-        .soft_wrap(true)
-        .rows(22)
-        .on_change(move |t: &str| {
-            let t = if t.trim() == crate::agent::SYSTEM.trim() { String::new() } else { t.to_string() };
-            settings::update(move |s| s.prompt = t);
-            preview_rev().update(|r| *r += 1);
-        })
-        .class("set-prompt-editor");
+    let editor = {
+        use syngui::widgets::input::code_editor::syntax::Language;
+        use syngui::widgets::input::code_editor::CodeEditorChange;
+        CodeEditor::new()
+            .text(text)
+            .language(Language::Markdown)
+            .soft_wrap(true)
+            .tab_width(4)
+            .on_change(move |ch: CodeEditorChange| {
+                let t = ch.full_text.to_string();
+                let t = if t.trim() == crate::agent::SYSTEM.trim() { String::new() } else { t };
+                settings::update(move |s| s.prompt = t);
+                preview_rev().update(|r| *r += 1);
+            })
+            .class("set-code-prompt")
+    };
     let instr = MultilineTextEdit::new()
         .text(s.instructions.clone())
         .soft_wrap(true)
@@ -377,7 +383,7 @@ fn skill_tile(st: St, k: &syn_assist::skills::Skill, on: bool) -> impl Widget {
                     .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(k.name.clone()).max_lines(1).class(if on { "tree-text mono" } else { "tree-text mono dim" })).child(DecoratedBox::new().class(badge.1).child(Text::new(badge.0).class("set-badge-text"))))
                     .child(Text::new(k.description.clone()).max_lines(3).class("tree-meta")),
             ))
-            .child(ToolButton::new(icons::EDIT).tooltip(tr!("settings.skills.edit")).on_click(move || edit_skill().set(Some(file.clone())))),
+            .child(ToolButton::new(icons::EDIT).tooltip(tr!("settings.skills.edit")).on_click(move || open_edit(Edit::Skill(file.clone())))),
     )
 }
 
@@ -390,43 +396,180 @@ fn own_copy(path: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
-fn skill_editor(st: St, path: std::path::PathBuf) -> impl Widget {
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let target = own_copy(&path);
-    let builtin = target != path;
+/// Что открыто в редакторе: скил (SKILL.md) или сценарий Rhai (по имени).
+#[derive(Clone, PartialEq, Debug)]
+pub enum Edit {
+    Skill(std::path::PathBuf),
+    Script(String),
+}
+
+thread_local! {
+    static STATUS: std::cell::RefCell<Option<RwSignal<(bool, String)>>> = const { std::cell::RefCell::new(None) };
+    static BUF: std::cell::RefCell<Option<RwSignal<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Строка состояния редактора: (ошибка?, текст).
+fn status() -> RwSignal<(bool, String)> {
+    STATUS.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal((false, String::new()))))
+}
+
+/// Текст в редакторе (для «Проверить»).
+fn buf() -> RwSignal<String> {
+    BUF.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal(String::new())))
+}
+
+fn open_edit(e: Edit) {
+    if edit_skill().get_untracked().as_ref() != Some(&e) {
+        status().set((false, String::new()));
+    }
+    edit_skill().set(Some(e));
+}
+
+/// Файл, куда пишется правка, исходный текст и встроенный ли.
+fn edit_source(e: &Edit) -> (std::path::PathBuf, String, bool) {
+    match e {
+        Edit::Skill(path) => {
+            let target = own_copy(path);
+            let src = if target.exists() { &target } else { path };
+            (target.clone(), std::fs::read_to_string(src).unwrap_or_default(), &target != path)
+        }
+        Edit::Script(name) => {
+            let k = crate::cmd::skill::all().into_iter().find(|k| &k.name == name);
+            let target = k.as_ref().and_then(|k| k.path.clone()).unwrap_or_else(|| crate::cmd::skill::dir().join(format!("{name}.rhai")));
+            let builtin = crate::cmd::skill::is_builtin(name);
+            (target, k.map(|k| k.code).unwrap_or_default(), builtin)
+        }
+    }
+}
+
+/// Проверка: Rhai — компиляция без запуска; SKILL.md — поля name и description.
+fn check(e: &Edit, text: &str) -> (bool, String) {
+    match e {
+        Edit::Script(_) => match crate::script::check(text) {
+            Ok(()) => (false, tr!("settings.editor.ok")),
+            Err(err) => (true, err),
+        },
+        Edit::Skill(_) => {
+            let name = syn_assist::skills::front(text, "name");
+            let desc = syn_assist::skills::front(text, "description");
+            if name.as_deref().is_some_and(|n| !n.trim().is_empty()) && desc.as_deref().is_some_and(|d| !d.trim().is_empty()) {
+                (false, tr!("settings.editor.ok"))
+            } else {
+                (true, tr!("settings.editor.md_missing"))
+            }
+        }
+    }
+}
+
+/// Список слева: скилы и сценарии, щелчок — открыть в редакторе.
+fn edit_list(st: St, s: &Settings, cur: &Edit) -> impl Widget {
+    let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    col = col.child(Text::new(tr!("settings.sec.skills")).class("section-title"));
+    for k in syn_assist::skills::list_all(&crate::agent::skill_dirs(s), &[]) {
+        let e = Edit::Skill(k.dir.join("SKILL.md"));
+        let on = matches!(cur, Edit::Skill(p) if own_copy(p) == own_copy(&k.dir.join("SKILL.md")));
+        let e2 = e.clone();
+        col = col.child(GestureDetector::new().on_click(move || open_edit(e2.clone())).child(
+            DecoratedBox::new().class(if on { "set-nav-item on" } else { "set-nav-item" }).child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::DESCRIPTION).class("set-nav-icon")).child(Text::new(k.name.clone()).max_lines(1).class("set-nav-text"))),
+        ));
+    }
+    col = col.child(Text::new(tr!("settings.skills.scripts")).class("section-title"));
+    for k in crate::cmd::skill::all() {
+        let on = matches!(cur, Edit::Script(n) if *n == k.name);
+        let e = Edit::Script(k.name.clone());
+        col = col.child(GestureDetector::new().on_click(move || open_edit(e.clone())).child(
+            DecoratedBox::new().class(if on { "set-nav-item on" } else { "set-nav-item" }).child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::CODE).class("set-nav-icon")).child(Text::new(format!("{}.rhai", k.name)).max_lines(1).class("set-nav-text"))),
+        ));
+    }
+    col = col.child(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Button::new(tr!("settings.skills.new")).icon(icons::ADD).on_click(move || new_skill(st)).class("btn-small"))
+            .child(Button::new(tr!("settings.scripts.new")).icon(icons::ADD).on_click(move || new_script(st)).class("btn-small")),
+    );
+    DecoratedBox::new().class("set-edit-list").child(ScrollView::new().vertical().child(col))
+}
+
+fn skill_editor(st: St, s: &Settings, e: Edit) -> impl Widget {
+    use syngui::widgets::input::code_editor::syntax::Language;
+    use syngui::widgets::input::code_editor::CodeEditorChange;
+    let (target, text, builtin) = edit_source(&e);
+    let rhai = matches!(e, Edit::Script(_));
+    buf().set(text.clone());
     let save_to = target.clone();
-    let editor = MultilineTextEdit::new()
+    let editor = CodeEditor::new()
         .text(text)
-        .soft_wrap(true)
-        .rows(26)
-        .on_change(move |t: &str| {
+        .language(if rhai { Language::Rust } else { Language::Markdown })
+        .soft_wrap(!rhai)
+        .tab_width(4)
+        .on_change(move |ch: CodeEditorChange| {
+            let t = ch.full_text.to_string();
             if let Some(d) = save_to.parent() {
                 let _ = std::fs::create_dir_all(d);
             }
-            let _ = crate::layout::write_atomic(&save_to, t);
+            match crate::layout::write_atomic(&save_to, &t) {
+                Ok(()) => status().set((false, tr!("settings.editor.saved"))),
+                Err(err) => status().set((true, err)),
+            }
+            buf().set(t);
         })
-        .class("set-prompt-editor");
-    let del = target.clone();
-    let own_exists = target.exists();
-    card(
-        tr!("settings.skills.editing", name = target.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-        if builtin { tr!("settings.skills.editing.builtin_hint", path = target.display()) } else { tr!("settings.skills.editing.hint", path = target.display()) },
-        Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(editor).child(
-            Row::new()
-                .gap(8.0)
-                .child(Button::new(tr!("common.done")).icon(icons::CHECK).on_click(move || {
-                    edit_skill().set(None);
-                    st.set_rev.update(|r| *r += 1);
-                }).class("btn-primary btn-small"))
-                .child(Button::new(if builtin { tr!("settings.skills.reset_builtin") } else { tr!("settings.skills.delete") }).icon(icons::DELETE).disabled(!own_exists).on_click(move || {
-                    if let Some(d) = del.parent() {
-                        let _ = std::fs::remove_dir_all(d);
-                    }
-                    edit_skill().set(None);
-                    st.set_rev.update(|r| *r += 1);
-                }).class("btn-small")),
-        ),
-    )
+        .class("set-code");
+    let name = match &e {
+        Edit::Skill(_) => target.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        Edit::Script(n) => format!("{n}.rhai"),
+    };
+    let hint = match (rhai, builtin) {
+        (false, true) => tr!("settings.skills.editing.builtin_hint", path = target.display()),
+        (false, false) => tr!("settings.skills.editing.hint", path = target.display()),
+        (true, true) => tr!("settings.scripts.editing.builtin_hint", path = target.display()),
+        (true, false) => tr!("settings.scripts.editing.hint", path = target.display()),
+    };
+    let (del, e_check) = (target.clone(), e.clone());
+    let head = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().class("grow").child(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(name).class("set-card-title mono")).child(Text::new(hint).class("tree-meta"))))
+        .child(Button::new(tr!("settings.editor.check")).icon(icons::CHECK).on_click(move || status().set(check(&e_check, &buf().get_untracked()))).class("btn-small"))
+        .child(Button::new(match (builtin, rhai) {
+            (true, _) => tr!("settings.skills.reset_builtin"),
+            (false, false) => tr!("settings.skills.delete"),
+            (false, true) => tr!("settings.scripts.delete"),
+        }).icon(if builtin { icons::RESTORE } else { icons::DELETE }).on_click(move || {
+            // наличие своей копии — в момент нажатия (правка создаёт её на лету)
+            if !del.exists() {
+                status().set((false, tr!("settings.editor.nothing_to_reset")));
+                return;
+            }
+            if rhai {
+                let _ = std::fs::remove_file(&del);
+            } else if let Some(d) = del.parent() {
+                let _ = std::fs::remove_dir_all(d);
+            }
+            if builtin {
+                status().set((false, tr!("settings.editor.restored")));
+                // перечитать редактор со встроенным текстом (страница строится заново)
+                st.set_rev.update(|r| *r += 1);
+            } else {
+                edit_skill().set(None);
+            }
+        }).class("btn-small"))
+        .child(Button::new(tr!("common.done")).icon(icons::CHECK).on_click(move || {
+            edit_skill().set(None);
+            st.set_rev.update(|r| *r += 1);
+        }).class("btn-primary btn-small"));
+    let status_row = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let (bad, t) = status().get();
+        if t.is_empty() {
+            return Vec::new();
+        }
+        vec![Box::new(Text::new(t).class(if bad { "set-status bad" } else { "set-status" }))]
+    });
+    Row::new()
+        .gap(16.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(edit_list(st, s, &e))
+        .child(DecoratedBox::new().class("grow").child(DecoratedBox::new().class("set-card").child(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(status_row).child(editor))))
 }
 
 /// Новый свой навык-заготовка и сразу в правку.
@@ -441,13 +584,28 @@ fn new_skill(st: St) {
     let name = dir.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("SKILL.md"), tr!("settings.skills.template", name = name));
-    edit_skill().set(Some(dir.join("SKILL.md")));
+    open_edit(Edit::Skill(dir.join("SKILL.md")));
+    st.set_rev.update(|r| *r += 1);
+}
+
+/// Новый свой сценарий Rhai-заготовка и сразу в правку.
+fn new_script(st: St) {
+    let base = crate::cmd::skill::dir();
+    let _ = std::fs::create_dir_all(&base);
+    let mut n = 1;
+    let mut name = "my_script".to_string();
+    while base.join(format!("{name}.rhai")).exists() || crate::cmd::skill::all().iter().any(|k| k.name == name) {
+        n += 1;
+        name = format!("my_script_{n}");
+    }
+    let _ = std::fs::write(base.join(format!("{name}.rhai")), tr!("settings.scripts.template", name = name));
+    open_edit(Edit::Script(name));
     st.set_rev.update(|r| *r += 1);
 }
 
 fn skills_page(st: St, s: &Settings) -> Box<dyn Widget> {
-    if let Some(path) = edit_skill().get() {
-        return Box::new(skill_editor(st, path));
+    if let Some(e) = edit_skill().get() {
+        return Box::new(skill_editor(st, s, e));
     }
     let all = syn_assist::skills::list_all(&crate::agent::skill_dirs(s), &[]);
     let disabled = s.disabled_skills.clone();
@@ -493,6 +651,10 @@ fn skills_page(st: St, s: &Settings) -> Box<dyn Widget> {
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(label(format!("{} · {}", k.name, k.title), k.description.clone()))
+                .child({
+                    let n = k.name.clone();
+                    ToolButton::new(icons::EDIT).tooltip(tr!("settings.scripts.edit")).on_click(move || open_edit(Edit::Script(n.clone())))
+                })
                 .child(Toggle::with_state(on).on_change(move |v| {
                     let n = name.clone();
                     change(st, move |s| {
@@ -517,7 +679,7 @@ fn skills_page(st: St, s: &Settings) -> Box<dyn Widget> {
                     let _ = std::process::Command::new("xdg-open").arg(d).spawn();
                 }).class("btn-small")),
             ))
-            .child(card(tr!("settings.skills.scripts"), tr!("settings.skills.scripts.hint"), scripts)),
+            .child(card(tr!("settings.skills.scripts"), tr!("settings.skills.scripts.hint"), scripts.child(Row::new().child(Button::new(tr!("settings.scripts.new")).icon(icons::ADD).on_click(move || new_script(st)).class("btn-small"))))),
     );
     Box::new(
         Row::new()

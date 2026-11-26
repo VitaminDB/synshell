@@ -28,6 +28,11 @@ pub struct Skill {
     pub path: Option<std::path::PathBuf>,
 }
 
+/// Встроенный ли сценарий (есть в программе).
+pub fn is_builtin(name: &str) -> bool {
+    BUILTIN.iter().any(|(n, _)| *n == name)
+}
+
 pub fn dir() -> std::path::PathBuf {
     crate::layout::config_dir().join("skills")
 }
