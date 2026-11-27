@@ -33,6 +33,10 @@ impl EditorHost for Host {
     fn app_name(&self) -> &'static str {
         "syn-video-editor"
     }
+    /// Открытые графы — свои у каждого проекта (`projstate`).
+    fn workspace_path(&self) -> std::path::PathBuf {
+        crate::projstate::graphs_file(&crate::projstate::current())
+    }
     fn notify(&self, kind: Notice, text: String) {
         if let Some(st) = ST.get().copied() {
             syngui::async_runtime::run_on_main_thread(move || {
@@ -170,12 +174,11 @@ pub fn init() {
 pub fn mount(st: St) {
     let _ = ST.set(st);
     super::framegraph_ui::init();
+    // графы текущего проекта (у каждого проекта свои; новый — без вкладок)
+    crate::projstate::set_current(&crate::projstate::key(ed().path.as_deref()));
     let ws = EditorWorkspace::new_or_restore();
     let _ = WS.set(ws);
     install_node_bridge();
-    if ws.active.get_untracked().is_none() {
-        ws.new_untitled();
-    }
     provide_context(ws);
     syn_node_editor::persist::install_workspace_autosave();
     syn_node_editor::run_controls::install_run_watcher();

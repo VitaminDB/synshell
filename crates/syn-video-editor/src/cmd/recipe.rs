@@ -1,6 +1,6 @@
 //! Рецепты ассистента (D4): прогон даёт редактируемый проект.
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::{arg, req, Args, Command, Out, Res, Ty};
 use crate::editor::Editor;

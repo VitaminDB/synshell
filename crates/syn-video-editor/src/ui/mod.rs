@@ -1358,6 +1358,72 @@ pub fn track_fullscreen(st: St) {
     });
 }
 
+/// Состояние окна у каждого проекта своё (`projstate`): при запуске —
+/// состояние текущего проекта, правки окна сохраняются под его ключом, при
+/// смене проекта графы и раскладка переключаются; новый проект — чистый.
+pub fn project_state(st: St) {
+    use crate::projstate as ps;
+    fn apply(st: St, ui: &ps::Ui) {
+        if let Some((view, spec)) = crate::layout::decode_current(&ui.layout) {
+            st.view.set(view);
+            st.dock.set_spec(spec);
+        }
+        if let Some(z) = ui.zoom {
+            st.zoom.set(z as f32);
+        }
+        st.viewer_zoom.set(ui.viewer_zoom.map(|z| z as f32));
+        if let Some((x, y)) = ui.viewer_pan {
+            st.viewer_pan.set((x as f32, y as f32));
+        }
+        if let Some(t) = ui.tile_size {
+            st.tile_size.set(t as f32);
+        }
+    }
+    if let Some(ui) = ps::load_ui(&ps::current()) {
+        apply(st, &ui);
+    }
+    use_effect(move || {
+        let view = st.view.get();
+        let Some(spec) = st.dock.spec_tracked() else { return };
+        let (x, y) = st.viewer_pan.get();
+        let ui = ps::Ui {
+            layout: crate::layout::encode_current(&spec, &view),
+            zoom: Some(st.zoom.get() as f64),
+            viewer_zoom: st.viewer_zoom.get().map(|z| z as f64),
+            viewer_pan: Some((x as f64, y as f64)),
+            tile_size: Some(st.tile_size.get() as f64),
+        };
+        ps::save_ui(&ps::current(), &ui);
+    });
+    let last = use_signal(ps::current());
+    use_effect(move || {
+        let _ = st.rev.get();
+        let k = ps::key(ed().path.as_deref());
+        let old = last.get_untracked();
+        if k == old {
+            return;
+        }
+        last.set(k.clone());
+        // первое «Сохранить как» несохранённого проекта — то же окно под новым ключом
+        if old == "untitled" && ps::adopt(&old, &k) {
+            ps::set_current(&k);
+            return;
+        }
+        ps::set_current(&k);
+        if k == "untitled" {
+            // новый проект — чистое рабочее место
+            let _ = std::fs::remove_file(ps::graphs_file(&k));
+            let _ = std::fs::remove_file(ps::ui_file(&k));
+        }
+        if let Some(ws) = graph::workspace() {
+            ws.replace_state(syn_node_editor::persist::load_from(&ps::graphs_file(&k)));
+        }
+        if let Some(ui) = ps::load_ui(&k) {
+            apply(st, &ui);
+        }
+    });
+}
+
 pub fn autosave(st: St) {
     std::thread::spawn(move || {
         let mut saved_rev = u64::MAX;

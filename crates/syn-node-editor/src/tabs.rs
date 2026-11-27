@@ -187,6 +187,22 @@ impl EditorWorkspace {
         ws
     }
 
+    /// Заменить открытые графы сохранённым состоянием на месте (программа,
+    /// у которой графы свои у каждого документа, — при смене документа).
+    /// `None` — пустое рабочее место. Сам `EditorWorkspace` (контекст окна)
+    /// остаётся тем же.
+    pub fn replace_state(&self, state: Option<WorkspaceState>) {
+        let fresh = match state {
+            Some(st) => Self::from_state(st),
+            None => Self::new(),
+        };
+        let max_id = fresh.tabs.get_untracked().iter().map(|t| t.id.0).max().unwrap_or(0);
+        self.next_tab_id.set(fresh.next_tab_id.get_untracked().max(max_id + 1).max(1));
+        self.pending_close.set(None);
+        self.tabs.set(fresh.tabs.get_untracked());
+        self.active.set(fresh.active.get_untracked());
+    }
+
     /// Активный `NodeEditorCtx` (если есть открытая вкладка).
     pub fn active_ctx(&self) -> Option<NodeEditorCtx> {
         let id = self.active.get()?;

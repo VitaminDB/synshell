@@ -352,6 +352,7 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
             ui::socket::start(st);
             syn_video_editor::layout::autosave(st.dock, st.view);
             ui::autosave(st);
+            ui::project_state(st);
             ui::track_fullscreen(st);
             Box::new(ui::root(st)) as Box<dyn Widget>
         });

@@ -15,6 +15,7 @@ pub mod index;
 pub mod layout;
 pub mod lottie;
 pub mod motion;
+pub mod projstate;
 pub mod recipe;
 pub mod render;
 pub mod script;
