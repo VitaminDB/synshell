@@ -26,6 +26,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "graph" => super::graph::panel(),
         "curves" => Box::new(super::curves::view(st)),
         "color" => Box::new(super::color::view(st)),
+        "media_view" => Box::new(media_view_panel(st)),
         _ => Box::new(DecoratedBox::new()),
     }
 }
@@ -1034,9 +1035,11 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
                     }
                 });
             }).on_double_click(move || {
-                // просмотр этого файла (картинка — зум и поворот, видео — плеер);
-                // на таймлайн — кнопкой в окне или пунктом меню
+                // просмотр этого файла вкладкой «Медиа» (картинка — зум и поворот,
+                // видео — плеер); на таймлайн — кнопкой в ней или пунктом меню
                 st.media_preview.set(Some(id));
+                st.open_panel("media_view");
+                st.dock.activate("media_view");
             }).child(DecoratedBox::new().class(if selected { "tile tile-on" } else { "tile" }).child(body))),
     )
 }
@@ -1140,24 +1143,28 @@ fn pv_state() -> (RwSignal<i32>, RwSignal<(bool, bool)>, RwSignal<(u64, ImageVie
     PV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(0), use_signal((false, false)), use_signal((0, ImageViewCommand::Fit)))))
 }
 
-/// Окно просмотра файла медиатеки: картинка — масштаб, сдвиг, поворот и
-/// отражение; видео и звук — плеер именно этого файла.
-pub fn media_preview_view(st: St) -> impl Widget {
+/// Заголовок вкладки просмотра: «Медиа: имя файла».
+pub fn media_view_title(st: St) -> String {
+    match st.media_preview.get().and_then(|id| ed().project.media(id).map(|m| m.name())) {
+        Some(n) => format!("Медиа: {n}"),
+        None => "Медиа".into(),
+    }
+}
+
+/// Вкладка «Медиа» — просмотр файла медиатеки: картинка — масштаб, сдвиг,
+/// поворот и отражение; видео и звук — плеер именно этого файла.
+pub fn media_view_panel(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let Some(id) = st.media_preview.get() else {
             // закрыто — плеер остановить и отпустить
             if let Ok(mut g) = PREVIEW_PLAYER.lock() {
                 *g = None;
             }
-            return Vec::new();
+            return vec![empty("Двойной щелчок по файлу медиатеки — просмотр здесь")];
         };
-        let Some(m) = ed().project.media(id).cloned() else { return Vec::new() };
+        let Some(m) = ed().project.media(id).cloned() else { return vec![empty("Файла больше нет в медиатеке")] };
         let (turns, flip, cmd) = pv_state();
-        let close = move || {
-            st.media_preview.set(None);
-            turns.set(0);
-            flip.set((false, false));
-        };
+
         let path = m.path.display().to_string();
         let is_image = m.kind == MediaKind::Image;
         let body: Box<dyn Widget> = if is_image {
@@ -1207,20 +1214,7 @@ pub fn media_preview_view(st: St) -> impl Widget {
         tools = tools
             .child(Button::new("На таймлайн").on_click(move || {
                 st.exec("clip.add", json!({"media": id}));
-            }).class("head-btn"))
-            .child(ToolButton::new("\u{E5CD}").tooltip("Закрыть (Esc)").on_click(close));
-        let card = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(tools).child(DecoratedBox::new().class("grow").class("media-preview-body").child(body));
-        vec![Box::new(
-            Stack::new()
-                .fit(StackFit::Expand)
-                .child(GestureDetector::new().on_click(close).child(DecoratedBox::new().class("fp-scrim")))
-                .child(Padding::all(48.0).child(EventHook::new().on_key_down(move |k, _| {
-                    if k == Key::Escape {
-                        close();
-                        return KeyReply::Handled;
-                    }
-                    KeyReply::Ignore
-                }).child(DecoratedBox::new().class("fp-card").class("grow").child(Padding::all(12.0).child(card))))),
-        )]
+            }).class("head-btn"));
+        vec![Box::new(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(tools.class("panel-head")).child(DecoratedBox::new().class("grow").class("media-preview-body").child(body)))]
     })
 }

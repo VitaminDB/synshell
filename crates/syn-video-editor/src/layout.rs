@@ -20,6 +20,7 @@ pub const PANELS: &[(&str, &str)] = &[
     ("luts", "LUT"),
     ("layers", "Слои"),
     ("viewer", "Просмотр"),
+    ("media_view", "Медиа"),
     ("timeline", "Таймлайн"),
     ("inspector", "Инспектор"),
     ("ai", "ИИ"),

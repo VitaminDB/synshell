@@ -647,7 +647,7 @@ impl St {
     pub fn open_panel(self, id: &str) {
         let near = match id {
             "media" | "templates" | "effects" | "luts" | "layers" => Some("media"),
-            "viewer" | "graph" => Some("viewer"),
+            "viewer" | "graph" | "media_view" => Some("viewer"),
             "inspector" | "ai" => Some("inspector"),
             "timeline" | "curves" | "color" => Some("timeline"),
             _ => None,
@@ -1062,7 +1062,6 @@ pub fn root(st: St) -> impl Widget {
         .child(project_templates::dialog(st))
         .child(args_dialog::view(st))
         .child(panels::media_props_view(st))
-        .child(panels::media_preview_view(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).
@@ -1348,7 +1347,19 @@ fn dock(st: St) -> impl Widget {
                 None => st.import(paths),
             }
         })
-        .child(DockArea::new(st.dock).inset(8.0, 0.0, 8.0, 0.0).content(move |panel| panels::content(st, panel)).title(|panel| panel_title(panel)).build())
+        .child(
+            DockArea::new(st.dock)
+                .inset(8.0, 0.0, 8.0, 0.0)
+                .content(move |panel| panels::content(st, panel))
+                .title(move |panel| if panel == "media_view" { panels::media_view_title(st) } else { panel_title(panel) })
+                // вкладку просмотра медиа закрыли — плеер отпустить (звук не играет дальше)
+                .on_close(move |panel| {
+                    if panel == "media_view" {
+                        st.media_preview.set(None);
+                    }
+                })
+                .build(),
+        )
 }
 
 fn statusbar(st: St) -> impl Widget {
