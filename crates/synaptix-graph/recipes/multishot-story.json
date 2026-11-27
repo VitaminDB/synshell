@@ -54,9 +54,14 @@
       "prompt": "You are a screenwriter and storyboard artist for an original animated film. Story: «{{story}}». Characters (describe them with exactly these words every time they appear): {{characters}}. Write exactly {{clips}} consecutive clips that tell the whole story with a clear setup, twists and an ending. Each clip is ONE line in English made of {{shots}} shots: \"Shot 1: … Cut to shot 2: … Cut to shot 3: …\". In every shot give: the shot size and camera (wide / medium / close-up, push-in, pan, tracking, low or high angle), where it happens, what the characters do (with their fixed descriptions), light and mood, and sounds (noises, music) described as sounds. Add short spoken lines: at most one or two per clip, each 3–8 words, in {{lang}} inside «» quotes, marking who speaks, e.g. the duck says in {{lang}}: «…»; all speech of a clip must fit {{clip}} seconds at about 2.5 syllables per second; after the last line describe a silent action. Output only the {{clips}} lines, one clip per line — no preamble, no numbering, no comments."
     },
     {
+      "id": "look",
+      "op": "llm",
+      "prompt": "Story: «{{story}}». Characters and their look: {{characters}}. Describe in ONE English sentence (max 50 words) only the very first frame of this story as a single film still: which characters are visible and exactly how they look, where they are, what they do at that first moment, the light. No other scenes, no text in the image. Output only the sentence."
+    },
+    {
       "id": "opening",
       "op": "image",
-      "prompt": "One single cinematic film still (not a collage or storyboard): {{characters}} together at the very first moment of this story — {{story}}. {{style}}, one scene, all characters fully visible, no text",
+      "prompt": "{{look.text}} {{style}}, single film still, one scene, no text",
       "width": 1344,
       "height": 768,
       "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, text, captions, subtitles, letters, watermark"

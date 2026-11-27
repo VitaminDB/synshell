@@ -39,9 +39,14 @@
       "prompt": "You are a storyboard writer for an original animated film. Story idea: «{{story}}». Write exactly {{scenes}} consecutive scenes in one continuous location, like one uninterrupted shot. For each scene write ONE line in English describing: the characters (always described with the same words in every line), the place, the action, the camera movement, the scene sound (noises, music), and invent one or two short lines the characters say (each 3–8 words; all speech of a scene must fit {{shot}} seconds at about 2.5 syllables per second) — write those spoken lines in {{lang}} inside «» quotes, marking who speaks, for example: the duck says in {{lang}}: «…»; after the last line describe a silent action (e.g. then both silently look into the pot). Describe noises and music as sounds, not as phrases. Output only the {{scenes}} lines, one scene per line — no preamble, no numbering, no comments."
     },
     {
+      "id": "look",
+      "op": "llm",
+      "prompt": "Story: «{{story}}». Describe in ONE English sentence (max 50 words) only the very first frame of this story as a single film still: which characters are visible and exactly how they look, where they are, what they do at that first moment, the light. No other scenes, no text in the image. Output only the sentence."
+    },
+    {
       "id": "opening",
       "op": "image",
-      "prompt": "One single cinematic film still (not a collage or storyboard): the main characters at the very first moment of this story — {{story}}. {{style}}, one scene, no text",
+      "prompt": "{{look.text}} {{style}}, single film still, one scene, no text",
       "width": 1344,
       "height": 768,
       "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, text, captions, subtitles, letters, watermark"
