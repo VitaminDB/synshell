@@ -73,6 +73,12 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     // эталон без имени — в медиатеке одинаковые «ref.png»: имя обязательно
     // (или из подписи «Эталон: <имя>»)
+    // съёмка сцены N — только после сцены N-1 (сцена за сценой)
+    if g.name == "ref-scenes" {
+        if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
+            super::story::gate(project, n, "Съёмка")?;
+        }
+    }
     if g.name == "ref-image" && asset_of(a)?.is_none() {
         return Err("ref-image: нужен asset — имя эталона (герой или локация) на верхнем уровне вызова, рядом с name: {name: \"ref-image\", asset: \"<имя героя>\", params: {…}}; файл назовётся по нему".into());
     }
@@ -224,6 +230,12 @@ fn asset_name(map: &mut std::collections::HashMap<std::path::PathBuf, std::path:
 /// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
 pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     let Generated { g, report, built, path, live } = done;
+    // сцена снята — следующая открыта (сцена за сценой)
+    if g.name == "ref-scenes" {
+        if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
+            super::story::mark_done(ed.path.as_deref(), n);
+        }
+    }
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
     let open = a.bool("open")?.unwrap_or(true);
     let can = !ed.dirty || ed.project.tracks.iter().all(|t| t.clips.is_empty());

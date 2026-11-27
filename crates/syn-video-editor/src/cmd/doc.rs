@@ -86,7 +86,9 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
     std::fs::write(&p, &body).map_err(|e| format!("{}: {e}", p.display()))?;
     ed.revision += 1;
     let mut msg = format!("Документ {} ({} строк)", p.display(), body.lines().count());
-    let thin = thin_scenes(&body);
+    // полнота сцен — только у сценария (у диалогов другие разделы)
+    let is_script = p.file_stem().is_some_and(|s| s.to_string_lossy().to_lowercase().starts_with("сценарий"));
+    let thin = if is_script { thin_scenes(&body) } else { Vec::new() };
     if !thin.is_empty() {
         msg.push_str(&format!(
             ". Сцены {} описаны неполно — допиши каждую по шаблону навыка screenplay (поля: Задача, План и камера, Действие, Эмоции, Звук, Реплики) и перезапиши документ",
@@ -101,7 +103,7 @@ pub fn thin_scenes(text: &str) -> Vec<String> {
     const FIELDS: &[&str] = &["план", "действие", "звук", "реплик"];
     let mut out = Vec::new();
     let mut cur: Option<(String, String)> = None;
-    let mut check = |c: Option<(String, String)>, out: &mut Vec<String>| {
+    let check = |c: Option<(String, String)>, out: &mut Vec<String>| {
         if let Some((name, body)) = c {
             let low = body.to_lowercase();
             if FIELDS.iter().filter(|f| low.contains(*f)).count() < 3 {

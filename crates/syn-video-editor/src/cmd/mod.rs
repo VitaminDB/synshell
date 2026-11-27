@@ -16,6 +16,7 @@ mod blocks;
 pub mod recipe;
 pub mod voice;
 pub mod doc;
+pub mod story;
 mod script;
 mod index;
 pub mod skill;
@@ -140,6 +141,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(audio::COMMANDS);
     v.extend(voice::COMMANDS);
     v.extend(doc::COMMANDS);
+    v.extend(story::COMMANDS);
     v.extend(template::COMMANDS);
     v.extend(timeline::COMMANDS);
     v.extend(keys::COMMANDS);

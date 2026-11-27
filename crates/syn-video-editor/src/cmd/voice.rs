@@ -239,6 +239,13 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
         }
         "voice.say" => {
             let text = crate::yo::yofy(&a.need_str("text")?);
+            // без слов (только «…» и указания в скобках) Drama 3 выдаёт мусор
+            if !plain_text(&text).chars().any(char::is_alphanumeric) {
+                return Err("в реплике нет слов для озвучки (только знаки или указания в скобках) — молчание делай паузой в сцене, а не репликой".into());
+            }
+            if let Some(n) = a.str("scene")?.and_then(|s| super::story::scene_number(&s)) {
+                super::story::gate(project, n, "Озвучка")?;
+            }
             let bank = load_voices(project);
             let mut names: Vec<String> = a.strs("voices")?.unwrap_or_default();
             if let Some(v) = a.str("voice")?.filter(|v| !v.trim().is_empty()) {
@@ -285,6 +292,9 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             Ok((format!("Реплика «{}» ({who}): {} — {secs:.1} с{}", plain_text(&text), out.display(), seed.map(|s| format!(", зерно {s}")).unwrap_or_default()), vec![out.clone()], json!({"path": out, "seconds": secs, "seed": seed})))
         }
         "voice.track" => {
+            if let Some(n) = a.str("name")?.and_then(|s| s.to_lowercase().strip_prefix("сцена-").and_then(|r| r.split('-').next().and_then(|d| d.parse::<u32>().ok()))) {
+                super::story::gate(project, n, "Дорожка")?;
+            }
             let secs = a.num("seconds")?.ok_or("нужен seconds")?.clamp(0.5, 30.0);
             let lines = a.value("lines").and_then(|v| v.as_array().cloned()).ok_or("нужен lines: [{file|media, at}]")?;
             let stem = a.str("name")?.filter(|n| !n.trim().is_empty()).map(|n| slug(&n)).unwrap_or_else(|| "дорожка".into());

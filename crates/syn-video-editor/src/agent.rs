@@ -115,6 +115,14 @@ impl Tool for CmdTool {
             return cmd::recipe::apply(&mut ed, &a, done).map(|o| ToolOutput::text(o.text));
         }
         // озвучка (синтез службой — десятки секунд) — без блокировки документа
+        if cmd::story::HEAVY.contains(&self.cmd.id) {
+            let a = cmd::Args::from_value(self.cmd, args)?;
+            let project = self.ed.lock().unwrap_or_else(|e| e.into_inner()).path.clone();
+            let (text, files, _) = cmd::story::run_plan(&a, project.as_deref())?;
+            let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+            cmd::voice::import(&mut ed, &files);
+            return Ok(ToolOutput::text(text));
+        }
         if cmd::voice::HEAVY.contains(&self.cmd.id) {
             let a = cmd::Args::from_value(self.cmd, args)?;
             let project = self.ed.lock().unwrap_or_else(|e| e.into_inner()).path.clone();
