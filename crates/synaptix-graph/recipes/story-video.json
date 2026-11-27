@@ -28,7 +28,7 @@
     },
     "model": {
       "type": "text",
-      "description": "видеомодель: minimax-h3-fl2va (MiniMax-H3) или ltx-2-3-22b-distilled-1-1 (LTX-2.3); пусто — по умолчанию",
+      "description": "видеомодель: minimax-h3-fl2va (MiniMax-H3) — для мультфильмов только она; ltx-2-3-22b-distilled-1-1 / ltx-2-5-22b-distilled (LTX) — не для мультфильмов; пусто — по умолчанию",
       "default": ""
     }
   },
