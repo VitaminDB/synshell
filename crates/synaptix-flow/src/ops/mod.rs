@@ -184,6 +184,7 @@ pub static VIDEO: NodeSpec = NodeSpec {
         field("retake_end", n_!("Retake по, с"), F::Number, "0").hint(n_!("Конец перерисовываемого отрезка (LTX-2.3)")).advanced(),
         field("control", "IC-LoRA", F::Choice(CONTROLS), "").hint(n_!("Режим управляющего ролика для LTX-2.3")).advanced(),
         field("two_stage", n_!("Две стадии"), F::Bool, "false").hint(n_!("LTX-2.3: половинная сетка → апскейл ×2 → доводка")).advanced(),
+        field("fps_x2", n_!("48 кадр/с"), F::Bool, "false").hint(n_!("LTX-2.5: удвоить частоту кадров временным апскейлером")).advanced(),
     ],
     stage: false,
 };

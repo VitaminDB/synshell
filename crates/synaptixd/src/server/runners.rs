@@ -737,6 +737,9 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                     ic_union: components.get("ic_lora_union").or(components.get("ic_lora")).cloned(),
                     ic_motion: components.get("ic_lora_motion").cloned(),
                     ic_lipdub: components.get("ic_lora_lipdub").cloned(),
+                    duration_head: components.get("duration_head").cloned(),
+                    temporal_upscaler: components.get("temporal_upscaler").cloned(),
+                    detail_lora: components.get("detail_lora").cloned(),
                 })
             } else {
                 anyhow::bail!("видео {arch} служба пока не исполняет");
