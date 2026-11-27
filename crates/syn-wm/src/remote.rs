@@ -310,7 +310,19 @@ impl State {
         let shift_code = Keycode::new(42 + 8);
         let time = self.core.start_time.elapsed().as_millis() as u32;
         let mut group = active;
-        for (kc, layout, shift) in plan.into_iter().flatten() {
+        // символы, которых нет в раскладках («», —, эмодзи…), не выбрасываются:
+        // уходят строкой полю ввода через text-input-v3 (IME commit) по порядку
+        let chars: Vec<char> = text.chars().collect();
+        let mut pending = String::new();
+        for (i, p) in plan.into_iter().enumerate() {
+            let Some((kc, layout, shift)) = p else {
+                pending.push(chars[i]);
+                continue;
+            };
+            if !pending.is_empty() {
+                self.commit_text(&pending);
+                pending.clear();
+            }
             if layout != group {
                 keyboard.with_xkb_state(self, |mut ctx| ctx.set_layout(Layout(layout)));
                 group = layout;
@@ -327,8 +339,29 @@ impl State {
                 press(self, shift_code, KeyState::Released);
             }
         }
+        if !pending.is_empty() {
+            self.commit_text(&pending);
+        }
         if group != active {
             keyboard.with_xkb_state(self, |mut ctx| ctx.set_layout(Layout(active)));
+        }
+    }
+
+    /// Строка полю ввода с фокусом через text-input-v3 (как от метода ввода):
+    /// для символов, которых нет ни в одной раскладке. Поля без text-input
+    /// (клиент не включил IME) их не получат — пишется в журнал.
+    fn commit_text(&mut self, s: &str) {
+        use smithay::wayland::text_input::TextInputSeat;
+        let ti = self.core.seat.text_input();
+        let mut sent = false;
+        ti.with_active_text_input(|t, _| {
+            t.commit_string(Some(s.to_string()));
+            sent = true;
+        });
+        if sent {
+            ti.done(false);
+        } else {
+            tracing::warn!("набор: «{s}» нет в раскладках, а у окна с фокусом нет активного text-input — символы пропущены");
         }
     }
 }
