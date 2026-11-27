@@ -90,6 +90,18 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let mut params = a.object("params")?.unwrap_or_default();
     params.remove("asset");
     params.remove("label");
+    // сцена той же локации (первая строка без [CUT]) продолжает хвост латента
+    // предыдущей снятой сцены — бесшовно, как в одном прогоне
+    if g.name == "ref-scenes" && !params.contains_key("context") {
+        if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
+            let first = params.get("storyboard").and_then(|v| v.as_str()).and_then(|s| s.lines().find(|l| !l.trim().is_empty())).unwrap_or("").trim_start().to_string();
+            if !first.starts_with("[CUT]") {
+                if let Some(t) = super::story::tail_of(project, n.saturating_sub(1)) {
+                    params.insert("context".into(), json!(t.display().to_string()));
+                }
+            }
+        }
+    }
     // «ё» в русских репликах: без неё модели речи читают «еще», «идет»
     for v in params.values_mut() {
         crate::yo::yofy_value(v);
@@ -129,6 +141,8 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
         &cancel,
         &mut |s| syn_assist::tools::progress(0, 0, s),
         &mut |node, files| {
+            // хвосты латента (.safetensors) — служебные, не медиа
+            let files: Vec<std::path::PathBuf> = files.iter().filter(|f| !is_tail(f)).cloned().collect();
             let files: Vec<std::path::PathBuf> = match &asset {
                 Some(name) => files.iter().map(|f| asset_name(&mut renamed, f, &part_name(name, node, f))).collect(),
                 None => files.to_vec(),
@@ -151,7 +165,7 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     if let Some(name) = &asset {
         // файлы, пришедшие только в итоге (не элементами), — тоже по имени
         for (node, o) in report.nodes.iter_mut() {
-            for f in o.files.iter_mut() {
+            for f in o.files.iter_mut().filter(|f| !is_tail(f)) {
                 *f = asset_name(&mut renamed, f, &part_name(name, node, f));
             }
         }
@@ -250,6 +264,11 @@ pub fn check_refs(storyboard: &str, refs: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Файл хвоста латента (не медиа).
+pub fn is_tail(f: &std::path::Path) -> bool {
+    f.extension().is_some_and(|e| e.eq_ignore_ascii_case("safetensors"))
+}
+
 /// Имя файла узла ассета: ролики сцены — «<имя> — ролик N» (по номеру
 /// элемента в имени файла узла: shots-000 → 1), склейка — «<имя> — склейка»,
 /// остальное — «<имя>».
@@ -324,8 +343,12 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     // ролики сцены сняты — когда сняты все ролики её плана, открыта следующая
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
-            let shot = report.nodes.get("shots").map(|o| o.files.len()).unwrap_or(1).max(1);
-            super::story::add_shots(ed.path.as_deref(), n, shot);
+            let shots = report.nodes.get("shots").map(|o| o.files.iter().filter(|f| !is_tail(f)).count()).unwrap_or(1).max(1);
+            super::story::add_shots(ed.path.as_deref(), n, shots);
+            // хвост последнего ролика сцены — для продолжения следующей сцены
+            if let Some(t) = report.nodes.get("shots").and_then(|o| o.files.iter().filter(|f| is_tail(f)).last().cloned()) {
+                super::story::set_tail(ed.path.as_deref(), n, &t);
+            }
         }
     }
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
@@ -361,7 +384,7 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
             }
         }
     }
-    let missing: Vec<String> = live.iter().filter(|f| !have.contains(*f) && f.exists()).map(|f| f.display().to_string()).collect();
+    let missing: Vec<String> = live.iter().filter(|f| !have.contains(*f) && f.exists() && !is_tail(f)).map(|f| f.display().to_string()).collect();
     if !missing.is_empty() {
         let _ = crate::cmd::run(ed, "media.import", &json!({"paths": missing}));
     }

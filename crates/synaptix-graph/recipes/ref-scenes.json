@@ -49,6 +49,11 @@
       "type": "number",
       "description": "высота ролика (кратна 16; 768 или 544)",
       "default": 768
+    },
+    "context": {
+      "type": "file",
+      "description": "хвост латента предыдущей сцены (.safetensors) — первая сцена продолжит его бесшовно; пусто — с нуля",
+      "default": ""
     }
   },
   "nodes": [
@@ -68,7 +73,8 @@
       "model": "{{model}}",
       "lora": "{{lora}}",
       "width": "{{width}}",
-      "height": "{{height}}"
+      "height": "{{height}}",
+      "context": "{{context}}"
     },
     {
       "id": "film",

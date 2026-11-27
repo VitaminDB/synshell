@@ -637,6 +637,8 @@ fn video(cx: &mut Cx) -> R {
     cx.label = r.out.label;
     cx.out("video", Val::File(path));
     if let Some(tp) = r.out.tail.filter(|p| p.is_file()) {
+        // хвост и файлом: клиент продолжит ролик в следующем прогоне (сцена за сценой)
+        cx.out("tail_file", Val::File(tp.clone()));
         if let Ok(th) = VideoTailHandle::from_file(tp) {
             let lbl = th.tail.label();
             cx.out("tail", Val::Handle(sf::Handle::new(lbl, th)));

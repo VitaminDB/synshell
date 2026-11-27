@@ -45,6 +45,10 @@ pub struct Story {
     /// Снято роликов по сценам.
     #[serde(default)]
     pub shot: BTreeMap<u32, usize>,
+    /// Хвост латента последнего ролика сцены — следующая сцена той же
+    /// локации продолжается с него (бесшовно между прогонами).
+    #[serde(default)]
+    pub tail: BTreeMap<u32, PathBuf>,
 }
 
 fn file(project: &Path) -> PathBuf {
@@ -84,6 +88,19 @@ pub fn gate(project: Option<&Path>, n: u32, what: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Хвост сцены `n`, если файл на месте.
+pub fn tail_of(project: Option<&Path>, n: u32) -> Option<PathBuf> {
+    load(project).tail.get(&n).filter(|p| p.is_file()).cloned()
+}
+
+/// Запомнить хвост сцены `n`.
+pub fn set_tail(project: Option<&Path>, n: u32, t: &Path) {
+    let Some(p) = project else { return };
+    let mut s = load(Some(p));
+    s.tail.insert(n, t.to_path_buf());
+    save(p, &s);
 }
 
 /// Сняты ещё `k` роликов сцены `n`; сцена снята, когда сняты все ролики её
