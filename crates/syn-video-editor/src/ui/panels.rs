@@ -38,6 +38,15 @@ fn empty(text: &str) -> Box<dyn Widget> {
 
 // ── медиатека ───────────────────────────────────────────────────────────
 
+thread_local! {
+    static MEDIA_FILTER: std::cell::RefCell<Option<RwSignal<Option<MediaKind>>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Вид файлов, показанных в медиатеке (`None` — все).
+fn media_filter() -> RwSignal<Option<MediaKind>> {
+    MEDIA_FILTER.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal(None)))
+}
+
 fn media(st: St) -> impl Widget {
     let header = Row::new()
         .gap(6.0)
@@ -48,14 +57,38 @@ fn media(st: St) -> impl Widget {
         .child(DecoratedBox::new().class("grow"))
         .child(Icon::new(icons::IMAGE).class("head-icon"))
         .child(Slider::new().range(90.0, 360.0).value(st.tile_size.get_untracked()).width(110.0).on_change(move |v| st.tile_size.set(v)));
+    let kind_filter = media_filter();
+    // чипы-фильтры по виду файлов: «Все» и виды, которые есть в медиатеке
+    let chips = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.rev.get();
+        let cur = kind_filter.get();
+        let e = ed();
+        let n = |k: MediaKind| e.project.media.iter().filter(|m| m.kind == k).count();
+        let total = e.project.media.len();
+        if total == 0 {
+            return vec![];
+        }
+        let mut row = Flex::row().wrap().gap(6.0);
+        row = row.child(Chip::new(format!("Все · {total}")).selected(cur.is_none()).on_click(move || kind_filter.set(None)));
+        for (k, title, icon) in [(MediaKind::Video, "Видео", icons::MOVIE), (MediaKind::Image, "Картинки", icons::IMAGE), (MediaKind::Audio, "Звук", icons::AUDIO), (MediaKind::Lottie, "Анимация", icons::SHAPE)] {
+            let c = n(k);
+            if c == 0 {
+                continue;
+            }
+            row = row.child(Chip::new(format!("{title} · {c}")).icon(icon).selected(cur == Some(k)).on_click(move || kind_filter.set(if kind_filter.get_untracked() == Some(k) { None } else { Some(k) })));
+        }
+        vec![Box::new(DecoratedBox::new().class("media-chips").child(row))]
+    });
     let list = ScrollView::new().vertical().child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
         let _ = st.thumbs.get();
         let tile_size = st.tile_size.get();
+        let only = kind_filter.get();
         let items: Vec<(u64, MediaKind, String, String, std::path::PathBuf, f64, f32)> = ed()
             .project
             .media
             .iter()
+            .filter(|m| only.is_none_or(|k| m.kind == k))
             .map(|m| {
                 let mut info = Vec::new();
                 if m.duration > 0.0 {
@@ -136,7 +169,7 @@ fn media(st: St) -> impl Widget {
             "import_folder" => st.dialog(Pick::ImportFolder),
             _ => {}
         })
-        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(DecoratedBox::new().class("grow").child(list)))
+        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(chips).child(DecoratedBox::new().class("grow").child(list)))
 }
 
 // ── слои (вид «Моушн») ─────────────────────────────────────────────────

@@ -264,3 +264,4 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .proj-open-text { font-size: 10px; font-weight: 600; color: var(--on-primary); }
 .proj-dot { width: 14px; height: 3px; border-radius: 2px; background-color: #FFFFFF55; }
 .proj-dot-on { background-color: #FFFFFF; }
+.media-chips { padding: 6px 8px 2px 8px; }
