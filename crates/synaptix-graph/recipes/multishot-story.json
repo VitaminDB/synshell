@@ -45,6 +45,11 @@
       "type": "bool",
       "description": "плавность 48 кадр/с (временной апскейлер LTX-2.5)",
       "default": true
+    },
+    "diff_decoder": {
+      "type": "bool",
+      "description": "диффузионный видеодекодер LTX-2.5 вместо VAE (чётче, дольше)",
+      "default": true
     }
   },
   "nodes": [
@@ -76,7 +81,8 @@
       "seconds": "{{clip}}",
       "chain": true,
       "model": "{{model}}",
-      "fps_x2": "{{fps48}}"
+      "fps_x2": "{{fps48}}",
+      "diff_decoder": "{{diff_decoder}}"
     },
     {
       "id": "film",
