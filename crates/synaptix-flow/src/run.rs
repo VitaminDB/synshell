@@ -105,6 +105,15 @@ pub enum Event {
     },
     /// Нода выключена — пропущена.
     Skipped { id: u64, name: String },
+    /// Превью по ходу генерации: маленькая картинка текущей оценки
+    /// результата (`outputs["image"]` — файл PNG) на шаге `step` из `total`.
+    Preview {
+        id: u64,
+        step: usize,
+        total: usize,
+        #[serde(default, skip_serializing_if = "Outputs::is_empty")]
+        outputs: Outputs,
+    },
     /// Элемент пакета готов (сцена, картинка-эталон): его выходы — сразу,
     /// не дожидаясь конца ноды. `index` — с единицы.
     Item {

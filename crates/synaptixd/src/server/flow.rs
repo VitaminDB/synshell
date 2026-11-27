@@ -289,7 +289,17 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         if let (Some(l), Event::Progress { step, total, .. }) = (&live, &e) {
             l.progress(*step, *total);
         }
+        let shot = match (&live, &e) {
+            (Some(l), Event::Progress { id, .. }) => previews().lock().unwrap_or_else(|e| e.into_inner()).remove(&l.id).map(|p| (*id, p)),
+            _ => None,
+        };
         sink.send(crate::Event::Flow { node: e }, &[]);
+        if let Some((id, (path, step, total))) = shot {
+            let o: sf::Outputs = [("image".to_string(), Val::File(path.clone()))].into_iter().collect();
+            let outputs = sink.outputs(&o);
+            sink.send(crate::Event::Flow { node: Event::Preview { id, step, total, outputs } }, &[]);
+            let _ = std::fs::remove_file(path);
+        }
     });
     let _ = std::fs::remove_dir_all(&dir);
     drop(fds);
@@ -317,6 +327,9 @@ pub fn with_progress<T: Send>(cx: &mut Cx, f: impl FnOnce(&(dyn Fn(usize, usize)
     };
     let (step, total, done) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicBool::new(false));
     let live = crate::server::activity::current();
+    let live_id = live.as_ref().map(|l| l.id);
+    let mut shot = 0usize;
+    let _ = synaptix_core::gen_status::take_preview();
     std::thread::scope(|scope| {
         let h = scope.spawn(|| {
             let _work = crate::server::activity::adopt(live);
@@ -336,9 +349,37 @@ pub fn with_progress<T: Send>(cx: &mut Cx, f: impl FnOnce(&(dyn Fn(usize, usize)
                 cx.progress(now.0, now.1);
                 last = now;
             }
+            // Превью генерации (модель кладёт его в gen_status): файл PNG —
+            // рядом с выходами ноды, клиенту — событием Preview вслед за шагом.
+            if let (Some(p), Some(lid)) = (synaptix_core::gen_status::take_preview(), live_id) {
+                shot += 1;
+                let path = cx.out_path(&format!("preview-{shot:03}.png"));
+                if write_preview(&p, &path).is_ok() {
+                    previews().lock().unwrap_or_else(|e| e.into_inner()).insert(lid, (path, p.step + 1, p.total));
+                    cx.progress(last.0.max(1), last.1.max(p.total).max(1));
+                }
+            }
         }
         h.join().unwrap_or_else(|p| std::panic::resume_unwind(p))
     })
+}
+
+/// Готовые превью по работам соединений: (файл, шаг, всего).
+fn previews() -> &'static std::sync::Mutex<std::collections::HashMap<u64, (PathBuf, usize, usize)>> {
+    static P: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, (PathBuf, usize, usize)>>> = std::sync::OnceLock::new();
+    P.get_or_init(Default::default)
+}
+
+fn write_preview(p: &synaptix_core::gen_status::Preview, path: &Path) -> Result<(), String> {
+    let (h, w) = (p.height, p.width);
+    let mut chw = vec![0f32; 3 * h * w];
+    for i in 0..h * w {
+        for c in 0..3 {
+            chw[c * h * w + i] = p.rgb[i * 3 + c] as f32 / 255.0;
+        }
+    }
+    let t = synaptix_core::tensor::Tensor::from_vec(chw, vec![3, h, w], synaptix_core::device::Device::Cpu).map_err(|e| e.to_string())?;
+    synaptix_gen::image::save_png(&t, path)
 }
 
 fn stopped(cx: &Cx, e: impl ToString) -> String {

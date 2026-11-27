@@ -220,6 +220,7 @@ pub fn run_with(flow: &Flow, dir: &Path, opts: &RunOpts, on_event: &mut dyn FnMu
                         Event::Skipped { id, name }
                     }
                     Event::Item { id, name, index, total, outputs } => Event::Item { id, name, index, total, outputs: got.outputs(&outputs) },
+                    Event::Preview { id, step, total, outputs } => Event::Preview { id, step, total, outputs: got.outputs(&outputs) },
                     other => other,
                 };
                 on_event(node);
