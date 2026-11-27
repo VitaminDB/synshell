@@ -386,6 +386,14 @@ fn run(args: &[String]) -> Result<(), String> {
                 synaptix_flow::Event::Started { name, item, .. } => eprintln!("[{:>6.1} с] {name}{}", t0.elapsed().as_secs_f32(), item.map(|(k, n)| format!(" — {k} из {n}")).unwrap_or_default()),
                 synaptix_flow::Event::Progress { step, total, .. } => eprint!("\r  шаг {step}/{total}  "),
                 synaptix_flow::Event::Finished { name, summary, cached, .. } => eprintln!("[{:>6.1} с] {name}: {summary}{}", t0.elapsed().as_secs_f32(), if cached { " (кэш)" } else { "" }),
+                // Превью по ходу генерации: файл PNG текущей оценки результата.
+                synaptix_flow::Event::Preview { step, total, outputs, .. } => {
+                    let files: Vec<String> = outputs.values().filter_map(|v| match v {
+                        synaptix_flow::Val::File(p) => Some(p.display().to_string()),
+                        _ => None,
+                    }).collect();
+                    eprintln!("\n[{:>6.1} с] превью {step}/{total}: {}", t0.elapsed().as_secs_f32(), files.join(", "));
+                }
                 _ => {}
             })?;
             for f in &r.files {
