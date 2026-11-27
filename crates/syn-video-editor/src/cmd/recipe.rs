@@ -217,6 +217,21 @@ pub fn check_refs(storyboard: &str, refs: &[String]) -> Result<(), String> {
         v
     };
     for (i, line) in storyboard.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+        // формат Ref2VA: шесть полей по порядку (иначе H3 путает роли и постановку)
+        const FIELDS: [&str; 6] = ["subject_definitions:", "summary:", "retention_analysis:", "detailed_description:", "overall_soundscape:", "non_diegetic_music:"];
+        let mut at = 0usize;
+        for f in FIELDS {
+            match line[at..].find(f) {
+                Some(j) => at += j + f.len(),
+                None => {
+                    return Err(format!(
+                        "строка {} не в формате Ref2VA: нет поля «{f}» на своём месте — нужны все шесть полей по порядку: {} (навык minimax-h3; каркас строки даёт scene.plan)",
+                        i + 1,
+                        FIELDS.join(" … ")
+                    ))
+                }
+            }
+        }
         let au = tags(line, "Audio");
         let pi = tags(line, "Picture");
         if let Some(k) = au.iter().find(|k| **k == 0 || **k > audios) {
@@ -401,10 +416,14 @@ mod tests {
         assert_eq!(super::part_name("Сцена 1", "shots", Path::new("/x/shots-001.mp4")), "Сцена 1 — ролик 2");
         assert_eq!(super::part_name("Сцена 1", "film", Path::new("/x/film.mp4")), "Сцена 1 — склейка");
         let refs: Vec<String> = ["a.png", "b.png", "c.png", "1.wav", "2.wav", "3.wav", "4.wav"].iter().map(|s| s.to_string()).collect();
-        assert!(super::check_refs("<Picture 1> <Audio 1> <Audio 2>\n<Picture 2> <Audio 3> <Audio 4>", &refs).is_ok());
-        let e = super::check_refs("<Picture 1> <Audio 1>\n<Audio 1> <Audio 2> <Audio 3> <Audio 4>", &refs).unwrap_err();
+        let l = |body: &str| format!("subject_definitions: {body} summary: x retention_analysis: x detailed_description: x overall_soundscape: x non_diegetic_music: N/A");
+        assert!(super::check_refs(&format!("{}\n{}", l("<Picture 1> <Audio 1> <Audio 2>"), l("<Picture 2> <Audio 3> <Audio 4>")), &refs).is_ok());
+        let e = super::check_refs(&format!("{}\n{}", l("<Picture 1> <Audio 1>"), l("<Audio 1> <Audio 2> <Audio 3> <Audio 4>")), &refs).unwrap_err();
         assert!(e.contains("строка 2") && e.contains("4 звуков"), "{e}");
-        assert!(super::check_refs("<Audio 5>", &refs).is_err());
-        assert!(super::check_refs("<Picture 4>", &refs).is_err());
+        assert!(super::check_refs(&l("<Audio 5>"), &refs).is_err());
+        assert!(super::check_refs(&l("<Picture 4>"), &refs).is_err());
+        // без summary: (как в упавшем прогоне) — отказ с порядком полей
+        let e = super::check_refs("[reference generation] subject_definitions: x retention_analysis: x detailed_description: x overall_soundscape: x non_diegetic_music: x", &refs).unwrap_err();
+        assert!(e.contains("summary:"), "{e}");
     }
 }

@@ -290,6 +290,27 @@ static STATUS: Cmd = Cmd {
     },
 };
 
+/// Каркас строки Ref2VA для ролика: говорящие — (S1), (S2)… по порядку первой
+/// реплики, их дорожки — `<Audio base+1…>` fully_copy, обязательная постановка
+/// (камера, место и разворот каждого героя), правило речи. Агент заполняет <…>.
+pub fn skeleton(shot: usize, tracks: &[Value], base: usize) -> String {
+    let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
+    let mut sd = String::from("subject_definitions: <Picture a> is <герой: кто, внешность>. <Picture b> is <второй герой>. <Picture c> is <локация>.");
+    let mut ra = String::from("retention_analysis: <Picture a>: fully_preserved - <герой>'s appearance. <Picture b>: fully_preserved - <второй>'s appearance. <Picture c>: fully_preserved - the location; walls, doors, windows and props stay exactly as in the reference.");
+    for (j, sp) in speakers.iter().enumerate() {
+        let k = base + j + 1;
+        sd.push_str(&format!(" <Audio {k}> is the exact dialogue track of {sp}."));
+        ra.push_str(&format!(" <Audio {k}>: fully_copy - {sp}'s speech, copied exactly and lip-synced."));
+    }
+    let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
+    let cont = if shot > 0 { " Continues seamlessly from the previous shot: same positions, lighting and props." } else { "" };
+    format!(
+        "{sd} summary: [reference generation]{} <суть ролика одной фразой>. {ra} detailed_description: <стиль>.{cont} Camera: <крупность>, <где стоит камера и куда смотрит, например: side view across the room, the hearth in the background>, static, the layout does not change. [Shot 1] Blocking: <Picture a> stands <слева/справа, у чего>, body in three-quarter profile turned toward <Picture b>; <Picture b> stands <слева/справа>, three-quarter profile turned toward <Picture a>; they look at each other and never at the camera. <действие без слов речи>.{} Each character moves the mouth only while their own audio is audible; otherwise the mouth stays closed. All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы места и действий>. non_diegetic_music: <музыка или N/A>.",
+        if speakers.is_empty() { "" } else { " + [audio reuse]" },
+        if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio.", who.join(", ")) }
+    )
+}
+
 fn media_seconds(p: &Path) -> Result<f64, String> {
     let o = std::process::Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]).arg(p).output().map_err(|e| format!("ffprobe: {e}"))?;
     String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().map_err(|_| format!("{}: не звук", p.display()))
@@ -418,6 +439,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
     // готовая нумерация звука: refs = [картинки…, затем дорожки роликов по порядку]
     let mut k = 0;
     let mut numbering = Vec::new();
+    let mut skeletons: Vec<String> = Vec::new();
     for (i, sj) in shots_json.iter().enumerate() {
         let tr = sj["tracks"].as_array().cloned().unwrap_or_default();
         let parts: Vec<String> = tr
@@ -428,17 +450,19 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             })
             .collect();
         numbering.push(format!("ролик {} (строка {} storyboard): {}", i + 1, i + 1, if parts.is_empty() { "без речи — ни одного <Audio>".into() } else { parts.join(", ") }));
+        skeletons.push(skeleton(i, &tr, k - tr.len()));
     }
     Ok((
         format!(
-            "Нумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); общая речь сцены{} — на таймлайн под ролики целиком. План — в документе «раскадровка».",
+            "Каркасы строк storyboard по роликам (заполни <…>, остальное не меняй; герои — <Picture k> по порядку картинок в refs):\n{}\n\nНумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); общая речь сцены{} — на таймлайн под ролики целиком. План — в документе «раскадровка».",
+            skeletons.iter().enumerate().map(|(i, s)| format!("ролик {}: {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             numbering.join("; "),
             shots.len(),
             summary.join("; "),
             mix.as_ref().map(|m| format!(" ({})", m.display())).unwrap_or_default()
         ),
         files,
-        json!({"scene": n, "seconds": total, "shots": shots_json, "speech": mix, "audio_numbering": numbering}),
+        json!({"scene": n, "seconds": total, "shots": shots_json, "speech": mix, "audio_numbering": numbering, "skeletons": skeletons}),
     ))
 }
 
