@@ -396,6 +396,15 @@ impl Server {
 
     /// Точка окна (логические пиксели окна) → пиксели кадра его вывода; экран для жестов.
     fn window_point(&self, device: &str, w: &synshell_common::ipc::WindowInfo, x: f64, y: f64) -> Result<(gestures::Screen, f64, f64)> {
+        // ввод по координатам идёт в то окно, что сверху: перекрытое (или
+        // свёрнутое) окно сначала поднять, иначе щелчок уйдёт в чужое окно
+        if !w.focused || w.minimized {
+            let _ = gestures::req(&synshell_common::link::Request::Wm {
+                device: device.into(),
+                wm: synshell_common::ipc::Request::WindowAction { id: w.id, op: synshell_common::ipc::WindowOp::Activate },
+            });
+            std::thread::sleep(Duration::from_millis(200));
+        }
         let outs = crate::winshot::outputs(device)?;
         let o = crate::winshot::output_of(&outs, w).context(t!("нет вывода"))?;
         let s = gestures::screen(device, Some(&o.name))?;
