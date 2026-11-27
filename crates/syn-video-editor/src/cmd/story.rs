@@ -129,6 +129,9 @@ pub struct Line {
     pub pauses: Vec<(f64, f64)>,
     /// Начало в сцене (у куска в ролике — от начала ролика).
     pub at: f64,
+    /// Сколько секунд действия без речи перед репликой (по сценарию: герой
+    /// бежит, готовит, падает — и только потом говорит); 0 — обычная пауза.
+    pub before: f64,
 }
 
 /// Ролик плана: окно сцены и куски реплик в нём.
@@ -137,6 +140,8 @@ pub struct Shot {
     pub start: f64,
     pub seconds: f64,
     pub lines: Vec<Line>,
+    /// Окна без речи от начала ролика (от 1 с): время для действия.
+    pub quiet: Vec<(f64, f64)>,
 }
 
 /// Раскладка сцены: реплики по порядку с паузами, длина — большее из
@@ -144,11 +149,9 @@ pub struct Shot {
 /// репликами или в паузе внутри длинной фразы (запись режется, а не
 /// переозвучивается). Без единой паузы в пределе — разрез на границе предела.
 pub fn layout(mut lines: Vec<Line>, action: f64, limit: f64) -> Result<(f64, Vec<Line>, Vec<Shot>), String> {
-    let mut t = LEAD;
+    let mut t = 0.0;
     for (i, l) in lines.iter_mut().enumerate() {
-        if i > 0 {
-            t += GAP;
-        }
+        t += if i > 0 { GAP } else { LEAD }.max(l.before);
         l.at = t;
         t += l.seconds;
     }
@@ -201,7 +204,12 @@ pub fn layout(mut lines: Vec<Line>, action: f64, limit: f64) -> Result<(f64, Vec
                     (b - a > 0.05).then(|| Line { offset: l.offset + (a - l.at), seconds: b - a, at: a - s, pauses: Vec::new(), ..l.clone() })
                 })
                 .collect();
-            Shot { start: s, seconds: e - s, lines: pieces }
+            let quiet = free
+                .iter()
+                .map(|&(a, b)| (a.max(s) - s, b.min(e) - s))
+                .filter(|(a, b)| b - a >= 1.0)
+                .collect();
+            Shot { start: s, seconds: e - s, lines: pieces, quiet }
         })
         .collect();
     Ok((total, lines, out))
@@ -262,7 +270,7 @@ static PLAN: Cmd = Cmd {
     help: "После озвучки сцены, до её съёмки: длина сцены = большее из `action_seconds` (сколько нужно действию по сценарию) и речи (реплики + паузы); сцена длиннее ролика H3 делится на ролики только в паузах между репликами (продолжение по латенту в одном ref-scenes с chain). Делает дорожки говорящих для каждого ролика (H3 вставит их в звук ролика), пишет план в документ «раскадровка». Сцена без речи — `lines` пустой, длина по действию. Ответ — ролики: окно, дорожки (их в refs как <Audio k> fully_copy), реплики.",
     args: &[
         req("scene", Ty::Num, "номер сцены"),
-        arg("lines", Ty::Array, "реплики сцены по порядку: [{\"file\": путь из voice.say, \"speaker\": \"<герой>\"}]; пусто — сцена без речи"),
+        arg("lines", Ty::Array, "реплики сцены по порядку: [{\"file\": путь из voice.say, \"speaker\": \"<герой>\", \"action_before\": <сек действия без речи перед репликой, по сценарию; можно не указывать>}]; пусто — сцена без речи"),
         arg("action_seconds", Ty::Num, "сколько секунд нужно действию по сценарию (сцены без речи — обязательно)"),
         arg("title", Ty::Str, "название сцены"),
     ],
@@ -320,7 +328,7 @@ static STATUS: Cmd = Cmd {
 /// следующие ролики сцены и первый ролик сцены, продолжающей прошлую без
 /// `[CUT]`): начало кадра обязано совпасть с концом предыдущего ролика, иначе
 /// H3 уводит хвост в новый план растворением через эталоны на белом фоне.
-pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool) -> String {
+pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, timing: &str) -> String {
     let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
     let mut sd = String::from("subject_definitions: <каждая картинка ролика: <Picture k> is …>.");
     let mut ra = String::from("retention_analysis: <роль каждой картинки: fully_preserved / partially_preserved / …>.");
@@ -331,12 +339,22 @@ pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool) ->
     }
     let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
     format!(
-        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус; действие без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
+        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус> <действие по битам с таймкодами «At 00:0X.X, …» по сценарию ({}): в окнах без речи — заметное действие (движение, перемещения, работа с предметами, падения, реакции), во время реплик герои тоже заняты делом; без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
         if speakers.is_empty() { "" } else { " + [audio reuse]" },
         if continues { CONTINUES } else { "" },
         if continues { CAMERA_CONT } else { "" },
+        timing,
         if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
     )
+}
+
+/// Время ролика словами: когда кто говорит и окна без речи (для битов действия).
+fn timing(s: &Shot) -> String {
+    let mut parts: Vec<String> = s.lines.iter().map(|l| format!("{} говорит {:.1}–{:.1} с", l.speaker, l.at, l.at + l.seconds)).collect();
+    if !s.quiet.is_empty() {
+        parts.push(format!("без речи {}", s.quiet.iter().map(|q| format!("{:.1}–{:.1} с", q.0, q.1)).collect::<Vec<_>>().join(", ")));
+    }
+    format!("ролик {:.1} с: {}", s.seconds, parts.join("; "))
 }
 
 /// Начало ролика, продолжающего предыдущий по латентному хвосту.
@@ -414,7 +432,8 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             return Err(format!("у реплики {} нужен speaker — кто говорит", file.display()));
         }
         let (a0, b0, pauses) = speech_span(&file)?;
-        lines.push(Line { offset: a0, seconds: b0 - a0, pauses, speaker, file, at: 0.0 });
+        let before = l.get("action_before").and_then(Value::as_f64).unwrap_or(0.0).max(0.0);
+        lines.push(Line { offset: a0, seconds: b0 - a0, pauses, speaker, file, at: 0.0, before });
     }
     if lines.is_empty() && action <= 0.0 {
         return Err("сцена без речи — укажи action_seconds (сколько нужно действию по сценарию)".into());
@@ -450,7 +469,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             tracks.iter().filter_map(|t| t["file"].as_str()).map(|f| Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).collect::<Vec<_>>().join(", "),
             if said.is_empty() { "без речи".into() } else { said.join("; ") }
         ));
-        shots_json.push(json!({"shot": i + 1, "start": s.start, "seconds": s.seconds, "tracks": tracks, "lines": s.lines.iter().map(|l| json!({"speaker": l.speaker, "at": l.at, "seconds": l.seconds, "file": l.file})).collect::<Vec<_>>()}));
+        shots_json.push(json!({"shot": i + 1, "start": s.start, "seconds": s.seconds, "tracks": tracks, "lines": s.lines.iter().map(|l| json!({"speaker": l.speaker, "at": l.at, "seconds": l.seconds, "file": l.file})).collect::<Vec<_>>(), "quiet": s.quiet.iter().map(|q| json!([q.0, q.1])).collect::<Vec<_>>(), "timing": timing(s)}));
     }
     if let Some(p) = project {
         // раскадровка: раздел сцены заменяется новым планом
@@ -493,7 +512,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             })
             .collect();
         numbering.push(format!("ролик {} (строка {} storyboard): {}", i + 1, i + 1, if parts.is_empty() { "без речи — ни одного <Audio>".into() } else { parts.join(", ") }));
-        skeletons.push(skeleton(i, &tr, k - tr.len(), i > 0 || from_prev));
+        skeletons.push(skeleton(i, &tr, k - tr.len(), i > 0 || from_prev, sj["timing"].as_str().unwrap_or("")));
     }
     Ok((
         format!(
@@ -518,14 +537,31 @@ mod tests {
     use super::*;
 
     fn l(sp: &str, s: f64) -> Line {
-        Line { speaker: sp.into(), file: PathBuf::from(format!("/{sp}.wav")), offset: 0.0, seconds: s, pauses: Vec::new(), at: 0.0 }
+        Line { speaker: sp.into(), file: PathBuf::from(format!("/{sp}.wav")), offset: 0.0, seconds: s, pauses: Vec::new(), at: 0.0, before: 0.0 }
+    }
+
+    #[test]
+    fn long_dialogue_three_shots_cut_in_silence_with_action() {
+        // ~40 с диалога: 3 ролика ≤ 18 с, разрезы только между репликами
+        let mut lines: Vec<Line> = (0..10).map(|i| l(if i % 2 == 0 { "A" } else { "B" }, 3.5)).collect();
+        lines[4].before = 4.0; // действие перед пятой репликой
+        let (total, placed, shots) = layout(lines, 0.0, 18.0).unwrap();
+        assert_eq!(shots.len(), 3, "{total}");
+        assert!(shots.iter().all(|s| s.seconds <= 18.0 + 1e-6));
+        // ни одна реплика не разрезана
+        let pieces: usize = shots.iter().map(|s| s.lines.len()).sum();
+        assert_eq!(pieces, 10);
+        assert!((placed[4].at - (placed[3].at + 3.5 + 4.0)).abs() < 1e-9);
+        // окно действия видно в плане ролика
+        assert!(shots.iter().any(|s| s.quiet.iter().any(|q| q.1 - q.0 >= 3.9)));
+        assert!(timing(&shots[0]).contains("A говорит 0.4–3.9 с"));
     }
 
     #[test]
     fn continuation_needs_phrase() {
-        let sk = skeleton(0, &[], 0, true);
+        let sk = skeleton(0, &[], 0, true, "");
         assert!(sk.contains("continues seamlessly"));
-        assert!(!skeleton(0, &[], 0, false).contains("continues seamlessly"));
+        assert!(!skeleton(0, &[], 0, false, "").contains("continues seamlessly"));
         assert!(check_continuation("a new shot", true, 2).is_err());
         assert!(check_continuation("a new shot", false, 2).is_ok());
         assert!(check_continuation("[CUT] new place", false, 2).is_ok());

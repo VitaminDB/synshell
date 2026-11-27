@@ -578,6 +578,31 @@ fn enhance_prompt(cx: &mut Cx, prompt: &str) -> Result<String, String> {
     Ok(text)
 }
 
+/// Длина WAV в секундах по заголовку (RIFF: байт/с из `fmt `, размер `data`).
+fn wav_seconds(p: &std::path::Path) -> Option<f64> {
+    if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
+        return None;
+    }
+    let b = std::fs::read(p).ok()?;
+    if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
+        return None;
+    }
+    let (mut i, mut rate) = (12usize, 0u32);
+    while i + 8 <= b.len() {
+        let id = &b[i..i + 4];
+        let len = u32::from_le_bytes(b[i + 4..i + 8].try_into().ok()?) as usize;
+        if id == b"fmt " && i + 16 <= b.len() {
+            rate = u32::from_le_bytes(b[i + 16..i + 20].try_into().ok()?);
+        }
+        if id == b"data" {
+            let len = len.min(b.len() - i - 8);
+            return (rate > 0).then(|| len as f64 / rate as f64);
+        }
+        i += 8 + len + (len & 1);
+    }
+    None
+}
+
 fn video(cx: &mut Cx) -> R {
     let ctx = read_context_tail(cx)?;
     let tail_out = cx.out_path("tail.safetensors");
@@ -625,6 +650,15 @@ fn video(cx: &mut Cx) -> R {
         }
     } else if !p.refs.is_empty() && (p.first_frame.is_some() || ctx.is_some()) {
         p.refs.clear();
+    }
+    // Ref2VA с дорожками речи (<Audio k> fully_copy): длина ролика — по самой
+    // длинной дорожке строки, а не общая `seconds` графа — ролики длинной сцены,
+    // разрезанной по паузам, разной длины, и звук не должен обрезаться или
+    // тянуться тишиной.
+    if resolved.contains("ref2va") {
+        if let Some(sec) = p.refs.iter().filter_map(|r| wav_seconds(std::path::Path::new(r))).reduce(f64::max) {
+            p.seconds = Some(sec);
+        }
     }
     let mut prompt = cx.need("prompt")?;
     // LTX-2.5: улучшитель промпта (Gemma 4 E2B, системный промпт эталона, жадно, 600 токенов).
@@ -774,4 +808,18 @@ fn transcribe(cx: &mut Cx) -> R {
     let t = with_progress(cx, |_, _| m.run(&model, |l| l.transcribe(&pcm, 16000, language.as_deref(), None))).map_err(|e| stopped(cx, e.message))?;
     cx.out("text", Val::Text(t.text));
     Ok(())
+}
+
+#[cfg(test)]
+mod wav_tests {
+    #[test]
+    fn wav_length_from_header() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("a.wav");
+        let ok = std::process::Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "12.5"]).arg(&p).status().unwrap().success();
+        assert!(ok);
+        let s = super::wav_seconds(&p).unwrap();
+        assert!((s - 12.5).abs() < 0.01, "{s}");
+        assert!(super::wav_seconds(&d.path().join("b.png")).is_none());
+    }
 }
