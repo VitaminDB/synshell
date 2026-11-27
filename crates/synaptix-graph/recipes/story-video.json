@@ -71,7 +71,7 @@
     {
       "id": "assets",
       "op": "llm",
-      "prompt": "You are an art director preparing visual reference cards for an animated film.\nStory: «{{story}}».\nExplicit characters (if given, keep all of them in order): «{{characters}}».\nExplicit locations (if given, keep all of them in order): «{{locations}}».\nList every important character first, then every key location needed by the story — as many as the story genuinely needs, one item per line, numbered «1) …», «2) …», etc.\n- Each character line must start with «Character portrait, clear expressive face and full outfit, clean neutral background: » followed by the character's exact concrete visual look in English (species/age, build, face/eyes, hair/ears, exact clothes, signature props).\n- Each location line must start with «Empty location establishing shot, no people or characters: » followed by the exact setting, architecture/nature, key props, color palette and lighting in English.\nOutput ONLY the numbered lines — no preamble, no headings, no comments."
+      "prompt": "You are an art director preparing visual reference cards for an animated film.\nStory: «{{story}}».\nExplicit characters (if given, keep all of them in order): «{{characters}}».\nExplicit locations (if given, keep all of them in order): «{{locations}}».\nList every important character first, then every key location needed by the story — as many as the story genuinely needs, one item per line, numbered «1) …», «2) …», etc.\n- Each character line must start with «Full-body character reference, entire figure from head to toe in frame (feet and shoes visible, empty space above the head and below the feet), standing neutral pose facing the camera, clear expressive face, clean neutral background: » followed by the character's exact concrete visual look in English (species/age, height and build, face/eyes, hair/ears, exact clothes top to bottom incl. trousers/skirt and footwear, signature props).\n- Each location line must start with «Empty location establishing shot, no people or characters: » followed by the exact setting, architecture/nature, key props, color palette and lighting in English.\nOutput ONLY the numbered lines — no preamble, no headings, no comments."
     },
     {
       "id": "refs",
@@ -81,7 +81,7 @@
       "model": "{{image_model}}",
       "width": 1344,
       "height": 768,
-      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, turnaround labels, text, captions, subtitles, letters, watermark"
+      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, turnaround labels, cropped body, cut-off legs, cut-off feet, close-up portrait, half-body shot, text, captions, subtitles, letters, watermark"
     },
     {
       "id": "plan",
