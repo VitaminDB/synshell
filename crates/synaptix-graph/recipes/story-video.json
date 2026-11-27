@@ -28,12 +28,12 @@
     },
     "style": {
       "type": "text",
-      "description": "единый визуальный стиль по-английски (например 3D animated feature film, Pixar and DreamWorks quality, rich textures, volumetric lighting)",
+      "description": "единый визуальный стиль (любой язык; в сцены он идёт переведённым на язык lang)",
       "default": "3D animated feature film, rich textures, expressive characters, cinematic volumetric lighting"
     },
     "lang": {
       "type": "text",
-      "description": "язык реплик героев по-английски (Russian, English…; по умолчанию Russian)",
+      "description": "язык речи и всех описаний сцен для H3 (Russian, English…; по умолчанию Russian): на этом языке пишутся строки сцен целиком — модель говорит на языке описания",
       "default": "Russian"
     },
     "chain": {
@@ -86,14 +86,14 @@
     {
       "id": "plan",
       "op": "llm",
-      "prompt": "You are a film director and cinematographer writing a shot-by-shot video prompt list.\nStory / storyboard: «{{story}}».\nReference catalog (item N corresponds EXACTLY to <Picture N>):\n{{assets.text}}\n\nWrite exactly {{scenes}} consecutive scene lines in English (one scene per line).\nRules for EVERY line:\n1. Start the line with «[CUT] » whenever the scene changes location, jumps in time, or makes a hard cinematic cut (do NOT put [CUT] on line 1 or when continuing smoothly in the same location).\n2. Always cite ONLY the exact <Picture N> references that appear in THIS scene (the characters in frame + the location of this scene), e.g. «In <Picture 5>, the green ogre from <Picture 1> and the donkey from <Picture 2>…». NEVER write vague shortcuts like «Same X», «the three», or bare names without <Picture N> and visual identity.\n3. Direct like a professional feature film: specify shot size (wide / medium / close-up / over-the-shoulder / low-angle), camera movement (slow push-in, tracking shot, crane up, orbit, whip pan), lighting/mood, expressive character acting, and concrete sound design (ambient noises, foley, musical cues described as sounds).\n4. Spoken dialogue: write short lines in {{lang}} inside «» quotes with who speaks (e.g. the ogre from <Picture 1> grumbles in {{lang}}: «…»), 3–8 words each, total speech fitting {{shot}} seconds (~2.5 syllables/s); after the last spoken line describe a silent visual action.\nOutput ONLY the {{scenes}} lines, one scene per line — no numbering, no preamble, no comments."
+      "prompt": "You are a film director and cinematographer writing a shot-by-shot video prompt list for a video model that speaks the language of its prompt.\nStory / storyboard: «{{story}}».\nReference catalog (item N corresponds EXACTLY to <Picture N>; it may be in another language — translate the looks):\n{{assets.text}}\nVisual style of the whole film: «{{style}}».\n\nWrite exactly {{scenes}} consecutive scene lines ENTIRELY in {{lang}} (one scene per line): the scene description, camera, lighting, acting, sound and the style — all in {{lang}}, not a single English word except the tags <Picture N>, [CUT] and <d>[{{lang}}] …</d>. The video model hears the language of the description: an English description makes the characters speak English.\nRules for EVERY line:\n1. Start the line with «[CUT] » whenever the scene changes location, jumps in time, or makes a hard cinematic cut (do NOT put [CUT] on line 1 or when continuing smoothly in the same location).\n2. Always cite ONLY the exact <Picture N> references that appear in THIS scene (the characters in frame + the location of this scene) together with their visual identity in {{lang}}. NEVER write vague shortcuts («the same one», «the three») or bare names without <Picture N>.\n3. Direct like a professional feature film: shot size (wide / medium / close-up / over-the-shoulder / low angle), camera movement (slow push-in, tracking, crane up, orbit, whip pan), lighting/mood, expressive acting, concrete sound design (ambient noises, foley, music described as sounds) — written in {{lang}}.\n4. Spoken dialogue: copy the lines of THIS storyboard scene verbatim in {{lang}} (never translate them, never invent other-language speech, keep the letter ё), each with who speaks and the tag: <d>[{{lang}}] …</d>; 3–8 words each, total speech fitting {{shot}} seconds (~2.5 syllables/s); after the last spoken line describe a silent visual action.\n5. Line N is storyboard scene N: same order, same dialogue, no overview/intro line, no merged or skipped scenes.\n6. End every line with the film style translated into {{lang}} and the note that all speech in the scene is in {{lang}} with native pronunciation.\nOutput ONLY the {{scenes}} lines, one scene per line — no numbering, no preamble, no comments."
     },
     {
       "id": "shots",
       "op": "video",
       "each": "{{plan.lines}}",
       "each_count": "{{scenes}}",
-      "prompt": "{{item}}, {{style}}",
+      "prompt": "{{item}}",
       "refs": "{{refs.files}}",
       "seconds": "{{shot}}",
       "chain": "{{chain}}",

@@ -71,7 +71,11 @@ pub struct Generated {
 pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
-    let params = a.object("params")?.unwrap_or_default();
+    let mut params = a.object("params")?.unwrap_or_default();
+    // «ё» в русских репликах: без неё модели речи читают «еще», «идет»
+    for v in params.values_mut() {
+        crate::yo::yofy_value(v);
+    }
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let base = match project {
         Some(p) => crate::store::media_dir(p).join("generated"),
