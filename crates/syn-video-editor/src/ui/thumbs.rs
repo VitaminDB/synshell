@@ -50,6 +50,17 @@ pub fn strip(path: &Path) -> Option<Strip> {
     None
 }
 
+/// Забыть готовую ленту файла (файл правили — построить заново).
+pub fn forget(path: &Path) {
+    let (m, cv) = state();
+    let mut s = m.lock().unwrap();
+    s.ready.remove(path);
+    if s.busy.as_deref() != Some(path) && !s.queued.iter().any(|q| q == path) {
+        s.queued.push_back(path.to_path_buf());
+        cv.notify_one();
+    }
+}
+
 fn cache_file(path: &Path) -> PathBuf {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -107,7 +118,7 @@ fn build(path: &Path) -> Option<Vec<RgbaFrame>> {
         return Some(v);
     }
     if crate::cmd::media::IMAGE.contains(&ext.as_str()) {
-        let img = image::open(path).ok()?.thumbnail(SIDE, SIDE).to_rgba8();
+        let img = image::DynamicImage::ImageRgba8(crate::cmd::media::open_image(path, SIDE * 2)?).thumbnail(SIDE, SIDE).to_rgba8();
         let (w, h) = img.dimensions();
         let f = RgbaFrame { width: w, height: h, pts: 0.0, rgba: Arc::new(img.into_raw()) };
         return Some(vec![f; FRAMES]);

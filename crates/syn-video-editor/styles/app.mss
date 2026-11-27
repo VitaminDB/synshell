@@ -247,3 +247,4 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .set-status { font-size: 12px; color: var(--success); }
 .set-status.bad { color: var(--danger); }
 .mono { font-family: monospace; }
+.pv-fill { width: 100%; height: 100%; }

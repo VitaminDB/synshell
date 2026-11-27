@@ -128,7 +128,9 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let rep = json!({"recipe": g.name, "params": params, "steps": report.steps, "nodes": report.nodes});
     let _ = std::fs::write(run_dir.join("report.json"), serde_json::to_string_pretty(&rep).unwrap_or_default());
     let built = crate::recipe::build(&g, &report, &g.name)?;
-    let path = crate::recipe::project_path(&run_dir, &g.name);
+    // у проекта с файлом сборка — в папке прогона (рядом с его файлами), а не
+    // отдельным «*.syn» в ~/Videos: в текущий проект результат идёт сам
+    let path = if project.is_some() { run_dir.join(format!("{}.syn", synaptix_graph::recipes::slug(&g.name))) } else { crate::recipe::project_path(&run_dir, &g.name) };
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
@@ -142,7 +144,10 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
     let open = a.bool("open")?.unwrap_or(true);
     let can = !ed.dirty || ed.project.tracks.iter().all(|t| t.clips.is_empty());
-    let opened = open && can;
+    // в непустом проекте с файлом результат добавляется в его медиатеку —
+    // проект не подменяется другим файлом
+    let into_current = ed.path.is_some() && !ed.project.tracks.iter().all(|t| t.clips.is_empty());
+    let opened = open && can && !into_current;
     // пустой проект с файлом (тот, в котором попросили сделать) — собрать в
     // него же: имя, файл и состояние окна проекта (вкладки графов) остаются
     let empty_here = ed.path.is_some() && ed.project.tracks.iter().all(|t| t.clips.is_empty());
@@ -161,6 +166,14 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     // всё, что появилось по ходу (эталоны героев и локаций и т.п.), — и в
     // медиатеке итогового проекта, а не только ролики на таймлайне
     let have: std::collections::HashSet<std::path::PathBuf> = ed.project.media.iter().map(|m| m.path.clone()).collect();
+    let mut live = live;
+    if into_current {
+        for f in &report.files {
+            if !live.contains(f) {
+                live.push(f.clone());
+            }
+        }
+    }
     let missing: Vec<String> = live.iter().filter(|f| !have.contains(*f) && f.exists()).map(|f| f.display().to_string()).collect();
     if !missing.is_empty() {
         let _ = crate::cmd::run(ed, "media.import", &json!({"paths": missing}));
@@ -181,7 +194,7 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
             "Рецепт «{}»: проект {} ({clips} клипов){}{out_files_note}{refs_note}",
             g.name,
             path.display(),
-            if opened { ", открыт" } else if open { " — текущий проект не сохранён, откройте файл сами" } else { "" }
+            if opened { ", открыт" } else if into_current { " — результат добавлен в медиатеку текущего проекта (на таймлайн — clip_add)" } else if open { " — текущий проект не сохранён, откройте файл сами" } else { "" }
         ),
         json!({"path": path.display().to_string(), "clips": clips, "files": files_str}),
     ))

@@ -8,7 +8,30 @@ use crate::editor::Editor;
 
 pub static COMMANDS: &[&Command] = &[&IMPORT, &LIST, &REMOVE, &VFX];
 
-pub const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "heic"];
+pub const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "heic", "svg"];
+
+/// SVG-файл (векторная картинка: растр строится под нужный размер).
+pub fn is_svg(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"))
+}
+
+/// Открыть картинку как RGBA; SVG растеризуется наибольшей стороной `svg_side`
+/// (0 — естественный размер документа).
+pub fn open_image(path: &Path, svg_side: u32) -> Option<image::RgbaImage> {
+    if is_svg(path) {
+        let (w, h, rgba, _) = syngui::gpu::rasterize_svg(&std::fs::read(path).ok()?, svg_side).ok()?;
+        return image::RgbaImage::from_raw(w, h, rgba);
+    }
+    Some(image::open(path).ok()?.to_rgba8())
+}
+
+/// Размер картинки (у SVG — естественный размер документа).
+pub fn image_size(path: &Path) -> Option<(u32, u32)> {
+    if is_svg(path) {
+        return syngui::gpu::rasterize_svg(&std::fs::read(path).ok()?, 16).ok().map(|r| r.3);
+    }
+    image::image_dimensions(path).ok()
+}
 pub const AUDIO: &[&str] = &["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif"];
 pub const VIDEO: &[&str] = &["mp4", "mkv", "mov", "webm", "avi", "m4v", "mts", "m2ts", "ts", "mpg", "mpeg", "wmv", "flv", "3gp", "mxf"];
 
@@ -102,7 +125,7 @@ pub fn probe(path: &Path) -> Result<Media, String> {
         }
         Some(MediaKind::Image) => {
             m.kind = MediaKind::Image;
-            if let Ok(img) = image::image_dimensions(path) {
+            if let Some(img) = image_size(path) {
                 (m.width, m.height) = img;
             }
             return Ok(m);

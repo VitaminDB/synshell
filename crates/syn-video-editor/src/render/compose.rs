@@ -1063,7 +1063,9 @@ fn title(text: &str, st: &Map<String, Value>, lt: f64, dur: f64, alpha: f32, tr:
 /// LUT клипа и исполнение шаблонов Fusion применяются здесь.
 pub struct FrameSource {
     readers: HashMap<u64, syngui::video::FrameReader>,
-    stills: HashMap<u64, syngui::video::RgbaFrame>,
+    /// Картинки клипов: (время правки файла, кадр) — правленый файл (SVG в
+    /// мини-редакторе) перечитывается.
+    stills: HashMap<u64, (Option<std::time::SystemTime>, syngui::video::RgbaFrame)>,
     /// Кэш последнего отрендеренного кадра Fusion-шаблона на клип: `clip_id -> (key_hash, frame)`.
     fusion_last: HashMap<u64, (u64, syngui::video::RgbaFrame)>,
     /// Последний кадр Lottie у клипа: (номер кадра, размер) → кадр.
@@ -1211,14 +1213,15 @@ impl FrameSource {
                     }
                 }
             } else if m.kind == crate::doc::MediaKind::Image {
-                if !self.stills.contains_key(&mid) {
-                    if let Ok(img) = image::open(&m.path) {
-                        let img = img.to_rgba8();
+                let mtime = std::fs::metadata(&m.path).and_then(|md| md.modified()).ok();
+                if self.stills.get(&mid).is_none_or(|s| s.0 != mtime) {
+                    // SVG — растром под кадр 4K (вектор не мылит и при наезде камеры)
+                    if let Some(img) = crate::cmd::media::open_image(&m.path, 3840) {
                         let (iw, ih) = img.dimensions();
-                        self.stills.insert(mid, syngui::video::RgbaFrame { width: iw, height: ih, pts: 0.0, rgba: Arc::new(img.into_raw()) });
+                        self.stills.insert(mid, (mtime, syngui::video::RgbaFrame { width: iw, height: ih, pts: 0.0, rgba: Arc::new(img.into_raw()) }));
                     }
                 }
-                self.stills.get(&mid).cloned()
+                self.stills.get(&mid).map(|s| s.1.clone())
             } else {
                 let src = c.offset + (t - c.start) * c.speed;
                 let r = match self.readers.entry(c.id) {

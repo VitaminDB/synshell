@@ -462,8 +462,57 @@ fn fx_tile(st: St, key: String, name: String, title: String, kind: FxKind) -> Bo
             }
             hover.set(p.map(|(p, s)| (p.x / s.width.max(1.0)).clamp(0.0, 0.999)))
         }).child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb").child(thumb))))
-        .child(Text::new(title).max_lines(1).elide(Elide::End).class("row-title"));
-    let apply = move || {
+        .child(Text::new(title.clone()).max_lines(1).elide(Elide::End).class("row-title"));
+    let (pkey, ptitle) = (key.clone(), title.clone());
+    // щелчок применяет с задержкой двойного щелчка: двойной — только просмотр
+    // во вкладке «Медиа», без применения к выделенному клипу
+    let click = move || {
+        let at = std::time::Instant::now();
+        let name = name.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(FX_CLICK_DELAY_MS));
+            let dbl = *FX_DBL.lock().unwrap_or_else(|e| e.into_inner());
+            if dbl.is_some_and(|d| d + std::time::Duration::from_millis(700) > at) {
+                return;
+            }
+            syngui::async_runtime::run_on_main_thread(move || fx_apply(st, kind, &name));
+        });
+    };
+    Box::new(
+        GestureDetector::new()
+            .on_click(click)
+            .on_double_click(move || {
+                *FX_DBL.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+                open_fx_preview(st, pkey.clone(), ptitle.clone());
+            })
+            .child(DecoratedBox::new().class("tile").child(body)),
+    )
+}
+
+const FX_CLICK_DELAY_MS: u64 = 380;
+static FX_DBL: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+/// Показать движение, переход или эффект вкладкой «Медиа» (лента по кругу).
+pub fn open_fx_preview(st: St, key: String, title: String) {
+    st.media_preview.set(None);
+    st.fx_preview.set(Some((key, title)));
+    st.open_panel("media_view");
+    st.dock.activate("media_view");
+}
+
+fn fx_kind(key: &str) -> Option<(FxKind, &str)> {
+    for (prefix, kind) in [("motion:", FxKind::Motion), ("transition:", FxKind::Transition), ("effect:", FxKind::Effect)] {
+        if let Some(n) = key.strip_prefix(prefix) {
+            return Some((kind, n));
+        }
+    }
+    None
+}
+
+/// Применить движение/переход/эффект к выделенным клипам.
+fn fx_apply(st: St, kind: FxKind, name: &str) {
+    let name = name.to_string();
+    {
         let sel = ed().selection.clone();
         if sel.is_empty() {
             st.toast.set(Some("Сначала выделите клип на таймлайне".into()));
@@ -496,8 +545,7 @@ fn fx_tile(st: St, key: String, name: String, title: String, kind: FxKind) -> Bo
                 st.exec("effect.add", json!({"ids": sel, "kind": name}));
             }
         }
-    };
-    Box::new(GestureDetector::new().on_click(apply).child(DecoratedBox::new().class("tile").child(body)))
+    }
 }
 
 // ── просмотр ────────────────────────────────────────────────────────────
@@ -895,7 +943,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
             (_, Some(strip)) => {
                 let i = frac.map(|f| ((f * super::thumbs::FRAMES as f32) as usize).min(super::thumbs::FRAMES - 1)).unwrap_or(super::thumbs::FRAMES / 3);
                 let f = &strip[i];
-                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)));
+                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}:{:x}", std::sync::Arc::as_ptr(&f.rgba) as *const u8 as usize), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)));
             }
             (_, None) => {
                 stack = stack.child(Center::new().child(Icon::new(if kind == MediaKind::Image { icons::IMAGE } else { icons::MOVIE }).class("tile-icon")));
@@ -1037,6 +1085,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
             }).on_double_click(move || {
                 // просмотр этого файла вкладкой «Медиа» (картинка — зум и поворот,
                 // видео — плеер); на таймлайн — кнопкой в ней или пунктом меню
+                st.fx_preview.set(None);
                 st.media_preview.set(Some(id));
                 st.open_panel("media_view");
                 st.dock.activate("media_view");
@@ -1143,26 +1192,214 @@ fn pv_state() -> (RwSignal<i32>, RwSignal<(bool, bool)>, RwSignal<(u64, ImageVie
     PV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(0), use_signal((false, false)), use_signal((0, ImageViewCommand::Fit)))))
 }
 
-/// Заголовок вкладки просмотра: «Медиа: имя файла».
+/// Заголовок вкладки просмотра: «Медиа: имя файла» / «Переход: название».
 pub fn media_view_title(st: St) -> String {
+    if let Some((key, title)) = st.fx_preview.get() {
+        let what = match fx_kind(&key).map(|k| k.0) {
+            Some(FxKind::Motion) => "Движение",
+            Some(FxKind::Transition) => "Переход",
+            _ => "Эффект",
+        };
+        return format!("{what}: {title}");
+    }
     match st.media_preview.get().and_then(|id| ed().project.media(id).map(|m| m.name())) {
         Some(n) => format!("Медиа: {n}"),
         None => "Медиа".into(),
     }
 }
 
+/// Поколение ленты эффекта: смена просмотра останавливает прежний таймер.
+static FX_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+thread_local! {
+    /// (кадр ленты, пауза)
+    static FXV: std::cell::RefCell<Option<(RwSignal<usize>, RwSignal<bool>)>> = const { std::cell::RefCell::new(None) };
+    /// SVG в правке: (файл медиатеки, текст, сохранён ли)
+    static SVGV: std::cell::RefCell<Option<(RwSignal<Option<u64>>, RwSignal<String>, RwSignal<bool>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn fxv() -> (RwSignal<usize>, RwSignal<bool>) {
+    FXV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(0usize), use_signal(false))))
+}
+
+fn svgv() -> (RwSignal<Option<u64>>, RwSignal<String>, RwSignal<bool>) {
+    SVGV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(None), use_signal(String::new()), use_signal(true))))
+}
+
+/// Просмотр движения/перехода/эффекта: его лента на демо-кадрах по кругу,
+/// пауза, покадровый шаг и «Применить к выделенному».
+fn fx_view(st: St, key: String, title: String) -> Box<dyn Widget> {
+    let (frame, paused) = fxv();
+    let gen = FX_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    frame.set(0);
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(83));
+        if FX_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen {
+            break;
+        }
+        syngui::async_runtime::run_on_main_thread(move || {
+            if FX_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen && !paused.get_untracked() {
+                frame.update(|f| *f = f.wrapping_add(1));
+            }
+        });
+    });
+    let path = crate::render::preview::strip_path(&key);
+    let k2 = key.clone();
+    let body = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.thumbs.get();
+        match super::thumbs::strip_file(&path) {
+            Some(strip) if !strip.is_empty() => {
+                let i = frame.get() % strip.len();
+                let f = &strip[i];
+                vec![Box::new(Image::from_rgba_shared(format!("fxv:{k2}:{i}"), f.width, f.height, f.rgba.clone()).fit(ImageFit::Contain).placeholder(false).class("pv-fill"))]
+            }
+            _ => vec![empty("Превью ещё готовится…")],
+        }
+    });
+    let kind = fx_kind(&key);
+    let mut tools = Row::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(title).max_lines(1).elide(Elide::End).class("fp-title"))
+        .child(DecoratedBox::new().class("grow"))
+        .child(ToolButton::new("\u{E045}").tooltip("Кадр назад").on_click(move || {
+            paused.set(true);
+            frame.update(|f| *f = f.wrapping_sub(1));
+        }))
+        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let p = paused.get();
+            vec![Box::new(ToolButton::new(if p { "\u{E037}" } else { "\u{E034}" }).tooltip(if p { "Играть" } else { "Пауза" }).on_click(move || paused.update(|x| *x = !*x)))]
+        }))
+        .child(ToolButton::new("\u{E044}").tooltip("Кадр вперёд").on_click(move || {
+            paused.set(true);
+            frame.update(|f| *f = f.wrapping_add(1));
+        }));
+    if let Some((kind, name)) = kind {
+        let name = name.to_string();
+        tools = tools.child(Button::new("Применить к выделенному").on_click(move || fx_apply(st, kind, &name)).class("head-btn"));
+    }
+    Box::new(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("grow")
+            .child(tools.class("panel-head"))
+            .child(DecoratedBox::new().class("grow").class("media-preview-body").child(body)),
+    )
+}
+
+/// Мини-редактор SVG: код (подсветка XML) и живая картинка рядом; «Сохранить»
+/// пишет файл, миниатюра и кадры на таймлайне обновляются.
+fn svg_view(st: St, id: u64, path: std::path::PathBuf) -> Box<dyn Widget> {
+    use syngui::widgets::input::code_editor::syntax::Language;
+    use syngui::widgets::input::code_editor::CodeEditorChange;
+    let (cur, text, saved) = svgv();
+    if cur.get_untracked() != Some(id) {
+        cur.set(Some(id));
+        text.set(std::fs::read_to_string(&path).unwrap_or_default());
+        saved.set(true);
+    }
+    let editor = CodeEditor::new()
+        .text(text.get_untracked())
+        .language(Language::Xml)
+        .soft_wrap(true)
+        .tab_width(2)
+        .on_change(move |ch: CodeEditorChange| {
+            text.set(ch.full_text.to_string());
+            saved.set(false);
+        })
+        .class("set-code");
+    let preview = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let t = text.get();
+        match syngui::gpu::rasterize_svg(t.as_bytes(), 1024) {
+            Ok((w, h, rgba, _)) => {
+                use std::hash::{Hash, Hasher};
+                let mut hs = std::collections::hash_map::DefaultHasher::new();
+                t.hash(&mut hs);
+                vec![Box::new(Image::from_rgba(format!("svgv:{id}:{:x}", hs.finish()), w, h, rgba).fit(ImageFit::Contain).placeholder(false).class("pv-fill"))]
+            }
+            Err(e) => vec![Box::new(Center::new().child(Text::new(format!("Ошибка SVG: {e}")).max_lines(4).class("panel-empty")))],
+        }
+    });
+    let save_path = path.clone();
+    let save = move || {
+        match crate::layout::write_atomic(&save_path, &text.get_untracked()) {
+            Ok(()) => {
+                saved.set(true);
+                if let Some((w, h)) = crate::cmd::media::image_size(&save_path) {
+                    let mut e = ed();
+                    if let Some(m) = e.project.media.iter_mut().find(|m| m.id == id) {
+                        (m.width, m.height) = (w, h);
+                    }
+                }
+                super::thumbs::forget(&save_path);
+                st.thumbs.update(|n| *n += 1);
+                st.rev.update(|n| *n += 1);
+                st.toast.set(Some(format!("Сохранено: {}", save_path.display())));
+            }
+            Err(e) => st.toast.set(Some(format!("Не сохранилось: {e}"))),
+        }
+    };
+    let reload_path = path.clone();
+    let tools = Row::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(format!("m{id} · {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())).max_lines(1).elide(Elide::Middle).class("fp-title"))
+        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> { if saved.get() { vec![] } else { vec![Box::new(Text::new("● не сохранено").class("row-sub"))] } }))
+        .child(DecoratedBox::new().class("grow"))
+        .child(ToolButton::new("\u{E5D5}").tooltip("Отменить правки (перечитать файл)").on_click(move || {
+            text.set(std::fs::read_to_string(&reload_path).unwrap_or_default());
+            saved.set(true);
+            cur.set(None);
+            st.media_preview.update(|_| {});
+        }))
+        .child(Button::new("Сохранить").on_click(save).class("head-btn"))
+        .child(Button::new("На таймлайн").on_click(move || {
+            st.exec("clip.add", json!({"media": id}));
+        }).class("head-btn"));
+    Box::new(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("grow")
+            .child(tools.class("panel-head"))
+            .child(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .class("grow")
+                    .child(DecoratedBox::new().class("grow").child(editor))
+                    .child(DecoratedBox::new().class("grow").class("media-preview-body").child(preview)),
+            ),
+    )
+}
+
 /// Вкладка «Медиа» — просмотр файла медиатеки: картинка — масштаб, сдвиг,
 /// поворот и отражение; видео и звук — плеер именно этого файла.
 pub fn media_view_panel(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let Some(id) = st.media_preview.get() else {
-            // закрыто — плеер остановить и отпустить
+        let fx = st.fx_preview.get();
+        let media = st.media_preview.get();
+        if fx.is_none() {
+            // ленту эффекта больше не крутить
+            FX_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        if media.is_none() || fx.is_some() {
+            // плеер прежнего файла остановить и отпустить
             if let Ok(mut g) = PREVIEW_PLAYER.lock() {
                 *g = None;
             }
-            return vec![empty("Двойной щелчок по файлу медиатеки — просмотр здесь")];
+        }
+        if let Some((key, title)) = fx {
+            return vec![fx_view(st, key, title)];
+        }
+        let Some(id) = media else {
+            return vec![empty("Двойной щелчок по файлу медиатеки, переходу или эффекту — просмотр здесь")];
         };
         let Some(m) = ed().project.media(id).cloned() else { return vec![empty("Файла больше нет в медиатеке")] };
+        if crate::cmd::media::is_svg(&m.path) {
+            return vec![svg_view(st, id, m.path.clone())];
+        }
         let (turns, flip, cmd) = pv_state();
 
         let path = m.path.display().to_string();

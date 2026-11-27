@@ -1159,7 +1159,7 @@ fn clip_content(p: &Project, track_kind: TrackKind, c: &crate::doc::Clip, label:
                 let src = if m.kind == crate::doc::MediaKind::Lottie && m.duration > 0.0 { src.rem_euclid(m.duration) } else { src };
                 let k = if m.duration > 0.0 { ((src / m.duration) * strip.len() as f64) as usize } else { 0 }.min(strip.len() - 1);
                 let f = &strip[k];
-                row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}", m.id), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));
+                row = row.child(DecoratedBox::new().child(Image::from_rgba_shared(format!("thumb:{}:{k}:{:x}", m.id, std::sync::Arc::as_ptr(&f.rgba) as *const u8 as usize), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)).style("width", tw).style("height", h).class("clip-frame"));
             }
             stack = stack.child(row);
         }
