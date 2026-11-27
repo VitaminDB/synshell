@@ -69,8 +69,8 @@ pub struct VideoResult {
 /// LoRA для видео: у MiniMax-H3 по умолчанию Turbo на 8 шагов из библиотеки
 /// (`lora/h3/*turbo_8step*.safetensors`, свежая версия): шаги и CFG 1 берёт
 /// synaptix-gen по имени файла. «off»/«none»/пусто — без LoRA; иначе путь
-/// или имя файла в `lora/h3`. `continued` — ролик продолжает латентный хвост.
-pub fn video_lora(mgr: &Arc<Manager>, model: &str, want: Option<&str>, continued: bool) -> Result<Option<PathBuf>, Error> {
+/// или имя файла в `lora/h3`.
+pub fn video_lora(mgr: &Arc<Manager>, model: &str, want: Option<&str>) -> Result<Option<PathBuf>, Error> {
     let h3 = model.contains("minimax-h3") || model.contains("h3-");
     let dirs: Vec<PathBuf> = mgr.library_paths().into_iter().map(|l| l.join(super::lora::LORA_DIR).join("h3")).collect();
     match want.map(str::trim) {
@@ -82,18 +82,19 @@ pub fn video_lora(mgr: &Arc<Manager>, model: &str, want: Option<&str>, continued
             }
             dirs.iter().map(|d| d.join(w)).find(|p| p.is_file()).map(Some).ok_or_else(|| Error::new(crate::ErrorCode::Failed, format!("LoRA «{w}» не найдена (путь или файл в lora/h3)")))
         }
-        None if h3 => Ok(default_turbo(&dirs, model.contains("ref2va"), continued)),
+        None if h3 => Ok(default_turbo(&dirs, model.contains("ref2va"))),
         None => Ok(None),
     }
 }
 
 /// Turbo 8 шагов под вариант модели: у Ref2VA — своя LoRA (`*ref2v*`), у
 /// FL2VA — `*fl2v*` (LoRA одного варианта на другом даёт мыло и путаницу в
-/// мелочах); последняя версия по имени. Ролик Ref2VA, продолжающий латентный
-/// хвост, — сборка «fusion»: LoRA Ref2VA v1.x почти не держит кадры хвоста и
-/// начинает новый план (стык рвётся), fusion продолжает бесшовно.
-pub fn default_turbo(dirs: &[PathBuf], ref2va: bool, continued: bool) -> Option<PathBuf> {
-    if ref2va && continued {
+/// мелочах); последняя версия по имени. У Ref2VA — сборка «fusion» для всех
+/// роликов (решение пользователя): v1.x почти не держит латентный хвост, а
+/// смешивать LoRA в одном фильме нельзя — у них разная цветопередача, стык
+/// роликов разных LoRA виден. Нет fusion — Ref2VA v1.x.
+pub fn default_turbo(dirs: &[PathBuf], ref2va: bool) -> Option<PathBuf> {
+    if ref2va {
         if let Some(p) = turbo_files(dirs, |n| n.contains("ref2v") && n.contains("fusion")).pop() {
             return Some(p);
         }
@@ -127,12 +128,12 @@ mod turbo_tests {
             std::fs::write(d.path().join(n), b"x").unwrap();
         }
         let dirs = vec![d.path().to_path_buf()];
-        let name = |r: bool, c: bool| super::default_turbo(&dirs, r, c).unwrap().file_name().unwrap().to_string_lossy().into_owned();
-        assert_eq!(name(true, false), "minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors");
-        assert_eq!(name(false, false), "minimax_h3_fl2v_turbo_8step_v1.1_768p_bf16.safetensors");
-        // продолжение с хвоста у Ref2VA — fusion; у FL2VA — своя
-        assert_eq!(name(true, true), "minimax_h3_ref2v_turbo_fusion_8step_v1.0.safetensors");
-        assert_eq!(name(false, true), "minimax_h3_fl2v_turbo_8step_v1.1_768p_bf16.safetensors");
+        let name = |r: bool| super::default_turbo(&dirs, r).unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        // Ref2VA — fusion для всех роликов, FL2VA — своя
+        assert_eq!(name(true), "minimax_h3_ref2v_turbo_fusion_8step_v1.0.safetensors");
+        assert_eq!(name(false), "minimax_h3_fl2v_turbo_8step_v1.1_768p_bf16.safetensors");
+        std::fs::remove_file(d.path().join("minimax_h3_ref2v_turbo_fusion_8step_v1.0.safetensors")).unwrap();
+        assert_eq!(name(true), "minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors");
     }
 }
 
@@ -141,7 +142,7 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
     let model = mgr.resolve_id(model, ModelKind::Video)?;
     let mp = mgr.params(&model, &Params::new());
     let seed = seed_of(p.seed, &mp);
-    let lora = video_lora(mgr, &model, p.lora.as_deref(), p.context.as_deref().is_some_and(|c| !c.trim().is_empty()))?;
+    let lora = video_lora(mgr, &model, p.lora.as_deref())?;
     // дистиллированная LoRA (Turbo): шаги по ней, CFG 1 и без негатива —
     // шаги/CFG/негатив из настроек модели (под 20 шагов) не подставляются
     let turbo = lora.as_deref().and_then(synaptix_gen::video::lora_steps).is_some();
