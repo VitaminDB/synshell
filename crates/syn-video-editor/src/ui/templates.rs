@@ -1084,6 +1084,23 @@ fn graph_chain(g: &synaptix_graph::Graph) -> String {
     g.nodes.iter().map(|n| format!("{}{}", n.op, if n.each.is_some() { "×" } else { "" })).collect::<Vec<_>>().join(" → ")
 }
 
+/// Рецепт, который агент прогоняет, — вкладкой «Граф» с теми же параметрами
+/// (видно, какой граф идёт и что в нём); панель «Граф» — на передний план.
+pub fn open_recipe_run(st: St, name: &str, params: &serde_json::Map<String, serde_json::Value>) {
+    let Some(g) = synaptix_graph::recipes::find(&crate::recipe::dir(), name) else { return };
+    let Some(ws) = super::graph::workspace() else { return };
+    let t = synaptix_graph::synthos::to_template(&g, params).and_then(|v| serde_json::from_value::<syn_node_editor::model::Template>(v).map_err(|e| e.to_string()));
+    match t {
+        Ok(t) => {
+            super::framegraph_ui::current().set(None);
+            ws.open_template(&t);
+            st.open_panel("graph");
+            st.dock.activate("graph");
+        }
+        Err(e) => tracing::warn!("граф рецепта {name}: {e}"),
+    }
+}
+
 /// Открыть рецепт графом в панели «Граф» (общий редактор узлов, ноды ядра).
 pub fn open_graph(st: St, g: &synaptix_graph::Graph) {
     let Some(ws) = super::graph::workspace() else {

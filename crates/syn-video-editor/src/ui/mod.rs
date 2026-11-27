@@ -634,6 +634,8 @@ impl St {
                 syngui::async_runtime::run_on_main_thread(move || {
                     self.ai_log.update(|l| match (&line, l.last_mut()) {
                         (AiLine::Text(t), Some(AiLine::Text(prev))) => prev.push_str(t),
+                        // ход того же узла («cover (image) · 11/40») — обновить строку, а не плодить
+                        (AiLine::Result(t), Some(AiLine::Result(prev))) if t.starts_with("… ") && prev.starts_with("… ") && t.split(" · ").next() == prev.split(" · ").next() => *prev = t.clone(),
                         _ => l.push(line),
                     });
                     self.rev.set(ed().revision);
@@ -641,7 +643,19 @@ impl St {
             };
             let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
-                AgentEvent::ToolStart { summary, .. } => push(AiLine::Tool(summary)),
+                AgentEvent::ToolStart { summary, .. } => {
+                    // рецепт агента — сразу вкладкой в «Графе»: видно, что и с какими параметрами идёт
+                    if let Some(rest) = summary.strip_prefix("Прогнать рецепт в проект") {
+                        let args: serde_json::Value = rest.find('{').and_then(|i| serde_json::from_str(&rest[i..]).ok()).unwrap_or_default();
+                        if let Some(name) = args.get("name").and_then(|v| v.as_str()).map(str::to_string) {
+                            let params = args.get("params").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+                            syngui::async_runtime::run_on_main_thread(move || templates::open_recipe_run(self, &name, &params));
+                        }
+                    }
+                    push(AiLine::Tool(summary))
+                }
+                // ход долгого инструмента (шаги рецепта) — строками в чат, а не тишина
+                AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => push(AiLine::Result(format!("… {label}"))),
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
                 _ => {}
             });
