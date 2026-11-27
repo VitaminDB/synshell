@@ -472,8 +472,14 @@ fn run(args: &[String]) -> Result<(), String> {
             let env_s = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
             let (ref_audio, ref_text) = (env_s("REF_AUDIO"), env_s("REF_TEXT"));
             let (temperature, top_p) = (env_s("TEMPERATURE").and_then(|v| v.parse::<f64>().ok()), env_s("TOP_P").and_then(|v| v.parse::<f64>().ok()));
-            let sp = if voice.is_some() || seed.is_some() || guidance.is_some() || ref_audio.is_some() || temperature.is_some() || top_p.is_some() {
+            // SOURCE_AUDIO / CONVERT_STYLE — переозвучка записи (Seed-VC).
+            let source_audio = env_s("SOURCE_AUDIO");
+            let convert_style = env_s("CONVERT_STYLE").map(|v| v == "1" || v == "true");
+            let sp = if voice.is_some() || seed.is_some() || guidance.is_some() || ref_audio.is_some() || temperature.is_some() || top_p.is_some() || source_audio.is_some() {
                 let mut p = synaptixd::Params::default();
+                p.set("source_audio", source_audio.map(Into::into));
+                p.set("convert_style", convert_style.map(Into::into));
+                p.set("steps", steps.map(|s: usize| (s as i64).into()));
                 p.set("ref_audio", ref_audio.map(Into::into));
                 p.set("ref_text", ref_text.map(Into::into));
                 p.set("temperature", temperature.map(Into::into));

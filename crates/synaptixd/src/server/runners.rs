@@ -126,6 +126,9 @@ pub enum TtsEngine {
     Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
     Audio8(synaptix_tts_audio8::Audio8Pipeline),
     Drama3(Box<synaptix_tts_drama3::Drama3>),
+    /// Seed-VC: не синтез, а переозвучка готовой записи голосом с образца.
+    SeedVc(Box<synaptix_vc_seed::SeedVc>),
+    SeedVcV1(Box<synaptix_vc_seed::SeedVcV1>),
     Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
     Leokani(synaptix_tts_leokani::LeokaniPipeline),
     F5(synaptix_tts_f5::F5Pipeline),
@@ -284,6 +287,61 @@ fn audio8_voice(p: &synaptix_tts_audio8::Audio8Pipeline, path: &Path, text: &str
     anyhow::ensure!(!text.is_empty(), "Audio8 клонирует голос только с текстом образца (ref_text) — слово в слово");
     let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), p.sample_rate()).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
     p.voice_prompt(&pcm, p.sample_rate(), text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
+}
+
+/// Параметры переозвучки Seed-VC.
+#[derive(Default)]
+struct VcOpts {
+    steps: Option<usize>,
+    speed: Option<f32>,
+    convert_style: bool,
+    similarity: Option<f32>,
+    intelligibility: Option<f32>,
+    guidance: Option<f32>,
+    seed: u64,
+}
+
+/// Seed-VC: запись `source` голосом образца `reference` (файлы любого формата).
+fn seedvc_convert(engine: &TtsEngine, source: &str, reference: Option<&str>, o: &VcOpts, progress: &mut dyn FnMut(usize, usize)) -> anyhow::Result<(Vec<f32>, u32)> {
+    let sr = synaptix_vc_seed::SAMPLE_RATE;
+    let reference = reference.ok_or_else(|| anyhow::anyhow!("Seed-VC: нужен образец целевого голоса (ref_audio)"))?;
+    let src = synaptix_flow::ops::media::decode_pcm(source, sr).map_err(|e| anyhow::anyhow!("исходная запись {source}: {e}"))?;
+    let rf = synaptix_flow::ops::media::decode_pcm(reference, sr).map_err(|e| anyhow::anyhow!("образец голоса {reference}: {e}"))?;
+    anyhow::ensure!(!src.is_empty() && !rf.is_empty(), "Seed-VC: пустая запись");
+    let steps = o.steps.unwrap_or(30).clamp(2, 100);
+    // Скорость речи → растяжение длины (обратная величина).
+    let length_adjust = 1.0 / o.speed.unwrap_or(1.0).clamp(0.5, 2.0);
+    let t0 = std::time::Instant::now();
+    let mut pr = |_: &str, i: usize, n: usize| {
+        progress(i, n);
+        true
+    };
+    let out = match engine {
+        TtsEngine::SeedVc(p) => {
+            let req = synaptix_vc_seed::SeedVcRequest {
+                source: src,
+                source_rate: sr,
+                reference: rf,
+                reference_rate: sr,
+                steps,
+                length_adjust,
+                convert_style: o.convert_style,
+                similarity_cfg: o.similarity.unwrap_or(0.7).clamp(0.0, 1.0),
+                intelligibility_cfg: o.intelligibility.unwrap_or(0.7).clamp(0.0, 1.0),
+                seed: o.seed,
+                ..Default::default()
+            };
+            p.convert(&req, &mut pr)
+        }
+        TtsEngine::SeedVcV1(p) => {
+            let req = synaptix_vc_seed::SeedVcV1Request { source: src, source_rate: sr, reference: rf, reference_rate: sr, steps, length_adjust, cfg_rate: o.guidance.unwrap_or(0.7).clamp(0.0, 1.0), seed: o.seed };
+            p.convert(&req, &mut pr)
+        }
+        _ => anyhow::bail!("не Seed-VC"),
+    }
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tracing::info!("seed-vc: звук {:.1} с за {:.1} с (содержание {:.1} с, манера {:.1} с, поток {:.1} с, вокодер {:.1} с)", out.pcm.len() as f64 / out.sample_rate as f64, t0.elapsed().as_secs_f64(), out.content_seconds, out.ar_seconds, out.cfm_seconds, out.vocoder_seconds);
+    Ok((out.pcm, out.sample_rate))
 }
 
 /// Образцы голосов Drama 3: записи любого формата и их тексты (по строке на
@@ -742,7 +800,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "drama3" && a != "supertonic" && a != "leokani" && a != "f5" && a != "silero";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "drama3" && !a.starts_with("seedvc") && a != "supertonic" && a != "leokani" && a != "f5" && a != "silero";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a == "leokani" {
                 // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
@@ -760,6 +818,14 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 anyhow::ensure!(dev != DeviceKind::Npu, "Supertonic на NPU не исполняется");
                 // ~100M параметров: счёт F32, как оригинал в onnxruntime; квант не нужен.
                 TtsEngine::Supertonic(synaptix_tts_supertonic::SupertonicPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "seedvc" || a == "seedvc_v1" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "Seed-VC на NPU не исполняется");
+                // ~0,5 млрд параметров в F32, как оригинал.
+                if a == "seedvc" {
+                    TtsEngine::SeedVc(Box::new(synaptix_vc_seed::SeedVc::load(path, device).map_err(|e| anyhow::anyhow!("{e}"))?))
+                } else {
+                    TtsEngine::SeedVcV1(Box::new(synaptix_vc_seed::SeedVcV1::load(path, device).map_err(|e| anyhow::anyhow!("{e}"))?))
+                }
             } else if a == "drama3" {
                 anyhow::ensure!(dev == DeviceKind::Cuda, "Drama 3 исполняется только на видеокарте");
                 // Основа — MoE 35B: блоки и кэш экспертов на карте, эксперты в RAM.
@@ -1105,6 +1171,13 @@ impl Loaded {
                 let o = synaptix_tts_supertonic::Options { steps: r.steps.unwrap_or(8).clamp(1, 64), speed: 1.05 * r.speed.unwrap_or(1.0).clamp(0.25, 4.0), seed: r.seed, ..Default::default() };
                 let pcm = p.synthesize(text, &lang, &voice, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((pcm, p.sample_rate()))
+            }
+            TtsEngine::SeedVc(_) | TtsEngine::SeedVcV1(_) => {
+                // Исходная запись — prompt_audio, иначе текст запроса как путь.
+                let source = r.prompt_audio.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| text.trim().to_string());
+                let reference = r.voices.first().map(|p| p.to_string_lossy().to_string());
+                let o = VcOpts { steps: r.steps, speed: r.speed, guidance: r.guidance, seed: r.seed, ..Default::default() };
+                seedvc_convert(&guard.engine, &source, reference.as_deref(), &o, progress)
             }
             TtsEngine::Drama3(p) => {
                 let paths: Vec<&Path> = r.voices.iter().map(|v| v.as_path()).collect();
@@ -1874,6 +1947,22 @@ impl Loaded {
                 let t = p.last_timings();
                 tracing::info!("supertonic: голос {name}, {lang}, звук {:.1} с за {:.2} с (поток {:.2} с, кусков {})", t.audio_s, t.dp_te_s + t.flow_s + t.vocoder_s, t.flow_s, t.chunks);
                 Ok((pcm, p.sample_rate(), Some(seed)))
+            }
+            TtsEngine::SeedVc(_) | TtsEngine::SeedVcV1(_) => {
+                // Вход — запись: параметр source_audio, иначе текст запроса как путь.
+                let source = params.text("source_audio").map(str::trim).filter(|s| !s.is_empty()).unwrap_or_else(|| text.trim()).to_string();
+                anyhow::ensure!(Path::new(&source).is_file(), "Seed-VC переозвучивает готовую запись: укажите её путь в source_audio (текст он не читает)");
+                let o = VcOpts {
+                    steps,
+                    speed: stretch,
+                    convert_style: params.bool("convert_style").unwrap_or(false),
+                    similarity: params.f32("similarity"),
+                    intelligibility: params.f32("intelligibility"),
+                    guidance,
+                    seed: phrase_seed,
+                };
+                let (pcm, sr) = seedvc_convert(&st.engine, &source, ref_audio, &o, &mut |_, _| {})?;
+                Ok((pcm, sr, Some(seed)))
             }
             TtsEngine::Drama3(p) => {
                 let sr = synaptix_tts_drama3::SAMPLE_RATE;

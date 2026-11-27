@@ -23,6 +23,7 @@ daemon = [
     "dep:synaptix-tts-voxcpm",
     "dep:synaptix-tts-audio8",
     "dep:synaptix-tts-drama3",
+    "dep:synaptix-vc-seed",
     "dep:synaptix-tts-supertonic",
     "dep:synaptix-tts-leokani",
     "dep:synaptix-tts-f5",
@@ -64,6 +65,7 @@ synaptix-tts-vibevoice = { workspace = true, optional = true }
 synaptix-tts-voxcpm = { workspace = true, optional = true }
 synaptix-tts-audio8 = { workspace = true, optional = true }
 synaptix-tts-drama3 = { workspace = true, optional = true }
+synaptix-vc-seed = { workspace = true, optional = true }
 synaptix-tts-supertonic = { workspace = true, optional = true }
 synaptix-tts-leokani = { workspace = true, optional = true }
 synaptix-tts-f5 = { workspace = true, optional = true }
