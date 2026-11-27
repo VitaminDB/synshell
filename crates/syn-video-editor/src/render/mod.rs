@@ -32,6 +32,20 @@ pub fn run_child(p: &Project, args: &[String], mut progress: impl FnMut(usize, u
     let exe = synshell_common::paths::self_exe("syn-video-editor");
     let mut child = Command::new(exe).arg("--render-child").arg(&tmp).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().unwrap();
+    // «Стоп» в панели ИИ прерывает и рендер агента (дочерний процесс)
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let (pid, done) = (child.id(), done.clone());
+        std::thread::spawn(move || {
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                if crate::ui::AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = Command::new("kill").arg(pid.to_string()).status();
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        });
+    }
     let mut last = String::new();
     for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
         if let Some(rest) = line.strip_prefix("progress ") {
@@ -43,8 +57,13 @@ pub fn run_child(p: &Project, args: &[String], mut progress: impl FnMut(usize, u
             last = line;
         }
     }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string());
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    let out = out?;
     let _ = std::fs::remove_file(&tmp);
+    if crate::ui::AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst) && !out.status.success() {
+        return Err("остановлено пользователем («Стоп»)".into());
+    }
     if out.status.success() {
         Ok(last)
     } else {
