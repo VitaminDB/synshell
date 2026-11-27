@@ -41,6 +41,9 @@ pub struct Story {
     /// Планы сцен: число роликов.
     #[serde(default)]
     pub planned: BTreeMap<u32, usize>,
+    /// Снято роликов по сценам.
+    #[serde(default)]
+    pub shot: BTreeMap<u32, usize>,
 }
 
 fn file(project: &Path) -> PathBuf {
@@ -82,11 +85,16 @@ pub fn gate(project: Option<&Path>, n: u32, what: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Сцена снята (успешный ref-scenes с её номером).
-pub fn mark_done(project: Option<&Path>, n: u32) {
+/// Сняты ещё `k` роликов сцены `n`; сцена снята, когда сняты все ролики её
+/// плана (без плана — с первого успешного ref-scenes).
+pub fn add_shots(project: Option<&Path>, n: u32, k: usize) {
     let Some(p) = project else { return };
     let mut s = load(Some(p));
-    s.done.insert(n);
+    let got = s.shot.entry(n).or_insert(0);
+    *got += k;
+    if *got >= s.planned.get(&n).copied().unwrap_or(1) {
+        s.done.insert(n);
+    }
     save(p, &s);
 }
 
@@ -398,6 +406,8 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
         let _ = std::fs::write(&doc, format!("{}{md}", kept.trim_end()));
         let mut s = load(Some(p));
         s.planned.insert(n, shots.len());
+        s.shot.remove(&n);
+        s.done.remove(&n);
         save(p, &s);
     }
     let summary: Vec<String> = shots
@@ -405,15 +415,30 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
         .enumerate()
         .map(|(i, s)| format!("ролик {}: {:.1} с, реплик {}", i + 1, s.seconds, s.lines.len()))
         .collect();
+    // готовая нумерация звука: refs = [картинки…, затем дорожки роликов по порядку]
+    let mut k = 0;
+    let mut numbering = Vec::new();
+    for (i, sj) in shots_json.iter().enumerate() {
+        let tr = sj["tracks"].as_array().cloned().unwrap_or_default();
+        let parts: Vec<String> = tr
+            .iter()
+            .map(|t| {
+                k += 1;
+                format!("<Audio {k}> — {} ({})", t["speaker"].as_str().unwrap_or(""), Path::new(t["file"].as_str().unwrap_or("")).file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default())
+            })
+            .collect();
+        numbering.push(format!("ролик {} (строка {} storyboard): {}", i + 1, i + 1, if parts.is_empty() { "без речи — ни одного <Audio>".into() } else { parts.join(", ") }));
+    }
     Ok((
         format!(
-            "Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); общая речь сцены{} — на таймлайн под ролики целиком. План — в документе «раскадровка».",
+            "Нумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); общая речь сцены{} — на таймлайн под ролики целиком. План — в документе «раскадровка».",
+            numbering.join("; "),
             shots.len(),
             summary.join("; "),
             mix.as_ref().map(|m| format!(" ({})", m.display())).unwrap_or_default()
         ),
         files,
-        json!({"scene": n, "seconds": total, "shots": shots_json, "speech": mix}),
+        json!({"scene": n, "seconds": total, "shots": shots_json, "speech": mix, "audio_numbering": numbering}),
     ))
 }
 
@@ -466,6 +491,23 @@ mod tests {
         let (total, _, shots) = layout(vec![], 30.0, 18.0).unwrap();
         assert_eq!(total, 30.0);
         assert_eq!(shots.len(), 2);
+    }
+
+    #[test]
+    fn scene_done_after_all_planned_shots() {
+        let d = tempfile::tempdir().unwrap();
+        let proj = d.path().join("Ф").join("Ф.syn");
+        std::fs::create_dir_all(proj.parent().unwrap()).unwrap();
+        let mut st = Story::default();
+        st.planned.insert(1, 2);
+        save(&proj, &st);
+        add_shots(Some(&proj), 1, 1);
+        assert!(!load(Some(&proj)).done.contains(&1));
+        assert!(gate(Some(&proj), 2, "Озвучка").is_err());
+        add_shots(Some(&proj), 1, 1);
+        assert!(load(Some(&proj)).done.contains(&1));
+        assert!(gate(Some(&proj), 2, "Озвучка").is_ok());
+        assert!(gate(Some(&proj), 3, "Озвучка").is_err());
     }
 
     #[test]

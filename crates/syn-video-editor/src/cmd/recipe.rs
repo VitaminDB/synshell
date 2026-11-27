@@ -73,11 +73,16 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     // эталон без имени — в медиатеке одинаковые «ref.png»: имя обязательно
     // (или из подписи «Эталон: <имя>»)
-    // съёмка сцены N — только после сцены N-1 (сцена за сценой)
+    // съёмка сцены N — только после сцены N-1 (сцена за сценой); ссылки
+    // строк на референсы — проверить до видеокарты
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
             super::story::gate(project, n, "Съёмка")?;
         }
+        let p = a.object("params")?.unwrap_or_default();
+        let refs: Vec<String> = p.get("refs").and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let sb = p.get("storyboard").and_then(|v| v.as_str()).unwrap_or("");
+        check_refs(sb, &refs)?;
     }
     if g.name == "ref-image" && asset_of(a)?.is_none() {
         return Err("ref-image: нужен asset — имя эталона (герой или локация) на верхнем уровне вызова, рядом с name: {name: \"ref-image\", asset: \"<имя героя>\", params: {…}}; файл назовётся по нему".into());
@@ -116,6 +121,7 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     // не одинаковые «ref.png» / «shots-000.mp4» в медиатеке
     let asset = asset_of(a)?;
     let mut renamed: std::collections::HashMap<std::path::PathBuf, std::path::PathBuf> = std::collections::HashMap::new();
+    let mut shots_seen = 0usize;
     let report = synaptix_graph::run_observed(
         &g,
         &params,
@@ -124,9 +130,16 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
         &mut |s| syn_assist::tools::progress(0, 0, s),
         &mut |node, files| {
             let files: Vec<std::path::PathBuf> = match &asset {
-                Some(name) => files.iter().map(|f| asset_name(&mut renamed, f, name)).collect(),
+                Some(name) => files.iter().map(|f| asset_name(&mut renamed, f, &part_name(name, node, f))).collect(),
                 None => files.to_vec(),
             };
+            // склейка из одного ролика — тот же ролик: в медиатеку не класть
+            if node == "film" && shots_seen <= 1 {
+                return;
+            }
+            if node == "shots" {
+                shots_seen += files.len();
+            }
             live.extend(files.iter().cloned());
             on_files(node, &files);
         },
@@ -137,13 +150,13 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let mut report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
     if let Some(name) = &asset {
         // файлы, пришедшие только в итоге (не элементами), — тоже по имени
+        for (node, o) in report.nodes.iter_mut() {
+            for f in o.files.iter_mut() {
+                *f = asset_name(&mut renamed, f, &part_name(name, node, f));
+            }
+        }
         for f in report.files.iter_mut() {
             *f = asset_name(&mut renamed, f, name);
-        }
-        for o in report.nodes.values_mut() {
-            for f in o.files.iter_mut() {
-                *f = asset_name(&mut renamed, f, name);
-            }
         }
     }
     // превью по ходу генерации нужны только во время прогона — не копить в папке проекта
@@ -172,6 +185,69 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     }
     crate::store::save(&built.project, &path)?;
     Ok(Generated { g, report, built, path, live })
+}
+
+/// Строки раскадровки ссылаются только на существующие референсы, и у
+/// каждой строки (ролика) не больше 3 звуков и 9 картинок — иначе H3 падает
+/// посреди съёмки, а снятые ролики пропадают.
+pub fn check_refs(storyboard: &str, refs: &[String]) -> Result<(), String> {
+    let is_audio = |r: &String| {
+        let l = r.to_lowercase();
+        [".wav", ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac"].iter().any(|e| l.ends_with(e))
+    };
+    let is_video = |r: &String| {
+        let l = r.to_lowercase();
+        [".mp4", ".mkv", ".mov", ".webm", ".avi"].iter().any(|e| l.ends_with(e))
+    };
+    let audios = refs.iter().filter(|r| is_audio(r)).count();
+    let images = refs.iter().filter(|r| !is_audio(r) && !is_video(r)).count();
+    let tags = |line: &str, word: &str| -> Vec<usize> {
+        let mut v: Vec<usize> = Vec::new();
+        let pat = format!("<{word} ");
+        let mut rest = line;
+        while let Some(i) = rest.find(&pat) {
+            rest = &rest[i + pat.len()..];
+            let d: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(k) = d.parse::<usize>() {
+                if !v.contains(&k) {
+                    v.push(k);
+                }
+            }
+        }
+        v
+    };
+    for (i, line) in storyboard.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+        let au = tags(line, "Audio");
+        let pi = tags(line, "Picture");
+        if let Some(k) = au.iter().find(|k| **k == 0 || **k > audios) {
+            return Err(format!("строка {} ссылается на <Audio {k}>, а звуков в refs {audios}", i + 1));
+        }
+        if let Some(k) = pi.iter().find(|k| **k == 0 || **k > images) {
+            return Err(format!("строка {} ссылается на <Picture {k}>, а картинок в refs {images}", i + 1));
+        }
+        if au.len() > 3 {
+            return Err(format!("строка {} (ролик) ссылается на {} звуков ({}) — у H3 не больше 3 на ролик: в строке ролика упоминай только ЕГО дорожки из scene.plan", i + 1, au.len(), au.iter().map(|k| format!("<Audio {k}>")).collect::<Vec<_>>().join(", ")));
+        }
+        if pi.len() > 9 {
+            return Err(format!("строка {} ссылается на {} картинок — у H3 не больше 9 на ролик", i + 1, pi.len()));
+        }
+    }
+    Ok(())
+}
+
+/// Имя файла узла ассета: ролики сцены — «<имя> — ролик N» (по номеру
+/// элемента в имени файла узла: shots-000 → 1), склейка — «<имя> — склейка»,
+/// остальное — «<имя>».
+fn part_name(asset: &str, node: &str, f: &std::path::Path) -> String {
+    let stem = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    match node {
+        "shots" => {
+            let k: usize = stem.rsplit('-').next().and_then(|d| d.parse().ok()).unwrap_or(0);
+            format!("{asset} — ролик {}", k + 1)
+        }
+        "film" => format!("{asset} — склейка"),
+        _ => asset.to_string(),
+    }
 }
 
 /// Имя ассета: `asset`, иначе из подписи (`label` «Эталон: Кот» → «Кот»,
@@ -230,10 +306,11 @@ fn asset_name(map: &mut std::collections::HashMap<std::path::PathBuf, std::path:
 /// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
 pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     let Generated { g, report, built, path, live } = done;
-    // сцена снята — следующая открыта (сцена за сценой)
+    // ролики сцены сняты — когда сняты все ролики её плана, открыта следующая
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
-            super::story::mark_done(ed.path.as_deref(), n);
+            let shot = report.nodes.get("shots").map(|o| o.files.len()).unwrap_or(1).max(1);
+            super::story::add_shots(ed.path.as_deref(), n, shot);
         }
     }
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
@@ -316,5 +393,18 @@ mod tests {
         let nc = super::asset_name(&mut m, &c, "Сцена 3");
         assert_eq!(nb.file_name().unwrap(), "Сцена 3.mp4");
         assert_eq!(nc.file_name().unwrap(), "Сцена 3-2.mp4");
+    }
+
+    #[test]
+    fn part_names_and_refs_check() {
+        use std::path::Path;
+        assert_eq!(super::part_name("Сцена 1", "shots", Path::new("/x/shots-001.mp4")), "Сцена 1 — ролик 2");
+        assert_eq!(super::part_name("Сцена 1", "film", Path::new("/x/film.mp4")), "Сцена 1 — склейка");
+        let refs: Vec<String> = ["a.png", "b.png", "c.png", "1.wav", "2.wav", "3.wav", "4.wav"].iter().map(|s| s.to_string()).collect();
+        assert!(super::check_refs("<Picture 1> <Audio 1> <Audio 2>\n<Picture 2> <Audio 3> <Audio 4>", &refs).is_ok());
+        let e = super::check_refs("<Picture 1> <Audio 1>\n<Audio 1> <Audio 2> <Audio 3> <Audio 4>", &refs).unwrap_err();
+        assert!(e.contains("строка 2") && e.contains("4 звуков"), "{e}");
+        assert!(super::check_refs("<Audio 5>", &refs).is_err());
+        assert!(super::check_refs("<Picture 4>", &refs).is_err());
     }
 }
