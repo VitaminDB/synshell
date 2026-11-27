@@ -117,6 +117,8 @@ pub struct GenTile {
     pub item: Option<(usize, usize)>,
     pub step: usize,
     pub total: usize,
+    /// Последнее превью генерации (картинка проявляется).
+    pub preview: Option<std::path::PathBuf>,
 }
 
 /// Разобрать строку хода рецепта «refs (image) — 2 из 5 · 13/40».
@@ -135,7 +137,7 @@ pub fn parse_gen(label: &str) -> Option<GenTile> {
         return None;
     }
     let (s, t) = step.and_then(|x| x.split_once('/')).and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?))).unwrap_or((0, 0));
-    Some(GenTile { node: node.to_string(), op, item, step: s, total: t })
+    Some(GenTile { node: node.to_string(), op, item, step: s, total: t, preview: None })
 }
 
 /// Строка панели ИИ.
@@ -687,6 +689,19 @@ impl St {
                     push(AiLine::Tool(summary))
                 }
                 // ход долгого инструмента (шаги рецепта) — строками в чат, а не тишина
+                AgentEvent::ToolProgress { label, .. } if label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => {
+                    let rest = &label[crate::cmd::recipe::PREVIEW_TAG.len()..];
+                    if let Some((node, png)) = rest.split_once('\t') {
+                        let (node, png) = (node.to_string(), std::path::PathBuf::from(png));
+                        syngui::async_runtime::run_on_main_thread(move || {
+                            self.gen_tiles.update(|v| {
+                                if let Some(t) = v.iter_mut().rev().find(|t| t.node == node) {
+                                    t.preview = Some(png);
+                                }
+                            })
+                        });
+                    }
+                }
                 AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => {
                     // плитка генерируемого ассета в медиатеке: прошлые элементы того же
                     // узла и другие узлы уже готовы (прогон последовательный)
@@ -695,7 +710,11 @@ impl St {
                             self.gen_tiles.update(|v| {
                                 v.retain(|x| x.node == t.node && x.item == t.item);
                                 match v.iter_mut().find(|x| x.node == t.node && x.item == t.item) {
-                                    Some(x) => *x = t,
+                                    Some(x) => {
+                                        let keep = x.preview.take();
+                                        *x = t;
+                                        x.preview = keep;
+                                    }
                                     None => v.push(t),
                                 }
                             });

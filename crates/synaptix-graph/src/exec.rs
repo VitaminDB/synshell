@@ -31,13 +31,14 @@ pub fn run(graph: &Graph, params: &Map<String, Value>, dir: &Path, on_step: &mut
 
 /// То же с отменой.
 pub fn run_cancellable(graph: &Graph, params: &Map<String, Value>, dir: &Path, cancel: &Cancel, on_step: &mut dyn FnMut(&str)) -> Result<Report, String> {
-    run_observed(graph, params, dir, cancel, on_step, &mut |_, _| {})
+    run_observed(graph, params, dir, cancel, on_step, &mut |_, _| {}, &mut |_, _| {})
 }
 
 /// То же, плюс `on_files(узел, файлы)` — файлы узла рецепта, как только он
 /// отработал (картинки героев, ролики сцен): программа может показывать их
 /// сразу, а не после всего прогона.
-pub fn run_observed(graph: &Graph, params: &Map<String, Value>, dir: &Path, cancel: &Cancel, on_step: &mut dyn FnMut(&str), on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Report, String> {
+/// `on_preview(узел, png)` — превью по ходу генерации (картинка проявляется).
+pub fn run_observed(graph: &Graph, params: &Map<String, Value>, dir: &Path, cancel: &Cancel, on_step: &mut dyn FnMut(&str), on_files: &mut dyn FnMut(&str, &[std::path::PathBuf]), on_preview: &mut dyn FnMut(&str, &Path)) -> Result<Report, String> {
     let params = with_defaults(graph, params);
     let mut graph = graph.clone();
     graph.normalize_output()?;
@@ -72,6 +73,20 @@ pub fn run_observed(graph: &Graph, params: &Map<String, Value>, dir: &Path, canc
                     }
                 }
                 o.label = summary.clone();
+            }
+        }
+        // элемент пакета готов (сцена, эталон героя) — его файлы сразу
+        Event::Item { id, ref outputs, .. } => {
+            if let Some(label) = labels.get(&id) {
+                let fresh: Vec<std::path::PathBuf> = outputs.values().flat_map(|v| v.files()).collect();
+                if !fresh.is_empty() {
+                    on_files(label, &fresh);
+                }
+            }
+        }
+        Event::Preview { id, ref outputs, .. } => {
+            if let (Some(label), Some(p)) = (labels.get(&id), outputs.get("image").and_then(|v| v.files().into_iter().next())) {
+                on_preview(label, &p);
             }
         }
         Event::Started { id, item, .. } => {

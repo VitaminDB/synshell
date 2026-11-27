@@ -100,7 +100,12 @@ fn media(st: St) -> impl Widget {
                 Column::new()
                     .gap(4.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb gen-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(if g.op == "video" { icons::MOVIE } else { icons::IMAGE }).class("media-empty-icon")).child(Text::new(step).class("row-sub"))))))
+                    .child(AspectRatio::new(16.0 / 9.0).child(match &g.preview {
+                        // превью по ходу: картинка проявляется на плитке
+                        Some(p) => Box::new(DecoratedBox::new().class("tile-thumb gen-thumb").child(Image::new(p.display().to_string()).fit(ImageFit::Cover))) as Box<dyn Widget>,
+                        None => Box::new(DecoratedBox::new().class("tile-thumb gen-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(if g.op == "video" { icons::MOVIE } else { icons::IMAGE }).class("media-empty-icon")).child(Text::new(step.clone()).class("row-sub"))))),
+                    }))
+                    .child(Text::new(step).class("row-sub"))
                     .child(ProgressBar::with_value(frac).class("gen-bar"))
                     .child(Text::new(format!("Генерируется {what}{item}")).max_lines(1).elide(Elide::End).class("row-title"))
                     .child(Text::new(g.node.clone()).max_lines(1).elide(Elide::End).class("row-sub"))

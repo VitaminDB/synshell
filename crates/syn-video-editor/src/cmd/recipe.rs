@@ -48,6 +48,9 @@ fn run(ed: &mut Editor, a: &Args) -> Res {
     apply(ed, a, done)
 }
 
+/// Служебная строка хода с превью генерации: `PREVIEW_TAG узел \t путь.png`.
+pub const PREVIEW_TAG: &str = "\u{1}preview\t";
+
 /// Готовый прогон рецепта: проект на диске и отчёт — до применения к редактору.
 pub struct Generated {
     g: synaptix_graph::Graph,
@@ -85,10 +88,19 @@ pub fn generate(a: &Args, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf]))
         });
     }
     let mut live: Vec<std::path::PathBuf> = Vec::new();
-    let report = synaptix_graph::run_observed(&g, &params, &run_dir, &cancel, &mut |s| syn_assist::tools::progress(0, 0, s), &mut |node, files| {
-        live.extend(files.iter().cloned());
-        on_files(node, files);
-    });
+    let report = synaptix_graph::run_observed(
+        &g,
+        &params,
+        &run_dir,
+        &cancel,
+        &mut |s| syn_assist::tools::progress(0, 0, s),
+        &mut |node, files| {
+            live.extend(files.iter().cloned());
+            on_files(node, files);
+        },
+        // превью по ходу — плитке медиатеки служебной строкой хода (в чат не идёт)
+        &mut |node, png| syn_assist::tools::progress(0, 0, &format!("{PREVIEW_TAG}{node}\t{}", png.display())),
+    );
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
     // отчёт прогона рядом с файлами: что дал каждый узел (разбор, если раскладка вышла не той)
