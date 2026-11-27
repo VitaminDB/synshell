@@ -55,6 +55,16 @@
       "type": "text",
       "description": "LoRA для MiniMax-H3: пусто — Turbo 8 шагов (быстро); «off» — полные 20 шагов для максимальной детализации и мимики",
       "default": ""
+    },
+    "width": {
+      "type": "number",
+      "description": "ширина ролика (кратна 16; 1344 — 768p, 960 — 540p для быстрой пробы)",
+      "default": 1344
+    },
+    "height": {
+      "type": "number",
+      "description": "высота ролика (кратна 16; 768 или 544)",
+      "default": 768
     }
   },
   "nodes": [
@@ -88,7 +98,9 @@
       "seconds": "{{shot}}",
       "chain": "{{chain}}",
       "model": "{{model}}",
-      "lora": "{{lora}}"
+      "lora": "{{lora}}",
+      "width": "{{width}}",
+      "height": "{{height}}"
     },
     {
       "id": "film",
