@@ -86,6 +86,21 @@ impl Tool for CmdTool {
             let mut scratch = crate::editor::Editor::new();
             return cmd::run_cmd(&mut scratch, self.cmd, args).map(|o| ToolOutput::text(o.text));
         }
+        // долгие команды (генерация рецептом — минуты) — без блокировки
+        // документа, иначе окно, ждущее её для отрисовки, висит всю генерацию;
+        // блокировка — только на короткое применение результата
+        if self.cmd.id == "recipe.run" {
+            let a = cmd::Args::from_value(self.cmd, args)?;
+            let done = cmd::recipe::generate(&a)?;
+            let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+            return cmd::recipe::apply(&mut ed, &a, done).map(|o| ToolOutput::text(o.text));
+        }
+        // экспорт (рендер минутами) проект не меняет — по копии, без блокировки
+        if self.cmd.id == "project.export" {
+            let mut snap = crate::editor::Editor::default();
+            snap.project = self.ed.lock().unwrap_or_else(|e| e.into_inner()).project.clone();
+            return cmd::run_cmd(&mut snap, self.cmd, args).map(|o| ToolOutput::text(o.text));
+        }
         let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
         cmd::run_cmd(&mut ed, self.cmd, args).map(|o| ToolOutput::text(o.text))
     }

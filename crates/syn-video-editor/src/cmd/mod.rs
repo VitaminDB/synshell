@@ -13,7 +13,7 @@ mod keys;
 mod lut;
 mod graph;
 mod blocks;
-mod recipe;
+pub mod recipe;
 mod script;
 mod index;
 pub mod skill;
@@ -165,6 +165,13 @@ pub fn run(ed: &mut Editor, id: &str, args: &Value) -> Res {
 }
 
 pub fn run_cmd(ed: &mut Editor, c: &Command, args: &Value) -> Res {
+    let a = Args::from_value(c, args)?;
+    (c.run)(ed, &a)
+}
+
+impl Args {
+    /// Проверенные аргументы команды из JSON (обязательные есть, лишних нет).
+    pub fn from_value(c: &Command, args: &Value) -> Result<Args, String> {
     let obj = match args {
         Value::Null => Map::new(),
         Value::Object(o) => o.clone(),
@@ -179,7 +186,8 @@ pub fn run_cmd(ed: &mut Editor, c: &Command, args: &Value) -> Res {
         let known: Vec<&str> = c.args.iter().map(|a| a.name).collect();
         return Err(format!("{}: неизвестный аргумент «{k}»; есть: {}", c.id, known.join(", ")));
     }
-    (c.run)(ed, &Args { cmd: c.id, v: obj })
+    Ok(Args { cmd: c.id, v: obj })
+    }
 }
 
 /// Аргументы с разбором типов и понятными ошибками.

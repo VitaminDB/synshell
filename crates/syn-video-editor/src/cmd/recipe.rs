@@ -44,6 +44,22 @@ static RUN: Command = Command {
 };
 
 fn run(ed: &mut Editor, a: &Args) -> Res {
+    let done = generate(a)?;
+    apply(ed, a, done)
+}
+
+/// Готовый прогон рецепта: проект на диске и отчёт — до применения к редактору.
+pub struct Generated {
+    g: synaptix_graph::Graph,
+    report: synaptix_graph::Report,
+    built: Editor,
+    path: std::path::PathBuf,
+}
+
+/// Долгая часть `recipe.run` — генерация службой и сборка проекта на диске.
+/// Документ редактора не нужен: агент зовёт её без блокировки (иначе окно,
+/// ждущее ту же блокировку для отрисовки, висит всю генерацию).
+pub fn generate(a: &Args) -> Result<Generated, String> {
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     let params = a.object("params")?.unwrap_or_default();
@@ -59,6 +75,12 @@ fn run(ed: &mut Editor, a: &Args) -> Res {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
     crate::store::save(&built.project, &path)?;
+    Ok(Generated { g, report, built, path })
+}
+
+/// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
+pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
+    let Generated { g, report, built, path } = done;
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
     let open = a.bool("open")?.unwrap_or(true);
     let can = !ed.dirty || ed.project.tracks.iter().all(|t| t.clips.is_empty());
