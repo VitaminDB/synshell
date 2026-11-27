@@ -104,6 +104,26 @@ fn write_wav(path: &Path, pcm: &[f32], rate: u32) -> Result<(), String> {
     std::fs::write(path, wav).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Доля слов реплики, услышанных распознаванием (без регистра, ё = е, без знаков).
+pub fn word_match(expected: &str, heard: &str) -> f64 {
+    let norm = |s: &str| -> Vec<String> {
+        s.to_lowercase().replace('ё', "е").split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect()
+    };
+    let exp = norm(expected);
+    if exp.is_empty() {
+        return 1.0;
+    }
+    let mut pool = norm(heard);
+    let mut hit = 0;
+    for w in &exp {
+        if let Some(i) = pool.iter().position(|h| h == w) {
+            pool.remove(i);
+            hit += 1;
+        }
+    }
+    hit as f64 / exp.len() as f64
+}
+
 /// Синтез службой: (pcm, частота, зерно).
 fn synth(model: &str, text: &str, params: &synaptixd::Params) -> Result<(Vec<f32>, u32, Option<u64>), String> {
     let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
@@ -208,6 +228,11 @@ fn heavy(ed: &mut Editor, id: &str, a: &Args) -> Res {
 
 /// Файлы — в медиатеку (если их там нет).
 pub fn import(ed: &mut Editor, files: &[PathBuf]) {
+    // заменённые дубли (файла больше нет) — из медиатеки убрать
+    let gone: Vec<u64> = ed.project.media.iter().filter(|m| m.kind == crate::doc::MediaKind::Audio && !m.path.exists() && m.path.parent().is_some_and(|d| d.ends_with("speech"))).map(|m| m.id).collect();
+    for id in gone {
+        let _ = super::run(ed, "media.remove", &json!({"id": id}));
+    }
     let have: std::collections::HashSet<PathBuf> = ed.project.media.iter().map(|m| m.path.clone()).collect();
     let fresh: Vec<String> = files.iter().filter(|f| f.exists() && !have.contains(*f)).map(|f| f.display().to_string()).collect();
     if !fresh.is_empty() {
@@ -270,9 +295,36 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             syn_assist::tools::progress(0, 0, &format!("реплика: {who} (speak)"));
             let (pcm, rate, seed) = synth(TTS_MODEL, &text, &p)?;
             let stem = a.str("name")?.filter(|n| !n.trim().is_empty()).map(|n| slug(&n)).unwrap_or_else(|| slug(&who));
+            // новый дубль той же реплики (то же имя) заменяет прежний — дубли
+            // не копятся в медиатеке и в «диалогах»
+            let mut replaced: Vec<String> = Vec::new();
+            if a.str("name")?.is_some_and(|n| !n.trim().is_empty()) {
+                if let Ok(rd) = std::fs::read_dir(dir.join("speech")) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        let base = n.trim_end_matches(".wav");
+                        if base.rsplit_once('-').is_some_and(|(st, k)| st == stem && k.chars().all(|c| c.is_ascii_digit())) {
+                            let _ = std::fs::remove_file(e.path());
+                            replaced.push(n);
+                        }
+                    }
+                }
+            }
             let out = free_path(&dir.join("speech"), &stem);
             write_wav(&out, &pcm, rate)?;
             let secs = pcm.len() as f64 / rate.max(1) as f64;
+            // речь без тишины по краям (её обрежет scene.plan) и проверка
+            // распознаванием: совпадают ли слова — единственная причина переозвучки
+            let speech = super::story::speech_span(&out).map(|(a0, b0, _)| b0 - a0).unwrap_or(secs);
+            let heard = super::audio::transcribe_file(&out, Some("ru")).map(|t| t.text).unwrap_or_default();
+            let score = word_match(&plain_text(&text), &heard);
+            let verdict = if heard.is_empty() {
+                "распознать не удалось — проверь на слух".to_string()
+            } else if score >= 0.8 {
+                format!("распознано «{heard}» — совпадает ({:.0}%), дубль годен, переозвучивать не нужно", score * 100.0)
+            } else {
+                format!("распознано «{heard}» — совпадает только {:.0}%: переозвучь (другой seed)", score * 100.0)
+            };
             // каждая озвученная реплика — строкой в «диалоги.md» проекта:
             // сцена, кто, что, файл, длина (пользователь читает и правит)
             if let Some(proj) = project {
@@ -286,10 +338,24 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
                     body.push_str("\n## Озвучка\n\n| Сцена | Кто | Реплика | Файл | Длина |\n|---|---|---|---|---|\n");
                 }
                 let file = out.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                // строки прежних дублей этой реплики — убрать
+                if !replaced.is_empty() || body.contains(&format!("| {file} |")) {
+                    body = body.lines().filter(|l| !replaced.iter().any(|r| l.contains(&format!("| {r} |"))) && !l.contains(&format!("| {file} |"))).collect::<Vec<_>>().join("\n") + "\n";
+                }
                 body.push_str(&format!("| {scene} | {who} | {} | {file} | {secs:.1} с |\n", text.replace('|', "/").replace('\n', " ")));
                 let _ = std::fs::write(&doc, body);
             }
-            Ok((format!("Реплика «{}» ({who}): {} — {secs:.1} с{}", plain_text(&text), out.display(), seed.map(|s| format!(", зерно {s}")).unwrap_or_default()), vec![out.clone()], json!({"path": out, "seconds": secs, "seed": seed})))
+            Ok((
+                format!(
+                    "Реплика «{}» ({who}): {} — речь {speech:.1} с (в файле {secs:.1} с; тишину по краям обрежет scene.plan){}{}. {verdict}",
+                    plain_text(&text),
+                    out.display(),
+                    seed.map(|s| format!(", зерно {s}")).unwrap_or_default(),
+                    if replaced.is_empty() { String::new() } else { format!(", заменён прежний дубль {}", replaced.join(", ")) }
+                ),
+                vec![out.clone()],
+                json!({"path": out, "seconds": secs, "speech_seconds": speech, "seed": seed, "heard": heard, "match": score, "replaced": replaced}),
+            ))
         }
         "voice.track" => {
             if let Some(n) = a.str("name")?.and_then(|s| s.to_lowercase().strip_prefix("сцена-").and_then(|r| r.split('-').next().and_then(|d| d.parse::<u32>().ok()))) {
@@ -343,5 +409,8 @@ mod tests {
     fn plain() {
         assert_eq!(super::plain_text("Ну что за шум? [deep, raspy voice] Опять <whisper>лягушки</whisper>! [sighs] Ладно."), "Ну что за шум? Опять лягушки! Ладно.");
         assert_eq!(super::plain_text("<|speaker:0|> Привет"), "Привет");
+        assert!(super::word_match("Суп? У меня и без того полный набор…", "Суп у меня и без того полный набор") > 0.99);
+        assert!(super::word_match("Ещё немного!", "еще немного") > 0.99);
+        assert!(super::word_match("Король объявил конкурс", "Король объявил") < 0.8);
     }
 }
