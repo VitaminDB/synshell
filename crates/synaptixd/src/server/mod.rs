@@ -299,8 +299,8 @@ impl Conn {
                 let reply = crate::ImageReply { width: r.width, height: r.height, seed: r.seed, label: r.label, png: FdRef { fd: 0 }, bytes: r.png.len() };
                 (data(reply), vec![fd])
             }
-            Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, fps_x2, strength, lora, lora_strength } => {
-                let p = crate::VideoParams { negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, fps_x2, strength, lora, lora_strength, ..Default::default() };
+            Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, fps_x2, dfr, strength, lora, lora_strength } => {
+                let p = crate::VideoParams { negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, fps_x2, dfr, strength, lora, lora_strength, ..Default::default() };
                 let raw = self.sock.as_raw_fd();
                 let id = self.current;
                 let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));

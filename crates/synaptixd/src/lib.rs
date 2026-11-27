@@ -1141,6 +1141,9 @@ pub enum Request {
         /// LTX-2.5: удвоить частоту кадров (временной апскейлер, 48 кадр/с).
         #[serde(default)]
         fps_x2: bool,
+        /// LTX-2.5: DFR (половинное разрешение со слотами ключевых кадров → детализация).
+        #[serde(default)]
+        dfr: bool,
         /// H3 restyle: сила перерисовки source_video (0..1).
         #[serde(default)]
         strength: Option<f32>,
@@ -1519,6 +1522,7 @@ pub struct VideoParams {
     pub control: Option<String>,
     pub two_stage: bool,
     pub fps_x2: bool,
+    pub dfr: bool,
     pub strength: Option<f32>,
     /// Файл латента хвоста (`.safetensors`): продолжить с хвоста без PNG.
     pub context: Option<String>,
@@ -2049,6 +2053,7 @@ impl Client {
             control: p.control.clone(),
             two_stage: p.two_stage,
             fps_x2: p.fps_x2,
+            dfr: p.dfr,
             strength: p.strength,
             lora: p.lora.clone(),
             lora_strength: p.lora_strength,

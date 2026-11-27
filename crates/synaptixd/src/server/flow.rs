@@ -524,6 +524,7 @@ fn video(cx: &mut Cx) -> R {
         control: cx.str("control"),
         two_stage: cx.bool("two_stage"),
         fps_x2: cx.bool("fps_x2"),
+        dfr: cx.bool("dfr"),
         strength: cx.pos("strength").map(|v| v as f32),
         context: ctx.as_ref().map(|(p, _)| p.display().to_string()),
         context_frames: cx.pos("context_frames").map(|v| v as usize),
