@@ -237,7 +237,10 @@ struct H3Model {
 
 fn h3_model(cx: &mut Cx) -> R {
     let m = mgr();
-    let want = cx.str("model").unwrap_or_else(|| "minimax-h3-fl2va".into());
+    let want = match cx.str("model") {
+        Some(w) => w,
+        None => crate::server::flow::video_fit(&|e| e.arch.to_lowercase().contains("minimax_h3"), "MiniMax-H3")?,
+    };
     let id = m.resolve_id(&want, ModelKind::Video).map_err(|e| e.message)?;
     let (path, encoder, dev, q) = m.run(&id, |l| l.h3_source()).map_err(|e| e.message)?;
     let quant = quant_field(cx, q);
@@ -362,7 +365,10 @@ pub fn release_idle_ltx() {
 
 fn ltx_model(cx: &mut Cx) -> R {
     let m = mgr();
-    let want = cx.str("model").unwrap_or_else(|| "ltx-2-3-22b-distilled-1-1".into());
+    let want = match cx.str("model") {
+        Some(w) => w,
+        None => crate::server::flow::video_fit(&|e| e.arch.to_lowercase().starts_with("ltx"), "LTX")?,
+    };
     let id = m.resolve_id(&want, ModelKind::Video).map_err(|e| e.message)?;
     let (paths, dev, q) = m.run(&id, |l| l.ltx_source()).map_err(|e| e.message)?;
     let quant = quant_field(cx, q);
@@ -586,7 +592,7 @@ fn music_model(cx: &Cx, family: &str) -> Result<(String, crate::server::runners:
     let m = mgr();
     let want = match cx.str("model") {
         Some(w) => w,
-        None => m.list().into_iter().filter(|e| e.kind == ModelKind::Music && e.id.contains(family)).min_by_key(|e| !e.id.contains("base")).map(|e| e.id).ok_or_else(|| format!("в библиотеке нет модели {family}"))?,
+        None => m.resolve_fit(ModelKind::Music, &|e| e.arch.to_lowercase().contains(family), &|e| !e.id.contains("base") as u8).ok_or_else(|| format!("в библиотеке нет модели {family}"))?,
     };
     let id = m.resolve_id(&want, ModelKind::Music).map_err(|e| e.message)?;
     let (mm, dev, q) = m.run(&id, |l| l.music_source().map(|(mm, d, q)| (mm.clone(), d, q))).map_err(|e| e.message)?;

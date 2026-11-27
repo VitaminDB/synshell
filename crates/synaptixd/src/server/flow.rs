@@ -497,8 +497,25 @@ pub fn read_context_tail(cx: &Cx) -> Result<Option<(PathBuf, Arc<synaptix_gen::t
     Ok(None)
 }
 
+fn is_ltx(m: &crate::ModelEntry) -> bool {
+    m.arch.to_lowercase().starts_with("ltx")
+}
+
+/// H3 нужного варианта (`ref2va` — по образцам, `fl2va` — по кадрам).
+fn is_h3(m: &crate::ModelEntry, variant: &str) -> bool {
+    m.arch.to_lowercase().contains("minimax_h3") && m.id.to_lowercase().contains(variant)
+}
+
+/// Модель видео с нужным свойством: выбранная по умолчанию, если подходит,
+/// иначе из библиотеки (дистиллированная раньше полной).
+pub(crate) fn video_fit(fit: &dyn Fn(&crate::ModelEntry) -> bool, what: &str) -> Result<String, String> {
+    mgr()
+        .resolve_fit(ModelKind::Video, fit, &|m| !m.id.contains("distilled") as u8)
+        .ok_or_else(|| format!("в библиотеке нет модели видео: {what}"))
+}
+
 fn has_ref2va() -> bool {
-    mgr().list().iter().any(|m| m.kind == ModelKind::Video && m.id.contains("ref2va"))
+    mgr().list().iter().any(|m| m.kind == ModelKind::Video && is_h3(m, "ref2va"))
 }
 
 /// Модель видео по нужным возможностям (как у инструмента media).
@@ -513,26 +530,27 @@ fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::
         if !tail.meta.model.is_empty() {
             return Ok(tail.meta.model.clone());
         }
-        return Ok(match tail.meta.family.as_str() {
-            "ltx" => "ltx-2-3-22b-distilled-1-1".into(),
-            _ if !p.refs.is_empty() => "minimax-h3-ref2va".into(),
-            _ => "minimax-h3-fl2va".into(),
-        });
+        return match tail.meta.family.as_str() {
+            "ltx" => video_fit(&is_ltx, "LTX (продолжение сцены)"),
+            _ if !p.refs.is_empty() => video_fit(&|m| is_h3(m, "ref2va"), "MiniMax-H3 по образцам"),
+            _ => video_fit(&|m| is_h3(m, "fl2va"), "MiniMax-H3 по кадрам"),
+        };
     }
     if let Some(m) = cx.str("model").filter(|m| !matches!(m.trim(), "" | "auto" | "default")) {
         return Ok(m);
     }
     let restyle = cx.bool("restyle") && p.source_video.is_some();
     let ltx_only = !restyle && (p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage);
-    Ok(if ltx_only {
-        "ltx-2-3-22b-distilled-1-1".into()
+    if ltx_only {
+        video_fit(&is_ltx, "LTX (звук, исходное или управляющее видео, две стадии)")
     } else if !p.refs.is_empty() && (has_ref2va() || p.first_frame.is_none()) {
-        "minimax-h3-ref2va".into()
+        video_fit(&|m| is_h3(m, "ref2va"), "MiniMax-H3 по образцам")
     } else if p.first_frame.is_some() || p.last_frame.is_some() || restyle {
-        "minimax-h3-fl2va".into()
+        video_fit(&|m| is_h3(m, "fl2va"), "MiniMax-H3 по кадрам")
     } else {
-        String::new()
-    })
+        // Без особых требований — модель видео из настроек по умолчанию.
+        Ok(String::new())
+    }
 }
 
 /// Короткое описание → подробная аудиовизуальная подпись в стиле обучающих
@@ -540,7 +558,14 @@ fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::
 fn enhance_prompt(cx: &mut Cx, prompt: &str) -> Result<String, String> {
     use synaptix_gen::ltx_text as lt;
     let m = mgr();
-    let model = m.resolve_id("ltx-2-5-prompt-enhancer", ModelKind::Llm).map_err(|e| format!("улучшитель промпта LTX-2.5 не найден: {}", e.message))?;
+    // Улучшитель — модель из комплекта LTX: ищется по назначению, не по имени файла.
+    let model = m
+        .list()
+        .into_iter()
+        .filter(|e| e.kind == ModelKind::Llm && e.id.contains("prompt-enhancer"))
+        .map(|e| e.id)
+        .min()
+        .ok_or_else(|| "улучшитель промпта LTX не найден в библиотеке".to_string())?;
     let msgs = vec![crate::Message::system(lt::ENHANCER_T2V_SYSTEM), crate::Message::user(lt::enhancer_user_message(prompt, false))];
     let call = Params::new().with("thinking", false).with("max_tokens", lt::ENHANCER_MAX_TOKENS as i64).with("temperature", 0.0).with("seed", 42i64);
     let params = m.params(&model, &call);
@@ -626,7 +651,7 @@ fn music(cx: &mut Cx) -> R {
     // Инструментал — ACE-Step (YuE2 — песенная модель).
     let model = cx.str("model").or_else(|| {
         if lyrics.is_empty() {
-            mgr().list().into_iter().filter(|m| m.kind == ModelKind::Music && m.id.contains("acestep")).min_by_key(|m| !m.id.contains("turbo")).map(|m| m.id)
+            mgr().resolve_fit(ModelKind::Music, &|m| m.arch.to_lowercase().contains("acestep"), &|m| !m.id.contains("turbo") as u8)
         } else {
             None
         }

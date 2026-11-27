@@ -458,6 +458,22 @@ impl Manager {
         self.auto_pick(kind).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("нет установленных моделей вида {}", kind.id())))
     }
 
+    /// Модель вида `kind` с нужным свойством (`fit` — по архитектуре, варианту):
+    /// выбранная в настройках по умолчанию, если подходит; иначе подходящая из
+    /// библиотеки (при нескольких — `prefer` меньшим ключом, затем по id).
+    /// Конкретных имён моделей служба не знает — только свойства.
+    pub fn resolve_fit(&self, kind: ModelKind, fit: &dyn Fn(&ModelEntry) -> bool, prefer: &dyn Fn(&ModelEntry) -> u8) -> Option<String> {
+        let list = self.list();
+        if let Ok(d) = self.resolve(kind) {
+            if list.iter().any(|m| m.id == d && m.kind == kind && fit(m)) {
+                return Some(d);
+            }
+        }
+        let mut c: Vec<&ModelEntry> = list.iter().filter(|m| m.kind == kind && fit(m)).collect();
+        c.sort_by(|a, b| prefer(a).cmp(&prefer(b)).then_with(|| a.id.cmp(&b.id)));
+        c.first().map(|m| m.id.clone())
+    }
+
     /// Модель по id; пусто — по умолчанию; абсолютный путь — та, чей файл
     /// (вариант) лежит по этому пути (шаблоны редактора узлов хранят пути).
     pub fn resolve_id(&self, id: &str, kind: ModelKind) -> Result<String, Error> {

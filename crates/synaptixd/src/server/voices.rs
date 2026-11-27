@@ -13,8 +13,10 @@ use crate::{Error, ErrorCode, ModelKind, Params};
 
 use crate::server::manager::Manager;
 
-/// Модель, которая озвучивает опорные клипы (голос по описанию).
-const CLIP_MODEL: &str = "omnivoice";
+/// Архитектура моделей, умеющих голос по описанию: ими озвучиваются опорные
+/// клипы персонажей (модель — выбранная по умолчанию, если она такая, иначе
+/// подходящая из библиотеки).
+const CLIP_ARCH: &str = "omnivoice";
 
 /// Реплики сценария: строки «Speaker N: текст» → (N, текст). Строка без
 /// метки продолжает прошлую реплику (до первой метки — Speaker 1).
@@ -75,7 +77,7 @@ pub fn renumber(reps: &[(usize, String)]) -> (String, Vec<usize>) {
 }
 
 /// Опорный клип персонажа: из кэша на диске, иначе озвучить моделью
-/// [`CLIP_MODEL`] (описание персонажа и его зерно) и сохранить.
+/// с голосом по описанию ([`CLIP_ARCH`]; описание персонажа и его зерно) и сохранить.
 pub fn persona_clip(mgr: &std::sync::Arc<Manager>, speaker: &str, language: Option<&str>) -> Result<PathBuf, Error> {
     let lang = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| "en".into());
     let dir = mgr.cfg.state.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/var/lib/synaptix")).join("voices");
@@ -84,7 +86,9 @@ pub fn persona_clip(mgr: &std::sync::Arc<Manager>, speaker: &str, language: Opti
         return Ok(path);
     }
     let failed = |e: String| Error::new(ErrorCode::Failed, format!("голос «{speaker}»: {e}"));
-    let model = mgr.resolve_id(CLIP_MODEL, ModelKind::Tts).map_err(|e| failed(format!("нужна модель {CLIP_MODEL} для опорного клипа: {}", e.message)))?;
+    let model = mgr
+        .resolve_fit(ModelKind::Tts, &|m| m.arch.to_lowercase().contains(CLIP_ARCH), &|_| 0)
+        .ok_or_else(|| failed("для опорного клипа нужна модель синтеза с голосом по описанию (OmniVoice) — в библиотеке такой нет".into()))?;
     let text = clip_text(&lang);
     let (lo, hi) = pitch_range(speaker);
     let base = synaptix::facade::tts::speaker(speaker).map(|s| s.2).unwrap_or(1);
@@ -209,13 +213,11 @@ pub fn median_f0(pcm: &[f32], sr: u32) -> f32 {
     f0s.get(f0s.len() / 2).copied().unwrap_or(0.0)
 }
 
-/// Модель проверки синтеза распознаванием.
-const CHECK_ASR: &str = "whisper-large-v3-turbo";
-
 /// Доля слов текста, не узнанных в синтезированной речи (WER по словам без
 /// пунктуации); `None` — проверить нечем.
 pub fn speech_error(mgr: &std::sync::Arc<Manager>, pcm: &[f32], sr: u32, language: Option<&str>, text: &str) -> Option<f32> {
-    let model = mgr.resolve_id(CHECK_ASR, ModelKind::Asr).ok()?;
+    // Проверяет модель распознавания, выбранная в настройках по умолчанию.
+    let model = mgr.resolve(ModelKind::Asr).ok()?;
     let t = mgr.run(&model, |m| m.transcribe(pcm, sr, language, None)).ok()?;
     // Метки «Speaker N:» сценария не произносятся.
     let spoken: Vec<String> = replicas(text).into_iter().map(|r| r.1).collect();
