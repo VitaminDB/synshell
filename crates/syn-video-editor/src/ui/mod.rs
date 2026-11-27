@@ -254,6 +254,8 @@ pub struct St {
     pub tpl_cat: RwSignal<String>,
     /// Что сейчас генерирует агент (плитки в медиатеке до готового файла).
     pub gen_tiles: RwSignal<Vec<GenTile>>,
+    /// Подпись текущей генерации от агента (`recipe.run label`): «Сцена 3 из 12: …».
+    pub gen_label: RwSignal<Option<String>>,
 }
 
 impl St {
@@ -331,6 +333,7 @@ impl St {
             viewer_bg: use_signal(0),
             tpl_cat: use_signal(String::new()),
             gen_tiles: use_signal(Vec::new()),
+            gen_label: use_signal(None),
         }
     }
 
@@ -697,6 +700,8 @@ impl St {
                     // рецепт агента — сразу вкладкой в «Графе»: видно, что и с какими параметрами идёт
                     if let Some(rest) = summary.strip_prefix("Прогнать рецепт в проект") {
                         let args: serde_json::Value = rest.find('{').and_then(|i| serde_json::from_str(&rest[i..]).ok()).unwrap_or_default();
+                        let label = args.get("label").and_then(|v| v.as_str()).map(str::to_string).filter(|l| !l.trim().is_empty());
+                        syngui::async_runtime::run_on_main_thread(move || self.gen_label.set(label));
                         if let Some(name) = args.get("name").and_then(|v| v.as_str()).map(str::to_string) {
                             let params = args.get("params").and_then(|v| v.as_object()).cloned().unwrap_or_default();
                             syngui::async_runtime::run_on_main_thread(move || templates::open_recipe_run(self, &name, &params));
@@ -740,7 +745,10 @@ impl St {
                 }
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => {
                     // инструмент закончил — готовые файлы уже в медиатеке, плитки хода убрать
-                    syngui::async_runtime::run_on_main_thread(move || self.gen_tiles.set(Vec::new()));
+                    syngui::async_runtime::run_on_main_thread(move || {
+                        self.gen_tiles.set(Vec::new());
+                        self.gen_label.set(None);
+                    });
                     push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string()))
                 }
                 _ => {}

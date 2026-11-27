@@ -93,11 +93,20 @@ fn media(st: St) -> impl Widget {
         // масонская раскладка: плитки по пропорциям роликов, ширина колонки — ползунком
         let mut grid = Grid::new(16).min_column_width(tile_size).gap(8.0).masonry(true);
         // что агент генерирует прямо сейчас — плитками с ходом, до готового файла
+        let label = st.gen_label.get();
         for g in gen {
             let frac = if g.total > 0 { g.step as f32 / g.total as f32 } else { 0.0 };
-            let what = match g.op.as_str() { "image" => "картинка", "video" => "ролик", "music" => "музыка", _ => "звук" };
+            let what = match g.op.as_str() { "image" => "картинка", "video" => "ролик", "music" => "музыка", "speak" => "голос", _ => "звук" };
             let item = g.item.map(|(k, n)| format!(" {k} из {n}")).unwrap_or_default();
-            let step = if g.total > 0 { format!("шаг {}/{}", g.step, g.total) } else { "подготовка…".into() };
+            let speech = g.op == "speak";
+            let step = if g.total > 0 { format!("шаг {}/{}", g.step, g.total) } else if speech { "синтез речи…".into() } else { "подготовка…".into() };
+            // место в фильме от агента («Сцена 3 из 12: …») — вместо «ролик 1 из 1»
+            let title = match (&label, g.item) {
+                (Some(l), Some((k, n))) if n > 1 => format!("{l} · {what} {k} из {n}"),
+                (Some(l), _) => l.clone(),
+                (None, _) => format!("Генерируется {what}{item}"),
+            };
+            let bar = if g.total == 0 { ProgressBar::with_value(0.0).indeterminate() } else { ProgressBar::with_value(frac) };
             grid = grid.child(
                 Column::new()
                     .gap(4.0)
@@ -105,11 +114,11 @@ fn media(st: St) -> impl Widget {
                     .child(AspectRatio::new(16.0 / 9.0).child(match &g.preview {
                         // превью по ходу: картинка проявляется на плитке
                         Some(p) => Box::new(DecoratedBox::new().class("tile-thumb gen-thumb").child(Image::new(p.display().to_string()).fit(ImageFit::Cover))) as Box<dyn Widget>,
-                        None => Box::new(DecoratedBox::new().class("tile-thumb gen-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(if g.op == "video" { icons::MOVIE } else { icons::IMAGE }).class("media-empty-icon")).child(Text::new(step.clone()).class("row-sub"))))),
+                        None => Box::new(DecoratedBox::new().class("tile-thumb gen-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(match g.op.as_str() { "video" => icons::MOVIE, "speak" | "music" => icons::AUDIO, _ => icons::IMAGE }).class("media-empty-icon")).child(Text::new(step.clone()).class("row-sub"))))),
                     }))
                     .child(Text::new(step).class("row-sub"))
-                    .child(ProgressBar::with_value(frac).class("gen-bar"))
-                    .child(Text::new(format!("Генерируется {what}{item}")).max_lines(1).elide(Elide::End).class("row-title"))
+                    .child(bar.class("gen-bar"))
+                    .child(Text::new(title).max_lines(2).elide(Elide::End).class("row-title"))
                     .child(Text::new(g.node.clone()).max_lines(1).elide(Elide::End).class("row-sub"))
                     .class("tile gen-tile"),
             );

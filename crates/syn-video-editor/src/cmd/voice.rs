@@ -225,7 +225,7 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             let model = a.str("model")?.filter(|m| !m.trim().is_empty()).unwrap_or_else(|| TTS_MODEL.into());
             let mut p = synaptixd::Params::default();
             p.set("seed", a.num("seed")?.map(|s| (s as i64).into()));
-            syn_assist::tools::progress(0, 0, &format!("голос «{name}»"));
+            syn_assist::tools::progress(0, 0, &format!("голос «{name}» (speak)"));
             let (pcm, rate, seed) = synth(&model, &text, &p)?;
             let out = free_path(&dir.join("voices"), &slug(&name));
             write_wav(&out, &pcm, rate)?;
@@ -259,7 +259,7 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             p.set("seed", a.num("seed")?.map(|s| (s as i64).into()));
             p.set("temperature", a.num("temperature")?.map(Into::into));
             let who = names.first().cloned().unwrap_or_else(|| "речь".into());
-            syn_assist::tools::progress(0, 0, &format!("реплика: {who}"));
+            syn_assist::tools::progress(0, 0, &format!("реплика: {who} (speak)"));
             let (pcm, rate, seed) = synth(TTS_MODEL, &text, &p)?;
             let stem = a.str("name")?.filter(|n| !n.trim().is_empty()).map(|n| slug(&n)).unwrap_or_else(|| slug(&who));
             let out = free_path(&dir.join("speech"), &stem);
