@@ -69,7 +69,8 @@ fn media(st: St) -> impl Widget {
                 (m.id, m.kind, m.name(), info.join(" · "), m.path.clone(), m.duration, aspect)
             })
             .collect();
-        if items.is_empty() {
+        let gen = st.gen_tiles.get();
+        if items.is_empty() && gen.is_empty() {
             return vec![Box::new(
                 Column::new()
                     .gap(10.0)
@@ -89,6 +90,23 @@ fn media(st: St) -> impl Widget {
         let _ = st.media_sel.get();
         // масонская раскладка: плитки по пропорциям роликов, ширина колонки — ползунком
         let mut grid = Grid::new(16).min_column_width(tile_size).gap(8.0).masonry(true);
+        // что агент генерирует прямо сейчас — плитками с ходом, до готового файла
+        for g in gen {
+            let frac = if g.total > 0 { g.step as f32 / g.total as f32 } else { 0.0 };
+            let what = match g.op.as_str() { "image" => "картинка", "video" => "ролик", "music" => "музыка", _ => "звук" };
+            let item = g.item.map(|(k, n)| format!(" {k} из {n}")).unwrap_or_default();
+            let step = if g.total > 0 { format!("шаг {}/{}", g.step, g.total) } else { "подготовка…".into() };
+            grid = grid.child(
+                Column::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb gen-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(if g.op == "video" { icons::MOVIE } else { icons::IMAGE }).class("media-empty-icon")).child(Text::new(step).class("row-sub"))))))
+                    .child(ProgressBar::with_value(frac).class("gen-bar"))
+                    .child(Text::new(format!("Генерируется {what}{item}")).max_lines(1).elide(Elide::End).class("row-title"))
+                    .child(Text::new(g.node.clone()).max_lines(1).elide(Elide::End).class("row-sub"))
+                    .class("tile gen-tile"),
+            );
+        }
         for (id, kind, name, info, path, dur, aspect) in items {
             grid = grid.child(tile(st, id, kind, name, info, path, dur, aspect));
         }

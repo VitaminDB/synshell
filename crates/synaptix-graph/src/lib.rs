@@ -26,7 +26,7 @@ mod exec;
 pub mod recipes;
 pub mod synthos;
 
-pub use exec::{run, run_cancellable};
+pub use exec::{run, run_cancellable, run_observed};
 pub use synaptix_flow::Cancel;
 pub(crate) use exec::OPS;
 

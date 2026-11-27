@@ -91,7 +91,19 @@ impl Tool for CmdTool {
         // блокировка — только на короткое применение результата
         if self.cmd.id == "recipe.run" {
             let a = cmd::Args::from_value(self.cmd, args)?;
-            let done = cmd::recipe::generate(&a)?;
+            // готовые файлы узлов — сразу в медиатеку проекта (короткая блокировка)
+            let ed_live = self.ed.clone();
+            let done = cmd::recipe::generate(&a, &mut |_, files| {
+                let paths: Vec<String> = files.iter().filter(|f| f.exists()).map(|f| f.display().to_string()).collect();
+                if !paths.is_empty() {
+                    let mut ed = ed_live.lock().unwrap_or_else(|e| e.into_inner());
+                    let have: std::collections::HashSet<String> = ed.project.media.iter().map(|m| m.path.display().to_string()).collect();
+                    let fresh: Vec<String> = paths.into_iter().filter(|p| !have.contains(p)).collect();
+                    if !fresh.is_empty() {
+                        let _ = cmd::run(&mut ed, "media.import", &serde_json::json!({"paths": fresh}));
+                    }
+                }
+            })?;
             let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
             return cmd::recipe::apply(&mut ed, &a, done).map(|o| ToolOutput::text(o.text));
         }

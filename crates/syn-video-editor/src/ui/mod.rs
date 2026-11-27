@@ -109,6 +109,35 @@ pub enum Pick {
     Export,
 }
 
+/// Генерируемый ассет: узел рецепта, вид, элемент k из n, шаг s из t.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GenTile {
+    pub node: String,
+    pub op: String,
+    pub item: Option<(usize, usize)>,
+    pub step: usize,
+    pub total: usize,
+}
+
+/// Разобрать строку хода рецепта «refs (image) — 2 из 5 · 13/40».
+pub fn parse_gen(label: &str) -> Option<GenTile> {
+    let (head, step) = match label.rsplit_once(" · ") {
+        Some((h, s)) => (h, Some(s)),
+        None => (label, None),
+    };
+    let (nodeop, item) = match head.split_once(" — ") {
+        Some((a, b)) => (a, b.split_once(" из ").and_then(|(k, n)| Some((k.trim().parse().ok()?, n.trim().parse().ok()?)))),
+        None => (head, None),
+    };
+    let (node, op) = nodeop.trim().split_once(" (")?;
+    let op = op.trim_end_matches(')').to_string();
+    if !matches!(op.as_str(), "image" | "video" | "music" | "speak") {
+        return None;
+    }
+    let (s, t) = step.and_then(|x| x.split_once('/')).and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?))).unwrap_or((0, 0));
+    Some(GenTile { node: node.to_string(), op, item, step: s, total: t })
+}
+
 /// Строка панели ИИ.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AiLine {
@@ -216,6 +245,8 @@ pub struct St {
     pub viewer_bg: RwSignal<u8>,
     /// Выбранный верхний раздел в панели «Шаблоны» (пусто — все, `"Переходы"` — переходы Fusion).
     pub tpl_cat: RwSignal<String>,
+    /// Что сейчас генерирует агент (плитки в медиатеке до готового файла).
+    pub gen_tiles: RwSignal<Vec<GenTile>>,
 }
 
 impl St {
@@ -290,6 +321,7 @@ impl St {
             viewer_pan: use_signal((0.0, 0.0)),
             viewer_bg: use_signal(0),
             tpl_cat: use_signal(String::new()),
+            gen_tiles: use_signal(Vec::new()),
         }
     }
 
@@ -655,10 +687,30 @@ impl St {
                     push(AiLine::Tool(summary))
                 }
                 // ход долгого инструмента (шаги рецепта) — строками в чат, а не тишина
-                AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => push(AiLine::Result(format!("… {label}"))),
-                AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
+                AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => {
+                    // плитка генерируемого ассета в медиатеке: прошлые элементы того же
+                    // узла и другие узлы уже готовы (прогон последовательный)
+                    if let Some(t) = parse_gen(&label) {
+                        syngui::async_runtime::run_on_main_thread(move || {
+                            self.gen_tiles.update(|v| {
+                                v.retain(|x| x.node == t.node && x.item == t.item);
+                                match v.iter_mut().find(|x| x.node == t.node && x.item == t.item) {
+                                    Some(x) => *x = t,
+                                    None => v.push(t),
+                                }
+                            });
+                        });
+                    }
+                    push(AiLine::Result(format!("… {label}")))
+                }
+                AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => {
+                    // инструмент закончил — готовые файлы уже в медиатеке, плитки хода убрать
+                    syngui::async_runtime::run_on_main_thread(move || self.gen_tiles.set(Vec::new()));
+                    push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string()))
+                }
                 _ => {}
             });
+            syngui::async_runtime::run_on_main_thread(move || self.gen_tiles.set(Vec::new()));
             let stopped = AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst);
             match r {
                 Err(e) => push(AiLine::Error(if stopped { "Остановлено".into() } else { e })),

@@ -44,7 +44,7 @@ static RUN: Command = Command {
 };
 
 fn run(ed: &mut Editor, a: &Args) -> Res {
-    let done = generate(a)?;
+    let done = generate(a, &mut |_, _| {})?;
     apply(ed, a, done)
 }
 
@@ -54,12 +54,15 @@ pub struct Generated {
     report: synaptix_graph::Report,
     built: Editor,
     path: std::path::PathBuf,
+    /// Файлы узлов, показанные в медиатеке по ходу прогона (эталоны героев,
+    /// локаций, ролики) — переносятся и в собранный проект.
+    live: Vec<std::path::PathBuf>,
 }
 
 /// Долгая часть `recipe.run` — генерация службой и сборка проекта на диске.
 /// Документ редактора не нужен: агент зовёт её без блокировки (иначе окно,
 /// ждущее ту же блокировку для отрисовки, висит всю генерацию).
-pub fn generate(a: &Args) -> Result<Generated, String> {
+pub fn generate(a: &Args, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     let params = a.object("params")?.unwrap_or_default();
@@ -81,7 +84,11 @@ pub fn generate(a: &Args) -> Result<Generated, String> {
             }
         });
     }
-    let report = synaptix_graph::run_cancellable(&g, &params, &run_dir, &cancel, &mut |s| syn_assist::tools::progress(0, 0, s));
+    let mut live: Vec<std::path::PathBuf> = Vec::new();
+    let report = synaptix_graph::run_observed(&g, &params, &run_dir, &cancel, &mut |s| syn_assist::tools::progress(0, 0, s), &mut |node, files| {
+        live.extend(files.iter().cloned());
+        on_files(node, files);
+    });
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
     // отчёт прогона рядом с файлами: что дал каждый узел (разбор, если раскладка вышла не той)
@@ -93,18 +100,37 @@ pub fn generate(a: &Args) -> Result<Generated, String> {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
     crate::store::save(&built.project, &path)?;
-    Ok(Generated { g, report, built, path })
+    Ok(Generated { g, report, built, path, live })
 }
 
 /// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
 pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
-    let Generated { g, report, built, path } = done;
+    let Generated { g, report, built, path, live } = done;
     let clips: usize = built.project.tracks.iter().map(|t| t.clips.len()).sum();
     let open = a.bool("open")?.unwrap_or(true);
     let can = !ed.dirty || ed.project.tracks.iter().all(|t| t.clips.is_empty());
     let opened = open && can;
+    // пустой проект с файлом (тот, в котором попросили сделать) — собрать в
+    // него же: имя, файл и состояние окна проекта (вкладки графов) остаются
+    let empty_here = ed.path.is_some() && ed.project.tracks.iter().all(|t| t.clips.is_empty());
+    let path = if opened && empty_here { ed.path.clone().unwrap_or(path) } else { path };
     if opened {
-        ed.replace(built.project, Some(path.clone()));
+        let mut project = built.project;
+        if empty_here {
+            // имя — своё; медиатека, набранная по ходу прогона, вернётся импортом ниже
+            project.name = ed.project.name.clone();
+        }
+        ed.replace(project, Some(path.clone()));
+        if empty_here {
+            ed.dirty = true;
+        }
+    }
+    // всё, что появилось по ходу (эталоны героев и локаций и т.п.), — и в
+    // медиатеке итогового проекта, а не только ролики на таймлайне
+    let have: std::collections::HashSet<std::path::PathBuf> = ed.project.media.iter().map(|m| m.path.clone()).collect();
+    let missing: Vec<String> = live.iter().filter(|f| !have.contains(*f) && f.exists()).map(|f| f.display().to_string()).collect();
+    if !missing.is_empty() {
+        let _ = crate::cmd::run(ed, "media.import", &json!({"paths": missing}));
     }
     let files_str: Vec<String> = report.files.iter().map(|f| f.display().to_string()).collect();
     let refs_note = report
