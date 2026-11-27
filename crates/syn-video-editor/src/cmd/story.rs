@@ -290,24 +290,26 @@ static STATUS: Cmd = Cmd {
     },
 };
 
-/// Каркас строки Ref2VA для ролика: говорящие — (S1), (S2)… по порядку первой
-/// реплики, их дорожки — `<Audio base+1…>` fully_copy, обязательная постановка
-/// (камера, место и разворот каждого героя), правило речи. Агент заполняет <…>.
+/// Каркас строки Ref2VA для ролика — только то, что не зависит от сюжета:
+/// шесть полей по порядку, дорожки ролика `<Audio base+1…>` (fully_copy),
+/// говорящие (S1), (S2)… по порядку первой реплики и правило речи. Постановку
+/// (герои, камера, где кто стоит и куда смотрит, действие) пишет агент по
+/// сценарию — на месте <…>.
 pub fn skeleton(shot: usize, tracks: &[Value], base: usize) -> String {
     let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
-    let mut sd = String::from("subject_definitions: <Picture a> is <герой: кто, внешность>. <Picture b> is <второй герой>. <Picture c> is <локация>.");
-    let mut ra = String::from("retention_analysis: <Picture a>: fully_preserved - <герой>'s appearance. <Picture b>: fully_preserved - <второй>'s appearance. <Picture c>: fully_preserved - the location; walls, doors, windows and props stay exactly as in the reference.");
+    let mut sd = String::from("subject_definitions: <каждая картинка ролика: <Picture k> is …>.");
+    let mut ra = String::from("retention_analysis: <роль каждой картинки: fully_preserved / partially_preserved / …>.");
     for (j, sp) in speakers.iter().enumerate() {
         let k = base + j + 1;
         sd.push_str(&format!(" <Audio {k}> is the exact dialogue track of {sp}."));
         ra.push_str(&format!(" <Audio {k}>: fully_copy - {sp}'s speech, copied exactly and lip-synced."));
     }
     let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
-    let cont = if shot > 0 { " Continues seamlessly from the previous shot: same positions, lighting and props." } else { "" };
     format!(
-        "{sd} summary: [reference generation]{} <суть ролика одной фразой>. {ra} detailed_description: <стиль>.{cont} Camera: <крупность>, <где стоит камера и куда смотрит, например: side view across the room, the hearth in the background>, static, the layout does not change. [Shot 1] Blocking: <Picture a> stands <слева/справа, у чего>, body in three-quarter profile turned toward <Picture b>; <Picture b> stands <слева/справа>, three-quarter profile turned toward <Picture a>; they look at each other and never at the camera. <действие без слов речи>.{} Each character moves the mouth only while their own audio is audible; otherwise the mouth stays closed. All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы места и действий>. non_diegetic_music: <музыка или N/A>.",
+        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус; действие без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
         if speakers.is_empty() { "" } else { " + [audio reuse]" },
-        if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio.", who.join(", ")) }
+        if shot > 0 { " <продолжение предыдущего ролика сцены>" } else { "" },
+        if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
     )
 }
 
