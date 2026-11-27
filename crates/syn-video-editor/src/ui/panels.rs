@@ -47,6 +47,39 @@ fn media_filter() -> RwSignal<Option<MediaKind>> {
     MEDIA_FILTER.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal(None)))
 }
 
+thread_local! {
+    static DOCS_ONLY: std::cell::RefCell<Option<RwSignal<bool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// В медиатеке — только документы проекта.
+fn docs_only() -> RwSignal<bool> {
+    DOCS_ONLY.with(|s| *s.borrow_mut().get_or_insert_with(|| use_signal(false)))
+}
+
+/// Плитка документа проекта (Markdown): двойной щелчок — вкладка «Медиа» с правкой.
+fn doc_tile(st: St, path: std::path::PathBuf) -> Box<dyn Widget> {
+    let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").trim_start_matches('#').trim().to_string();
+    let info = format!("документ · {} строк", text.lines().count());
+    let body = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(AspectRatio::new(16.0 / 9.0).child(DecoratedBox::new().class("tile-thumb doc-thumb").child(Center::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::DESCRIPTION).class("tile-icon")).child(Text::new(first).max_lines(2).elide(Elide::End).class("doc-thumb-text"))))))
+        .child(Text::new(format!("{name}.md")).max_lines(1).elide(Elide::End).class("row-title"))
+        .child(Text::new(info).max_lines(1).class("row-sub"));
+    Box::new(GestureDetector::new().on_double_click(move || open_doc(st, path.clone())).child(DecoratedBox::new().class("tile").child(body)))
+}
+
+/// Открыть документ проекта во вкладке «Медиа».
+pub fn open_doc(st: St, path: std::path::PathBuf) {
+    st.media_preview.set(None);
+    st.fx_preview.set(None);
+    st.doc_preview.set(Some(path));
+    st.open_panel("media_view");
+    st.dock.activate("media_view");
+}
+
 fn media(st: St) -> impl Widget {
     let header = Row::new()
         .gap(6.0)
@@ -92,6 +125,7 @@ fn media(st: St) -> impl Widget {
         )]
     });
     let kind_filter = media_filter();
+    let docs_flag = docs_only();
     // чипы-фильтры по виду файлов: «Все» и виды, которые есть в медиатеке
     let chips = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.rev.get();
@@ -99,17 +133,31 @@ fn media(st: St) -> impl Widget {
         let e = ed();
         let n = |k: MediaKind| e.project.media.iter().filter(|m| m.kind == k).count();
         let total = e.project.media.len();
-        if total == 0 {
+        if total == 0 && crate::cmd::doc::list_docs(e.path.as_deref()).is_empty() {
             return vec![];
         }
+        let docs = crate::cmd::doc::list_docs(e.path.as_deref()).len();
+        let only_docs = docs_flag.get();
         let mut row = Flex::row().wrap().gap(6.0);
-        row = row.child(Chip::new(format!("Все · {total}")).selected(cur.is_none()).on_click(move || kind_filter.set(None)));
+        row = row.child(Chip::new(format!("Все · {}", total + docs)).selected(cur.is_none() && !only_docs).on_click(move || {
+            kind_filter.set(None);
+            docs_flag.set(false);
+        }));
         for (k, title, icon) in [(MediaKind::Video, "Видео", icons::MOVIE), (MediaKind::Image, "Картинки", icons::IMAGE), (MediaKind::Audio, "Звук", icons::AUDIO), (MediaKind::Lottie, "Анимация", icons::SHAPE)] {
             let c = n(k);
             if c == 0 {
                 continue;
             }
-            row = row.child(Chip::new(format!("{title} · {c}")).icon(icon).selected(cur == Some(k)).on_click(move || kind_filter.set(if kind_filter.get_untracked() == Some(k) { None } else { Some(k) })));
+            row = row.child(Chip::new(format!("{title} · {c}")).icon(icon).selected(cur == Some(k) && !only_docs).on_click(move || {
+                docs_flag.set(false);
+                kind_filter.set(if kind_filter.get_untracked() == Some(k) { None } else { Some(k) });
+            }));
+        }
+        if docs > 0 {
+            row = row.child(Chip::new(format!("Документы · {docs}")).icon(icons::DESCRIPTION).selected(only_docs).on_click(move || {
+                kind_filter.set(None);
+                docs_flag.set(!docs_flag.get_untracked());
+            }));
         }
         vec![Box::new(DecoratedBox::new().class("media-chips").child(row))]
     });
@@ -118,11 +166,13 @@ fn media(st: St) -> impl Widget {
         let _ = st.thumbs.get();
         let tile_size = st.tile_size.get();
         let only = kind_filter.get();
+        let only_docs = docs_flag.get();
+        let docs: Vec<std::path::PathBuf> = if only.is_none() { crate::cmd::doc::list_docs(ed().path.as_deref()) } else { Vec::new() };
         let items: Vec<(u64, MediaKind, String, String, std::path::PathBuf, f64, f32)> = ed()
             .project
             .media
             .iter()
-            .filter(|m| only.is_none_or(|k| m.kind == k))
+            .filter(|m| !only_docs && only.is_none_or(|k| m.kind == k))
             .map(|m| {
                 let mut info = Vec::new();
                 if m.duration > 0.0 {
@@ -139,7 +189,7 @@ fn media(st: St) -> impl Widget {
             })
             .collect();
         let gen = st.gen_tiles.get();
-        if items.is_empty() && gen.is_empty() {
+        if items.is_empty() && gen.is_empty() && docs.is_empty() {
             return vec![Box::new(
                 Column::new()
                     .gap(10.0)
@@ -189,6 +239,10 @@ fn media(st: St) -> impl Widget {
                     .child(Text::new(g.node.clone()).max_lines(1).elide(Elide::End).class("row-sub"))
                     .class("tile gen-tile"),
             );
+        }
+        // документы проекта (сценарий, диалоги) — первыми
+        for d in docs {
+            grid = grid.child(doc_tile(st, d));
         }
         for (id, kind, name, info, path, dur, aspect) in items {
             grid = grid.child(tile(st, id, kind, name, info, path, dur, aspect));
@@ -572,6 +626,7 @@ static FX_DBL: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 /// Показать движение, переход или эффект вкладкой «Медиа» (лента по кругу).
 pub fn open_fx_preview(st: St, key: String, title: String) {
     st.media_preview.set(None);
+    st.doc_preview.set(None);
     st.fx_preview.set(Some((key, title)));
     st.open_panel("media_view");
     st.dock.activate("media_view");
@@ -1201,6 +1256,7 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
                 // просмотр этого файла вкладкой «Медиа» (картинка — зум и поворот,
                 // видео — плеер); на таймлайн — кнопкой в ней или пунктом меню
                 st.fx_preview.set(None);
+                st.doc_preview.set(None);
                 st.media_preview.set(Some(id));
                 st.open_panel("media_view");
                 st.dock.activate("media_view");
@@ -1312,6 +1368,9 @@ fn pv_state() -> (RwSignal<i32>, RwSignal<(bool, bool)>, RwSignal<(u64, ImageVie
 
 /// Заголовок вкладки просмотра: «Медиа: имя файла» / «Переход: название».
 pub fn media_view_title(st: St) -> String {
+    if let Some(p) = st.doc_preview.get() {
+        return format!("Документ: {}", p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
+    }
     if let Some((key, title)) = st.fx_preview.get() {
         let what = match fx_kind(&key).map(|k| k.0) {
             Some(FxKind::Motion) => "Движение",
@@ -1403,6 +1462,80 @@ fn fx_view(st: St, key: String, title: String) -> Box<dyn Widget> {
             .class("grow")
             .child(tools.class("panel-head"))
             .child(DecoratedBox::new().class("grow").class("media-preview-body").child(body)),
+    )
+}
+
+thread_local! {
+    /// Документ в правке: (файл, текст, сохранён ли, показ — просмотр Markdown)
+    static DOCV: std::cell::RefCell<Option<(RwSignal<Option<std::path::PathBuf>>, RwSignal<String>, RwSignal<bool>, RwSignal<bool>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn docv() -> (RwSignal<Option<std::path::PathBuf>>, RwSignal<String>, RwSignal<bool>, RwSignal<bool>) {
+    DOCV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(None), use_signal(String::new()), use_signal(true), use_signal(false))))
+}
+
+/// Документ проекта: правка Markdown с подсветкой, «Просмотр» — как текст
+/// выглядит, «Сохранить» — в файл (агент перечитает его через doc.read).
+fn doc_view(st: St, path: std::path::PathBuf) -> Box<dyn Widget> {
+    use syngui::widgets::input::code_editor::syntax::Language;
+    use syngui::widgets::input::code_editor::CodeEditorChange;
+    let (cur, text, saved, preview) = docv();
+    if cur.get_untracked().as_ref() != Some(&path) {
+        cur.set(Some(path.clone()));
+        text.set(std::fs::read_to_string(&path).unwrap_or_default());
+        saved.set(true);
+    }
+    let body = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        if preview.get() {
+            return vec![Box::new(ScrollView::new().vertical().child(Padding::all(12.0).child(MarkdownView::new(text.get_untracked()).selectable(true).class("ai-text-text"))))];
+        }
+        vec![Box::new(
+            CodeEditor::new()
+                .text(text.get_untracked())
+                .language(Language::Markdown)
+                .soft_wrap(true)
+                .tab_width(2)
+                .on_change(move |ch: CodeEditorChange| {
+                    text.set(ch.full_text.to_string());
+                    saved.set(false);
+                })
+                .class("set-code"),
+        )]
+    });
+    let save_path = path.clone();
+    let save = move || match crate::layout::write_atomic(&save_path, &text.get_untracked()) {
+        Ok(()) => {
+            saved.set(true);
+            st.rev.update(|n| *n += 1);
+            st.toast.set(Some(format!("Сохранено: {}", save_path.display())));
+        }
+        Err(e) => st.toast.set(Some(format!("Не сохранилось: {e}"))),
+    };
+    let reload = path.clone();
+    let tools = Row::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).max_lines(1).elide(Elide::Middle).class("fp-title"))
+        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> { if saved.get() { vec![] } else { vec![Box::new(Text::new("● не сохранено").class("row-sub"))] } }))
+        .child(DecoratedBox::new().class("grow"))
+        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let p = preview.get();
+            vec![Box::new(Button::new(if p { "Править" } else { "Просмотр" }).on_click(move || preview.update(|x| *x = !*x)).class("head-btn"))]
+        }))
+        .child(ToolButton::new("\u{E5D5}").tooltip("Отменить правки (перечитать файл)").on_click(move || {
+            text.set(std::fs::read_to_string(&reload).unwrap_or_default());
+            saved.set(true);
+            cur.set(None);
+            st.doc_preview.update(|_| {});
+        }))
+        .child(Button::new("Сохранить").on_click(save).class("head-btn"));
+    Box::new(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("grow")
+            .child(tools.class("panel-head"))
+            .child(DecoratedBox::new().class("grow").child(body)),
     )
 }
 
@@ -1498,6 +1631,16 @@ pub fn media_view_panel(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let fx = st.fx_preview.get();
         let media = st.media_preview.get();
+        if let Some(p) = st.doc_preview.get() {
+            if let Ok(mut g) = PREVIEW_PLAYER.lock() {
+                *g = None;
+            }
+            if let Ok(mut g) = PREVIEW_AUDIO.lock() {
+                *g = None;
+            }
+            FX_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return vec![doc_view(st, p)];
+        }
         if fx.is_none() {
             // ленту эффекта больше не крутить
             FX_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

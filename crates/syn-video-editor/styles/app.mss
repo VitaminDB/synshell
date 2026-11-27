@@ -266,3 +266,5 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .proj-dot-on { background-color: #FFFFFF; }
 .media-chips { padding: 6px 8px 2px 8px; }
 .media-folder { padding: 4px 8px 0 8px; }
+.doc-thumb { background-color: var(--bg-panel-2); }
+.doc-thumb-text { font-size: 11px; color: var(--text-muted); text-align: center; padding: 0 8px; }
