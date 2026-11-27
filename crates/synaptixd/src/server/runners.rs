@@ -432,6 +432,8 @@ pub enum MusicModel {
     /// Компоненты (LM — полная, если есть) и малая LM кодов.
     Ace(synaptix_gen::music::AcePaths, Option<std::path::PathBuf>),
     Yue { model: std::path::PathBuf, vae: std::path::PathBuf },
+    /// MiniMax Music 3: один бандл со всеми частями.
+    Minimax3 { model: std::path::PathBuf },
 }
 
 /// Файл по началу имени рядом в библиотеке (на уровень выше, с подкаталогами).
@@ -750,7 +752,9 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
         ModelKind::Music => {
             let a = arch.to_ascii_lowercase();
             let need = |role: &str| components.get(role).cloned().ok_or_else(|| anyhow::anyhow!("у модели нет компонента «{role}»"));
-            let m = if a.contains("yue") {
+            let m = if a.contains("minimax") {
+                MusicModel::Minimax3 { model: path.to_path_buf() }
+            } else if a.contains("yue") {
                 MusicModel::Yue { model: path.to_path_buf(), vae: need("vae")? }
             } else {
                 let lm = components.get("lm").or(components.get("lm_small")).cloned().ok_or_else(|| anyhow::anyhow!("нет LM кодов ACE-Step"))?;
@@ -1192,6 +1196,7 @@ impl Loaded {
         let out = match m {
             MusicModel::Ace(p, _) => synaptix_gen::music::acestep(p, device, req, cancel),
             MusicModel::Yue { model, vae } => synaptix_gen::music::yue2(model, vae, device, req, cancel, progress),
+            MusicModel::Minimax3 { model } => synaptix_gen::music::minimax3(model, device, req, cancel, progress),
         }
         .map_err(|e| anyhow::anyhow!("{e}"))?;
         let wav = synaptix_gen::music::wav_bytes(&out.samples, out.sample_rate, out.channels);
