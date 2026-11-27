@@ -3,7 +3,7 @@
 //! положению курсора — промотка без декодирования на лету. Готовые ленты
 //! хранятся на диске (`~/.cache/syn-video-editor/thumbs`) и не считаются заново.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
@@ -17,6 +17,10 @@ pub type Strip = Arc<Vec<RgbaFrame>>;
 
 struct State {
     ready: HashMap<PathBuf, Strip>,
+    /// Файлы, для которых лента не построилась (аудио, битый/неподдерживаемый
+    /// формат): не ставим повторно в очередь на каждом rebuild UI, иначе
+    /// `worker` и главный поток замыкаются в бесконечную петлю. Сбрасывается в `forget`.
+    failed: HashSet<PathBuf>,
     queued: VecDeque<PathBuf>,
     busy: Option<PathBuf>,
 }
@@ -25,7 +29,7 @@ fn state() -> &'static (Mutex<State>, Condvar) {
     static S: OnceLock<(Mutex<State>, Condvar)> = OnceLock::new();
     S.get_or_init(|| {
         std::thread::Builder::new().name("thumbs".into()).spawn(worker).ok();
-        (Mutex::new(State { ready: HashMap::new(), queued: VecDeque::new(), busy: None }), Condvar::new())
+        (Mutex::new(State { ready: HashMap::new(), failed: HashSet::new(), queued: VecDeque::new(), busy: None }), Condvar::new())
     })
 }
 
@@ -36,12 +40,23 @@ pub fn bind(rev: RwSignal<u64>) {
     let _ = REV.set(rev);
 }
 
+fn is_audio_path(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    crate::cmd::media::AUDIO.contains(&ext.as_str())
+}
+
 /// Лента файла или `None` (поставлена в очередь).
 pub fn strip(path: &Path) -> Option<Strip> {
+    if is_audio_path(path) {
+        return None;
+    }
     let (m, cv) = state();
     let mut s = m.lock().unwrap();
     if let Some(st) = s.ready.get(path) {
         return Some(st.clone());
+    }
+    if s.failed.contains(path) {
+        return None;
     }
     if s.busy.as_deref() != Some(path) && !s.queued.iter().any(|q| q == path) {
         s.queued.push_back(path.to_path_buf());
@@ -55,6 +70,10 @@ pub fn forget(path: &Path) {
     let (m, cv) = state();
     let mut s = m.lock().unwrap();
     s.ready.remove(path);
+    s.failed.remove(path);
+    if is_audio_path(path) {
+        return;
+    }
     if s.busy.as_deref() != Some(path) && !s.queued.iter().any(|q| q == path) {
         s.queued.push_back(path.to_path_buf());
         cv.notify_one();
@@ -110,6 +129,9 @@ fn build(path: &Path) -> Option<Vec<RgbaFrame>> {
         return Some(v);
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if crate::cmd::media::AUDIO.contains(&ext.as_str()) {
+        return None;
+    }
     if crate::lottie::EXT.contains(&ext.as_str()) {
         let comp = crate::lottie::load(path).ok()?;
         let dur = comp.duration_secs() as f64;
@@ -157,16 +179,22 @@ fn worker() {
             }
         };
         let strip = build(&path).unwrap_or_default();
+        let built = !strip.is_empty();
         {
             let (m, _) = state();
             let mut s = m.lock().unwrap();
             s.busy = None;
-            if !strip.is_empty() {
+            if built {
+                s.failed.remove(&path);
                 s.ready.insert(path, Arc::new(strip));
+            } else {
+                s.failed.insert(path);
             }
         }
-        if let Some(rev) = REV.get().copied() {
-            syngui::async_runtime::run_on_main_thread(move || rev.update(|r| *r += 1));
+        if built {
+            if let Some(rev) = REV.get().copied() {
+                syngui::async_runtime::run_on_main_thread_wake_only(move || rev.update(|r| *r += 1));
+            }
         }
     }
 }

@@ -5346,7 +5346,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -7344,7 +7344,7 @@ dependencies = [
 [[package]]
 name = "smithay"
 version = "0.7.0"
-source = "git+https://github.com/VitaminDB/smithay?branch=synshell#2a3eb5c2e9bb7c4d0021b53020f635a11ec5dead"
+source = "git+https://github.com/VitaminDB/smithay?branch=synshell#e99a1e315f8e2363829bb27ebd2c606288902c6c"
 dependencies = [
  "aliasable",
  "appendlist",
@@ -9527,6 +9527,7 @@ version = "0.1.1"
 dependencies = [
  "synaptix-audio",
  "synaptix-core",
+ "synaptix-infer",
  "synaptix-io",
  "synaptix-llm-common",
  "synaptix-llm-qwen3-next-hybrid",

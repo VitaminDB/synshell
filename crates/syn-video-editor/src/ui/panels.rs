@@ -1103,20 +1103,21 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
     let width = use_signal(150.0f32);
     // ширина плитки — из события наведения (on_resize в сетке приходит не всегда)
     let thumb = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let _ = st.thumbs.get();
         let frac = hover.get();
         let mut stack = Stack::new().fit(StackFit::Expand);
-        match (kind, super::thumbs::strip(&path)) {
-            (MediaKind::Audio, _) => {
-                stack = stack.child(Center::new().child(Icon::new(icons::AUDIO).class("tile-icon")));
-            }
-            (_, Some(strip)) => {
-                let i = frac.map(|f| ((f * super::thumbs::FRAMES as f32) as usize).min(super::thumbs::FRAMES - 1)).unwrap_or(super::thumbs::FRAMES / 3);
-                let f = &strip[i];
-                stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}:{:x}", std::sync::Arc::as_ptr(&f.rgba) as *const u8 as usize), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)));
-            }
-            (_, None) => {
-                stack = stack.child(Center::new().child(Icon::new(if kind == MediaKind::Image { icons::IMAGE } else { icons::MOVIE }).class("tile-icon")));
+        if kind == MediaKind::Audio {
+            stack = stack.child(Center::new().child(Icon::new(icons::AUDIO).class("tile-icon")));
+        } else {
+            let _ = st.thumbs.get();
+            match super::thumbs::strip(&path) {
+                Some(strip) => {
+                    let i = frac.map(|f| ((f * super::thumbs::FRAMES as f32) as usize).min(super::thumbs::FRAMES - 1)).unwrap_or(super::thumbs::FRAMES / 3);
+                    let f = &strip[i];
+                    stack = stack.child(Center::new().child(Image::from_rgba_shared(format!("thumb:{id}:{i}:{:x}", std::sync::Arc::as_ptr(&f.rgba) as *const u8 as usize), f.width, f.height, f.rgba.clone()).fit(ImageFit::Cover).placeholder(false)));
+                }
+                None => {
+                    stack = stack.child(Center::new().child(Icon::new(if kind == MediaKind::Image { icons::IMAGE } else { icons::MOVIE }).class("tile-icon")));
+                }
             }
         }
         if dur > 0.0 {

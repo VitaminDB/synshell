@@ -103,5 +103,9 @@ name = "synaptix-tts-voxcpm"
 version = "0.1.1"
 
 [[patch.unused]]
+name = "synaptix-vc-seed"
+version = "0.1.1"
+
+[[patch.unused]]
 name = "synaptix-vfx"
 version = "0.1.1"
