@@ -8760,6 +8760,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
+ "synaptix-audio",
  "thiserror 2.0.21",
 ]
 
@@ -8955,6 +8956,7 @@ dependencies = [
  "synaptix-llm-gemma3",
  "synaptix-llm-gemma4",
  "synaptix-music-acestep",
+ "synaptix-music-minimax3",
  "synaptix-music-sheetsage2",
  "synaptix-music-yue2",
  "synaptix-video-ltx23",
@@ -9389,6 +9391,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-music-minimax3"
+version = "0.1.1"
+dependencies = [
+ "fancy-regex",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-llm-common",
+ "synaptix-llm-qwen3",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "synaptix-music-sheetsage2"
 version = "0.1.1"
 dependencies = [
@@ -9500,6 +9518,21 @@ dependencies = [
  "synaptix-nn",
  "synaptix-ops",
  "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-tts-drama3"
+version = "0.1.1"
+dependencies = [
+ "synaptix-audio",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-llm-common",
+ "synaptix-llm-qwen3-next-hybrid",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tts-audio8",
  "thiserror 2.0.21",
 ]
 
@@ -9621,6 +9654,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-vc-seed"
+version = "0.1.1"
+dependencies = [
+ "synaptix-asr-wav2vec2",
+ "synaptix-asr-whisper",
+ "synaptix-audio",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-nn",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "synaptix-vfx"
 version = "0.1.1"
 dependencies = [
@@ -9721,6 +9769,7 @@ dependencies = [
  "synaptix-kernels-npu",
  "synaptix-llm-common",
  "synaptix-tts-audio8",
+ "synaptix-tts-drama3",
  "synaptix-tts-f5",
  "synaptix-tts-leokani",
  "synaptix-tts-omnivoice",
@@ -9728,6 +9777,7 @@ dependencies = [
  "synaptix-tts-supertonic",
  "synaptix-tts-vibevoice",
  "synaptix-tts-voxcpm",
+ "synaptix-vc-seed",
  "synaptix-vfx",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",

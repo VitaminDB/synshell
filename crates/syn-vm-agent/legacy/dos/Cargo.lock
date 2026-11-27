@@ -7,6 +7,14 @@ name = "syn-vm-agent-dos"
 version = "0.2.0"
 
 [[patch.unused]]
+name = "mss-analysis"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "syngui"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "synaptix"
 version = "0.1.1"
 
@@ -35,6 +43,10 @@ name = "synaptix-gen"
 version = "0.1.1"
 
 [[patch.unused]]
+name = "synaptix-gguf"
+version = "0.1.1"
+
+[[patch.unused]]
 name = "synaptix-io"
 version = "0.1.1"
 
@@ -56,6 +68,10 @@ version = "0.1.1"
 
 [[patch.unused]]
 name = "synaptix-tts-audio8"
+version = "0.1.1"
+
+[[patch.unused]]
+name = "synaptix-tts-drama3"
 version = "0.1.1"
 
 [[patch.unused]]
@@ -89,11 +105,3 @@ version = "0.1.1"
 [[patch.unused]]
 name = "synaptix-vfx"
 version = "0.1.1"
-
-[[patch.unused]]
-name = "mss-analysis"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "syngui"
-version = "0.1.0"

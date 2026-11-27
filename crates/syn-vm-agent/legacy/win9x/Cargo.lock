@@ -236,6 +236,10 @@ name = "synaptix-gen"
 version = "0.1.1"
 
 [[patch.unused]]
+name = "synaptix-gguf"
+version = "0.1.1"
+
+[[patch.unused]]
 name = "synaptix-io"
 version = "0.1.1"
 
@@ -257,6 +261,10 @@ version = "0.1.1"
 
 [[patch.unused]]
 name = "synaptix-tts-audio8"
+version = "0.1.1"
+
+[[patch.unused]]
+name = "synaptix-tts-drama3"
 version = "0.1.1"
 
 [[patch.unused]]
