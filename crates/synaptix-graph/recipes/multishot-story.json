@@ -1,10 +1,10 @@
 {
   "name": "multishot-story",
-  "description": "Мультфильм или фильм из многокадровых роликов LTX-2.5: в каждом ролике 2–3 плана со склейками внутри («Shot 1 … Cut to shot 2 …») — герои держатся внутри ролика, а склеек между роликами меньше. LLM пишет подробный план (сюжет, планы и движение камеры, свет, звуки, реплики) → опорный кадр с героями → ролики цепочкой по хвосту → склейка. Длина ≈ clips × clip секунд (по умолчанию 8 × 15 = 2 минуты). Улучшитель промпта (enhance) здесь не включается: он пишет один абзац без склеек и сломал бы планы «Shot 1 … Cut to …»",
+  "description": "Мультфильм или фильм из многокадровых роликов LTX-2.5 по готовой раскадровке: каждая пронумерованная сцена story — отдельный ролик из 2–3 планов со склейками внутри («Shot 1 … Cut to shot 2 …»; LLM переводит сцену по одной, с постоянными словами героев и русскими репликами) → опорный кадр с героями → ролики цепочкой по хвосту → склейка. Длина = clips × clip (20 × 15 с = 5 мин). Сюжет и раскадровку пишет агент по навыку screenplay. Улучшитель промпта и DFR здесь не включаются (склейки планов, первый кадр и хвост)",
   "params": {
     "story": {
       "type": "text",
-      "description": "сюжет: завязка, повороты, развязка"
+      "description": "раскадровка: сцены пронумерованы «1) … 2) …» — в каждой событие, планы и камера, действие, свет, звук, реплики (навык screenplay); по одной сцене на ролик"
     },
     "characters": {
       "type": "text",
@@ -54,9 +54,16 @@
   },
   "nodes": [
     {
+      "id": "scenes",
+      "op": "text",
+      "text": "{{story}}"
+    },
+    {
       "id": "plan",
       "op": "llm",
-      "prompt": "You are a screenwriter and storyboard artist for an original animated film. Story: «{{story}}». Characters (describe them with exactly these words every time they appear): {{characters}}. Write exactly {{clips}} consecutive clips that tell the whole story with a clear setup, twists and an ending. Each clip is ONE line in English made of {{shots}} shots: \"Shot 1: … Cut to shot 2: … Cut to shot 3: …\". In every shot give: the shot size and camera (wide / medium / close-up, push-in, pan, tracking, low or high angle), where it happens, what the characters do (with their fixed descriptions), light and mood, and sounds (noises, music) described as sounds. Add short spoken lines: at most one or two per clip, each 3–8 words, in {{lang}} inside «» quotes, marking who speaks, e.g. the duck says in {{lang}}: «…»; all speech of a clip must fit {{clip}} seconds at about 2.5 syllables per second; after the last line describe a silent action. Output only the {{clips}} lines, one clip per line — no preamble, no numbering, no comments."
+      "each": "{{scenes.lines}}",
+      "each_count": "{{clips}}",
+      "prompt": "Turn this scene of an animated film into ONE prompt line for a video model. Scene: «{{item}}». Characters (copy these exact words whenever a character appears): {{characters}}.\nWrite one line in English in this form: Shot 1: <shot size and camera move>, <characters with their fixed description>, <what they do>, <place, light, mood>, <sounds>. Cut to shot 2: … Cut to shot 3: … ({{shots}} shots).\nSpoken lines: in {{lang}} inside «» quotes with who speaks (e.g. the duck says in {{lang}}: «…»), 3–8 words each, at most two lines, all speech fits {{clip}} seconds; after the last line add a silent action. Keep every event of the scene. Output only the line."
     },
     {
       "id": "look",
@@ -74,8 +81,7 @@
     {
       "id": "shots",
       "op": "video",
-      "each": "{{plan.lines}}",
-      "each_count": "{{clips}}",
+      "each": "{{plan.text}}",
       "prompt": "{{item}} {{style}}",
       "first_frame": "{{opening.file}}",
       "seconds": "{{clip}}",

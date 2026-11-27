@@ -125,6 +125,7 @@ pub fn tools(ed: &Shared, s: &Settings) -> Vec<Arc<dyn Tool>> {
 pub const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("montage", include_str!("../library/agent-skills/montage/SKILL.md")),
     ("russian-speech", include_str!("../library/agent-skills/russian-speech/SKILL.md")),
+    ("screenplay", include_str!("../library/agent-skills/screenplay/SKILL.md")),
     ("subtitles", include_str!("../library/agent-skills/subtitles/SKILL.md")),
     ("color-grade", include_str!("../library/agent-skills/color-grade/SKILL.md")),
     ("motion-graphics", include_str!("../library/agent-skills/motion-graphics/SKILL.md")),
