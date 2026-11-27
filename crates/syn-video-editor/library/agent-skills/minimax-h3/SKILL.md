@@ -9,14 +9,14 @@ H3 генерирует видео **со звуком** за один прох�
 ## Язык и описание
 - **Описание сцены — по-английски** (камера, свет, действия, внешность). Так модель лучше понимает режиссуру.
 - Речь — только внутри `<d>[Russian] …</d>` (язык в квадратных скобках, внутри — точные слова). Подача («ворчит», «шёпотом») — **снаружи** тега: `(S1) grumbles, <d>[Russian] Что за шум?</d>`.
-- Если описание русское, H3 зачитывает куски описания вслух (27.11.2026: «Дёготь и камыш, маленькая деревянная хижина…»). Если английское, но реплики просто в «» без `<d>[Russian]`, H3 говорит по-английски. Правильно: **английское описание + `<d>[Russian] …</d>`**, а лучше — готовая озвучка через `<Audio N>` (ниже).
+- Если описание русское, H3 зачитывает куски описания вслух. Если английское, но реплики просто в «» без `<d>[Russian]`, H3 говорит по-английски. Правильно: **английское описание + `<d>[Russian] …</d>`**, а лучше — готовая озвучка через `<Audio N>` (ниже).
 
 ## Формат промпта Ref2VA (одной строкой, поля по порядку, строчными, с двоеточием)
-1. `subject_definitions:` — что такое каждый референс: `<Picture 1> is Grymza, a big green swamp troll chef… <Audio 1> is the exact dialogue track of Grymza.` Номера — по типу и порядку в `refs`: картинки `<Picture 1..>`, звук `<Audio 1..>`, видео `<Video 1..>`.
-2. `summary:` — префикс типа генерации и одна фраза сути: `[reference generation] + [audio reuse] Grymza complains about the noise, Krya bursts in with news.` Префиксы: `[reference generation]`, `[audio reuse]` (звук копируется), `[audio reference]` (только тембр).
+1. `subject_definitions:` — что такое каждый референс: `<Picture 1> is <герой: кто, внешность>. <Audio 1> is the exact dialogue track of <герой>.` Номера — по типу и порядку в `refs`: картинки `<Picture 1..>`, звук `<Audio 1..>`, видео `<Video 1..>`.
+2. `summary:` — префикс типа генерации и одна фраза сути: `[reference generation] + [audio reuse] <суть сцены одной фразой>.` Префиксы: `[reference generation]`, `[audio reuse]` (звук копируется), `[audio reference]` (только тембр).
 3. `retention_analysis:` — роль каждого референса: картинки `fully_preserved` | `partially_preserved` | `attribute_transfer` | `weak_reference`; звук `fully_copy` | `partially_copy` | `reference` | `weak_reference`. Пример: `<Picture 1>: fully_preserved - Grymza's appearance. <Picture 3>: partially_preserved - the hut interior. <Audio 1>: fully_copy - Grymza's speech, copied exactly and lip-synced.` Здесь `(Sx)` не пишут.
 4. `detailed_description:` — 1–2 фразы стиля, затем `[Shot 1] …`; следующие планы — `[Shot 2] At 00:04.500, …`. Говорящие получают метки по первому слову: `<Picture 1> (S1) turns and says, <d>[Russian] …</d>`. Закадровый голос: `says in an off-screen voiceover, while his lips remain completely closed`.
-5. `overall_soundscape:` — только окружение и шумы действий (огонь трещит, котёл булькает, лягушки), **без реплик**.
+5. `overall_soundscape:` — только окружение и шумы действий (огонь трещит, ветер, шаги, дождь), **без реплик**.
 6. `non_diegetic_music:` — закадровая музыка (инструменты, темп, громкость) или `N/A`.
 
 ## Озвучка заранее и синхронизация губ (`<Audio N>` fully_copy)
@@ -29,9 +29,9 @@ H3 генерирует видео **со звуком** за один прох�
 - Чистые голосовые дорожки без музыки дают лучшую синхронизацию. В итоговом монтаже можно положить исходную озвучку поверх (она дословная).
 
 ## Постановка: обстановка не плывёт, герои смотрят друг на друга
-- **Обстановка неизменна.** Локация в `retention_analysis` — `fully_preserved - the room layout, walls, window and door stay exactly as in the reference`; в описании — `static locked-off camera` (или плавное движение без смены ракурса) и `the room layout does not change`. Не придумывай то, чего нет на эталоне локации: герой, который «входит в дверь», при двери вне кадра заставит H3 переделать стену (27.11.2026: стена хижины плавно исчезла). Входы и выходы — только через то, что видно на эталоне, или герой уже в кадре с первого кадра.
-- **Взгляды (eyelines).** В диалоге говорящий **обращается к собеседнику**: `<Picture 2> (S2) turns to face Grymza, looks at him and says…`; оба в три четверти друг к другу, `the characters never look at the camera`. Иначе H3 разворачивает героя в камеру (27.11.2026: утка говорила в камеру, а не троллю). Взгляд в камеру — только для обращения к зрителю, и тогда так и пиши.
-- **Расстановка (blocking):** кто где стоит и не меняется: `Grymza stands by the stove on the left, Krya stands on the floor on the right, three meters apart`.
+- **Обстановка неизменна.** Локация в `retention_analysis` — `fully_preserved - the room layout, walls, window and door stay exactly as in the reference`; в описании — `static locked-off camera` (или плавное движение без смены ракурса) и `the room layout does not change`. Не придумывай то, чего нет на эталоне локации: герой, который «входит в дверь», при двери вне кадра заставит H3 переделать стену. Входы и выходы — только через то, что видно на эталоне, или герой уже в кадре с первого кадра.
+- **Взгляды (eyelines).** В диалоге говорящий **обращается к собеседнику**: `<Picture 2> (S2) turns to face <собеседник>, looks at him and says…`; оба в три четверти друг к другу, `the characters never look at the camera`. Иначе H3 разворачивает героя в камеру. Взгляд в камеру — только для обращения к зрителю, и тогда так и пиши.
+- **Расстановка (blocking):** кто где стоит и не меняется: `<A> stands by the window on the left, <B> stands by the table on the right, three meters apart`.
 - Одна сцена — один план (`[Shot 1]`) без смены ракурса, если не нужна склейка внутри сцены.
 
 ## Длина, цепочка, Turbo
