@@ -82,13 +82,15 @@ pub fn video_lora(mgr: &Arc<Manager>, model: &str, want: Option<&str>) -> Result
             }
             dirs.iter().map(|d| d.join(w)).find(|p| p.is_file()).map(Some).ok_or_else(|| Error::new(crate::ErrorCode::Failed, format!("LoRA «{w}» не найдена (путь или файл в lora/h3)")))
         }
-        None if h3 => Ok(default_turbo(&dirs)),
+        None if h3 => Ok(default_turbo(&dirs, model.contains("ref2va"))),
         None => Ok(None),
     }
 }
 
-/// Turbo 8 шагов: последняя версия по имени файла.
-fn default_turbo(dirs: &[PathBuf]) -> Option<PathBuf> {
+/// Turbo 8 шагов под вариант модели: у Ref2VA — своя LoRA (`*ref2v*`), у
+/// FL2VA — `*fl2v*` (LoRA одного варианта на другом даёт мыло и путаницу в
+/// мелочах); последняя версия по имени, сборка «fusion» — только явно.
+pub fn default_turbo(dirs: &[PathBuf], ref2va: bool) -> Option<PathBuf> {
     let mut found: Vec<PathBuf> = dirs
         .iter()
         .filter_map(|d| std::fs::read_dir(d).ok())
@@ -97,11 +99,26 @@ fn default_turbo(dirs: &[PathBuf]) -> Option<PathBuf> {
         .map(|e| e.path())
         .filter(|p| {
             let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            n.ends_with(".safetensors") && n.contains("turbo") && n.contains("8step")
+            n.ends_with(".safetensors") && n.contains("turbo") && n.contains("8step") && !n.contains("comfyui") && !n.contains("fusion") && n.contains("ref2v") == ref2va
         })
         .collect();
     found.sort();
     found.pop()
+}
+
+#[cfg(test)]
+mod turbo_tests {
+    #[test]
+    fn picks_lora_of_model_variant() {
+        let d = tempfile::tempdir().unwrap();
+        for n in ["minimax_h3_fl2v_turbo_8step_v1.1_768p_bf16.safetensors", "minimax_h3_fl2v_turbo_4step_v1.3_768p_bf16.safetensors", "minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors", "minimax_h3_ref2v_turbo_fusion_8step_v1.0.safetensors"] {
+            std::fs::write(d.path().join(n), b"x").unwrap();
+        }
+        let dirs = vec![d.path().to_path_buf()];
+        let name = |r: bool| super::default_turbo(&dirs, r).unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(name(true), "minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors");
+        assert_eq!(name(false), "minimax_h3_fl2v_turbo_8step_v1.1_768p_bf16.safetensors");
+    }
 }
 
 /// Видео; `cancel` — прервать денойз.
