@@ -81,6 +81,10 @@ fn handle(st: St, req: Value) -> Value {
         let id = id.to_string();
         let args = req.get("args").cloned().unwrap_or(Value::Null);
         return on_main(move || {
+            // «Стоп» прошлого хода не должен отменять новую команду извне
+            if !st.ai_busy.get_untracked() {
+                super::AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
             let r = {
                 let mut e = ed();
                 let r = cmd::run(&mut e, &id, &args);
