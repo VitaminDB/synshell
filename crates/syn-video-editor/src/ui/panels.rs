@@ -894,12 +894,15 @@ fn viewer_frame(st: St) -> impl Widget {
 fn ai(st: St) -> impl Widget {
     let input_gen = use_signal(0u64);
     let draft = use_signal(String::new());
+    // развёрнутые блоки вызовов (номера строк лога); по умолчанию свёрнуты
+    let expanded = use_signal(std::collections::BTreeSet::<usize>::new());
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("ai-panel")
         .child(super::ai_chat::head(st))
         .child(DecoratedBox::new().class("grow").child(ScrollView::new().vertical().follow_end(true).child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let log = st.ai_log.get();
+            let open = expanded.get();
             if log.is_empty() {
                 return vec![empty("Агент монтирует сам: импорт, нарезка, титры, эффекты.\nНапример: «собери ролик на 30 секунд из ~/Videos/Test, в начале титр»")];
             }
@@ -937,6 +940,41 @@ fn ai(st: St) -> impl Widget {
                         continue;
                     }
                 };
+                // длинный вызов или результат — свёрнут до 2 строк, щелчок по
+                // стрелке раскрывает целиком (иначе огромный JSON рецепта
+                // заполняет чат)
+                let long = matches!(class, "ai-tool" | "ai-result") && (text.chars().count() > 160 || text.lines().count() > 2);
+                if long {
+                    let is_open = open.contains(&i);
+                    // заголовок — первая строка (одной строкой); тело: свёрнуто —
+                    // одна строка продолжения (если есть), развёрнуто — весь текст
+                    let (title, rest) = match text.split_once('\n') {
+                        Some((t, r)) => (t.to_string(), Some(r.to_string())),
+                        None => (text.clone(), None),
+                    };
+                    let body: Option<Box<dyn Widget>> = match (is_open, rest) {
+                        (true, _) => Some(Box::new(Text::new(text.clone()).selectable(true).class(format!("{class}-text")))),
+                        (false, Some(r)) => Some(Box::new(Text::new(r.replace('\n', " ")).max_lines(1).elide(Elide::End).class(format!("{class}-text")))),
+                        (false, None) => None,
+                    };
+                    let head = Row::new()
+                        .gap(4.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(ToolButton::new(if is_open { "\u{E5CE}" } else { "\u{E5CF}" }).tooltip(if is_open { "Свернуть" } else { "Развернуть" }).on_click(move || {
+                            expanded.update(|e| {
+                                if !e.remove(&i) {
+                                    e.insert(i);
+                                }
+                            })
+                        }))
+                        .child(DecoratedBox::new().class("grow").child(Text::new(if is_open { String::new() } else { title }).max_lines(1).elide(Elide::End).class(format!("{class}-text"))));
+                    let mut block = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head);
+                    if let Some(b) = body {
+                        block = block.child(b);
+                    }
+                    col = col.child(DecoratedBox::new().class(class).child(block));
+                    continue;
+                }
                 col = col.child(DecoratedBox::new().class(class).child(Text::new(text).selectable(true).class(format!("{class}-text"))));
             }
             vec![Box::new(col)]

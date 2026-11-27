@@ -95,6 +95,9 @@ fn show(st: St, chat: &Chat) {
 
 /// Загрузить последний разговор при открытии окна.
 pub fn init(st: St) {
+    // ключ проекта — до чтения чатов: окно открывается с файлом проекта, а
+    // ключ ставили позже (панель графа) — грузились чаты «untitled»
+    crate::projstate::set_current(&crate::projstate::key(super::ed().path.as_deref()));
     let chat = take();
     show(st, &chat);
     put_back_quiet(chat);
