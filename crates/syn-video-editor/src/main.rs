@@ -289,6 +289,10 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         let mut e = ui::ed();
         if e.path.is_none() {
             let p = store::new_project_path();
+            // название — по папке («Новый проект»), пока не переименуют
+            if let Some(n) = p.file_stem() {
+                e.project.name = n.to_string_lossy().into_owned();
+            }
             if store::save(&e.project, &p).is_ok() {
                 e.path = Some(p);
             }
@@ -358,8 +362,9 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
                 let e = ui::ed();
                 if let Some(p) = e.path.clone() {
                     let empty = e.project.media.is_empty() && e.project.tracks.iter().all(|t| t.clips.is_empty());
-                    if empty && p.starts_with(store::projects_dir()) && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("Проект ")) {
+                    if empty && p.starts_with(store::projects_dir()) && store::is_auto_named(&p) {
                         let _ = std::fs::remove_file(&p);
+                        // пустая папка проекта (или «.media» старого) — тоже; с файлами — не трогать
                         let _ = std::fs::remove_dir(store::media_dir(&p));
                     }
                 }

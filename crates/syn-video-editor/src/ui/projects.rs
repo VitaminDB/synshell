@@ -130,12 +130,30 @@ pub fn scan() -> Vec<Info> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Info>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut paths: Vec<(PathBuf, u64)> = crate::store::recent();
+    // проекты в своих папках (`~/Videos/X/X.syn`) и в прежнем общем каталоге
+    let mut found: Vec<PathBuf> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(crate::store::projects_dir()) {
         for e in rd.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == crate::store::EXT) && !paths.iter().any(|(q, _)| *q == p) {
-                paths.push((p, 0));
+            let d = e.path();
+            if let Some(name) = d.file_name().map(|n| n.to_string_lossy().into_owned()).filter(|_| d.is_dir()) {
+                let f = d.join(format!("{name}.{}", crate::store::EXT));
+                if f.is_file() {
+                    found.push(f);
+                }
             }
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(crate::store::legacy_projects_dir()) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == crate::store::EXT) {
+                found.push(p);
+            }
+        }
+    }
+    for p in found {
+        if !paths.iter().any(|(q, _)| *q == p) {
+            paths.push((p, 0));
         }
     }
     let auto = crate::store::autosave_path();

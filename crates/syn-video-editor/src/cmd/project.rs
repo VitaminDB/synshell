@@ -5,7 +5,7 @@ use crate::doc::{expand, Project};
 use crate::editor::Editor;
 use crate::store;
 
-pub static COMMANDS: &[&Command] = &[&NEW, &OPEN, &SAVE, &SETTINGS, &DUMP, &EXPORT, &FRAME, &CHECK];
+pub static COMMANDS: &[&Command] = &[&NEW, &OPEN, &SAVE, &RENAME, &MOVE, &SETTINGS, &DUMP, &EXPORT, &FRAME, &CHECK];
 
 static NEW: Command = Command {
     id: "project.new",
@@ -78,6 +78,126 @@ fn save(ed: &mut Editor, a: &Args) -> Res {
     ed.path = Some(path.clone());
     ed.dirty = false;
     Ok(Out::with(format!("Сохранено: {}", path.display()), json!({"path": path})))
+}
+
+static RENAME: Command = Command {
+    id: "project.rename",
+    category: "Проект",
+    title: "Переименовать проект…",
+    shortcut: "",
+    keywords: "rename переименовать название имя проекта папка",
+    help: "Переименовать проект: название, его папку (`~/Videos/<имя>/`) и файл `<имя>.syn` вместе; пути файлов в проекте переписываются, вкладки и чаты остаются с проектом.",
+    args: &[req("name", Ty::Str, "новое название проекта")],
+    danger: false,
+    run: rename,
+};
+
+static MOVE: Command = Command {
+    id: "project.move",
+    category: "Проект",
+    title: "Перенести папку проекта…",
+    shortcut: "",
+    keywords: "move перенести папка проекта медиатека путь сменить",
+    help: "Перенести папку проекта со всеми файлами (генерация, эталоны, озвучка) в другой каталог: `dir/<имя проекта>/`; пути в проекте переписываются.",
+    args: &[req("dir", Ty::Str, "каталог, куда перенести папку проекта")],
+    danger: false,
+    run: move_to,
+};
+
+fn clean_name(s: &str) -> Result<String, String> {
+    let n: String = s.chars().map(|c| if matches!(c, '/' | '\\' | '\0') { '-' } else { c }).collect::<String>().trim().trim_matches('.').to_string();
+    if n.is_empty() {
+        return Err("пустое название".into());
+    }
+    Ok(n)
+}
+
+/// Перенести каталог (через границу файловых систем — копией).
+fn move_dir(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    if to.exists() {
+        return Err(format!("{} уже есть", to.display()));
+    }
+    if let Some(d) = to.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    fn copy(a: &std::path::Path, b: &std::path::Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(b)?;
+        for e in std::fs::read_dir(a)? {
+            let e = e?;
+            let (src, dst) = (e.path(), b.join(e.file_name()));
+            if e.file_type()?.is_dir() {
+                copy(&src, &dst)?;
+            } else {
+                std::fs::copy(&src, &dst)?;
+            }
+        }
+        Ok(())
+    }
+    copy(from, to).map_err(|e| format!("копирование в {}: {e}", to.display()))?;
+    std::fs::remove_dir_all(from).map_err(|e| format!("{}: {e}", from.display()))
+}
+
+/// Проект теперь в `new_path`: пути, название, сохранить, состояние окна — за ним.
+fn relocated(ed: &mut Editor, old_path: &std::path::Path, new_path: std::path::PathBuf, from: &std::path::Path, to: &std::path::Path, name: Option<String>) -> Res {
+    store::relocate(&mut ed.project, from, to)?;
+    if let Some(n) = name {
+        ed.project.name = n;
+    }
+    store::save(&ed.project, &new_path)?;
+    // вкладки, раскладка и чаты — под ключом нового пути (окно подхватит)
+    crate::projstate::adopt(&crate::projstate::key(Some(old_path)), &crate::projstate::key(Some(&new_path)));
+    ed.path = Some(new_path.clone());
+    ed.dirty = false;
+    ed.revision += 1;
+    Ok(Out::with(format!("Проект «{}»: {}", ed.project.name, new_path.display()), json!({"path": new_path, "folder": store::media_dir(&new_path)})))
+}
+
+fn rename(ed: &mut Editor, a: &Args) -> Res {
+    let name = clean_name(&a.need_str("name")?)?;
+    let path = ed.path.clone().ok_or("проект ещё не сохранялся — сначала project.save")?;
+    store::save(&ed.project, &path)?;
+    match store::project_folder(&path) {
+        Some(dir) => {
+            let new_dir = dir.parent().unwrap_or(std::path::Path::new(".")).join(&name);
+            if new_dir != dir {
+                move_dir(&dir, &new_dir)?;
+            }
+            let inside = new_dir.join(path.file_name().unwrap());
+            let new_path = new_dir.join(format!("{name}.{}", store::EXT));
+            if inside != new_path {
+                std::fs::rename(&inside, &new_path).map_err(|e| format!("{}: {e}", new_path.display()))?;
+            }
+            relocated(ed, &path, new_path, &dir, &new_dir, Some(name))
+        }
+        None => {
+            // старый проект без своей папки: файл и «.media» рядом
+            let parent = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+            let new_path = parent.join(format!("{name}.{}", store::EXT));
+            if new_path.exists() && new_path != path {
+                return Err(format!("{} уже есть", new_path.display()));
+            }
+            let (old_media, new_media) = (store::media_dir(&path), store::media_dir(&new_path));
+            std::fs::rename(&path, &new_path).map_err(|e| format!("{}: {e}", new_path.display()))?;
+            if old_media.exists() {
+                move_dir(&old_media, &new_media)?;
+            }
+            relocated(ed, &path, new_path, &old_media, &new_media, Some(name))
+        }
+    }
+}
+
+fn move_to(ed: &mut Editor, a: &Args) -> Res {
+    let dest = expand(&a.need_str("dir")?);
+    let path = ed.path.clone().ok_or("проект ещё не сохранялся — сначала project.save")?;
+    store::save(&ed.project, &path)?;
+    let dir = store::project_folder(&path).ok_or("у проекта нет своей папки (старый проект) — сначала project.rename")?;
+    let new_dir = dest.join(dir.file_name().unwrap());
+    move_dir(&dir, &new_dir)?;
+    let new_path = new_dir.join(path.file_name().unwrap());
+    relocated(ed, &path, new_path, &dir, &new_dir, None)
 }
 
 static SETTINGS: Command = Command {

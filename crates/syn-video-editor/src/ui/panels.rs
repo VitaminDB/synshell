@@ -57,6 +57,40 @@ fn media(st: St) -> impl Widget {
         .child(DecoratedBox::new().class("grow"))
         .child(Icon::new(icons::IMAGE).class("head-icon"))
         .child(Slider::new().range(90.0, 360.0).value(st.tile_size.get_untracked()).width(110.0).on_change(move |v| st.tile_size.set(v)));
+    // папка проекта: где лежат все его файлы — путь, открыть, перенести, переименовать
+    let folder = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let _ = st.rev.get();
+        let Some(path) = ed().path.clone() else { return vec![] };
+        let dir = crate::store::media_dir(&path);
+        let home = std::env::var("HOME").unwrap_or_default();
+        let shown = dir.display().to_string();
+        let shown = if !home.is_empty() && shown.starts_with(&home) { format!("~{}", &shown[home.len()..]) } else { shown };
+        let open_dir = dir.clone();
+        vec![Box::new(
+            DecoratedBox::new().class("media-folder").child(
+                Row::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(icons::FOLDER_OPEN).class("head-icon"))
+                    .child(DecoratedBox::new().class("grow").child(Text::new(shown).max_lines(1).elide(Elide::Middle).class("row-sub")))
+                    .child(ToolButton::new(icons::FOLDER_OPEN).tooltip("Открыть папку проекта").on_click(move || {
+                        let _ = std::fs::create_dir_all(&open_dir);
+                        let _ = std::process::Command::new("xdg-open").arg(&open_dir).spawn();
+                    }))
+                    .child(ToolButton::new(icons::EDIT).tooltip("Переименовать проект (и папку)").on_click(move || st.run_menu("project.rename")))
+                    .child(ToolButton::new("\u{E2C7}").tooltip("Перенести папку проекта…").on_click(move || {
+                        std::thread::spawn(move || {
+                            let start = crate::store::projects_dir();
+                            if let Some(d) = rfd::FileDialog::new().set_title("Куда перенести папку проекта").set_directory(start).pick_folder() {
+                                syngui::async_runtime::run_on_main_thread(move || {
+                                    st.exec("project.move", json!({"dir": d.display().to_string()}));
+                                });
+                            }
+                        });
+                    })),
+            ),
+        )]
+    });
     let kind_filter = media_filter();
     // чипы-фильтры по виду файлов: «Все» и виды, которые есть в медиатеке
     let chips = Reactive::new(move || -> Vec<Box<dyn Widget>> {
@@ -169,7 +203,7 @@ fn media(st: St) -> impl Widget {
             "import_folder" => st.dialog(Pick::ImportFolder),
             _ => {}
         })
-        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(chips).child(DecoratedBox::new().class("grow").child(list)))
+        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(header).child(folder).child(chips).child(DecoratedBox::new().class("grow").child(list)))
 }
 
 // ── слои (вид «Моушн») ─────────────────────────────────────────────────

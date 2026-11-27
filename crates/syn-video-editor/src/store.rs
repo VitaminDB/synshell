@@ -54,6 +54,19 @@ mod tests {
         save(&p, &path).unwrap();
         assert_eq!(load(&path).unwrap().name, "Второй");
     }
+
+    #[test]
+    fn relocate_paths() {
+        let mut p = Project::new("П");
+        p.media.push(crate::doc::Media { id: 1, path: "/home/u/Videos/Новый проект/generated/r/Герой.png".into(), kind: crate::doc::MediaKind::Image, duration: 0.0, width: 1, height: 1, fps: 0.0, has_audio: false, transcript: None, index: None });
+        p.media.push(crate::doc::Media { id: 2, path: "/home/u/Videos/Новый проект 2/x.png".into(), kind: crate::doc::MediaKind::Image, duration: 0.0, width: 1, height: 1, fps: 0.0, has_audio: false, transcript: None, index: None });
+        relocate(&mut p, Path::new("/home/u/Videos/Новый проект"), Path::new("/home/u/Videos/Суп")).unwrap();
+        assert_eq!(p.media[0].path, std::path::PathBuf::from("/home/u/Videos/Суп/generated/r/Герой.png"));
+        // соседняя папка с тем же началом имени — не трогать
+        assert_eq!(p.media[1].path, std::path::PathBuf::from("/home/u/Videos/Новый проект 2/x.png"));
+        assert_eq!(project_folder(Path::new("/a/Суп/Суп.syn")), Some(std::path::PathBuf::from("/a/Суп")));
+        assert_eq!(project_folder(Path::new("/a/b/Суп.syn")), None);
+    }
 }
 
 /// Каталог данных программы (`~/.local/share/syn-video-editor`).
@@ -120,27 +133,79 @@ pub fn hidden() -> Vec<std::path::PathBuf> {
     serde_json::from_str::<Vec<String>>(&s).unwrap_or_default().into_iter().map(std::path::PathBuf::from).collect()
 }
 
-/// Каталог проектов по умолчанию (`~/Videos/syn-video-editor`).
+/// Каталог, где создаются папки проектов (`~/Videos`).
 pub fn projects_dir() -> std::path::PathBuf {
-    std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Videos/syn-video-editor")
+    std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Videos")
 }
 
-/// Файл нового проекта: «Проект ГГГГ-ММ-ДД ЧЧ-ММ.syn» (с номером, если занят).
+/// Прежний общий каталог проектов (`~/Videos/syn-video-editor`) — старые проекты.
+pub fn legacy_projects_dir() -> std::path::PathBuf {
+    projects_dir().join("syn-video-editor")
+}
+
+/// Имя нового проекта, пока его не переименуют.
+pub const NEW_PROJECT: &str = "Новый проект";
+
+/// Файл нового проекта — в своей папке: `~/Videos/Новый проект/Новый проект.syn`
+/// (`Новый проект 2`, … если занято).
 pub fn new_project_path() -> std::path::PathBuf {
-    let stamp = std::process::Command::new("date").arg("+%Y-%m-%d %H-%M").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "новый".into());
     let dir = projects_dir();
-    let mut p = dir.join(format!("Проект {stamp}.syn"));
-    let mut k = 2;
-    while p.exists() {
-        p = dir.join(format!("Проект {stamp} ({k}).syn"));
+    let mut k = 1;
+    loop {
+        let name = if k == 1 { NEW_PROJECT.to_string() } else { format!("{NEW_PROJECT} {k}") };
+        let folder = dir.join(&name);
+        if !folder.exists() {
+            return folder.join(format!("{name}.{EXT}"));
+        }
         k += 1;
     }
-    p
 }
 
-/// Папка файлов проекта рядом с ним (`<имя>.media/`): всё, что программа
-/// создаёт для проекта (генерация, эталоны, отчёты прогонов), — в одном месте.
+/// Папка проекта: файл лежит в папке своего имени (`X/X.syn`).
+pub fn project_folder(project: &Path) -> Option<std::path::PathBuf> {
+    let dir = project.parent()?;
+    let stem = project.file_stem()?;
+    (dir.file_name() == Some(stem)).then(|| dir.to_path_buf())
+}
+
+/// Создан программой и ещё не переименован («Новый проект…», старые «Проект ДАТА»).
+pub fn is_auto_named(project: &Path) -> bool {
+    project.file_stem().is_some_and(|n| {
+        let n = n.to_string_lossy();
+        n.starts_with(NEW_PROJECT) || n.starts_with("Проект ")
+    })
+}
+
+/// Где лежат все файлы проекта (генерация, эталоны, озвучка, документы):
+/// папка проекта, а у старых проектов без своей папки — `<имя>.media/` рядом.
 pub fn media_dir(project: &Path) -> std::path::PathBuf {
+    if let Some(d) = project_folder(project) {
+        return d;
+    }
     let stem = project.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "проект".into());
     project.parent().unwrap_or(Path::new(".")).join(format!("{stem}.media"))
+}
+
+/// Переписать в проекте пути, начинающиеся с `from`, на `to` (после переноса
+/// или переименования папки проекта).
+pub fn relocate(project: &mut Project, from: &Path, to: &Path) -> Result<(), String> {
+    let mut v = serde_json::to_value(&*project).map_err(|e| e.to_string())?;
+    let (f, t) = (from.display().to_string(), to.display().to_string());
+    fn walk(v: &mut serde_json::Value, f: &str, t: &str) {
+        match v {
+            serde_json::Value::String(s) => {
+                if s == f {
+                    *s = t.to_string();
+                } else if let Some(rest) = s.strip_prefix(f).filter(|r| r.starts_with('/')) {
+                    *s = format!("{t}{rest}");
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|x| walk(x, f, t)),
+            serde_json::Value::Object(o) => o.values_mut().for_each(|x| walk(x, f, t)),
+            _ => {}
+        }
+    }
+    walk(&mut v, &f, &t);
+    *project = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    Ok(())
 }
