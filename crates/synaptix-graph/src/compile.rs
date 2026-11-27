@@ -284,15 +284,14 @@ mod tests {
         let f = to_flow(&g, &p).unwrap();
         let by = |l: &str| f.nodes.iter().find(|n| n.label == l).unwrap().id;
         // assets → assets-lines → refs (image each) → shots.refs;
-        // assets.text → plan → plan-lines → format(prompt) → shots.prompt; shots → film.files.
+        // assets.text → plan → plan-lines → shots.prompt (строка сцены целиком на языке lang,
+        // без дописок — шаблона нет); shots → film.files.
         let alines = by("assets-lines");
         let lines = by("plan-lines");
-        let fmt = by("shots-prompt");
         assert!(f.links.iter().any(|l| l.from_node == by("assets") && l.to_node == alines));
         assert!(f.links.iter().any(|l| l.from_node == by("assets") && l.to_node == by("plan-prompt")));
         assert!(f.links.iter().any(|l| l.from_node == by("refs") && l.to_node == by("shots") && l.to_port == "refs"));
-        assert!(f.links.iter().any(|l| l.from_node == lines && l.to_node == fmt));
-        assert!(f.links.iter().any(|l| l.from_node == fmt && l.to_node == by("shots") && l.to_port == "prompt"));
+        assert!(f.links.iter().any(|l| l.from_node == lines && l.to_node == by("shots") && l.to_port == "prompt"));
         assert!(f.links.iter().any(|l| l.from_node == by("shots") && l.to_node == by("film") && l.to_port == "files"));
         let shots = f.node(by("shots")).unwrap();
         assert_eq!(shots.fields["chain"], true);
