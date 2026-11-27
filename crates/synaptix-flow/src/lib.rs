@@ -106,6 +106,15 @@ mod tests {
         let (o, _) = run_node(&FlowNode::new(9, "lines"), inputs, dir.path(), &Cancel::new(), &mut |_| {}).unwrap();
         assert_eq!(o["list"], Val::List(vec![Val::List(vec![Val::Text("a".into())]), Val::List(vec![Val::Text("b".into())])]));
         assert!(events.iter().any(|e| matches!(e, Event::Finished { id: 3, .. })));
+        // Каждый элемент пакета — своим событием, с его выходом, до конца ноды.
+        let items: Vec<(usize, usize, Val)> = events.iter().filter_map(|e| match e {
+            Event::Item { id: 3, index, total, outputs, .. } => Some((*index, *total, outputs["text"].clone())),
+            _ => None,
+        }).collect();
+        assert_eq!(items, vec![(1, 3, Val::Text("фото: кот".into())), (2, 3, Val::Text("фото: пёс".into())), (3, 3, Val::Text("фото: ёж".into()))]);
+        let last_item = events.iter().rposition(|e| matches!(e, Event::Item { id: 3, .. })).unwrap();
+        let fin = events.iter().position(|e| matches!(e, Event::Finished { id: 3, .. })).unwrap();
+        assert!(last_item < fin);
     }
 
     #[test]

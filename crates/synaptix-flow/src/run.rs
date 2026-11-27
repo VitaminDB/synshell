@@ -105,6 +105,16 @@ pub enum Event {
     },
     /// Нода выключена — пропущена.
     Skipped { id: u64, name: String },
+    /// Элемент пакета готов (сцена, картинка-эталон): его выходы — сразу,
+    /// не дожидаясь конца ноды. `index` — с единицы.
+    Item {
+        id: u64,
+        name: String,
+        index: usize,
+        total: usize,
+        #[serde(default, skip_serializing_if = "Outputs::is_empty")]
+        outputs: Outputs,
+    },
 }
 
 /// Контекст исполнения одной ноды (одного элемента пакета).
@@ -437,12 +447,17 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
                 fallback_png = true;
             }
         }
-        label = cx.label;
+        let (outputs, uncached) = (std::mem::take(&mut cx.outputs), cx.uncached);
+        label = std::mem::take(&mut cx.label);
+        drop(cx);
         if fallback_png && k + 1 == n && !label.contains("по кадру") {
             label.push_str(", цепочка по кадру (без латента)");
         }
-        cacheable &= !cx.uncached;
-        for (port, v) in cx.outputs {
+        cacheable &= !uncached;
+        // Хвост (дескриптор латента) клиенту не нужен — только файлы и текст элемента.
+        let shown: Outputs = outputs.iter().filter(|(p, _)| p.as_str() != "tail").map(|(p, v)| (p.clone(), v.clone())).collect();
+        on_event(Event::Item { id: node.id, name: name.clone(), index: k + 1, total: n, outputs: shown });
+        for (port, v) in outputs {
             lists.entry(port).or_default().push(v);
         }
     }

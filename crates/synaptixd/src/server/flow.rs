@@ -190,6 +190,8 @@ struct Sink<'a> {
     next_out: usize,
     /// Входы клиента: на выходе (нода «Файл») — обратно меткой, без копии.
     inputs: Vec<PathBuf>,
+    /// Уже отправленные файлы (элементы пакета): повторно — той же меткой.
+    sent: std::collections::HashMap<PathBuf, String>,
 }
 
 impl Sink<'_> {
@@ -212,10 +214,14 @@ impl Sink<'_> {
                     if let Some(i) = self.inputs.iter().position(|x| x == p) {
                         return PathBuf::from(crate::flow::in_marker(i));
                     }
+                    if let Some(m) = self.sent.get(p) {
+                        return PathBuf::from(m);
+                    }
                     match std::fs::File::open(p) {
                     Ok(f) => {
                         let m = crate::flow::out_marker(self.next_out);
                         self.next_out += 1;
+                        self.sent.insert(p.to_path_buf(), m.clone());
                         files.push((OwnedFd::from(f), p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
                         PathBuf::from(m)
                     }
@@ -272,11 +278,12 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         let c = cancel.clone();
         l.on_cancel(move || c.cancel());
     }
-    let mut sink = Sink { sock, id, cancel, next_out: 0, inputs: ins.paths.clone() };
+    let mut sink = Sink { sock, id, cancel, next_out: 0, inputs: ins.paths.clone(), sent: Default::default() };
     let t0 = Instant::now();
     let r = sf::run_with(&flow, &dir, &opts, &mut |e| {
         let e = match e {
             Event::Finished { id, name, summary, outputs, cached } => Event::Finished { id, name, summary, outputs: sink.outputs(&outputs), cached },
+            Event::Item { id, name, index, total, outputs } => Event::Item { id, name, index, total, outputs: sink.outputs(&outputs) },
             other => other,
         };
         if let (Some(l), Event::Progress { step, total, .. }) = (&live, &e) {

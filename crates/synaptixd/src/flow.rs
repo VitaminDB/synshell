@@ -219,6 +219,7 @@ pub fn run_with(flow: &Flow, dir: &Path, opts: &RunOpts, on_event: &mut dyn FnMu
                         values.insert(id, BTreeMap::new());
                         Event::Skipped { id, name }
                     }
+                    Event::Item { id, name, index, total, outputs } => Event::Item { id, name, index, total, outputs: got.outputs(&outputs) },
                     other => other,
                 };
                 on_event(node);
