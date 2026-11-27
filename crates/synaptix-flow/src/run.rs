@@ -557,7 +557,9 @@ fn parse_picture_tag(text: &str, start: usize) -> Option<(usize, usize)> {
         return None;
     }
     let after_lt = &rest[1..];
-    if after_lt.len() < 9 || !after_lt[..7].eq_ignore_ascii_case("picture") {
+    // срез по байтам — только на границе символа: после «<» может идти
+    // русский текст (`<Картинка 1>`, `<д>`), и `[..7]` попадал внутрь буквы
+    if after_lt.len() < 9 || !after_lt.get(..7).is_some_and(|w| w.eq_ignore_ascii_case("picture")) {
         return None;
     }
     let after_word = &after_lt[7..];
@@ -740,6 +742,16 @@ mod tests {
     use super::*;
     use crate::Handle;
     use std::sync::Mutex;
+
+    #[test]
+    fn picture_tags_with_cyrillic() {
+        // русский текст сразу после «<» не должен ронять разбор (паника на границе символа)
+        let t = "Грымза из <Picture 2> ворчит: <д>[Russian] Ещё!</д> <Картинка 1> и <Picture 1>";
+        let (order, out) = scan_and_remap_pictures(t, 3);
+        assert_eq!(order, vec![2, 1]);
+        assert!(out.contains("<Picture 1> ворчит") && out.ends_with("<Picture 2>"), "{out}");
+        assert_eq!(parse_picture_tag("<абвгдеё", 0), None);
+    }
 
     static VIDEO_MOCK_LOCK: Mutex<()> = Mutex::new(());
     static CALLS: Mutex<Vec<(String, bool, bool)>> = Mutex::new(Vec::new());
