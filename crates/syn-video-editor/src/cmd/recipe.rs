@@ -95,7 +95,11 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     if g.name == "ref-scenes" && !params.contains_key("context") {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
             let first = params.get("storyboard").and_then(|v| v.as_str()).and_then(|s| s.lines().find(|l| !l.trim().is_empty())).unwrap_or("").trim_start().to_string();
-            if !first.starts_with("[CUT]") {
+            let from_prev = !first.starts_with("[CUT]") && super::story::tail_of(project, n.saturating_sub(1)).is_some();
+            if let Some(sb) = params.get("storyboard").and_then(|v| v.as_str()) {
+                super::story::check_continuation(sb, from_prev, n)?;
+            }
+            if from_prev {
                 if let Some(t) = super::story::tail_of(project, n.saturating_sub(1)) {
                     params.insert("context".into(), json!(t.display().to_string()));
                 }

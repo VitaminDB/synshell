@@ -315,7 +315,12 @@ static STATUS: Cmd = Cmd {
 /// говорящие (S1), (S2)… по порядку первой реплики и правило речи. Постановку
 /// (герои, камера, где кто стоит и куда смотрит, действие) пишет агент по
 /// сценарию — на месте <…>.
-pub fn skeleton(shot: usize, tracks: &[Value], base: usize) -> String {
+///
+/// `continues` — ролик начинается с латентного хвоста предыдущего (второй и
+/// следующие ролики сцены и первый ролик сцены, продолжающей прошлую без
+/// `[CUT]`): начало кадра обязано совпасть с концом предыдущего ролика, иначе
+/// H3 уводит хвост в новый план растворением через эталоны на белом фоне.
+pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool) -> String {
     let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
     let mut sd = String::from("subject_definitions: <каждая картинка ролика: <Picture k> is …>.");
     let mut ra = String::from("retention_analysis: <роль каждой картинки: fully_preserved / partially_preserved / …>.");
@@ -326,11 +331,34 @@ pub fn skeleton(shot: usize, tracks: &[Value], base: usize) -> String {
     }
     let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
     format!(
-        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус; действие без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
+        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус; действие без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
         if speakers.is_empty() { "" } else { " + [audio reuse]" },
-        if shot > 0 { " <продолжение предыдущего ролика сцены>" } else { "" },
+        if continues { CONTINUES } else { "" },
+        if continues { CAMERA_CONT } else { "" },
         if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
     )
+}
+
+/// Начало ролика, продолжающего предыдущий по латентному хвосту.
+const CONTINUES: &str = " This shot continues seamlessly from the previous shot: it opens on exactly the same camera framing, location, lighting, character positions and poses as the previous shot ended; any change of framing is a continuous camera move, never a dissolve or a cut.";
+/// Подсказка к месту камеры в продолжении.
+const CAMERA_CONT: &str = " — начало ровно как конец предыдущего ролика (его строка и последний кадр), смена плана — только движением камеры";
+
+/// Строки, которые начинаются с латентного хвоста (вторая и следующие без
+/// `[CUT]`; первая — если сцена продолжает прошлую), должны прямо говорить
+/// H3, что это продолжение: иначе он уводит хвост в новый план растворением.
+pub fn check_continuation(storyboard: &str, first_continues: bool, n: u32) -> Result<(), String> {
+    for (i, l) in storyboard.lines().map(str::trim).filter(|l| !l.is_empty()).enumerate() {
+        let cont = if i == 0 { first_continues } else { !l.starts_with("[CUT]") };
+        if cont && !l.to_lowercase().contains("continues seamlessly") {
+            return Err(format!(
+                "строка {} storyboard начинается с хвоста {} — нужна фраза из каркаса scene.plan «This shot continues seamlessly from the previous shot…» и начало кадра ровно как конец предыдущего ролика (ракурс, расстановка, позы, свет). Если это другая локация или время — начни строку с [CUT].",
+                i + 1,
+                if i == 0 { format!("сцены {}", n.saturating_sub(1)) } else { "предыдущего ролика".into() }
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn media_seconds(p: &Path) -> Result<f64, String> {
@@ -453,6 +481,8 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
     let mut k = 0;
     let mut numbering = Vec::new();
     let mut skeletons: Vec<String> = Vec::new();
+    // сцена продолжает прошлую по её хвосту (ref-scenes подставит context сам, если первая строка без [CUT])
+    let from_prev = n > 1 && tail_of(project, n - 1).is_some();
     for (i, sj) in shots_json.iter().enumerate() {
         let tr = sj["tracks"].as_array().cloned().unwrap_or_default();
         let parts: Vec<String> = tr
@@ -463,15 +493,20 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             })
             .collect();
         numbering.push(format!("ролик {} (строка {} storyboard): {}", i + 1, i + 1, if parts.is_empty() { "без речи — ни одного <Audio>".into() } else { parts.join(", ") }));
-        skeletons.push(skeleton(i, &tr, k - tr.len()));
+        skeletons.push(skeleton(i, &tr, k - tr.len(), i > 0 || from_prev));
     }
     Ok((
         format!(
-            "Каркасы строк storyboard по роликам (заполни <…>, остальное не меняй; герои — <Picture k> по порядку картинок в refs):\n{}\n\nНумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); звук сцены — звук роликов H3 (речь в нём уже есть), отдельную дорожку речи на таймлайн не клади. План — в документе «раскадровка».",
+            "Каркасы строк storyboard по роликам (заполни <…>, остальное не меняй; герои — <Picture k> по порядку картинок в refs):\n{}\n\nНумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); звук сцены — звук роликов H3 (речь в нём уже есть), отдельную дорожку речи на таймлайн не клади. План — в документе «раскадровка».{}",
             skeletons.iter().enumerate().map(|(i, s)| format!("ролик {}: {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             numbering.join("; "),
             shots.len(),
             summary.join("; "),
+            if from_prev {
+                format!("\n\nСцена {n} начинается с латентного хвоста сцены {}: ролик 1 — продолжение, его начало (ракурс, расстановка, позы, свет) опиши ровно как конец последнего ролика сцены {} (перечитай его строку, посмотри последний кадр сцены {} через frame_check). Если сцена в другой локации или времени — начни строку ролика 1 с [CUT] и убери фразу о продолжении.", n - 1, n - 1, n - 1)
+            } else {
+                String::new()
+            },
         ),
         files,
         json!({"scene": n, "seconds": total, "shots": shots_json, "audio_numbering": numbering, "skeletons": skeletons}),
@@ -484,6 +519,19 @@ mod tests {
 
     fn l(sp: &str, s: f64) -> Line {
         Line { speaker: sp.into(), file: PathBuf::from(format!("/{sp}.wav")), offset: 0.0, seconds: s, pauses: Vec::new(), at: 0.0 }
+    }
+
+    #[test]
+    fn continuation_needs_phrase() {
+        let sk = skeleton(0, &[], 0, true);
+        assert!(sk.contains("continues seamlessly"));
+        assert!(!skeleton(0, &[], 0, false).contains("continues seamlessly"));
+        assert!(check_continuation("a new shot", true, 2).is_err());
+        assert!(check_continuation("a new shot", false, 2).is_ok());
+        assert!(check_continuation("[CUT] new place", false, 2).is_ok());
+        assert!(check_continuation("x\ny continues seamlessly from the previous shot", false, 2).is_ok());
+        assert!(check_continuation("x\ny next", false, 2).is_err());
+        assert!(check_continuation("x\n[CUT] y", false, 2).is_ok());
     }
 
     #[test]
