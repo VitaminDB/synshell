@@ -1,7 +1,7 @@
 //! name: cinematic_montage
 //! title: Кинематографичный монтаж
 //! description: стиль «кино» — для фильмов, мультфильмов, историй, сцен с сюжетом: прямые склейки по действию, редкие наплывы и затемнения между частями, проявление из чёрного и затемнение в конце, кинокаше 2.39:1, мягкий киношный LUT и лёгкое плёночное зерно, без свушей, глитчей и прыгающих титров; спокойный заголовок и финальная карточка, музыка по настроению тихо с нарастанием и затуханием
-//! params: title — название (на чёрном/первом кадре); credits — финальная надпись; music — путь к музыке (если её нет на таймлайне); every — наплыв на каждой N-й склейке (3); letterbox — кинокаше (true); grain — зерно плёнки (true)
+//! params: title — название (на чёрном/первом кадре); credits — финальная надпись; music — путь к музыке (если её нет на таймлайне); every — наплыв на каждой N-й склейке (3; у роликов-цепочки рецепта shots-NNN — 0: бесшовно); letterbox — кинокаше (true); grain — зерно плёнки (true)
 
 let p = project();
 let main = ();
@@ -17,7 +17,16 @@ let clips = [];
 for c in list(main.clips) { if c.source.media != () { clips.push(c); } }
 let total = 0.0;
 for c in clips { let e = num(c.start) + num(c.duration); if e > total { total = e; } }
-let every = num(params.every, 3.0);
+// ролики сгенерированы цепочкой (рецепт: shots-NNN — каждая сцена продолжает
+// предыдущую с её последнего кадра) — это один непрерывный план: склейки
+// бесшовные, наплывов нет (они только размывают стык)
+let chain = clips.len() > 1;
+for c in clips {
+    let nm = "";
+    for m in list(p.media) { if m.id == c.source.media && m.path != () { nm = `${m.path}`; } }
+    if !nm.contains("/shots-") { chain = false; }
+}
+let every = if params.every != () { num(params.every, 3.0) } else if chain { 0.0 } else { 3.0 };
 
 // 1. склейки: прямые; каждая N-я — мягкий наплыв (смена части)
 let i = 0; let soft = 0;
@@ -25,7 +34,7 @@ for c in clips {
     if i > 0 {
         let prev = clips[i - 1];
         let adj = (num(prev.start) + num(prev.duration) - num(c.start)).abs() < 0.05;
-        if adj && i % every.to_int() == 0 {
+        if adj && every >= 1.0 && i % every.to_int() == 0 {
             cmd("transition.set", #{id: c.id, kind: "dissolve", duration: 0.9});
             soft += 1;
         }
