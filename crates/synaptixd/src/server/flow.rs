@@ -480,6 +480,24 @@ fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::
     })
 }
 
+/// Короткое описание → подробная аудиовизуальная подпись в стиле обучающих
+/// подписей LTX-2.5 (улучшитель промпта из комплекта модели).
+fn enhance_prompt(cx: &mut Cx, prompt: &str) -> Result<String, String> {
+    use synaptix_gen::ltx_text as lt;
+    let m = mgr();
+    let model = m.resolve_id("ltx-2-5-prompt-enhancer", ModelKind::Llm).map_err(|e| format!("улучшитель промпта LTX-2.5 не найден: {}", e.message))?;
+    let msgs = vec![crate::Message::system(lt::ENHANCER_T2V_SYSTEM), crate::Message::user(lt::enhancer_user_message(prompt, false))];
+    let call = Params::new().with("thinking", false).with("max_tokens", lt::ENHANCER_MAX_TOKENS as i64).with("temperature", 0.0).with("seed", 42i64);
+    let params = m.params(&model, &call);
+    let g = with_progress(cx, |_, stop| m.run(&model, |l| l.generate(&msgs, &params, &[], &|_| {}, stop))).map_err(|e| stopped(cx, e.message))?;
+    let text = lt::enhancer_clean(&g.text);
+    if text.split_whitespace().count() < 20 {
+        return Err(format!("улучшитель промпта вернул слишком короткий текст: «{text}»"));
+    }
+    tracing::info!("улучшитель промпта: {} → {} слов", prompt.split_whitespace().count(), text.split_whitespace().count());
+    Ok(text)
+}
+
 fn video(cx: &mut Cx) -> R {
     let ctx = read_context_tail(cx)?;
     let tail_out = cx.out_path("tail.safetensors");
@@ -515,7 +533,11 @@ fn video(cx: &mut Cx) -> R {
         lora_strength: cx.pos("lora_strength").map(|v| v as f32),
     };
     let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
-    let prompt = cx.need("prompt")?;
+    let mut prompt = cx.need("prompt")?;
+    // LTX-2.5: улучшитель промпта (Gemma 4 E2B, системный промпт эталона, жадно, 600 токенов).
+    if cx.bool("enhance") {
+        prompt = enhance_prompt(cx, &prompt)?;
+    }
     let r = with_progress(cx, |progress, stop| gen::video(mgr(), &model, prompt, p, stop, progress)).map_err(|e| stopped(cx, e.message))?;
     let path = cx.out_path("mp4");
     std::fs::write(&path, &r.mp4).map_err(|e| e.to_string())?;
