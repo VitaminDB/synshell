@@ -38,7 +38,7 @@ static RUN: Command = Command {
     shortcut: "",
     keywords: "recipe рецепт прогнать сгенерировать проект таймлайн",
     help: "Прогнать рецепт (службой нейросетей) и собрать из результата редактируемый проект: ролики сцен клипами по порядку (имена — строки сценария), музыка и речь — на звуковых дорожках, если ролики без звука. Проект сохраняется в ~/Videos/syn-video-editor и открывается, если текущий пуст или сохранён. Долго (генерация), нужна видеокарта.",
-    args: &[req("name", Ty::Str, "рецепт (recipe.list)"), arg("params", Ty::Object, "параметры рецепта"), arg("open", Ty::Bool, "открыть проект (по умолчанию да)"), arg("label", Ty::Str, "подпись генерации в медиатеке — место в фильме: «Сцена 3 из 12: <название>», «Эталон: <герой>»")],
+    args: &[req("name", Ty::Str, "рецепт (recipe.list)"), arg("params", Ty::Object, "параметры рецепта"), arg("open", Ty::Bool, "открыть проект (по умолчанию да)"), arg("label", Ty::Str, "подпись генерации в медиатеке — место в фильме: «Сцена 3 из 12: <название>», «Эталон: <герой>»"), arg("asset", Ty::Str, "имя файлов результата в медиатеке (герой, локация, «Сцена 3»), вместо ref.png / shots-000.mp4")],
     danger: false,
     run: run,
 };
@@ -99,6 +99,10 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
         });
     }
     let mut live: Vec<std::path::PathBuf> = Vec::new();
+    // имя ассета (`asset`: «Грымза», «Сцена 3»): файлы результата — по нему, а
+    // не одинаковые «ref.png» / «shots-000.mp4» в медиатеке
+    let asset = a.str("asset")?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mut renamed: std::collections::HashMap<std::path::PathBuf, std::path::PathBuf> = std::collections::HashMap::new();
     let report = synaptix_graph::run_observed(
         &g,
         &params,
@@ -106,14 +110,29 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
         &cancel,
         &mut |s| syn_assist::tools::progress(0, 0, s),
         &mut |node, files| {
+            let files: Vec<std::path::PathBuf> = match &asset {
+                Some(name) => files.iter().map(|f| asset_name(&mut renamed, f, name)).collect(),
+                None => files.to_vec(),
+            };
             live.extend(files.iter().cloned());
-            on_files(node, files);
+            on_files(node, &files);
         },
         // превью по ходу — плитке медиатеки служебной строкой хода (в чат не идёт)
         &mut |node, png| syn_assist::tools::progress(0, 0, &format!("{PREVIEW_TAG}{node}\t{}", png.display())),
     );
     done.store(true, std::sync::atomic::Ordering::Relaxed);
-    let report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
+    let mut report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
+    if let Some(name) = &asset {
+        // файлы, пришедшие только в итоге (не элементами), — тоже по имени
+        for f in report.files.iter_mut() {
+            *f = asset_name(&mut renamed, f, name);
+        }
+        for o in report.nodes.values_mut() {
+            for f in o.files.iter_mut() {
+                *f = asset_name(&mut renamed, f, name);
+            }
+        }
+    }
     // превью по ходу генерации нужны только во время прогона — не копить в папке проекта
     fn drop_previews(d: &std::path::Path) {
         if let Ok(rd) = std::fs::read_dir(d) {
@@ -140,6 +159,35 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     }
     crate::store::save(&built.project, &path)?;
     Ok(Generated { g, report, built, path, live })
+}
+
+/// Переименовать файл результата по имени ассета (`<имя>.ext`, `<имя>-2.ext`…)
+/// в том же каталоге; повторный вызов для того же файла — прежнее имя.
+fn asset_name(map: &mut std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>, f: &std::path::Path, name: &str) -> std::path::PathBuf {
+    if let Some(n) = map.get(f) {
+        return n.clone();
+    }
+    if map.values().any(|v| v == f) || !f.exists() {
+        return f.to_path_buf();
+    }
+    let stem: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | ' ' | '_') { c } else { '_' }).collect::<String>().trim().chars().take(60).collect();
+    let ext = f.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let dir = f.parent().unwrap_or(std::path::Path::new("."));
+    let mut k = 1;
+    let target = loop {
+        let n = if k == 1 { format!("{stem}.{ext}") } else { format!("{stem}-{k}.{ext}") };
+        let p = dir.join(n);
+        if !p.exists() {
+            break p;
+        }
+        k += 1;
+    };
+    let out = match std::fs::rename(f, &target) {
+        Ok(()) => target,
+        Err(_) => f.to_path_buf(),
+    };
+    map.insert(f.to_path_buf(), out.clone());
+    out
 }
 
 /// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
@@ -202,4 +250,28 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
         ),
         json!({"path": path.display().to_string(), "clips": clips, "files": files_str}),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn asset_names() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("ref.png");
+        let b = d.path().join("shots-000.mp4");
+        let c = d.path().join("film.mp4");
+        for f in [&a, &b, &c] {
+            std::fs::write(f, b"x").unwrap();
+        }
+        let mut m = std::collections::HashMap::new();
+        let na = super::asset_name(&mut m, &a, "Герой: тролль");
+        assert_eq!(na.file_name().unwrap(), "Герой_ тролль.png");
+        assert!(na.exists() && !a.exists());
+        // тот же файл повторно (итог прогона) — то же имя
+        assert_eq!(super::asset_name(&mut m, &a, "Герой: тролль"), na);
+        let nb = super::asset_name(&mut m, &b, "Сцена 3");
+        let nc = super::asset_name(&mut m, &c, "Сцена 3");
+        assert_eq!(nb.file_name().unwrap(), "Сцена 3.mp4");
+        assert_eq!(nc.file_name().unwrap(), "Сцена 3-2.mp4");
+    }
 }
