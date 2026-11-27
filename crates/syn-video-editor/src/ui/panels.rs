@@ -1182,6 +1182,9 @@ pub fn media_props_view(st: St) -> impl Widget {
 
 // ── просмотр медиа по двойному щелчку ───────────────────────────────────
 
+/// Плеер открытого в просмотре звукового файла (один на окно).
+static PREVIEW_AUDIO: std::sync::Mutex<Option<(u64, std::sync::Arc<std::sync::Mutex<syngui::video::AudioFilePlayer>>)>> = std::sync::Mutex::new(None);
+
 /// Плеер открытого в просмотре видео/звука (один на окно).
 static PREVIEW_PLAYER: std::sync::Mutex<Option<(u64, std::sync::Arc<std::sync::Mutex<syngui::video::VideoPlayer>>)>> = std::sync::Mutex::new(None);
 
@@ -1390,6 +1393,9 @@ pub fn media_view_panel(st: St) -> impl Widget {
             if let Ok(mut g) = PREVIEW_PLAYER.lock() {
                 *g = None;
             }
+            if let Ok(mut g) = PREVIEW_AUDIO.lock() {
+                *g = None;
+            }
         }
         if let Some((key, title)) = fx {
             return vec![fx_view(st, key, title)];
@@ -1412,7 +1418,36 @@ pub fn media_view_panel(st: St) -> impl Widget {
                 v = v.natural_size(m.width, m.height);
             }
             Box::new(v)
-        } else if matches!(m.kind, MediaKind::Video | MediaKind::Audio) {
+        } else if m.kind == MediaKind::Audio {
+            // звук без видео — свой плеер syngui (видеодекодер требует видеопоток)
+            if let Ok(mut g) = PREVIEW_PLAYER.lock() {
+                *g = None;
+            }
+            let player = {
+                let mut g = PREVIEW_AUDIO.lock().unwrap_or_else(|e| e.into_inner());
+                match g.as_ref() {
+                    Some((pid, p)) if *pid == id => Some(p.clone()),
+                    _ => match syngui::video::AudioFilePlayer::open(&path) {
+                        Ok(p) => {
+                            let p = std::sync::Arc::new(std::sync::Mutex::new(p));
+                            *g = Some((id, p.clone()));
+                            Some(p)
+                        }
+                        Err(e) => {
+                            st.toast.set(Some(format!("Просмотр: {e}")));
+                            None
+                        }
+                    },
+                }
+            };
+            match player {
+                Some(p) => Box::new(VideoPlayerView::audio_file(p).build()),
+                None => Box::new(Center::new().child(Text::new("Не удалось открыть файл").class("panel-empty"))),
+            }
+        } else if m.kind == MediaKind::Video {
+            if let Ok(mut g) = PREVIEW_AUDIO.lock() {
+                *g = None;
+            }
             let player = {
                 let mut g = PREVIEW_PLAYER.lock().unwrap_or_else(|e| e.into_inner());
                 match g.as_ref() {
