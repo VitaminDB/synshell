@@ -77,3 +77,28 @@ pub fn remember(path: Option<&Path>) {
     let _ = std::fs::create_dir_all(data_dir());
     let _ = std::fs::write(data_dir().join("last"), path.map(|p| p.display().to_string()).unwrap_or_default());
 }
+
+/// Каталог проектов по умолчанию (`~/Videos/syn-video-editor`).
+pub fn projects_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Videos/syn-video-editor")
+}
+
+/// Файл нового проекта: «Проект ГГГГ-ММ-ДД ЧЧ-ММ.syn» (с номером, если занят).
+pub fn new_project_path() -> std::path::PathBuf {
+    let stamp = std::process::Command::new("date").arg("+%Y-%m-%d %H-%M").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "новый".into());
+    let dir = projects_dir();
+    let mut p = dir.join(format!("Проект {stamp}.syn"));
+    let mut k = 2;
+    while p.exists() {
+        p = dir.join(format!("Проект {stamp} ({k}).syn"));
+        k += 1;
+    }
+    p
+}
+
+/// Папка файлов проекта рядом с ним (`<имя>.media/`): всё, что программа
+/// создаёт для проекта (генерация, эталоны, отчёты прогонов), — в одном месте.
+pub fn media_dir(project: &Path) -> std::path::PathBuf {
+    let stem = project.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "проект".into());
+    project.parent().unwrap_or(Path::new(".")).join(format!("{stem}.media"))
+}

@@ -93,7 +93,8 @@ impl Tool for CmdTool {
             let a = cmd::Args::from_value(self.cmd, args)?;
             // готовые файлы узлов — сразу в медиатеку проекта (короткая блокировка)
             let ed_live = self.ed.clone();
-            let done = cmd::recipe::generate(&a, &mut |_, files| {
+            let project = self.ed.lock().unwrap_or_else(|e| e.into_inner()).path.clone();
+            let done = cmd::recipe::generate(&a, project.as_deref(), &mut |_, files| {
                 let paths: Vec<String> = files.iter().filter(|f| f.exists()).map(|f| f.display().to_string()).collect();
                 if !paths.is_empty() {
                     let mut ed = ed_live.lock().unwrap_or_else(|e| e.into_inner());

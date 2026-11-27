@@ -335,6 +335,15 @@ impl St {
         let r = {
             let mut e = ed();
             let r = cmd::run(&mut e, id, &args);
+            // новый проект — сразу файлом в ~/Videos/syn-video-editor: генерации и
+            // файлам проекта есть куда лечь, состояние окна — под своим ключом
+            if id == "project.new" && r.is_ok() && e.path.is_none() {
+                let p = crate::store::new_project_path();
+                if crate::store::save(&e.project, &p).is_ok() {
+                    e.path = Some(p);
+                    e.dirty = false;
+                }
+            }
             self.rev.set(e.revision);
             self.ph.set(e.playhead);
             r

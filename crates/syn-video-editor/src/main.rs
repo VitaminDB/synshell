@@ -284,6 +284,16 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
             e.dirty = true;
         }
     }
+    // без файла и без «открывать последний» — новый проект сразу файлом
+    if project.is_none() && shot.is_none() {
+        let mut e = ui::ed();
+        if e.path.is_none() {
+            let p = store::new_project_path();
+            if store::save(&e.project, &p).is_ok() {
+                e.path = Some(p);
+            }
+        }
+    }
     if let Some(p) = &project {
         let mut e = ui::ed();
         match store::load(p) {
@@ -343,6 +353,17 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
         .with_live_styles(st.theme)
         .with_window_state(st.window)
         .on_close_request(move || {
+            // проект, созданный при запуске и так и оставшийся пустым, — не мусорить
+            {
+                let e = ui::ed();
+                if let Some(p) = e.path.clone() {
+                    let empty = e.project.media.is_empty() && e.project.tracks.iter().all(|t| t.clips.is_empty());
+                    if empty && p.starts_with(store::projects_dir()) && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("Проект ")) {
+                        let _ = std::fs::remove_file(&p);
+                        let _ = std::fs::remove_dir(store::media_dir(&p));
+                    }
+                }
+            }
             if let Some(spec) = st.dock.spec() {
                 syn_video_editor::layout::save_current(&spec, &st.view.get_untracked());
             }

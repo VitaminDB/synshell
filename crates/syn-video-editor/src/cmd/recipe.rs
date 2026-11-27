@@ -44,7 +44,8 @@ static RUN: Command = Command {
 };
 
 fn run(ed: &mut Editor, a: &Args) -> Res {
-    let done = generate(a, &mut |_, _| {})?;
+    let project = ed.path.clone();
+    let done = generate(a, project.as_deref(), &mut |_, _| {})?;
     apply(ed, a, done)
 }
 
@@ -65,12 +66,18 @@ pub struct Generated {
 /// Долгая часть `recipe.run` — генерация службой и сборка проекта на диске.
 /// Документ редактора не нужен: агент зовёт её без блокировки (иначе окно,
 /// ждущее ту же блокировку для отрисовки, висит всю генерацию).
-pub fn generate(a: &Args, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
+/// `project` — файл текущего проекта: генерация ложится в его папку
+/// (`<имя>.media/generated/…`), без файла — в кэш программы.
+pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     let params = a.object("params")?.unwrap_or_default();
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let run_dir = std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))).unwrap_or_else(std::env::temp_dir).join("syn-video-editor/recipes").join(format!("{}-{stamp}", synaptix_graph::recipes::slug(&g.name)));
+    let base = match project {
+        Some(p) => crate::store::media_dir(p).join("generated"),
+        None => std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))).unwrap_or_else(std::env::temp_dir).join("syn-video-editor/recipes"),
+    };
+    let run_dir = base.join(format!("{}-{stamp}", synaptix_graph::recipes::slug(&g.name)));
     // «Стоп» в панели ИИ обрывает и сам прогон в службе (картинки, видео), а не
     // только ход агента между шагами: сторож переводит флаг в отмену графа
     let cancel = synaptix_graph::Cancel::new();
@@ -103,6 +110,20 @@ pub fn generate(a: &Args, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf]))
     );
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let report = report.map_err(|e| if cancel.is_cancelled() { "остановлено пользователем («Стоп»)".to_string() } else { e })?;
+    // превью по ходу генерации нужны только во время прогона — не копить в папке проекта
+    fn drop_previews(d: &std::path::Path) {
+        if let Ok(rd) = std::fs::read_dir(d) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    drop_previews(&p);
+                } else if p.file_name().is_some_and(|n| n.to_string_lossy().contains(".preview-")) {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
+    }
+    drop_previews(&run_dir);
     // отчёт прогона рядом с файлами: что дал каждый узел (разбор, если раскладка вышла не той)
     let rep = json!({"recipe": g.name, "params": params, "steps": report.steps, "nodes": report.nodes});
     let _ = std::fs::write(run_dir.join("report.json"), serde_json::to_string_pretty(&rep).unwrap_or_default());
