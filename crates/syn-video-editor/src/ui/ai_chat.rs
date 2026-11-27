@@ -1,6 +1,5 @@
 //! Чаты агента в панели ИИ: несколько разговоров (новый, переключение,
-//! удаление), хранятся в `~/.local/share/syn-video-editor/chats` (учитывает
-//! `XDG_DATA_HOME`). Шапка панели — выбор чата, модель, режим «Инструкт /
+//! удаление), у каждого проекта свои (`$XDG_STATE_HOME/syn-video-editor/projects/<ключ>.chats`). Шапка панели — выбор чата, модель, режим «Инструкт /
 //! Думать» с глубиной и заполнение окна контекста.
 
 use std::sync::Mutex;
@@ -15,12 +14,10 @@ use super::{icons, AiLine, St};
 /// Текущий разговор (ход агента берёт его на время хода).
 static CHAT: Mutex<Option<Chat>> = Mutex::new(None);
 
+/// Чаты — у каждого проекта свои (`projstate`): новый проект без чатов,
+/// открытый — со своими разговорами.
 pub fn store_dir() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share"));
-    base.join("syn-video-editor").join("chats")
+    crate::projstate::dir().join(format!("{}.chats", crate::projstate::current()))
 }
 
 pub fn store() -> Store {
@@ -113,6 +110,13 @@ pub fn after_turn(st: St, chat: &Chat) {
     st.ai_ctx.set((chat.prompt_tokens, chat.context));
     st.ai_chat.set(chat.id.clone());
     st.ai_chats.set(store().list());
+}
+
+/// Проект сменился — его чаты: последний разговор проекта или новый.
+pub fn switch_project(st: St) {
+    let chat = store().list().first().and_then(|c| store().load(&c.id)).unwrap_or_else(Chat::new);
+    show(st, &chat);
+    put_back_quiet(chat);
 }
 
 pub fn new_chat(st: St) {

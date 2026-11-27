@@ -102,6 +102,11 @@ pub fn adopt(from: &str, to: &str) -> bool {
             any = true;
         }
     }
+    // чаты несохранённого проекта переезжают к файлу
+    let (ca, cb) = (dir().join(format!("{from}.chats")), dir().join(format!("{to}.chats")));
+    if ca.is_dir() && !cb.exists() && std::fs::rename(&ca, &cb).is_ok() {
+        any = true;
+    }
     any
 }
 

@@ -1512,12 +1512,17 @@ pub fn project_state(st: St) {
             // новый проект — чистое рабочее место
             let _ = std::fs::remove_file(ps::graphs_file(&k));
             let _ = std::fs::remove_file(ps::ui_file(&k));
+            let _ = std::fs::remove_dir_all(ps::dir().join(format!("{k}.chats")));
         }
         if let Some(ws) = graph::workspace() {
             ws.replace_state(syn_node_editor::persist::load_from(&ps::graphs_file(&k)));
         }
         if let Some(ui) = ps::load_ui(&k) {
             apply(st, &ui);
+        }
+        // чаты агента — тоже свои у проекта (не во время хода агента)
+        if !st.ai_busy.get_untracked() {
+            ai_chat::switch_project(st);
         }
     });
 }
