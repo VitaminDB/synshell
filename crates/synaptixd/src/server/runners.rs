@@ -125,6 +125,7 @@ pub enum TtsEngine {
     Vibe(synaptix_tts_vibevoice::VibeVoicePipeline),
     Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
     Audio8(synaptix_tts_audio8::Audio8Pipeline),
+    Drama3(Box<synaptix_tts_drama3::Drama3>),
     Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
     Leokani(synaptix_tts_leokani::LeokaniPipeline),
     F5(synaptix_tts_f5::F5Pipeline),
@@ -138,6 +139,8 @@ pub enum Voice {
     Pcm { pcm: Vec<f32>, sr: u32 },
     /// Audio8: коды кодека образца и его текст.
     Audio8(synaptix_tts_audio8::VoicePrompt),
+    /// Drama 3: образцы голосов (коды кодека и расшифровки), по говорящим.
+    Drama3(Vec<synaptix_tts_drama3::Reference>),
     /// F5-TTS: образец 24 кГц и его текст.
     F5(synaptix_tts_f5::VoicePrompt),
 }
@@ -281,6 +284,57 @@ fn audio8_voice(p: &synaptix_tts_audio8::Audio8Pipeline, path: &Path, text: &str
     anyhow::ensure!(!text.is_empty(), "Audio8 клонирует голос только с текстом образца (ref_text) — слово в слово");
     let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), p.sample_rate()).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
     p.voice_prompt(&pcm, p.sample_rate(), text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
+}
+
+/// Образцы голосов Drama 3: записи любого формата и их тексты (по строке на
+/// образец); i-й образец — говорящий `<|speaker:i|>`. Запись длиннее 30 с
+/// обрезается (промпт растёт на 21,5 строки за секунду).
+fn drama3_voices(p: &synaptix_tts_drama3::Drama3, paths: &[&Path], ref_text: &str) -> anyhow::Result<Vec<synaptix_tts_drama3::Reference>> {
+    let sr = synaptix_tts_drama3::SAMPLE_RATE;
+    let texts: Vec<&str> = if paths.len() > 1 { ref_text.lines().map(str::trim).filter(|l| !l.is_empty()).collect() } else { vec![ref_text.trim()] };
+    let mut out = Vec::with_capacity(paths.len());
+    for (i, path) in paths.iter().enumerate() {
+        let text = texts.get(i).copied().unwrap_or("").trim();
+        anyhow::ensure!(!text.is_empty(), "Drama 3 клонирует голос с текстом образца (ref_text) — слово в слово; для образца {} его нет", i + 1);
+        let mut pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), sr).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
+        pcm.truncate(30 * sr as usize);
+        let codes = p.encode_reference(&pcm).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
+        let transcript = if text.trim_start().starts_with("<|speaker:") { text.to_string() } else { format!("<|speaker:{i}|> {text}") };
+        out.push(synaptix_tts_drama3::Reference { transcript, codes });
+    }
+    Ok(out)
+}
+
+/// Синтез Drama 3 с защитой от убегания: кусок без конца речи — заново
+/// другим зерном (до трёх раз), иначе самый короткий результат.
+fn drama3_say(p: &synaptix_tts_drama3::Drama3, text: &str, refs: &[synaptix_tts_drama3::Reference], temperature: Option<f32>, top_p: Option<f32>, seed: u64, progress: &mut dyn FnMut(usize, usize)) -> anyhow::Result<Vec<f32>> {
+    let mut best: Option<Vec<f32>> = None;
+    for attempt in 0..3u64 {
+        let req = synaptix_tts_drama3::Drama3Request {
+            text: text.to_string(),
+            references: refs.to_vec(),
+            temperature: temperature.unwrap_or(1.0).clamp(0.05, 2.0),
+            top_p: top_p.unwrap_or(0.9).clamp(0.05, 1.0),
+            max_frames: 1024,
+            seed: seed.wrapping_add(attempt * 0x9E37_79B9),
+            ..Default::default()
+        };
+        let out = p.generate(&req, &mut |_, _, i, n| {
+            progress(i, n);
+            true
+        })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let secs = out.pcm.len() as f64 / synaptix_tts_drama3::SAMPLE_RATE as f64;
+        tracing::info!("drama3: {} кадров за {:.2} с ({:.1} кадр/с), звук {secs:.1} с, кусков {}, кодек {:.2} с", out.frames, out.ar_seconds, out.frames as f64 / out.ar_seconds.max(1e-9), out.chunks, out.codec_seconds);
+        if out.finished {
+            return Ok(out.pcm);
+        }
+        tracing::warn!("drama3: кусок без конца речи (предел кадров), попытка {}/3", attempt + 1);
+        if best.as_ref().is_none_or(|b| out.pcm.len() < b.len()) {
+            best = Some(out.pcm);
+        }
+    }
+    Ok(best.expect("хотя бы одна попытка"))
 }
 
 /// Образец голоса F5-TTS: запись любого формата и её точный текст.
@@ -688,7 +742,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani" && a != "f5" && a != "silero";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "drama3" && a != "supertonic" && a != "leokani" && a != "f5" && a != "silero";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a == "leokani" {
                 // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
@@ -706,6 +760,10 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 anyhow::ensure!(dev != DeviceKind::Npu, "Supertonic на NPU не исполняется");
                 // ~100M параметров: счёт F32, как оригинал в onnxruntime; квант не нужен.
                 TtsEngine::Supertonic(synaptix_tts_supertonic::SupertonicPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "drama3" {
+                anyhow::ensure!(dev == DeviceKind::Cuda, "Drama 3 исполняется только на видеокарте");
+                // Основа — MoE 35B: блоки и кэш экспертов на карте, эксперты в RAM.
+                TtsEngine::Drama3(Box::new(synaptix_tts_drama3::Drama3::load(path, device).map_err(|e| anyhow::anyhow!("{e}"))?))
             } else if a == "audio8" || a == "arktts" {
                 anyhow::ensure!(dev != DeviceKind::Npu, "Audio8 на NPU не исполняется");
                 // LM обучен в BF16; F16 (выбор кванта) на нём не проверен.
@@ -1047,6 +1105,15 @@ impl Loaded {
                 let o = synaptix_tts_supertonic::Options { steps: r.steps.unwrap_or(8).clamp(1, 64), speed: 1.05 * r.speed.unwrap_or(1.0).clamp(0.25, 4.0), seed: r.seed, ..Default::default() };
                 let pcm = p.synthesize(text, &lang, &voice, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((pcm, p.sample_rate()))
+            }
+            TtsEngine::Drama3(p) => {
+                let paths: Vec<&Path> = r.voices.iter().map(|v| v.as_path()).collect();
+                let refs = if paths.is_empty() { Vec::new() } else { drama3_voices(p, &paths, r.ref_text.as_deref().unwrap_or(""))? };
+                let mut pcm = drama3_say(p, text, &refs, None, None, r.seed, progress)?;
+                if let Some(s) = r.speed.filter(|s| (s - 1.0).abs() > 1e-3) {
+                    pcm = synaptix::facade::tts::time_stretch(&pcm, synaptix_tts_drama3::SAMPLE_RATE, s);
+                }
+                Ok((pcm, synaptix_tts_drama3::SAMPLE_RATE))
             }
             TtsEngine::Audio8(p) => {
                 let opts = synaptix_tts_audio8::GenerateOptions { seed: r.seed, max_frames: audio8_max_frames(text), ..p.default_options() };
@@ -1807,6 +1874,44 @@ impl Loaded {
                 let t = p.last_timings();
                 tracing::info!("supertonic: голос {name}, {lang}, звук {:.1} с за {:.2} с (поток {:.2} с, кусков {})", t.audio_s, t.dp_te_s + t.flow_s + t.vocoder_s, t.flow_s, t.chunks);
                 Ok((pcm, p.sample_rate(), Some(seed)))
+            }
+            TtsEngine::Drama3(p) => {
+                let sr = synaptix_tts_drama3::SAMPLE_RATE;
+                // Образцы: несколько путей — по строке (говорящие 0, 1, …).
+                let mut remember = None;
+                let refs: Vec<synaptix_tts_drama3::Reference> = match ref_audio {
+                    Some(paths) => {
+                        let rkey = format!("{paths}\x1f{ref_text}");
+                        if !st.refs.contains_key(&rkey) {
+                            let list: Vec<&Path> = paths.lines().map(str::trim).filter(|l| !l.is_empty()).map(Path::new).collect();
+                            let v = drama3_voices(p, &list, &ref_text)?;
+                            st.refs.insert(rkey.clone(), Voice::Drama3(v));
+                        }
+                        match st.refs.get(&rkey) {
+                            Some(Voice::Drama3(v)) => v.clone(),
+                            _ => anyhow::bail!("образец голоса не подготовлен"),
+                        }
+                    }
+                    // Без образца: голос разговора — первая сказанная фраза.
+                    None => match st.voices.get(&key).filter(|_| !fresh) {
+                        Some(Voice::Drama3(v)) => v.clone(),
+                        _ => {
+                            remember = Some(());
+                            Vec::new()
+                        }
+                    },
+                };
+                let pcm = drama3_say(p, text, &refs, params.f32("temperature"), params.f32("top_p"), phrase_seed, &mut |_, _| {})?;
+                if remember.is_some() && !fresh && pcm.len() <= 20 * sr as usize && !text.contains("<|speaker:") {
+                    if let Ok(codes) = p.encode_reference(&pcm) {
+                        st.voices.insert(key, Voice::Drama3(vec![synaptix_tts_drama3::Reference { transcript: text.to_string(), codes }]));
+                    }
+                }
+                let pcm = match stretch {
+                    Some(r) => synaptix::facade::tts::time_stretch(&pcm, sr, r),
+                    None => pcm,
+                };
+                Ok((pcm, sr, Some(seed)))
             }
             TtsEngine::Audio8(p) => {
                 let sr = p.sample_rate();

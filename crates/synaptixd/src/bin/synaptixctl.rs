@@ -467,8 +467,17 @@ fn run(args: &[String]) -> Result<(), String> {
             // описанием, зерном и CFG.
             let (voice, seed) = (std::env::var("VOICE").ok(), std::env::var("SEED").ok().and_then(|v| v.parse::<i64>().ok()));
             let guidance = std::env::var("GUIDANCE").ok().and_then(|v| v.parse::<f64>().ok());
-            let sp = if voice.is_some() || seed.is_some() || guidance.is_some() {
+            // REF_AUDIO / REF_TEXT — клон голоса по образцу (несколько образцов —
+            // по строке); TEMPERATURE / TOP_P — сэмплинг.
+            let env_s = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+            let (ref_audio, ref_text) = (env_s("REF_AUDIO"), env_s("REF_TEXT"));
+            let (temperature, top_p) = (env_s("TEMPERATURE").and_then(|v| v.parse::<f64>().ok()), env_s("TOP_P").and_then(|v| v.parse::<f64>().ok()));
+            let sp = if voice.is_some() || seed.is_some() || guidance.is_some() || ref_audio.is_some() || temperature.is_some() || top_p.is_some() {
                 let mut p = synaptixd::Params::default();
+                p.set("ref_audio", ref_audio.map(Into::into));
+                p.set("ref_text", ref_text.map(Into::into));
+                p.set("temperature", temperature.map(Into::into));
+                p.set("top_p", top_p.map(Into::into));
                 p.set("voice", voice.map(Into::into));
                 p.set("seed", seed.map(Into::into));
                 p.set("guidance", guidance.map(Into::into));

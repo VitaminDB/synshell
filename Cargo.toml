@@ -109,6 +109,7 @@ synaptix-tts-omnivoice = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-vibevoice = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-voxcpm = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-audio8 = { git = "https://github.com/VitaminDB/synaptix.git" }
+synaptix-tts-drama3 = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-supertonic = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-leokani = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-f5 = { git = "https://github.com/VitaminDB/synaptix.git" }
