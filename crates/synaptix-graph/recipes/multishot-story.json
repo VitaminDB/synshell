@@ -1,0 +1,78 @@
+{
+  "name": "multishot-story",
+  "description": "Мультфильм или фильм из многокадровых роликов LTX-2.5: в каждом ролике 2–3 плана со склейками внутри («Shot 1 … Cut to shot 2 …») — герои держатся внутри ролика, а склеек между роликами меньше. LLM пишет подробный план (сюжет, планы и движение камеры, свет, звуки, реплики) → опорный кадр с героями → ролики цепочкой по хвосту → склейка. Длина ≈ clips × clip секунд (по умолчанию 8 × 15 = 2 минуты)",
+  "params": {
+    "story": {
+      "type": "text",
+      "description": "сюжет: завязка, повороты, развязка"
+    },
+    "characters": {
+      "type": "text",
+      "description": "герои и их постоянная внешность (одними и теми же словами в каждом плане)",
+      "default": ""
+    },
+    "clips": {
+      "type": "number",
+      "description": "число роликов",
+      "default": 8
+    },
+    "clip": {
+      "type": "number",
+      "description": "длина ролика, с (10–20)",
+      "default": 15
+    },
+    "shots": {
+      "type": "number",
+      "description": "планов в ролике (2–3)",
+      "default": 3
+    },
+    "style": {
+      "type": "text",
+      "description": "визуальный стиль по-английски",
+      "default": "3D cartoon, Pixar-like lighting"
+    },
+    "lang": {
+      "type": "text",
+      "description": "язык реплик по-английски (Russian, English…)",
+      "default": "Russian"
+    },
+    "model": {
+      "type": "text",
+      "description": "видеомодель с многокадровостью (LTX-2.5)",
+      "default": "ltx-2-5-22b-distilled"
+    }
+  },
+  "nodes": [
+    {
+      "id": "plan",
+      "op": "llm",
+      "prompt": "You are a screenwriter and storyboard artist for an original animated film. Story: «{{story}}». Characters (describe them with exactly these words every time they appear): {{characters}}. Write exactly {{clips}} consecutive clips that tell the whole story with a clear setup, twists and an ending. Each clip is ONE line in English made of {{shots}} shots: \"Shot 1: … Cut to shot 2: … Cut to shot 3: …\". In every shot give: the shot size and camera (wide / medium / close-up, push-in, pan, tracking, low or high angle), where it happens, what the characters do (with their fixed descriptions), light and mood, and sounds (noises, music) described as sounds. Add short spoken lines: at most one or two per clip, each 3–8 words, in {{lang}} inside «» quotes, marking who speaks, e.g. the duck says in {{lang}}: «…»; all speech of a clip must fit {{clip}} seconds at about 2.5 syllables per second; after the last line describe a silent action. Output only the {{clips}} lines, one clip per line — no preamble, no numbering, no comments."
+    },
+    {
+      "id": "opening",
+      "op": "image",
+      "prompt": "{{characters}} together at the start of the story: {{story}}. {{style}}, film still, all characters fully visible",
+      "width": 1344,
+      "height": 768
+    },
+    {
+      "id": "shots",
+      "op": "video",
+      "each": "{{plan.lines}}",
+      "each_count": "{{clips}}",
+      "prompt": "{{item}} {{style}}",
+      "first_frame": "{{opening.file}}",
+      "seconds": "{{clip}}",
+      "chain": true,
+      "model": "{{model}}"
+    },
+    {
+      "id": "film",
+      "op": "concat",
+      "files": "{{shots.files}}"
+    }
+  ],
+  "output": [
+    "film"
+  ]
+}
