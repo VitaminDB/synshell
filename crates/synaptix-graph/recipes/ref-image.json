@@ -1,0 +1,56 @@
+{
+  "name": "ref-image",
+  "description": "Создать или перерисовать эталонный референс героя или локации (Qwen-Image 2.1 или любая модель картинок). Если передать base — правит существующую картинку с сохранением внешности (переодеть героя, сменить эмоцию, освещение или время суток в локации)",
+  "params": {
+    "prompt": {
+      "type": "text",
+      "description": "подробное описание героя/локации или правки по-английски"
+    },
+    "style": {
+      "type": "text",
+      "description": "визуальный стиль фильма по-английски",
+      "default": "3D animated feature film, rich textures, expressive characters, cinematic volumetric lighting"
+    },
+    "base": {
+      "type": "files",
+      "description": "необязательно: исходные картинки-референсы для правки/переодевания (Qwen-Image 2.1, FLUX.2)",
+      "default": []
+    },
+    "width": {
+      "type": "number",
+      "description": "ширина кадра",
+      "default": 1344
+    },
+    "height": {
+      "type": "number",
+      "description": "высота кадра",
+      "default": 768
+    },
+    "image_model": {
+      "type": "text",
+      "description": "модель картинок (пусто — из настроек, например Qwen-Image 2.1)",
+      "default": ""
+    },
+    "seed": {
+      "type": "number",
+      "description": "зерно генерации (0 — случайное)",
+      "default": 0
+    }
+  },
+  "nodes": [
+    {
+      "id": "ref",
+      "op": "image",
+      "prompt": "{{prompt}}, {{style}}, single clean film still, sharp detail, no text",
+      "images": "{{base}}",
+      "model": "{{image_model}}",
+      "width": "{{width}}",
+      "height": "{{height}}",
+      "seed": "{{seed}}",
+      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, turnaround labels, text, captions, subtitles, letters, watermark"
+    }
+  ],
+  "output": [
+    "ref"
+  ]
+}

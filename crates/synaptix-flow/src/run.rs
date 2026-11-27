@@ -361,9 +361,14 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
     if batch.is_empty() {
         cancel.check()?;
         on_event(Event::Started { id: node.id, name: name.clone(), item: None });
+        let mut inp = inputs;
+        if node.kind == "video" {
+            let _ = take_cut_marker(&mut inp, node);
+            filter_picture_refs(&mut inp, node);
+        }
         let id = node.id;
         let mut prog = |s: usize, t: usize| on_event(Event::Progress { id, step: s, total: t });
-        let mut cx = Cx { node, spec, inputs: &inputs, outputs: Outputs::new(), base: dir.join(&stem), progress: &mut prog, cancel, sandbox, label: String::new(), uncached: false };
+        let mut cx = Cx { node, spec, inputs: &inp, outputs: Outputs::new(), base: dir.join(&stem), progress: &mut prog, cancel, sandbox, label: String::new(), uncached: false };
         op(&mut cx)?;
         let label = cx.label;
         return Ok((cx.outputs, label, !cx.uncached));
@@ -373,8 +378,12 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
     let mut label = String::new();
     let mut cacheable = true;
     // Цепочка роликов: каждый следующий продолжается с латента хвоста (`tail` →
-    // `context`) предыдущего; если модель не отдаёт хвост — откат на последний
-    // кадр PNG с явной пометкой в `label`.
+    // `context`) предыдущего; якорные референсы (`refs`, если подключены) сохраняются
+    // на всех элементах цепочки, удерживая внешность героев и мир (MiniMax-H3 Ref2VA).
+    // Префикс `[CUT]` в описании сцены сбрасывает хвост (чистая монтажная склейка
+    // при смене локации, без морфинга старого фона). Если в описании указаны теги
+    // `<Picture k>`, в эту сцену идут только упомянутые картинки (перенумерованные в 1..m).
+    // Если модель не отдаёт хвост — откат на последний кадр PNG (с пометкой в `label`).
     let chain = node.kind == "video" && node.fields.get("chain").is_some_and(|v| v.as_bool() == Some(true) || matches!(v.as_str(), Some("true" | "1")));
     let mut last_tail: Option<Val> = None;
     let mut last_frame: Option<PathBuf> = None;
@@ -386,12 +395,32 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
         for (port, items) in &batch {
             inp.insert(port.clone(), items.get(k).or(items.last()).cloned().unwrap_or_default());
         }
+        let cut = if node.kind == "video" { take_cut_marker(&mut inp, node) } else { false };
+        if node.kind == "video" {
+            filter_picture_refs(&mut inp, node);
+        }
+        if cut {
+            last_tail = None;
+            last_frame = None;
+        }
         if let Some(tail) = last_tail.take() {
             inp.insert("context".into(), tail);
             // При продолжении с хвоста картинка first_frame не используется.
             inp.remove("first_frame");
         } else if let Some(f) = last_frame.take() {
-            inp.insert("first_frame".into(), Val::File(f));
+            // Если подключены референсы (Ref2VA), не смешиваем их с first_frame —
+            // дописываем кадр в хвост списка refs, сохраняя исходные якоря первыми.
+            let has_refs = inp.get("refs").is_some_and(|v| !v.files().is_empty());
+            if has_refs {
+                let mut items = inp.get("refs").map(Val::items).unwrap_or_default();
+                if items.len() < 9 {
+                    items.push(Val::File(f));
+                }
+                inp.insert("refs".into(), Val::List(items));
+                inp.remove("first_frame");
+            } else {
+                inp.insert("first_frame".into(), Val::File(f));
+            }
         }
         let id = node.id;
         let mut prog = |s: usize, t: usize| on_event(Event::Progress { id, step: s, total: t });
@@ -423,6 +452,152 @@ fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: 
 
 fn sanitize(s: &str) -> String {
     s.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+}
+
+/// Прочитать промпт видеоноды (вход `prompt`, иначе поле `prompt`).
+fn prompt_text(inputs: &HashMap<String, Val>, node: &FlowNode) -> Option<String> {
+    if let Some(v) = inputs.get("prompt") {
+        let t = v.text();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    node.fields.get("prompt").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from)
+}
+
+/// Метка смены локации/монтажного разрыва `[CUT]` в тексте промпта: убирает
+/// все вхождения `[CUT]` (в начале строки или после разделителя) и возвращает
+/// `true`, чтобы сбросить латентный хвост `context` предыдущей сцены.
+fn take_cut_marker(inputs: &mut HashMap<String, Val>, node: &FlowNode) -> bool {
+    let Some(text) = prompt_text(inputs, node) else { return false };
+    let lower = text.to_ascii_lowercase();
+    let Some(pos) = lower.find("[cut]") else { return false };
+    // Убираем `[CUT]` и лишние разделители сразу после него.
+    let before = text[..pos].trim_end();
+    let after = text[pos + 5..].trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '-' | '—' | ',' | '.'));
+    let cleaned = match (before.is_empty(), after.is_empty()) {
+        (true, _) => after.to_string(),
+        (false, true) => before.to_string(),
+        (false, false) => format!("{before} {after}"),
+    };
+    inputs.insert("prompt".into(), Val::Text(cleaned));
+    true
+}
+
+fn is_non_image_ref(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
+        Some("wav" | "mp3" | "flac" | "ogg" | "opus" | "m4a" | "aac" | "mp4" | "mkv" | "mov" | "webm" | "avi")
+    )
+}
+
+/// Найти все `<Picture N>` (1-based) в тексте и перенумеровать их по таблице `remap` за один проход.
+fn scan_and_remap_pictures(text: &str, max_img: usize) -> (Vec<usize>, String) {
+    let bytes = text.as_bytes();
+    let mut order: Vec<usize> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some((num, end)) = parse_picture_tag(text, i) {
+            if num >= 1 && num <= max_img && !order.contains(&num) {
+                order.push(num);
+            }
+            i = end;
+        } else {
+            i += text[i..].chars().next().map(char::len_utf8).unwrap_or(1);
+        }
+    }
+    if order.is_empty() {
+        return (order, text.to_string());
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some((num, end)) = parse_picture_tag(text, i) {
+            if let Some(new_idx) = order.iter().position(|&x| x == num) {
+                out.push_str(&format!("<Picture {}>", new_idx + 1));
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    (order, out)
+}
+
+/// Распознать `<Picture N>` (без учёта регистра слова Picture) с позиции `start`.
+fn parse_picture_tag(text: &str, start: usize) -> Option<(usize, usize)> {
+    let rest = text.get(start..)?;
+    if !rest.starts_with('<') {
+        return None;
+    }
+    let after_lt = &rest[1..];
+    if after_lt.len() < 9 || !after_lt[..7].eq_ignore_ascii_case("picture") {
+        return None;
+    }
+    let after_word = &after_lt[7..];
+    let ws = after_word.len() - after_word.trim_start().len();
+    if ws == 0 {
+        return None;
+    }
+    let digits_part = &after_word[ws..];
+    let dlen = digits_part.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if dlen == 0 {
+        return None;
+    }
+    let after_digits = &digits_part[dlen..];
+    let ws2 = after_digits.len() - after_digits.trim_start().len();
+    if !after_digits[ws2..].starts_with('>') {
+        return None;
+    }
+    let num: usize = digits_part[..dlen].parse().ok()?;
+    let end = start + 1 + 7 + ws + dlen + ws2 + 1;
+    Some((num, end))
+}
+
+/// По-сценный отбор картинок-референсов по тегам `<Picture k>` в промпте:
+/// если в сцене явно указаны конкретные `<Picture k>`, в `refs` этой сцены
+/// передаются только они (перенумерованные в `<Picture 1..m>`) плюс все
+/// не-картиночные референсы (голос/видео). Так в фильме может быть любое число
+/// героев и локаций, а каждая сцена берёт только своих — быстрее, чётче и без
+/// «подмешивания» лишних персонажей и фонов.
+fn filter_picture_refs(inputs: &mut HashMap<String, Val>, node: &FlowNode) {
+    let Some(prompt) = prompt_text(inputs, node) else { return };
+    let raw_items: Vec<Val> = if let Some(v) = inputs.get("refs").filter(|v| !v.is_empty()) {
+        v.items()
+    } else if let Some(v) = node.fields.get("refs") {
+        Val::from_json(v).items()
+    } else {
+        return;
+    };
+    if raw_items.is_empty() {
+        return;
+    }
+    let mut images: Vec<Val> = Vec::new();
+    let mut others: Vec<Val> = Vec::new();
+    for item in raw_items {
+        let p = item.file().map(PathBuf::from).or_else(|| {
+            let t = item.text();
+            (!t.trim().is_empty()).then(|| PathBuf::from(t.trim()))
+        });
+        match p {
+            Some(path) if is_non_image_ref(&path) => others.push(item),
+            Some(_) => images.push(item),
+            None => {}
+        }
+    }
+    if images.is_empty() {
+        return;
+    }
+    let (picked, rewritten) = scan_and_remap_pictures(&prompt, images.len());
+    if picked.is_empty() {
+        return;
+    }
+    let mut filtered: Vec<Val> = picked.into_iter().map(|idx| images[idx - 1].clone()).collect();
+    filtered.extend(others);
+    inputs.insert("refs".into(), Val::List(filtered));
+    inputs.insert("prompt".into(), Val::Text(rewritten));
 }
 
 /// Итог прогона.
@@ -542,6 +717,7 @@ mod tests {
     use crate::Handle;
     use std::sync::Mutex;
 
+    static VIDEO_MOCK_LOCK: Mutex<()> = Mutex::new(());
     static CALLS: Mutex<Vec<(String, bool, bool)>> = Mutex::new(Vec::new());
 
     fn mock_video_tail(cx: &mut Cx) -> Result<(), String> {
@@ -561,8 +737,7 @@ mod tests {
 
     #[test]
     fn chain_passes_tail_to_context_and_drops_first_frame() {
-        static LOCK: Mutex<()> = Mutex::new(());
-        let _g = LOCK.lock().unwrap();
+        let _g = VIDEO_MOCK_LOCK.lock().unwrap();
         CALLS.lock().unwrap().clear();
         let prev_dir = std::env::temp_dir().join(format!("sf-chain-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&prev_dir);
@@ -584,6 +759,137 @@ mod tests {
         assert_eq!(calls[1], ("s2".into(), true, false));
         assert_eq!(calls[2], ("s3".into(), true, false));
         let _ = std::fs::remove_dir_all(&prev_dir);
+    }
+
+    #[test]
+    fn chain_keeps_refs_alongside_tail() {
+        static REF_CALLS: Mutex<Vec<(String, bool, bool, usize)>> = Mutex::new(Vec::new());
+        fn mock_ref_video(cx: &mut Cx) -> Result<(), String> {
+            let prompt = cx.str("prompt").unwrap_or_default();
+            let has_ctx = cx.val("context").handle().is_some();
+            let has_first = cx.file("first_frame").is_some();
+            let n_refs = cx.files("refs").len();
+            let mp4 = cx.out_path("mp4");
+            std::fs::write(&mp4, b"dummy").map_err(|e| e.to_string())?;
+            cx.out("video", Val::File(mp4));
+            cx.out("tail", Val::Handle(Handle::new(format!("tail-{prompt}"), prompt.clone())));
+            cx.label = if has_ctx { "с хвоста".into() } else { "с референсов".into() };
+            REF_CALLS.lock().unwrap().push((prompt, has_ctx, has_first, n_refs));
+            Ok(())
+        }
+        let _g = VIDEO_MOCK_LOCK.lock().unwrap();
+        REF_CALLS.lock().unwrap().clear();
+        let prev_dir = std::env::temp_dir().join(format!("sf-chain-refs-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prev_dir);
+        ops::provide("video", mock_ref_video);
+
+        let mut node = FlowNode::new(1, "video");
+        node.fields.insert("chain".into(), serde_json::json!(true));
+        let mut inputs = HashMap::new();
+        inputs.insert("prompt".into(), Val::List(vec![Val::Text("s1".into()), Val::Text("s2".into()), Val::Text("s3".into())]));
+        inputs.insert("refs".into(), Val::List(vec![Val::File(PathBuf::from("/tmp/cast.png")), Val::File(PathBuf::from("/tmp/opening.png"))]));
+
+        let (outs, _) = run_node(&node, inputs, &prev_dir, &Cancel::new(), &mut |_| {}).unwrap();
+        assert_eq!(outs["video"].files().len(), 3);
+        let calls = REF_CALLS.lock().unwrap().clone();
+        assert_eq!(calls, vec![
+            ("s1".into(), false, false, 2),
+            ("s2".into(), true, false, 2),
+            ("s3".into(), true, false, 2),
+        ]);
+        let _ = std::fs::remove_dir_all(&prev_dir);
+    }
+
+    #[test]
+    fn chain_cut_marker_resets_tail_and_strips_prefix() {
+        static CUT_CALLS: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
+        fn mock_cut_video(cx: &mut Cx) -> Result<(), String> {
+            let prompt = cx.str("prompt").unwrap_or_default();
+            let has_ctx = cx.val("context").handle().is_some();
+            let mp4 = cx.out_path("mp4");
+            std::fs::write(&mp4, b"dummy").map_err(|e| e.to_string())?;
+            cx.out("video", Val::File(mp4));
+            cx.out("tail", Val::Handle(Handle::new(format!("tail-{prompt}"), prompt.clone())));
+            CUT_CALLS.lock().unwrap().push((prompt, has_ctx));
+            Ok(())
+        }
+        let _g = VIDEO_MOCK_LOCK.lock().unwrap();
+        CUT_CALLS.lock().unwrap().clear();
+        let dir = std::env::temp_dir().join(format!("sf-chain-cut-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        ops::provide("video", mock_cut_video);
+
+        let mut node = FlowNode::new(1, "video");
+        node.fields.insert("chain".into(), serde_json::json!(true));
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "prompt".into(),
+            Val::List(vec![
+                Val::Text("swamp shot 1".into()),
+                Val::Text("swamp shot 2".into()),
+                Val::Text("[CUT] castle shot 3".into()),
+                Val::Text("castle shot 4".into()),
+            ]),
+        );
+
+        run_node(&node, inputs, &dir, &Cancel::new(), &mut |_| {}).unwrap();
+        let calls = CUT_CALLS.lock().unwrap().clone();
+        assert_eq!(
+            calls,
+            vec![
+                ("swamp shot 1".into(), false),
+                ("swamp shot 2".into(), true),
+                ("castle shot 3".into(), false),
+                ("castle shot 4".into(), true),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn video_filters_and_renumbers_picture_refs_per_scene() {
+        static PIC_CALLS: Mutex<Vec<(String, Vec<String>)>> = Mutex::new(Vec::new());
+        fn mock_pic_video(cx: &mut Cx) -> Result<(), String> {
+            let prompt = cx.str("prompt").unwrap_or_default();
+            let refs = cx.files("refs");
+            let mp4 = cx.out_path("mp4");
+            std::fs::write(&mp4, b"dummy").map_err(|e| e.to_string())?;
+            cx.out("video", Val::File(mp4));
+            PIC_CALLS.lock().unwrap().push((prompt, refs));
+            Ok(())
+        }
+        let _g = VIDEO_MOCK_LOCK.lock().unwrap();
+        PIC_CALLS.lock().unwrap().clear();
+        let dir = std::env::temp_dir().join(format!("sf-pic-refs-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        ops::provide("video", mock_pic_video);
+
+        let node = FlowNode::new(1, "video");
+        // 12 референсов (больше лимита 9 на один вызов H3) + 1 аудио-голос.
+        let mut refs: Vec<Val> = (1..=12).map(|i| Val::File(PathBuf::from(format!("/tmp/r{i}.png")))).collect();
+        refs.push(Val::File(PathBuf::from("/tmp/voice.wav")));
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "prompt".into(),
+            Val::List(vec![
+                Val::Text("In <Picture 10>, <Picture 2> talks to <Picture 11> and <Picture 2> laughs".into()),
+                Val::Text("plain prompt without tags".into()),
+            ]),
+        );
+        inputs.insert("refs".into(), Val::List(refs));
+
+        run_node(&node, inputs, &dir, &Cancel::new(), &mut |_| {}).unwrap();
+        let calls = PIC_CALLS.lock().unwrap().clone();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "In <Picture 1>, <Picture 2> talks to <Picture 3> and <Picture 2> laughs");
+        assert_eq!(
+            calls[0].1,
+            vec!["/tmp/r10.png", "/tmp/r2.png", "/tmp/r11.png", "/tmp/voice.wav"]
+        );
+        // Без тегов <Picture N> — список refs не трогается.
+        assert_eq!(calls[1].0, "plain prompt without tags");
+        assert_eq!(calls[1].1.len(), 13);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

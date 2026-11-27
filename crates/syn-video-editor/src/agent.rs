@@ -40,7 +40,7 @@ pub const SYSTEM: &str = "Ты — монтажёр во встроенном И
 - Проект сохраняет программа сама. project_save с path, project_new и project_open — только если пользователь прямо просит другой файл или новый проект.
 - Видео со звуком clip_add ставит связанной парой: картинка на V-дорожку, звук на A-дорожку (правки идут синхронно); clip_detach_audio разрывает связь.
 - Готовые сценарии монтажа — skill_list / skill_run (reels, talking_head, podcast, beat_clip); найти момент в материале — media_search (после media_index).
-- Генерация видео — на MiniMax-H3 (minimax-h3-fl2va / ref2va); LTX (2.3, 2.5) и рецепты на нём (multishot-story, ltx-chain-story, dub-video, music-video) — только по прямой просьбе пользователя.
+- Генерация видео — на MiniMax-H3 (для историй/мультфильмов — minimax-h3-ref2va с референсами героев и локаций через story-video, ref-image, ref-scenes; иначе minimax-h3-fl2va); LTX (2.3, 2.5) и рецепты на нём (multishot-story, ltx-chain-story, dub-video, music-video) — только по прямой просьбе пользователя.
 - Всё, что есть в меню окна (вид, панели, масштаб просмотра, галереи), — ui_list и ui_run.
 - Если чего-то сделать нельзя (нет инструмента) — так и скажи, не выдумывай.";
 

@@ -1,6 +1,6 @@
 {
   "name": "h3-chain-story",
-  "description": "История из 2 сцен (MiniMax-H3, латентный хвост): стартовый кадр → Сцена 1 → продолжение по хвосту (tail → context) → Сцена 2 → склейка",
+  "description": "История из 2 сцен (MiniMax-H3 Ref2VA, якорный референс + латентный хвост): стартовый кадр (<Picture 1>) → Сцена 1 → продолжение по хвосту (tail → context) с тем же якорем <Picture 1> → Сцена 2 → склейка",
   "params": {
     "opening_prompt": {
       "type": "text",
@@ -10,17 +10,22 @@
     "scene1": {
       "type": "text",
       "description": "сцена 1",
-      "default": "orange tabby cat looks around the dim dusty attic curiously, camera slowly pushes in, soft creaking floorboards and gentle wind, quiet meow, 3D cartoon"
+      "default": "the orange tabby cat with white paws from <Picture 1> looks around the dim dusty attic curiously, camera slowly pushes in, soft creaking floorboards and gentle wind, quiet meow, 3D cartoon"
     },
     "scene2": {
       "type": "text",
-      "description": "сцена 2 (продолжение с хвоста)",
-      "default": "the orange tabby cat reaches out with its front paw to the brass lantern and turns the knob, warm golden glow illuminates dusty boxes, camera gently orbits, soft click and quiet purring, 3D cartoon"
+      "description": "сцена 2 (продолжение с хвоста с удержанием героя по <Picture 1>)",
+      "default": "the same orange tabby cat with white paws from <Picture 1> reaches out with its front paw to the brass lantern in the dusty attic and turns the knob, warm golden glow illuminates dusty boxes, camera gently orbits, soft click and quiet purring, 3D cartoon"
     },
     "shot": {
       "type": "number",
       "description": "длина каждой сцены, с",
-      "default": 4
+      "default": 5
+    },
+    "model": {
+      "type": "text",
+      "description": "видеомодель (по умолчанию minimax-h3-ref2va — удерживает героя и мир по <Picture 1> на обеих сценах)",
+      "default": "minimax-h3-ref2va"
     }
   },
   "nodes": [
@@ -35,16 +40,18 @@
       "id": "scene1",
       "op": "video",
       "prompt": "{{scene1}}",
+      "refs": ["{{opening.file}}"],
       "first_frame": "{{opening.file}}",
-      "model": "minimax-h3-fl2va",
+      "model": "{{model}}",
       "seconds": "{{shot}}"
     },
     {
       "id": "scene2",
       "op": "video",
       "prompt": "{{scene2}}",
+      "refs": ["{{opening.file}}"],
       "context": "{{scene1.tail}}",
-      "model": "minimax-h3-fl2va",
+      "model": "{{model}}",
       "seconds": "{{shot}}"
     },
     {

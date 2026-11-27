@@ -1,55 +1,82 @@
 {
   "name": "story-video",
-  "description": "Видеоистория (фильм, мультфильм) одной непрерывной сценой со звуком от видеомодели (речь, шумы, музыка сцены): LLM делит историю на сцены → картинка первого кадра → ролики по сценам цепочкой (каждый следующий — с последнего кадра предыдущего) → склейка. Длина ≈ scenes × shot секунд (по умолчанию 6 × 10 = минута)",
+  "description": "Полная видеоистория / мультфильм со звуком и жёстким удержанием всех героев и локаций: LLM составляет каталог героев и локаций → Qwen-Image 2.1 (или выбранная модель картинок) рисует отдельный эталон на каждого героя и каждую локацию → LLM пишет кинематографическую раскадровку с тегами <Picture k> и [CUT] на сменах локаций → MiniMax-H3 Ref2VA снимает ролики с по-сценным отбором только нужных референсов и латентным хвостом внутри локаций → склейка. Длина ≈ scenes × shot с.",
   "params": {
     "story": {
       "type": "text",
-      "description": "о чём история"
+      "description": "сюжет или пронумерованная раскадровка сцен (с [CUT] на сменах локаций, планами, камерой, светом, звуком и репликами)"
+    },
+    "characters": {
+      "type": "text",
+      "description": "список героев по одному на строку с внешностью (если пусто — выделится из story, без ограничений по числу)",
+      "default": ""
+    },
+    "locations": {
+      "type": "text",
+      "description": "список локаций по одной на строку (если пусто — выделится из story, без ограничений по числу)",
+      "default": ""
     },
     "scenes": {
       "type": "number",
-      "description": "число сцен",
+      "description": "число сцен-роликов",
       "default": 6
     },
     "shot": {
       "type": "number",
-      "description": "длина сцены, с (до 20)",
+      "description": "длина сцены, с (до 15)",
       "default": 10
     },
     "style": {
       "type": "text",
-      "description": "визуальный стиль по-английски (например 3D cartoon, anime, cinematic)",
-      "default": "cinematic"
+      "description": "единый визуальный стиль по-английски (например 3D animated feature film, Pixar and DreamWorks quality, rich textures, volumetric lighting)",
+      "default": "3D animated feature film, rich textures, expressive characters, cinematic volumetric lighting"
     },
     "lang": {
       "type": "text",
       "description": "язык реплик героев по-английски (Russian, English…; по умолчанию Russian)",
       "default": "Russian"
     },
+    "chain": {
+      "type": "bool",
+      "description": "продолжать сцены внутри одной локации по латентному хвосту (на [CUT] хвост сбрасывается автоматически); false — каждая сцена чистой склейкой только по refs",
+      "default": true
+    },
+    "image_model": {
+      "type": "text",
+      "description": "модель картинок для героев и локаций (пусто — из настроек, например Qwen-Image 2.1; либо имя любой установленной модели)",
+      "default": ""
+    },
     "model": {
       "type": "text",
-      "description": "видеомодель: minimax-h3-fl2va (MiniMax-H3, по умолчанию); LTX (ltx-2-3-22b-distilled-1-1, ltx-2-5-22b-distilled) — только по прямой просьбе пользователя",
-      "default": "minimax-h3-fl2va"
+      "description": "видеомодель: minimax-h3-ref2va (по умолчанию — референсы героев/локаций + хвост); auto; minimax-h3-fl2va; LTX — только по прямой просьбе пользователя",
+      "default": "minimax-h3-ref2va"
+    },
+    "lora": {
+      "type": "text",
+      "description": "LoRA для MiniMax-H3: пусто — Turbo 8 шагов (быстро); «off» — полные 20 шагов для максимальной детализации и мимики",
+      "default": ""
     }
   },
   "nodes": [
     {
-      "id": "plan",
+      "id": "assets",
       "op": "llm",
-      "prompt": "You are a storyboard writer for an original animated film. Story idea: «{{story}}». Write exactly {{scenes}} consecutive scenes in one continuous location, like one uninterrupted shot. For each scene write ONE line in English describing: the characters (always described with the same words in every line), the place, the action, the camera movement, the scene sound (noises, music), and invent one or two short lines the characters say (each 3–8 words; all speech of a scene must fit {{shot}} seconds at about 2.5 syllables per second) — write those spoken lines in {{lang}} inside «» quotes, marking who speaks, for example: the duck says in {{lang}}: «…»; after the last line describe a silent action (e.g. then both silently look into the pot). Describe noises and music as sounds, not as phrases. Output only the {{scenes}} lines, one scene per line — no preamble, no numbering, no comments."
+      "prompt": "You are an art director preparing visual reference cards for an animated film.\nStory: «{{story}}».\nExplicit characters (if given, keep all of them in order): «{{characters}}».\nExplicit locations (if given, keep all of them in order): «{{locations}}».\nList every important character first, then every key location needed by the story — as many as the story genuinely needs, one item per line, numbered «1) …», «2) …», etc.\n- Each character line must start with «Character portrait, clear expressive face and full outfit, clean neutral background: » followed by the character's exact concrete visual look in English (species/age, build, face/eyes, hair/ears, exact clothes, signature props).\n- Each location line must start with «Empty location establishing shot, no people or characters: » followed by the exact setting, architecture/nature, key props, color palette and lighting in English.\nOutput ONLY the numbered lines — no preamble, no headings, no comments."
     },
     {
-      "id": "look",
-      "op": "llm",
-      "prompt": "Story: «{{story}}». Describe in ONE English sentence (max 50 words) only the very first frame of this story as a single film still: which characters are visible and exactly how they look, where they are, what they do at that first moment, the light. No other scenes, no text in the image. Output only the sentence."
-    },
-    {
-      "id": "opening",
+      "id": "refs",
       "op": "image",
-      "prompt": "{{look.text}} {{style}}, single film still, one scene, no text",
+      "each": "{{assets.lines}}",
+      "prompt": "{{item}}, {{style}}, single clean film still, sharp detail, no text",
+      "model": "{{image_model}}",
       "width": 1344,
       "height": 768,
-      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, text, captions, subtitles, letters, watermark"
+      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, turnaround labels, text, captions, subtitles, letters, watermark"
+    },
+    {
+      "id": "plan",
+      "op": "llm",
+      "prompt": "You are a film director and cinematographer writing a shot-by-shot video prompt list.\nStory / storyboard: «{{story}}».\nReference catalog (item N corresponds EXACTLY to <Picture N>):\n{{assets.text}}\n\nWrite exactly {{scenes}} consecutive scene lines in English (one scene per line).\nRules for EVERY line:\n1. Start the line with «[CUT] » whenever the scene changes location, jumps in time, or makes a hard cinematic cut (do NOT put [CUT] on line 1 or when continuing smoothly in the same location).\n2. Always cite ONLY the exact <Picture N> references that appear in THIS scene (the characters in frame + the location of this scene), e.g. «In <Picture 5>, the green ogre from <Picture 1> and the donkey from <Picture 2>…». NEVER write vague shortcuts like «Same X», «the three», or bare names without <Picture N> and visual identity.\n3. Direct like a professional feature film: specify shot size (wide / medium / close-up / over-the-shoulder / low-angle), camera movement (slow push-in, tracking shot, crane up, orbit, whip pan), lighting/mood, expressive character acting, and concrete sound design (ambient noises, foley, musical cues described as sounds).\n4. Spoken dialogue: write short lines in {{lang}} inside «» quotes with who speaks (e.g. the ogre from <Picture 1> grumbles in {{lang}}: «…»), 3–8 words each, total speech fitting {{shot}} seconds (~2.5 syllables/s); after the last spoken line describe a silent visual action.\nOutput ONLY the {{scenes}} lines, one scene per line — no numbering, no preamble, no comments."
     },
     {
       "id": "shots",
@@ -57,10 +84,11 @@
       "each": "{{plan.lines}}",
       "each_count": "{{scenes}}",
       "prompt": "{{item}}, {{style}}",
-      "first_frame": "{{opening.file}}",
+      "refs": "{{refs.files}}",
       "seconds": "{{shot}}",
-      "chain": true,
-      "model": "{{model}}"
+      "chain": "{{chain}}",
+      "model": "{{model}}",
+      "lora": "{{lora}}"
     },
     {
       "id": "film",

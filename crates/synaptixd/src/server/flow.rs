@@ -449,10 +449,14 @@ pub fn read_context_tail(cx: &Cx) -> Result<Option<(PathBuf, Arc<synaptix_gen::t
     Ok(None)
 }
 
+fn has_ref2va() -> bool {
+    mgr().list().iter().any(|m| m.kind == ModelKind::Video && m.id.contains("ref2va"))
+}
+
 /// Модель видео по нужным возможностям (как у инструмента media).
 fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::tail::TailLatent>) -> Result<String, String> {
     if let Some(tail) = ctx_tail {
-        if let Some(explicit) = cx.str("model") {
+        if let Some(explicit) = cx.str("model").filter(|m| !matches!(m.trim(), "" | "auto" | "default")) {
             let resolved = mgr().resolve_id(&explicit, ModelKind::Video).map_err(|e| e.message)?;
             let want_fam = if resolved.contains("ltx") { "ltx" } else { "h3" };
             tail.meta.check_compat(want_fam, Some(&resolved), p.width, p.height, None)?;
@@ -463,16 +467,19 @@ fn video_model(cx: &Cx, p: &crate::VideoParams, ctx_tail: Option<&synaptix_gen::
         }
         return Ok(match tail.meta.family.as_str() {
             "ltx" => "ltx-2-3-22b-distilled-1-1".into(),
+            _ if !p.refs.is_empty() => "minimax-h3-ref2va".into(),
             _ => "minimax-h3-fl2va".into(),
         });
     }
-    if let Some(m) = cx.str("model") {
+    if let Some(m) = cx.str("model").filter(|m| !matches!(m.trim(), "" | "auto" | "default")) {
         return Ok(m);
     }
     let restyle = cx.bool("restyle") && p.source_video.is_some();
     let ltx_only = !restyle && (p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage);
     Ok(if ltx_only {
         "ltx-2-3-22b-distilled-1-1".into()
+    } else if !p.refs.is_empty() && (has_ref2va() || p.first_frame.is_none()) {
+        "minimax-h3-ref2va".into()
     } else if p.first_frame.is_some() || p.last_frame.is_some() || restyle {
         "minimax-h3-fl2va".into()
     } else {
@@ -501,7 +508,7 @@ fn enhance_prompt(cx: &mut Cx, prompt: &str) -> Result<String, String> {
 fn video(cx: &mut Cx) -> R {
     let ctx = read_context_tail(cx)?;
     let tail_out = cx.out_path("tail.safetensors");
-    let p = crate::VideoParams {
+    let mut p = crate::VideoParams {
         negative: cx.str("negative"),
         width: cx.pos("width").map(|v| v as usize),
         height: cx.pos("height").map(|v| v as usize),
@@ -512,7 +519,7 @@ fn video(cx: &mut Cx) -> R {
         // При продолжении с хвоста first_frame не используется.
         first_frame: if ctx.is_some() { None } else { cx.file("first_frame") },
         last_frame: cx.file("last_frame"),
-        refs: cx.files("refs"),
+        refs: cx.files("refs").into_iter().filter(|s| !s.is_empty()).collect(),
         audio: cx.file("audio"),
         source_video: cx.file("source_video"),
         retake: match (cx.num("retake_start"), cx.pos("retake_end")) {
@@ -535,6 +542,17 @@ fn video(cx: &mut Cx) -> R {
         lora_strength: cx.pos("lora_strength").map(|v| v as f32),
     };
     let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
+    // Универсальные графы (например story-video) подключают и refs (для Ref2VA),
+    // и first_frame (запасной вариант для FL2VA / LTX): разводим их по выбранной модели.
+    let resolved = mgr().resolve_id(&model, ModelKind::Video).unwrap_or_else(|_| model.clone());
+    if resolved.contains("ref2va") {
+        if !p.refs.is_empty() {
+            p.first_frame = None;
+            p.last_frame = None;
+        }
+    } else if !p.refs.is_empty() && (p.first_frame.is_some() || ctx.is_some()) {
+        p.refs.clear();
+    }
     let mut prompt = cx.need("prompt")?;
     // LTX-2.5: улучшитель промпта (Gemma 4 E2B, системный промпт эталона, жадно, 600 токенов).
     if cx.bool("enhance") {

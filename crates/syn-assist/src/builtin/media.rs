@@ -155,13 +155,15 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
     };
     // Перерисовка ролика (restyle) — у MiniMax-H3.
     let restyle = args.get("restyle").and_then(Value::as_bool).unwrap_or(false) && p.source_video.is_some();
-    // Возможности только LTX — быстрая distilled LTX; ключевые кадры без них — H3 FL2VA.
+    // Возможности только LTX — быстрая distilled LTX; референсы — H3 Ref2VA; ключевые кадры без них — H3 FL2VA.
     let ltx_only = !restyle && (p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage);
     let keyed = p.first_frame.is_some() || p.last_frame.is_some();
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     let model = model_arg(&mut c, args, ModelKind::Video).unwrap_or_else(|| {
         if ltx_only {
             "ltx-2-3-22b-distilled-1-1"
+        } else if !p.refs.is_empty() {
+            "minimax-h3-ref2va"
         } else if keyed || restyle {
             "minimax-h3-fl2va"
         } else {
@@ -169,8 +171,8 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
         }
         .to_string()
     });
-    // Длиннее одного ролика или по сценам — роликами цепочкой: каждый
-    // следующий начинается с последнего кадра предыдущего, потом склейка.
+    // Длиннее одного ролика или по сценам — графом с латентным хвостом (`chain: true`):
+    // без перекодирования через PNG и с сохранением якорных `refs` на каждом ролике цепочки.
     let chainable = !ltx_only && !restyle && p.retake.is_none() && !p.extend;
     let n = if !chainable {
         1
@@ -183,54 +185,134 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let dir = media_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let id = stamp();
-    let mut clips: Vec<PathBuf> = Vec::new();
-    let mut label = String::new();
-    let mut seed = 0;
-    for k in 0..n {
-        let text = match scenes.get(k) {
-            Some(s) => format!("{prompt}\n{s}"),
-            None => prompt.to_string(),
-        };
-        let mut model = model.clone();
-        if k > 0 {
-            p.first_frame = Some(last_frame(clips.last().unwrap())?.to_string_lossy().into_owned());
-            p.last_frame = None;
-            p.refs.clear();
-            if model.is_empty() || model.starts_with("minimax-h3") {
-                model = "minimax-h3-fl2va".into();
+    if n > 1 {
+        let prompts: Vec<Value> = (0..n)
+            .map(|k| {
+                let text = match scenes.get(k) {
+                    Some(s) => format!("{prompt}\n{s}"),
+                    None => prompt.to_string(),
+                };
+                Value::String(text)
+            })
+            .collect();
+        let mut flow = synaptix_flow::Flow::default();
+        let list_id = flow.next_id();
+        let mut list_node = synaptix_flow::FlowNode::new(list_id, "list");
+        list_node.label = "scenes".into();
+        list_node.fields.insert("items".into(), Value::Array(prompts));
+        flow.add(list_node);
+
+        let vid_id = flow.next_id();
+        let mut vid_node = synaptix_flow::FlowNode::new(vid_id, "video");
+        vid_node.label = "shots".into();
+        vid_node.fields.insert("seconds".into(), json!(per));
+        vid_node.fields.insert("chain".into(), json!(true));
+        if let Some(w) = p.width {
+            vid_node.fields.insert("width".into(), json!(w));
+        }
+        if let Some(h) = p.height {
+            vid_node.fields.insert("height".into(), json!(h));
+        }
+        if let Some(steps) = p.steps {
+            vid_node.fields.insert("steps".into(), json!(steps));
+        }
+        if let Some(ref neg) = p.negative {
+            vid_node.fields.insert("negative".into(), json!(neg));
+        }
+        if let Some(seed) = p.seed {
+            vid_node.fields.insert("seed".into(), json!(seed));
+        }
+        if !model.is_empty() {
+            vid_node.fields.insert("model".into(), json!(model));
+        }
+        flow.add(vid_node);
+
+        let cat_id = flow.next_id();
+        let mut cat_node = synaptix_flow::FlowNode::new(cat_id, "concat");
+        cat_node.label = "film".into();
+        flow.add(cat_node);
+
+        flow.link(list_id, "list", vid_id, "prompt");
+        flow.link(vid_id, "video", cat_id, "files");
+        flow.outputs = vec![cat_id];
+
+        let mut inputs = std::collections::HashMap::new();
+        // Якорные refs держат героев и мир на всех клипах цепочки (MiniMax-H3 Ref2VA);
+        // если задан только first_frame без явной модели — подаём его и в refs (как якорь),
+        // и в first_frame (запасной для FL2VA, если Ref2VA не установлена).
+        let mut anchor_refs: Vec<synaptix_flow::Val> = p.refs.iter().map(|r| synaptix_flow::Val::File(PathBuf::from(r))).collect();
+        if anchor_refs.is_empty() && model.is_empty() {
+            if let Some(ref ff) = p.first_frame {
+                anchor_refs.push(synaptix_flow::Val::File(PathBuf::from(ff)));
             }
         }
-        p.seconds = Some(per);
-        let what = if n > 1 { synshell_tr::t!("видео {k}/{n}", k = k + 1, n = n) } else { synshell_tr::t!("видео") };
-        let stop = c.canceller();
-        let (reply, mp4) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.video(&model, &text, &p, |i, t| crate::tools::progress(i, t, &what))) {
-            Ok(r) => r,
-            Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
-            Err(e) => return Err(e.to_string()),
-        };
-        let path = dir.join(if n > 1 { format!("video-{id}-{k:02}.mp4") } else { format!("video-{id}.mp4") });
-        std::fs::write(&path, &mp4).map_err(|e| e.to_string())?;
-        clips.push(path);
-        label = reply.label;
-        seed = reply.seed;
-    }
-    let path = if n > 1 {
-        crate::tools::progress(0, 0, &synshell_tr::t!("склейка роликов"));
-        let out = dir.join(format!("video-{id}.mp4"));
-        concat_clips(&clips, &out)?;
-        for c in &clips {
-            let _ = std::fs::remove_file(c);
-            let _ = std::fs::remove_file(c.with_extension("last.png"));
+        if !anchor_refs.is_empty() {
+            inputs.insert((vid_id, "refs".into()), synaptix_flow::Val::List(anchor_refs));
         }
-        out
-    } else {
-        clips.remove(0)
+        if let Some(ref ff) = p.first_frame {
+            inputs.insert((vid_id, "first_frame".into()), synaptix_flow::Val::File(PathBuf::from(ff)));
+        }
+
+        let run_dir = dir.join(format!("video-{id}-run"));
+        let flow_cancel = synaptix_flow::Cancel::new();
+        let fc = flow_cancel.clone();
+        let mut current = synshell_tr::t!("видео 1/{n}", n = n);
+        let report = crate::tools::watch_cancel(
+            cancel,
+            move || fc.cancel(),
+            || {
+                let opts = synaptix_flow::RunOpts { cancel: flow_cancel.clone(), inputs, ..Default::default() };
+                synaptixd::flow::run_with(&flow, &run_dir, &opts, &mut |ev| match ev {
+                    synaptix_flow::Event::Started { id: nid, item, .. } => {
+                        if nid == vid_id {
+                            if let Some((k, total_n)) = item {
+                                current = synshell_tr::t!("видео {k}/{n}", k = k, n = total_n);
+                            }
+                            crate::tools::progress(0, 0, &current);
+                        } else if nid == cat_id {
+                            crate::tools::progress(0, 0, &synshell_tr::t!("склейка роликов"));
+                        }
+                    }
+                    synaptix_flow::Event::Progress { id: nid, step, total: t } if nid == vid_id => {
+                        crate::tools::progress(step, t, &current);
+                    }
+                    _ => {}
+                })
+            },
+        )?;
+        let out = dir.join(format!("video-{id}.mp4"));
+        let src = report.files.first().ok_or_else(|| "цепочка видео не дала файла".to_string())?;
+        if std::fs::rename(src, &out).is_err() {
+            std::fs::copy(src, &out).map_err(|e| e.to_string())?;
+        }
+        let _ = std::fs::remove_dir_all(&run_dir);
+        let secs = media_seconds(&out).unwrap_or(0.0);
+        let label = report.steps.iter().find(|s| s.starts_with("shots:")).cloned().unwrap_or_else(|| format!("{n} роликов цепочкой"));
+        return Ok(ToolOutput {
+            text: format!(
+                "Видео готово и уже показано пользователю под ответом: длительность {secs:.0} с — называй пользователю только её ({label}; файл {} — для инструментов, пользователю путь не называй).",
+                out.display()
+            ),
+            files: vec![out],
+        });
+    }
+
+    p.seconds = Some(per);
+    let what = synshell_tr::t!("видео");
+    let stop = c.canceller();
+    let (reply, mp4) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.video(&model, prompt, &p, |i, t| crate::tools::progress(i, t, &what))) {
+        Ok(r) => r,
+        Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
+        Err(e) => return Err(e.to_string()),
     };
+    let path = dir.join(format!("video-{id}.mp4"));
+    std::fs::write(&path, &mp4).map_err(|e| e.to_string())?;
     let secs = media_seconds(&path).unwrap_or(0.0);
-    let parts = if n > 1 { format!(", {n} роликов цепочкой") } else { String::new() };
     Ok(ToolOutput {
         text: format!(
-            "Видео готово и уже показано пользователю под ответом: длительность {secs:.0} с — называй пользователю только её ({label}{parts}, зерно {seed}; файл {} — для инструментов, пользователю путь не называй).",
+            "Видео готово и уже показано пользователю под ответом: длительность {secs:.0} с — называй пользователю только её ({}, зерно {}; файл {} — для инструментов, пользователю путь не называй).",
+            reply.label,
+            reply.seed,
             path.display()
         ),
         files: vec![path],
@@ -239,33 +321,6 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
 
 /// Предел одного ролика модели, с; длиннее — цепочкой.
 const CLIP_MAX: f64 = 15.0;
-
-fn ffmpeg(args: &[&str]) -> Result<(), String> {
-    let out = std::process::Command::new("ffmpeg").args(["-v", "error", "-y"]).args(args).output().map_err(|e| format!("ffmpeg: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(format!("ffmpeg: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("ошибка")))
-    }
-}
-
-/// Последний кадр ролика — первым кадром следующего.
-fn last_frame(video: &Path) -> Result<PathBuf, String> {
-    let png = video.with_extension("last.png");
-    ffmpeg(&["-sseof", "-0.2", "-i", &video.to_string_lossy(), "-frames:v", "1", "-update", "1", &png.to_string_lossy()])?;
-    Ok(png)
-}
-
-/// Склеить ролики одной модели (кадр и звук одинаковы) — перекодированием,
-/// чтобы стыки шли без рывков.
-fn concat_clips(clips: &[PathBuf], out: &Path) -> Result<(), String> {
-    let list = out.with_extension("txt");
-    let body: String = clips.iter().map(|c| format!("file '{}'\n", c.display().to_string().replace('\'', "'\\''"))).collect();
-    std::fs::write(&list, body).map_err(|e| e.to_string())?;
-    let r = ffmpeg(&["-f", "concat", "-safe", "0", "-i", &list.to_string_lossy(), "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000", &out.to_string_lossy()]);
-    let _ = std::fs::remove_file(&list);
-    r
-}
 
 /// Длительность ролика или звука, с (ffprobe).
 pub fn media_seconds(path: &Path) -> Option<f64> {
@@ -332,7 +387,7 @@ impl Tool for MediaTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео со звуком: prompt — подробная сцена по-английски (персонажи, действие, камера, звук); реплики героев пиши прямо в prompt в кавычках (Tom shouts: \"…\") — модель озвучивает их сама (lyrics для видео нет); seconds — общая длина (по умолчанию 4, до 180): длиннее 15 с ролик собирается из нескольких цепочкой, каждый с последнего кадра предыдущего; scenes — список описаний сцен по-английски (с репликами) — по ролику на сцену, prompt тогда — общее (персонажи, стиль, место); генерация идёт минуты, first_frame / last_frame — пути картинок, с которых начать или которыми закончить; refs — пути референсов (картинки персонажей и предметов, видео, звук — голос для липсинка или музыка; до 12, не вместе с кадрами), в prompt опиши, что с ними делать; возможности LTX-2.3 (модель выбирается сама): audio — путь звука, видео строится под него (липсинк речи, движение под музыку); source_video + retake_start/retake_end — перегенерировать отрезок ролика по prompt; source_video + extend=true — продолжить ролик; control_video — повторить движение/композицию образца (control: canny — контуры, motion — движение); control_video + audio — LipDub (переозвучить ролик: губы под новый звук); two_stage=true — выше качество и разрешение (дольше); source_video + restyle=true — перерисовать ролик в новом стиле со звуком: в prompt опиши всю сцену целиком в новом стиле (что не названо — может исчезнуть), strength 0..1 — насколько сильно менять (0.4 — стиль поверх, 0.6 по умолчанию, 0.8 — почти заново). model: ltx-2-3-22b-distilled-1-1 — быстрая, minimax-h3-* (по умолчанию) — refs; music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал; для полной песни пиши 2–3 куплета и припевы), seconds — длительность, только если пользователь сам её назвал (иначе не указывай: песня — около 3 минут). Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
+        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео со звуком: prompt — подробная сцена по-английски (персонажи, действие, камера, звук); реплики героев пиши прямо в prompt в кавычках (Tom shouts: \"…\") — модель озвучивает их сама (lyrics для видео нет); seconds — общая длина (по умолчанию 4, до 180): длиннее 15 с ролик собирается цепочкой по латентному хвосту с сохранением якорных refs на каждом клипе; scenes — список описаний сцен по-английски (с репликами) — по ролику на сцену, prompt тогда — общее (персонажи, стиль, место); генерация идёт минуты, first_frame / last_frame — пути картинок, с которых начать или которыми закончить; refs — пути референсов (картинки персонажей и предметов, видео, звук — голос для липсинка или музыка; до 12, не вместе с кадрами), в prompt опиши, что с ними делать; возможности LTX-2.3 (модель выбирается сама): audio — путь звука, видео строится под него (липсинк речи, движение под музыку); source_video + retake_start/retake_end — перегенерировать отрезок ролика по prompt; source_video + extend=true — продолжить ролик; control_video — повторить движение/композицию образца (control: canny — контуры, motion — движение); control_video + audio — LipDub (переозвучить ролик: губы под новый звук); two_stage=true — выше качество и разрешение (дольше); source_video + restyle=true — перерисовать ролик в новом стиле со звуком: в prompt опиши всю сцену целиком в новом стиле (что не названо — может исчезнуть), strength 0..1 — насколько сильно менять (0.4 — стиль поверх, 0.6 по умолчанию, 0.8 — почти заново). model: ltx-2-3-22b-distilled-1-1 — быстрая, minimax-h3-* (по умолчанию) — refs; music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал; для полной песни пиши 2–3 куплета и припевы), seconds — длительность, только если пользователь сам её назвал (иначе не указывай: песня — около 3 минут). Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
     }
     fn parameters(&self) -> Value {
         json!({

@@ -259,7 +259,18 @@ mod tests {
     #[test]
     fn builtin_recipes_compile() {
         for g in crate::recipes::builtin() {
-            let p = params(&g, serde_json::json!({"photo": "/tmp/a.png", "photos": ["/tmp/a.png", "/tmp/b.png"], "video": "/tmp/v.mp4", "text": "привет", "topic": "море", "about": "кот", "story": "ёж"}));
+            let p = params(&g, serde_json::json!({
+                "photo": "/tmp/a.png",
+                "photos": ["/tmp/a.png", "/tmp/b.png"],
+                "refs": ["/tmp/a.png", "/tmp/b.png"],
+                "video": "/tmp/v.mp4",
+                "text": "привет",
+                "topic": "море",
+                "about": "кот",
+                "story": "ёж",
+                "prompt": "зелёный огр",
+                "storyboard": "In <Picture 2>, the ogre from <Picture 1> laughs\n[CUT] In <Picture 2>, close-up of <Picture 1>"
+            }));
             let f = to_flow(&g, &p).unwrap_or_else(|e| panic!("{}: {e}", g.name));
             f.validate().unwrap_or_else(|e| panic!("{}: {e}", g.name));
             assert!(!f.outputs.is_empty(), "{}", g.name);
@@ -272,18 +283,23 @@ mod tests {
         let p = params(&g, serde_json::json!({"story": "ёж"}));
         let f = to_flow(&g, &p).unwrap();
         let by = |l: &str| f.nodes.iter().find(|n| n.label == l).unwrap().id;
-        // plan → lines → format(prompt) → shots.prompt (пакет, цепочкой); opening → shots.first_frame → film.files.
+        // assets → assets-lines → refs (image each) → shots.refs;
+        // assets.text → plan → plan-lines → format(prompt) → shots.prompt; shots → film.files.
+        let alines = by("assets-lines");
         let lines = by("plan-lines");
         let fmt = by("shots-prompt");
-        assert!(f.links.iter().any(|l| l.from_node == lines && l.to_node == fmt && l.to_port == "a"));
+        assert!(f.links.iter().any(|l| l.from_node == by("assets") && l.to_node == alines));
+        assert!(f.links.iter().any(|l| l.from_node == by("assets") && l.to_node == by("plan-prompt")));
+        assert!(f.links.iter().any(|l| l.from_node == by("refs") && l.to_node == by("shots") && l.to_port == "refs"));
+        assert!(f.links.iter().any(|l| l.from_node == lines && l.to_node == fmt));
         assert!(f.links.iter().any(|l| l.from_node == fmt && l.to_node == by("shots") && l.to_port == "prompt"));
-        assert!(f.links.iter().any(|l| l.from_node == by("opening") && l.to_node == by("shots") && l.to_port == "first_frame"));
         assert!(f.links.iter().any(|l| l.from_node == by("shots") && l.to_node == by("film") && l.to_port == "files"));
         let shots = f.node(by("shots")).unwrap();
         assert_eq!(shots.fields["chain"], true);
         assert_eq!(shots.fields["seconds"], 10);
-        let plan = f.node(by("plan")).unwrap();
-        assert!(plan.fields["prompt"].as_str().unwrap().contains("«ёж»"));
+        assert_eq!(shots.fields["model"], "minimax-h3-ref2va");
+        let assets = f.node(by("assets")).unwrap();
+        assert!(assets.fields["prompt"].as_str().unwrap().contains("«ёж»"));
         // Число сцен проверяется: план не той длины — ошибка, а не меньше роликов.
         let ln = f.node(lines).unwrap();
         assert_eq!(ln.fields["expect"].as_f64(), Some(6.0));

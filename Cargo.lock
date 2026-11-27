@@ -8953,6 +8953,7 @@ dependencies = [
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-llm-gemma3",
+ "synaptix-llm-gemma4",
  "synaptix-music-acestep",
  "synaptix-music-sheetsage2",
  "synaptix-music-yue2",

@@ -1,0 +1,69 @@
+{
+  "name": "ref-scenes",
+  "description": "Снять сцену, акт или весь фильм на MiniMax-H3 Ref2VA по готовым файлам-референсам (герои, локации, опц. голос) и готовой раскадровке: в каждой строке storyboard указывай нужные <Picture N> (отбираются автоматически для каждой сцены) и «[CUT] » при смене локации для сброса хвоста. Удобно для поэтапного продакшена, подмены героев/локаций по пути и пересъёмки отдельных сцен",
+  "params": {
+    "refs": {
+      "type": "files",
+      "description": "список файлов-референсов по порядку: 1-я картинка = <Picture 1>, 2-я = <Picture 2> и т.д. (можно добавлять/подменять на лету)"
+    },
+    "storyboard": {
+      "type": "text",
+      "description": "готовые промпты сцен по-английски (по одному на строку, с <Picture N>, репликами в «» и «[CUT] » на сменах локаций)"
+    },
+    "style": {
+      "type": "text",
+      "description": "общий визуальный стиль по-английски (добавляется к каждой сцене)",
+      "default": "3D animated feature film, rich textures, expressive characters, cinematic volumetric lighting"
+    },
+    "shot": {
+      "type": "number",
+      "description": "длина каждой сцены, с (до 15)",
+      "default": 10
+    },
+    "chain": {
+      "type": "bool",
+      "description": "продолжать соседние сцены одной локации по латентному хвосту (на [CUT] хвост сбрасывается)",
+      "default": true
+    },
+    "model": {
+      "type": "text",
+      "description": "видеомодель (по умолчанию minimax-h3-ref2va)",
+      "default": "minimax-h3-ref2va"
+    },
+    "lora": {
+      "type": "text",
+      "description": "LoRA для MiniMax-H3: пусто — Turbo 8 шагов; «off» — полные 20 шагов для максимального качества",
+      "default": ""
+    }
+  },
+  "nodes": [
+    {
+      "id": "script",
+      "op": "text",
+      "text": "{{storyboard}}"
+    },
+    {
+      "id": "shots",
+      "op": "video",
+      "each": "{{script.lines}}",
+      "prompt": "{{item}}, {{style}}",
+      "refs": "{{refs}}",
+      "seconds": "{{shot}}",
+      "chain": "{{chain}}",
+      "model": "{{model}}",
+      "lora": "{{lora}}"
+    },
+    {
+      "id": "film",
+      "op": "concat",
+      "files": "{{shots.files}}"
+    }
+  ],
+  "output": [
+    "film"
+  ],
+  "timeline": {
+    "video": "shots",
+    "names": "script"
+  }
+}

@@ -66,8 +66,24 @@ fn run(ed: &mut Editor, a: &Args) -> Res {
     if opened {
         ed.replace(built.project, Some(path.clone()));
     }
+    let files_str: Vec<String> = report.files.iter().map(|f| f.display().to_string()).collect();
+    let refs_note = report
+        .nodes
+        .get("refs")
+        .filter(|o| !o.files.is_empty())
+        .map(|o| {
+            let list: Vec<String> = o.files.iter().enumerate().map(|(i, p)| format!("<Picture {}> {}", i + 1, p.display())).collect();
+            format!(" | референсы: {}", list.join(", "))
+        })
+        .unwrap_or_default();
+    let out_files_note = if files_str.is_empty() { String::new() } else { format!(" | файлы: {}", files_str.join(", ")) };
     Ok(Out::with(
-        format!("Рецепт «{}»: проект {} ({clips} клипов){}", g.name, path.display(), if opened { ", открыт" } else if open { " — текущий проект не сохранён, откройте файл сами" } else { "" }),
-        json!({"path": path.display().to_string(), "clips": clips, "files": report.files.iter().map(|f| Value::String(f.display().to_string())).collect::<Vec<_>>()}),
+        format!(
+            "Рецепт «{}»: проект {} ({clips} клипов){}{out_files_note}{refs_note}",
+            g.name,
+            path.display(),
+            if opened { ", открыт" } else if open { " — текущий проект не сохранён, откройте файл сами" } else { "" }
+        ),
+        json!({"path": path.display().to_string(), "clips": clips, "files": files_str}),
     ))
 }

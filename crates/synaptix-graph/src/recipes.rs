@@ -17,6 +17,8 @@ const BUILTIN: &[&str] = &[
     include_str!("../recipes/cover-art.json"),
     include_str!("../recipes/story-video.json"),
     include_str!("../recipes/multishot-story.json"),
+    include_str!("../recipes/ref-image.json"),
+    include_str!("../recipes/ref-scenes.json"),
 ];
 
 pub fn builtin() -> Vec<Graph> {
