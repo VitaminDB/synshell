@@ -160,3 +160,7 @@ settings.scripts.template = "//! name: {name}\n//! title: Мой сценари�
 settings.scripts.delete = "Удалить сценарий"
 settings.editor.restored = "Встроенный текст возвращён"
 settings.editor.nothing_to_reset = "Своей копии нет — уже встроенный"
+settings.adv.startup = "Запуск"
+settings.adv.startup.hint = "что открывать, когда редактор запущен без файла"
+settings.adv.open_last = "Открывать последний проект"
+settings.adv.open_last.hint = "выключено — при запуске новый пустой проект"

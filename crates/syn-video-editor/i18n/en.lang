@@ -173,3 +173,7 @@ settings.scripts.template = "//! name: {name}\n//! title: My script\n//! descrip
 settings.scripts.delete = "Delete script"
 settings.editor.restored = "Built-in text restored"
 settings.editor.nothing_to_reset = "No own copy — already built-in"
+settings.adv.startup = "Startup"
+settings.adv.startup.hint = "what to open when the editor starts without a file"
+settings.adv.open_last = "Open the last project"
+settings.adv.open_last.hint = "off — start with a new empty project"

@@ -71,6 +71,8 @@ pub struct Settings {
     pub vision_temperature: f32,
     /// Язык распознавания речи (`ru`, `en`…); пусто — определить самому.
     pub asr_language: String,
+    /// При запуске без файла — открыть последний проект; по умолчанию новый.
+    pub open_last_project: bool,
 }
 
 impl Default for Settings {
@@ -97,6 +99,7 @@ impl Default for Settings {
             vision_max_tokens: 700,
             vision_temperature: 0.2,
             asr_language: String::new(),
+            open_last_project: false,
         }
     }
 }

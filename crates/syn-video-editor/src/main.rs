@@ -271,8 +271,9 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
     use syn_video_editor::ui;
     use syngui::prelude::*;
     synshell_common::i18n::init(&syn_video_editor::i18n::CATALOGS);
-    // без файла в аргументах — последний проект или автосохранение несохранённого
-    if project.is_none() && shot.is_none() {
+    // без файла в аргументах — новый проект (по умолчанию) или, если так
+    // настроено, последний проект / автосохранение несохранённого
+    if project.is_none() && shot.is_none() && syn_video_editor::settings::load().open_last_project {
         let mut e = ui::ed();
         if let Some(p) = store::last_project() {
             if let Ok(pr) = store::load(&p) {

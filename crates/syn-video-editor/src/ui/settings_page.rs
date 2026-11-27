@@ -891,7 +891,12 @@ fn advanced_page(st: St, s: &Settings) -> impl Widget {
                 let _ = std::process::Command::new("xdg-open").arg(crate::layout::config_dir()).spawn();
             }).class("btn-small")),
     );
-    cards(560.0, vec![Box::new(generation), Box::new(vision), Box::new(speech), Box::new(reset)])
+    let startup = card(
+        tr!("settings.adv.startup"),
+        tr!("settings.adv.startup.hint"),
+        Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(toggle_row(tr!("settings.adv.open_last"), tr!("settings.adv.open_last.hint"), s.open_last_project, move |on| change(st, move |s| s.open_last_project = on))),
+    );
+    cards(560.0, vec![Box::new(startup), Box::new(generation), Box::new(vision), Box::new(speech), Box::new(reset)])
 }
 
 // ── страница ─────────────────────────────────────────────────────────────
