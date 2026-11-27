@@ -56,6 +56,11 @@ impl Tool for CmdTool {
     fn name(&self) -> &'static str {
         self.name
     }
+    /// Команды монтажа и генерации законно идут сериями с разными номерами
+    /// (сцена 3, сцена 4; клип c12, c13) — повтором считать только точный.
+    fn numbered_series(&self) -> bool {
+        true
+    }
     fn group(&self) -> &'static str {
         "editor"
     }

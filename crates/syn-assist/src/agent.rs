@@ -484,7 +484,8 @@ impl Agent {
                     }
                     format!("{}\u{1}{s}", call.name)
                 };
-                let churn = recent_shapes.iter().filter(|s| **s == shape).count();
+                let series = self.find(&call.name).is_some_and(|t| t.numbered_series());
+                let churn = if series { 0 } else { recent_shapes.iter().filter(|s| **s == shape).count() };
                 recent_shapes.push(shape);
                 // повтор того же вызова (≥2) ИЛИ пятый структурно-одинаковый приём с
                 // другими числами (churn ≥4) — не выполнять, подсказать сменить подход
@@ -854,6 +855,57 @@ mod tests {
         fn run(&self, args: &Value) -> ToolResult {
             Ok(ToolOutput::text(args["text"].as_str().unwrap_or("").to_uppercase()))
         }
+    }
+
+    /// Echo, у которого серии с разными номерами — законная работа.
+    struct SeriesEcho;
+    impl Tool for SeriesEcho {
+        fn name(&self) -> &'static str {
+            "secho"
+        }
+        fn group(&self) -> &'static str {
+            "test"
+        }
+        fn description(&self) -> String {
+            "secho".into()
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({"type":"object","properties":{"text":{"type":"string"}}})
+        }
+        fn danger(&self, _: &Value) -> Danger {
+            Danger::Safe
+        }
+        fn summary(&self, args: &Value) -> String {
+            format!("secho {}", args["text"])
+        }
+        fn run(&self, args: &Value) -> ToolResult {
+            Ok(ToolOutput::text(args["text"].as_str().unwrap_or("").to_uppercase()))
+        }
+        fn numbered_series(&self) -> bool {
+            true
+        }
+    }
+
+    /// Шесть вызовов «сцена 1…6»: обычный инструмент на пятом останавливается
+    /// как петля, инструмент серий выполняет все; точный повтор ловится у обоих.
+    #[test]
+    fn numbered_series_is_not_churn() {
+        let run = |tool: Arc<dyn Tool>, name: &str| -> Vec<String> {
+            let mut v: Vec<Generated> = (1..=6).map(|i| calls(name, &format!(r#"{{"text":"сцена-{i}"}}"#))).collect();
+            v.push(calls(name, r#"{"text":"сцена-6"}"#));
+            v.push(calls(name, r#"{"text":"сцена-6"}"#));
+            v.push(text("ok"));
+            let agent = Agent::new(Arc::new(Script::new(v)), vec![tool]);
+            let mut chat = Chat::new();
+            let yes = |_: &str, _: &str| true;
+            agent.run_turn(&mut chat, "go", &yes, &AtomicBool::new(false), &mut |_| {}).unwrap();
+            chat.messages.iter().filter(|m| m.role == Role::Tool).map(|m| m.text.clone()).collect()
+        };
+        let plain = run(Arc::new(Echo), "echo");
+        assert!(plain[4].contains("повтор") || plain[4] == super::REPEAT_HINT, "{plain:?}");
+        let series = run(Arc::new(SeriesEcho), "secho");
+        assert_eq!(&series[..6], &["СЦЕНА-1", "СЦЕНА-2", "СЦЕНА-3", "СЦЕНА-4", "СЦЕНА-5", "СЦЕНА-6"]);
+        assert!(series[7] == super::REPEAT_HINT || series[7].contains("повтор"), "{series:?}");
     }
 
     struct Script(Mutex<Vec<Generated>>, Mutex<Vec<(usize, Vec<Message>)>>);
