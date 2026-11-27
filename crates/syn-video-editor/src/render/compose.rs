@@ -62,8 +62,14 @@ pub fn layers(p: &Project, t: f64) -> Vec<Layer<'_>> {
             break;
         }
         if !done {
-            if let Some(c) = clips.iter().find(|c| c.start <= t + 1e-9 && t < c.end() - 1e-9) {
-                out.push(Layer { clip: c, t, tr: None });
+            // допуск в доли кадра: время в проекте хранится с 6 знаками, и на
+            // склейке конец одного клипа (29.916666) и начало следующего
+            // (29.916667) расходятся на микросекунду — кадр 718 (29.91666…)
+            // попадал в щель и выходил чёрным (мультфильм после снятия наплывов)
+            const EPS: f64 = 1e-4;
+            let hit = clips.iter().find(|c| c.start <= t + EPS && t < c.end() - EPS).or_else(|| clips.iter().find(|c| c.start - EPS <= t && t < c.end() + EPS));
+            if let Some(c) = hit {
+                out.push(Layer { clip: c, t: t.clamp(c.start, (c.end() - 1e-6).max(c.start)), tr: None });
             }
         }
     }

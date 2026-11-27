@@ -41,9 +41,10 @@
     {
       "id": "opening",
       "op": "image",
-      "prompt": "{{story}}, opening scene, {{style}}, film still",
+      "prompt": "One single cinematic film still (not a collage or storyboard): the main characters at the very first moment of this story — {{story}}. {{style}}, one scene, no text",
       "width": 1344,
-      "height": 768
+      "height": 768,
+      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, text, captions, subtitles, letters, watermark"
     },
     {
       "id": "shots",
