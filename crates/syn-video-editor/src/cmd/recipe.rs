@@ -298,7 +298,7 @@ fn asset_name(map: &mut std::collections::HashMap<std::path::PathBuf, std::path:
     if map.values().any(|v| v == f) || !f.exists() {
         return f.to_path_buf();
     }
-    let stem: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | ' ' | '_') { c } else { '_' }).collect::<String>().trim().chars().take(60).collect();
+    let stem: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | ' ' | '_' | '—' | '(' | ')' | ',' | '.') { c } else { '_' }).collect::<String>().trim().chars().take(60).collect();
     let ext = f.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
     let dir = f.parent().unwrap_or(std::path::Path::new("."));
     let mut k = 1;

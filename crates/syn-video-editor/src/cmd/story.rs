@@ -190,13 +190,15 @@ pub fn layout(mut lines: Vec<Line>, action: f64, limit: f64) -> Result<(f64, Vec
 }
 
 /// Звучащая часть записи и паузы внутри (поиск тишины по энергии: ffmpeg
-/// silencedetect, −38 дБ, от 0,18 с): (начало, конец, паузы от начала).
+/// silencedetect, −50 дБ, от 0,25 с): (начало, конец, паузы от начала).
+/// Порог низкий нарочно: вздохи, выдохи и смешки Drama 3 — часть игры, а не
+/// тишина (при −38 дБ тихий вздох принимался за паузу).
 pub fn speech_span(p: &Path) -> Result<(f64, f64, Vec<(f64, f64)>), String> {
     let dur = media_seconds(p)?;
     let o = std::process::Command::new("ffmpeg")
         .args(["-v", "info", "-nostats", "-i"])
         .arg(p)
-        .args(["-af", "silencedetect=noise=-38dB:d=0.18", "-f", "null", "-"])
+        .args(["-af", "silencedetect=noise=-50dB:d=0.25", "-f", "null", "-"])
         .output()
         .map_err(|e| format!("ffmpeg: {e}"))?;
     let log = String::from_utf8_lossy(&o.stderr);

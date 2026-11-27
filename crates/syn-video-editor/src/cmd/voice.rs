@@ -347,7 +347,7 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             }
             Ok((
                 format!(
-                    "Реплика «{}» ({who}): {} — речь {speech:.1} с (в файле {secs:.1} с; тишину по краям обрежет scene.plan){}{}. {verdict}",
+                    "Реплика «{}» ({who}): {} — {secs:.1} с (звучит {speech:.1} с; вздохи, смех и паузы Drama 3 — часть игры, сохраняются; пустую тишину по краям обрежет scene.plan){}{}. {verdict}",
                     plain_text(&text),
                     out.display(),
                     seed.map(|s| format!(", зерно {s}")).unwrap_or_default(),
