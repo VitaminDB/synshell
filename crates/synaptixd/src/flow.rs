@@ -71,7 +71,9 @@ impl Uploads {
         if words.is_empty() {
             return Ok(None);
         }
-        if is_file && words.len() > 1 {
+        // строка целиком — один файл (путь с пробелами: «Проект 2026-11-27
+        // 15-46.media/…»); иначе по словам — несколько путей через пробел
+        if words.len() > 1 || is_file {
             if let Some(p) = local_file(s) {
                 return self.add(&p).map(Some);
             }
@@ -282,5 +284,21 @@ mod tests {
         assert_eq!(ins[0].value, Val::File("@in:0".into()));
         assert_eq!(up.files.len(), 1);
         assert_eq!(up.names, vec!["a.png"]);
+    }
+
+    #[test]
+    fn path_with_spaces_is_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("Проект 2026-11-27 15-46.media");
+        std::fs::create_dir_all(&sub).unwrap();
+        let a = sub.join("refs-000.png");
+        std::fs::write(&a, b"x").unwrap();
+        let flow: Flow = serde_json::from_value(serde_json::json!({
+            "nodes": [{"id": 1, "kind": "list", "fields": {"items": [a.display().to_string()]}}]
+        }))
+        .unwrap();
+        let (f, _, up) = prepare(&flow, &HashMap::new()).unwrap();
+        assert_eq!(f.nodes[0].fields["items"], serde_json::json!(["@in:0"]));
+        assert_eq!(up.files.len(), 1);
     }
 }

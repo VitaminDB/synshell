@@ -517,12 +517,17 @@ fn is_non_image_ref(path: &Path) -> bool {
 
 /// Найти все `<Picture N>` (1-based) в тексте и перенумеровать их по таблице `remap` за один проход.
 fn scan_and_remap_pictures(text: &str, max_img: usize) -> (Vec<usize>, String) {
+    scan_and_remap(text, "Picture", max_img)
+}
+
+/// То же для любого слова тега: `<Picture N>`, `<Audio N>`, `<Video N>`.
+fn scan_and_remap(text: &str, word: &str, max: usize) -> (Vec<usize>, String) {
     let bytes = text.as_bytes();
     let mut order: Vec<usize> = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        if let Some((num, end)) = parse_picture_tag(text, i) {
-            if num >= 1 && num <= max_img && !order.contains(&num) {
+        if let Some((num, end)) = parse_tag(text, i, word) {
+            if num >= 1 && num <= max && !order.contains(&num) {
                 order.push(num);
             }
             i = end;
@@ -536,9 +541,9 @@ fn scan_and_remap_pictures(text: &str, max_img: usize) -> (Vec<usize>, String) {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < bytes.len() {
-        if let Some((num, end)) = parse_picture_tag(text, i) {
+        if let Some((num, end)) = parse_tag(text, i, word) {
             if let Some(new_idx) = order.iter().position(|&x| x == num) {
-                out.push_str(&format!("<Picture {}>", new_idx + 1));
+                out.push_str(&format!("<{word} {}>", new_idx + 1));
                 i = end;
                 continue;
             }
@@ -551,18 +556,25 @@ fn scan_and_remap_pictures(text: &str, max_img: usize) -> (Vec<usize>, String) {
 }
 
 /// Распознать `<Picture N>` (без учёта регистра слова Picture) с позиции `start`.
+#[cfg(test)]
 fn parse_picture_tag(text: &str, start: usize) -> Option<(usize, usize)> {
+    parse_tag(text, start, "Picture")
+}
+
+/// Распознать `<Слово N>` (без учёта регистра слова) с позиции `start`.
+fn parse_tag(text: &str, start: usize, word: &str) -> Option<(usize, usize)> {
     let rest = text.get(start..)?;
     if !rest.starts_with('<') {
         return None;
     }
     let after_lt = &rest[1..];
+    let wl = word.len();
     // срез по байтам — только на границе символа: после «<» может идти
-    // русский текст (`<Картинка 1>`, `<д>`), и `[..7]` попадал внутрь буквы
-    if after_lt.len() < 9 || !after_lt.get(..7).is_some_and(|w| w.eq_ignore_ascii_case("picture")) {
+    // русский текст (`<Картинка 1>`, `<д>`), и `[..wl]` попадал внутрь буквы
+    if after_lt.len() < wl + 2 || !after_lt.get(..wl).is_some_and(|w| w.eq_ignore_ascii_case(word)) {
         return None;
     }
-    let after_word = &after_lt[7..];
+    let after_word = &after_lt[wl..];
     let ws = after_word.len() - after_word.trim_start().len();
     if ws == 0 {
         return None;
@@ -578,7 +590,7 @@ fn parse_picture_tag(text: &str, start: usize) -> Option<(usize, usize)> {
         return None;
     }
     let num: usize = digits_part[..dlen].parse().ok()?;
-    let end = start + 1 + 7 + ws + dlen + ws2 + 1;
+    let end = start + 1 + wl + ws + dlen + ws2 + 1;
     Some((num, end))
 }
 
@@ -601,6 +613,7 @@ fn filter_picture_refs(inputs: &mut HashMap<String, Val>, node: &FlowNode) {
         return;
     }
     let mut images: Vec<Val> = Vec::new();
+    let mut audios: Vec<Val> = Vec::new();
     let mut others: Vec<Val> = Vec::new();
     for item in raw_items {
         let p = item.file().map(PathBuf::from).or_else(|| {
@@ -608,22 +621,45 @@ fn filter_picture_refs(inputs: &mut HashMap<String, Val>, node: &FlowNode) {
             (!t.trim().is_empty()).then(|| PathBuf::from(t.trim()))
         });
         match p {
+            Some(path) if is_audio_ref(&path) => audios.push(item),
             Some(path) if is_non_image_ref(&path) => others.push(item),
             Some(_) => images.push(item),
             None => {}
         }
     }
-    if images.is_empty() {
+    let mut prompt = prompt;
+    let mut changed = false;
+    // картинки сцены — только упомянутые `<Picture k>`
+    if !images.is_empty() {
+        let (picked, rewritten) = scan_and_remap_pictures(&prompt, images.len());
+        if !picked.is_empty() {
+            images = picked.into_iter().map(|idx| images[idx - 1].clone()).collect();
+            prompt = rewritten;
+            changed = true;
+        }
+    }
+    // звук сцены (озвучка героев) — только упомянутые `<Audio k>`: в рецепт
+    // передают дорожки всех сцен одним списком, сцене достаются свои
+    if !audios.is_empty() {
+        let (picked, rewritten) = scan_and_remap(&prompt, "Audio", audios.len());
+        if !picked.is_empty() {
+            audios = picked.into_iter().map(|idx| audios[idx - 1].clone()).collect();
+            prompt = rewritten;
+            changed = true;
+        }
+    }
+    if !changed {
         return;
     }
-    let (picked, rewritten) = scan_and_remap_pictures(&prompt, images.len());
-    if picked.is_empty() {
-        return;
-    }
-    let mut filtered: Vec<Val> = picked.into_iter().map(|idx| images[idx - 1].clone()).collect();
+    let mut filtered = images;
     filtered.extend(others);
+    filtered.extend(audios);
     inputs.insert("refs".into(), Val::List(filtered));
-    inputs.insert("prompt".into(), Val::Text(rewritten));
+    inputs.insert("prompt".into(), Val::Text(prompt));
+}
+
+fn is_audio_ref(path: &Path) -> bool {
+    matches!(path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("wav" | "mp3" | "flac" | "ogg" | "opus" | "m4a" | "aac"))
 }
 
 /// Итог прогона.
@@ -751,6 +787,13 @@ mod tests {
         assert_eq!(order, vec![2, 1]);
         assert!(out.contains("<Picture 1> ворчит") && out.ends_with("<Picture 2>"), "{out}");
         assert_eq!(parse_picture_tag("<абвгдеё", 0), None);
+    }
+
+    #[test]
+    fn audio_tags_pick_scene_tracks() {
+        let (order, out) = scan_and_remap("S1 <Audio 3> and S2 <Audio 2>; again <Audio 3>", "Audio", 4);
+        assert_eq!(order, vec![3, 2]);
+        assert_eq!(out, "S1 <Audio 1> and S2 <Audio 2>; again <Audio 1>");
     }
 
     static VIDEO_MOCK_LOCK: Mutex<()> = Mutex::new(());

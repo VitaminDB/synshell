@@ -40,6 +40,7 @@ pub const SYSTEM: &str = "Ты — монтажёр во встроенном И
 - Проект сохраняет программа сама. project_save с path, project_new и project_open — только если пользователь прямо просит другой файл или новый проект.
 - Видео со звуком clip_add ставит связанной парой: картинка на V-дорожку, звук на A-дорожку (правки идут синхронно); clip_detach_audio разрывает связь.
 - Готовые сценарии монтажа — skill_list / skill_run (reels, talking_head, podcast, beat_clip); найти момент в материале — media_search (после media_index).
+- Перед генерацией моделью загрузи её навык (инструмент skill): minimax-h3 — видео на H3, drama3 — озвучка и голоса героев, qwen-image — картинки и эталоны, ltx — только если пользователь сам попросил LTX. В навыке модели — её формат промпта и проверенные приёмы.
 - Генерация видео — на MiniMax-H3 (для историй/мультфильмов — minimax-h3-ref2va с референсами героев и локаций через story-video, ref-image, ref-scenes; иначе minimax-h3-fl2va); LTX (2.3, 2.5) и рецепты на нём (multishot-story, ltx-chain-story, dub-video, music-video) — только по прямой просьбе пользователя.
 - Всё, что есть в меню окна (вид, панели, масштаб просмотра, галереи), — ui_list и ui_run.
 - Если чего-то сделать нельзя (нет инструмента) — так и скажи, не выдумывай.";
@@ -108,6 +109,15 @@ impl Tool for CmdTool {
             let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
             return cmd::recipe::apply(&mut ed, &a, done).map(|o| ToolOutput::text(o.text));
         }
+        // озвучка (синтез службой — десятки секунд) — без блокировки документа
+        if cmd::voice::HEAVY.contains(&self.cmd.id) {
+            let a = cmd::Args::from_value(self.cmd, args)?;
+            let project = self.ed.lock().unwrap_or_else(|e| e.into_inner()).path.clone();
+            let (text, files, _) = cmd::voice::run_unlocked(self.cmd.id, &a, project.as_deref(), None)?;
+            let mut ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+            cmd::voice::import(&mut ed, &files);
+            return Ok(ToolOutput::text(text));
+        }
         // экспорт (рендер минутами) проект не меняет — по копии, без блокировки
         if self.cmd.id == "project.export" {
             let mut snap = crate::editor::Editor::default();
@@ -167,6 +177,10 @@ pub const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("flow-graphs", include_str!("../library/agent-skills/flow-graphs/SKILL.md")),
     ("export", include_str!("../library/agent-skills/export/SKILL.md")),
     ("podcast", include_str!("../library/agent-skills/podcast/SKILL.md")),
+    ("minimax-h3", include_str!("../library/agent-skills/minimax-h3/SKILL.md")),
+    ("drama3", include_str!("../library/agent-skills/drama3/SKILL.md")),
+    ("qwen-image", include_str!("../library/agent-skills/qwen-image/SKILL.md")),
+    ("ltx", include_str!("../library/agent-skills/ltx/SKILL.md")),
 ];
 
 /// Каталог встроенных навыков на диске: заготовки из программы выкладываются
