@@ -239,6 +239,8 @@ pub struct St {
     pub media_sel: RwSignal<Vec<u64>>,
     /// Открыто окно «Свойства» файла медиатеки.
     pub media_props: RwSignal<Option<u64>>,
+    /// Окно просмотра медиа (двойной щелчок в медиатеке).
+    pub media_preview: RwSignal<Option<u64>>,
     /// Масштаб окна «Просмотр»: `None` — вписать, `Some(k)` — доля от 100% (0.1–8.0).
     pub viewer_zoom: RwSignal<Option<f32>>,
     /// Сдвиг (панорамирование) кадра в «Просмотре», пикс. панели от центра.
@@ -319,6 +321,7 @@ impl St {
             args_draft: use_signal(None),
             media_sel: use_signal(Vec::new()),
             media_props: use_signal(None),
+            media_preview: use_signal(None),
             viewer_zoom: use_signal(None),
             viewer_pan: use_signal((0.0, 0.0)),
             viewer_bg: use_signal(0),
@@ -1050,6 +1053,7 @@ pub fn root(st: St) -> impl Widget {
         .child(project_templates::dialog(st))
         .child(args_dialog::view(st))
         .child(panels::media_props_view(st))
+        .child(panels::media_preview_view(st))
 }
 
 /// Пункты меню вида и окна (не команды документа).

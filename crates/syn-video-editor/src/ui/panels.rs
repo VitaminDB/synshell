@@ -1034,7 +1034,9 @@ fn tile(st: St, id: u64, kind: MediaKind, name: String, info: String, path: std:
                     }
                 });
             }).on_double_click(move || {
-                st.exec("clip.add", json!({"media": id}));
+                // просмотр этого файла (картинка — зум и поворот, видео — плеер);
+                // на таймлайн — кнопкой в окне или пунктом меню
+                st.media_preview.set(Some(id));
             }).child(DecoratedBox::new().class(if selected { "tile tile-on" } else { "tile" }).child(body))),
     )
 }
@@ -1120,6 +1122,105 @@ pub fn media_props_view(st: St) -> impl Widget {
                     }
                     KeyReply::Ignore
                 }).child(DecoratedBox::new().class("fp-card").style("width", 560.0).child(Padding::all(16.0).child(col))))),
+        )]
+    })
+}
+
+
+// ── просмотр медиа по двойному щелчку ───────────────────────────────────
+
+/// Плеер открытого в просмотре видео/звука (один на окно).
+static PREVIEW_PLAYER: std::sync::Mutex<Option<(u64, std::sync::Arc<std::sync::Mutex<syngui::video::VideoPlayer>>)>> = std::sync::Mutex::new(None);
+
+thread_local! {
+    static PV: std::cell::RefCell<Option<(RwSignal<i32>, RwSignal<(bool, bool)>, RwSignal<(u64, ImageViewCommand)>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn pv_state() -> (RwSignal<i32>, RwSignal<(bool, bool)>, RwSignal<(u64, ImageViewCommand)>) {
+    PV.with(|s| *s.borrow_mut().get_or_insert_with(|| (use_signal(0), use_signal((false, false)), use_signal((0, ImageViewCommand::Fit)))))
+}
+
+/// Окно просмотра файла медиатеки: картинка — масштаб, сдвиг, поворот и
+/// отражение; видео и звук — плеер именно этого файла.
+pub fn media_preview_view(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let Some(id) = st.media_preview.get() else {
+            // закрыто — плеер остановить и отпустить
+            if let Ok(mut g) = PREVIEW_PLAYER.lock() {
+                *g = None;
+            }
+            return Vec::new();
+        };
+        let Some(m) = ed().project.media(id).cloned() else { return Vec::new() };
+        let (turns, flip, cmd) = pv_state();
+        let close = move || {
+            st.media_preview.set(None);
+            turns.set(0);
+            flip.set((false, false));
+        };
+        let path = m.path.display().to_string();
+        let is_image = m.kind == MediaKind::Image;
+        let body: Box<dyn Widget> = if is_image {
+            let (t, (fh, fv), (seq, c)) = (turns.get(), flip.get(), cmd.get());
+            let mut v = ImageViewport::new(path.clone()).quarter_turns(t).flip(fh, fv).command(seq, c);
+            if m.width > 0 && m.height > 0 {
+                v = v.natural_size(m.width, m.height);
+            }
+            Box::new(v)
+        } else if matches!(m.kind, MediaKind::Video | MediaKind::Audio) {
+            let player = {
+                let mut g = PREVIEW_PLAYER.lock().unwrap_or_else(|e| e.into_inner());
+                match g.as_ref() {
+                    Some((pid, p)) if *pid == id => Some(p.clone()),
+                    _ => match syngui::video::VideoPlayer::open(&path) {
+                        Ok(p) => {
+                            let p = std::sync::Arc::new(std::sync::Mutex::new(p));
+                            *g = Some((id, p.clone()));
+                            Some(p)
+                        }
+                        Err(e) => {
+                            st.toast.set(Some(format!("Просмотр: {e}")));
+                            None
+                        }
+                    },
+                }
+            };
+            match player {
+                Some(p) => Box::new(VideoPlayerView::file(p).build()),
+                None => Box::new(Center::new().child(Text::new("Не удалось открыть файл").class("panel-empty"))),
+            }
+        } else {
+            Box::new(Center::new().child(Text::new("Просмотр этого вида пока недоступен").class("panel-empty")))
+        };
+        let mut tools = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("m{id} · {}", m.name())).max_lines(1).elide(Elide::Middle).class("fp-title")).child(DecoratedBox::new().class("grow"));
+        if is_image {
+            let bump = move |c: ImageViewCommand| cmd.update(|x| *x = (x.0 + 1, c));
+            tools = tools
+                .child(ToolButton::new("\u{E8D5}").tooltip("Повернуть влево").on_click(move || turns.update(|t| *t = (*t + 3) % 4)))
+                .child(ToolButton::new("\u{E41A}").tooltip("Повернуть вправо").on_click(move || turns.update(|t| *t = (*t + 1) % 4)))
+                .child(ToolButton::new("\u{E3E8}").tooltip("Отразить по горизонтали").on_click(move || flip.update(|f| f.0 = !f.0)))
+                .child(ToolButton::new("\u{E8FF}").tooltip("Крупнее").on_click(move || bump(ImageViewCommand::ZoomIn)))
+                .child(ToolButton::new("\u{E900}").tooltip("Мельче").on_click(move || bump(ImageViewCommand::ZoomOut)))
+                .child(ToolButton::new("\u{E5D0}").tooltip("Вписать").on_click(move || bump(ImageViewCommand::Fit)))
+                .child(Button::new("1:1").on_click(move || bump(ImageViewCommand::Actual)).class("head-btn"));
+        }
+        tools = tools
+            .child(Button::new("На таймлайн").on_click(move || {
+                st.exec("clip.add", json!({"media": id}));
+            }).class("head-btn"))
+            .child(ToolButton::new("\u{E5CD}").tooltip("Закрыть (Esc)").on_click(close));
+        let card = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(tools).child(DecoratedBox::new().class("grow").class("media-preview-body").child(body));
+        vec![Box::new(
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(GestureDetector::new().on_click(close).child(DecoratedBox::new().class("fp-scrim")))
+                .child(Padding::all(48.0).child(EventHook::new().on_key_down(move |k, _| {
+                    if k == Key::Escape {
+                        close();
+                        return KeyReply::Handled;
+                    }
+                    KeyReply::Ignore
+                }).child(DecoratedBox::new().class("fp-card").class("grow").child(Padding::all(12.0).child(card))))),
         )]
     })
 }
