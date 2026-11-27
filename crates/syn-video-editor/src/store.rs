@@ -76,6 +76,48 @@ pub fn last_project() -> Option<std::path::PathBuf> {
 pub fn remember(path: Option<&Path>) {
     let _ = std::fs::create_dir_all(data_dir());
     let _ = std::fs::write(data_dir().join("last"), path.map(|p| p.display().to_string()).unwrap_or_default());
+    if let Some(p) = path {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let mut v = recent();
+        v.retain(|(q, _)| q != p);
+        v.insert(0, (p.to_path_buf(), now));
+        v.truncate(RECENT_MAX);
+        write_recent(&v);
+    }
+}
+
+const RECENT_MAX: usize = 60;
+
+/// Недавние проекты: (файл, когда открыт, с от эпохи), новые первыми.
+pub fn recent() -> Vec<(std::path::PathBuf, u64)> {
+    let Ok(s) = std::fs::read_to_string(data_dir().join("recent.json")) else { return Vec::new() };
+    let v: Vec<(String, u64)> = serde_json::from_str(&s).unwrap_or_default();
+    v.into_iter().map(|(p, t)| (std::path::PathBuf::from(p), t)).collect()
+}
+
+fn write_recent(v: &[(std::path::PathBuf, u64)]) {
+    let list: Vec<(String, u64)> = v.iter().map(|(p, t)| (p.display().to_string(), *t)).collect();
+    let _ = std::fs::write(data_dir().join("recent.json"), serde_json::to_string_pretty(&list).unwrap_or_default());
+}
+
+/// Убрать проект из списка недавних (файл не трогается).
+pub fn forget(path: &Path) {
+    let mut v = recent();
+    v.retain(|(q, _)| q != path);
+    write_recent(&v);
+    // проект из папки проектов показывается и без записи — помним, что убран
+    let mut hidden = hidden();
+    if !hidden.iter().any(|h| h == path) {
+        hidden.push(path.to_path_buf());
+        let list: Vec<String> = hidden.iter().map(|p| p.display().to_string()).collect();
+        let _ = std::fs::write(data_dir().join("recent-hidden.json"), serde_json::to_string(&list).unwrap_or_default());
+    }
+}
+
+/// Проекты, убранные из списка вручную (пока их снова не откроют).
+pub fn hidden() -> Vec<std::path::PathBuf> {
+    let Ok(s) = std::fs::read_to_string(data_dir().join("recent-hidden.json")) else { return Vec::new() };
+    serde_json::from_str::<Vec<String>>(&s).unwrap_or_default().into_iter().map(std::path::PathBuf::from).collect()
 }
 
 /// Каталог проектов по умолчанию (`~/Videos/syn-video-editor`).

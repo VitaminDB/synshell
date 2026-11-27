@@ -27,6 +27,7 @@ pub fn content(st: St, panel: &str) -> Box<dyn Widget> {
         "curves" => Box::new(super::curves::view(st)),
         "color" => Box::new(super::color::view(st)),
         "media_view" => Box::new(media_view_panel(st)),
+        "projects" => Box::new(super::projects::panel(st)),
         _ => Box::new(DecoratedBox::new()),
     }
 }

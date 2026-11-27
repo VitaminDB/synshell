@@ -248,3 +248,19 @@ Notification.severity-error   { accent-color: var(--error, #EF4444); }
 .set-status.bad { color: var(--danger); }
 .mono { font-family: monospace; }
 .pv-fill { width: 100%; height: 100%; }
+
+/* панель «Проекты» — карточки недавних проектов */
+.proj-card { border-radius: 12px; border-width: 1px; border-color: var(--border-soft); background-color: var(--bg-panel-2); overflow: hidden; cursor: pointer; }
+.proj-card:hover { border-color: var(--primary); background-color: var(--surface-hover); }
+.proj-on { border-color: var(--primary); border-width: 2px; }
+.proj-cover { flex-grow: 1; background-color: #000000; overflow: hidden; }
+.proj-body { padding: 10px 12px 12px 12px; }
+.proj-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.proj-chip { padding: 2px 8px; border-radius: 999px; background-color: var(--surface-hover); }
+.proj-chip-icon { icon-size: 13px; icon-color: var(--text-muted); }
+.proj-chip-text { font-size: 11px; color: var(--text-muted); }
+.proj-empty-icon { icon-size: 36px; icon-color: var(--text-subtle); }
+.proj-open-badge { padding: 1px 8px; border-radius: 6px; background-color: var(--primary); }
+.proj-open-text { font-size: 10px; font-weight: 600; color: var(--on-primary); }
+.proj-dot { width: 14px; height: 3px; border-radius: 2px; background-color: #FFFFFF55; }
+.proj-dot-on { background-color: #FFFFFF; }

@@ -6,6 +6,7 @@ pub mod graph;
 mod graph_presets;
 pub(super) mod inspector;
 mod panels;
+mod projects;
 pub(super) mod templates;
 mod thumbs;
 mod wave;
@@ -650,7 +651,7 @@ impl St {
     pub fn open_panel(self, id: &str) {
         let near = match id {
             "media" | "templates" | "effects" | "luts" | "layers" => Some("media"),
-            "viewer" | "graph" | "media_view" => Some("viewer"),
+            "viewer" | "graph" | "media_view" | "projects" => Some("viewer"),
             "inspector" | "ai" => Some("inspector"),
             "timeline" | "curves" | "color" => Some("timeline"),
             _ => None,
@@ -1074,6 +1075,7 @@ const VIEW_ITEMS: &[(&str, &str, &str)] = &[("view.palette", "Палитра к�
 const UI_ITEMS: &[(&str, &str, &str, &str)] = &[
     ("media.import_folder", "Медиа", "Импорт папки…", "Ctrl+Shift+I"),
     ("project.save_as", "Проект", "Сохранить как…", "Ctrl+Shift+S"),
+    ("view.panel.projects", "Проект", "Последние проекты", "Ctrl+Shift+O"),
     ("view.panel.templates", "Шаблоны", "Галерея шаблонов", ""),
 ];
 
