@@ -26,6 +26,11 @@
       "description": "высота кадра",
       "default": 768
     },
+    "negative": {
+      "type": "text",
+      "description": "дополнительный негатив по-английски — чего НЕ должно быть (обрезанные ноги, портрет по пояс…); встроенный негатив против коллажа и текста уже есть. В prompt запреты не пиши — модель их нарисует",
+      "default": ""
+    },
     "image_model": {
       "type": "text",
       "description": "модель картинок (пусто — из настроек, например Qwen-Image 2.1)",
@@ -47,7 +52,7 @@
       "width": "{{width}}",
       "height": "{{height}}",
       "seed": "{{seed}}",
-      "negative": "collage, storyboard, comic panels, grid of images, split screen, multiple frames, turnaround labels, text, captions, subtitles, letters, watermark"
+      "negative": "collage, storyboard, comic panels, character sheet, model sheet, grid of images, split screen, multiple frames, multiple views, turnaround labels, text, captions, subtitles, letters, watermark, {{negative}}"
     }
   ],
   "output": [

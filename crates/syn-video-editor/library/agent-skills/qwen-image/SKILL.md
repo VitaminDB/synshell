@@ -6,11 +6,11 @@ description: Картинки на Qwen-Image 2.1 (модель картинок
 
 ## Промпт
 - **По-английски**, конкретно: вид/возраст, телосложение, лицо, волосы/уши, одежда **сверху донизу** (штаны, обувь), особые предметы; затем стиль и свет.
-- Один кадр, без текста: в конце `single clean film still, sharp detail, no text`; негатив против коллажа: `collage, storyboard, comic panels, grid of images, split screen, multiple frames, text, captions, watermark`.
+- **Запреты — только в `negative`, никогда в `prompt`.** Модель рисует всё, что названо в описании: слова «collage, grid, multiple frames» в `prompt` дают коллаж. Против коллажа и текста у `ref-image` встроенный негатив; свои запреты — параметром `negative`.
 - Стиль фильма — одними и теми же словами во всех эталонах (иначе герои из разных «мультфильмов»).
 
 ## Эталоны для видео (H3 Ref2VA)
-- **Герой — во весь рост:** `Full-body character reference, entire figure from head to toe in frame (feet and shoes visible, empty space above the head and below the feet), standing neutral pose facing the camera, clean neutral background: …`; негатив `cropped body, cut-off legs, cut-off feet, close-up portrait, half-body shot`. Портрет по пояс → у H3 низ героя в каждой сцене разный.
+- **Герой — во весь рост:** `Full-body character reference, entire figure from head to toe in frame (feet and shoes visible, empty space above the head and below the feet), standing neutral pose facing the camera, clean neutral background: …`; в `negative`: `cropped body, cut-off legs, cut-off feet, close-up portrait, half-body shot`. Портрет по пояс → у H3 низ героя в каждой сцене разный.
 - **Локация — пустая:** `Empty location establishing shot, no people or characters: …` (обстановка, предметы, палитра, свет).
 - Один эталон — один герой или одна локация (не листы-разворотки).
 - Размер (`width`, `height`) выбирай сам под форму предмета: кадр должен облегать его, чтобы он занял почти всё поле и мелкие части (руки, лапы, обувь) не вышли мелкими. Высокая фигура — вертикальный кадр, широкая или длинная — горизонтальный; локация — пропорции кадра фильма. Стороны кратны 16, около 0,8–1 мегапикселя.
