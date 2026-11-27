@@ -13,7 +13,7 @@ description: Картинки на Qwen-Image 2.1 (модель картинок
 - **Герой — во весь рост:** `Full-body character reference, entire figure from head to toe in frame (feet and shoes visible, empty space above the head and below the feet), standing neutral pose facing the camera, clean neutral background: …`; негатив `cropped body, cut-off legs, cut-off feet, close-up portrait, half-body shot`. Портрет по пояс → у H3 низ героя в каждой сцене разный.
 - **Локация — пустая:** `Empty location establishing shot, no people or characters: …` (обстановка, предметы, палитра, свет).
 - Один эталон — один герой или одна локация (не листы-разворотки).
-- Размер: **герой — вертикально `width: 768, height: 1024`** (фигура во весь рост заполняет кадр, мельче не теряются руки и ноги); **локация — горизонтально 1344×768** (16:9, как кадр фильма); для быстрой пробы локации — 960×544.
+- Размер (`width`, `height`) выбирай сам под форму предмета: кадр должен облегать его, чтобы он занял почти всё поле и мелкие части (руки, лапы, обувь) не вышли мелкими. Высокая фигура — вертикальный кадр, широкая или длинная — горизонтальный; локация — пропорции кадра фильма. Стороны кратны 16, около 0,8–1 мегапикселя.
 
 ## Правка эталона (режим edit — `ref-image` с `base`)
 `recipe_run {name: "ref-image", open: false, params: {base: ["/путь/герой.png"], prompt: "…"}}` — Qwen-Image сохраняет лицо, стиль и пропорции, меняет то, что сказано:
