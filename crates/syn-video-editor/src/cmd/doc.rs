@@ -85,7 +85,54 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
     };
     std::fs::write(&p, &body).map_err(|e| format!("{}: {e}", p.display()))?;
     ed.revision += 1;
-    Ok(Out::with(format!("Документ {} ({} строк)", p.display(), body.lines().count()), json!({"path": p})))
+    let mut msg = format!("Документ {} ({} строк)", p.display(), body.lines().count());
+    let thin = thin_scenes(&body);
+    if !thin.is_empty() {
+        msg.push_str(&format!(
+            ". Сцены {} описаны неполно — допиши каждую по шаблону навыка screenplay (поля: Задача, План и камера, Действие, Эмоции, Звук, Реплики) и перезапиши документ",
+            thin.join(", ")
+        ));
+    }
+    Ok(Out::with(msg, json!({"path": p, "thin_scenes": thin})))
+}
+
+/// Разделы сцен («### Сцена N …») без обязательных полей сценария.
+pub fn thin_scenes(text: &str) -> Vec<String> {
+    const FIELDS: &[&str] = &["план", "действие", "звук", "реплик"];
+    let mut out = Vec::new();
+    let mut cur: Option<(String, String)> = None;
+    let mut check = |c: Option<(String, String)>, out: &mut Vec<String>| {
+        if let Some((name, body)) = c {
+            let low = body.to_lowercase();
+            if FIELDS.iter().filter(|f| low.contains(*f)).count() < 3 {
+                out.push(name);
+            }
+        }
+    };
+    for line in text.lines() {
+        let t = line.trim_start_matches('#').trim();
+        if line.starts_with('#') && t.to_lowercase().starts_with("сцена ") {
+            check(cur.take(), &mut out);
+            let n: String = t[t.find(' ').map(|i| i + 1).unwrap_or(0)..].chars().take_while(|c| c.is_ascii_digit()).collect();
+            cur = Some((if n.is_empty() { t.chars().take(20).collect() } else { n }, String::new()));
+        } else if line.starts_with('#') {
+            check(cur.take(), &mut out);
+        } else if let Some((_, b)) = cur.as_mut() {
+            b.push_str(line);
+            b.push('\n');
+        }
+    }
+    check(cur, &mut out);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thin() {
+        let t = "# X\n## Сцены\n### Сцена 1 — А\n- Задача: x\n### Сцена 2 — Б\n- План и камера: x\n- Действие: y\n- Звук: z\n- Реплики: w\n";
+        assert_eq!(super::thin_scenes(t), vec!["1".to_string()]);
+    }
 }
 
 fn read(ed: &mut Editor, a: &Args) -> Res {

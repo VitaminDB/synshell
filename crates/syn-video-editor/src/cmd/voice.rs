@@ -165,6 +165,7 @@ static SAY: Cmd = Cmd {
         arg("voice", Ty::Str, "имя героя (голос из voice.cast)"),
         arg("voices", Ty::Array, "диалог: имена героев для <|speaker:0..|> по порядку"),
         arg("seed", Ty::Num, "зерно"),
+        arg("scene", Ty::Str, "сцена («3» или «Сцена 3: <название>») — реплика попадёт в документ «диалоги» проекта"),
         arg("name", Ty::Str, "имя файла"),
         arg("temperature", Ty::Num, "температура (1.0)"),
     ],
@@ -265,6 +266,22 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             let out = free_path(&dir.join("speech"), &stem);
             write_wav(&out, &pcm, rate)?;
             let secs = pcm.len() as f64 / rate.max(1) as f64;
+            // каждая озвученная реплика — строкой в «диалоги.md» проекта:
+            // сцена, кто, что, файл, длина (пользователь читает и правит)
+            if let Some(proj) = project {
+                let scene = a.str("scene")?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "—".into());
+                let doc = crate::store::media_dir(proj).join("диалоги.md");
+                let mut body = std::fs::read_to_string(&doc).unwrap_or_default();
+                if !body.contains("| Сцена | Кто |") {
+                    if !body.is_empty() && !body.ends_with('\n') {
+                        body.push('\n');
+                    }
+                    body.push_str("\n## Озвучка\n\n| Сцена | Кто | Реплика | Файл | Длина |\n|---|---|---|---|---|\n");
+                }
+                let file = out.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                body.push_str(&format!("| {scene} | {who} | {} | {file} | {secs:.1} с |\n", text.replace('|', "/").replace('\n', " ")));
+                let _ = std::fs::write(&doc, body);
+            }
             Ok((format!("Реплика «{}» ({who}): {} — {secs:.1} с{}", plain_text(&text), out.display(), seed.map(|s| format!(", зерно {s}")).unwrap_or_default()), vec![out.clone()], json!({"path": out, "seconds": secs, "seed": seed})))
         }
         "voice.track" => {

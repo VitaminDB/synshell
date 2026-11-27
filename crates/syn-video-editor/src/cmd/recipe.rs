@@ -71,7 +71,14 @@ pub struct Generated {
 pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
+    // эталон без имени — в медиатеке одинаковые «ref.png»: имя обязательно
+    // (или из подписи «Эталон: <имя>»)
+    if g.name == "ref-image" && asset_of(a)?.is_none() {
+        return Err("ref-image: нужен asset — имя эталона (герой или локация) на верхнем уровне вызова, рядом с name: {name: \"ref-image\", asset: \"<имя героя>\", params: {…}}; файл назовётся по нему".into());
+    }
     let mut params = a.object("params")?.unwrap_or_default();
+    params.remove("asset");
+    params.remove("label");
     // «ё» в русских репликах: без неё модели речи читают «еще», «идет»
     for v in params.values_mut() {
         crate::yo::yofy_value(v);
@@ -101,7 +108,7 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let mut live: Vec<std::path::PathBuf> = Vec::new();
     // имя ассета (`asset`: «Грымза», «Сцена 3»): файлы результата — по нему, а
     // не одинаковые «ref.png» / «shots-000.mp4» в медиатеке
-    let asset = a.str("asset")?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let asset = asset_of(a)?;
     let mut renamed: std::collections::HashMap<std::path::PathBuf, std::path::PathBuf> = std::collections::HashMap::new();
     let report = synaptix_graph::run_observed(
         &g,
@@ -159,6 +166,30 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     }
     crate::store::save(&built.project, &path)?;
     Ok(Generated { g, report, built, path, live })
+}
+
+/// Имя ассета: `asset`, иначе из подписи (`label` «Эталон: Кот» → «Кот»,
+/// «Сцена 3 из 12: …» → «Сцена 3»).
+fn asset_of(a: &Args) -> Result<Option<String>, String> {
+    if let Some(s) = a.str("asset")?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        return Ok(Some(s));
+    }
+    // агент кладёт и внутрь params — тоже принять
+    for k in ["asset", "label"] {
+        if let Some(s) = a.object("params")?.and_then(|p| p.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string())).filter(|s| !s.is_empty()) {
+            let s = if k == "label" { s.split_once(':').map(|(_, b)| b.trim().to_string()).unwrap_or(s) } else { s };
+            return Ok(Some(s));
+        }
+    }
+    let Some(l) = a.str("label")?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else { return Ok(None) };
+    if let Some(rest) = l.strip_prefix("Сцена ") {
+        let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !n.is_empty() {
+            return Ok(Some(format!("Сцена {n}")));
+        }
+    }
+    let name = l.split_once(':').map(|(_, b)| b.trim().to_string()).unwrap_or(l);
+    Ok(Some(name).filter(|s| !s.is_empty()))
 }
 
 /// Переименовать файл результата по имени ассета (`<имя>.ext`, `<имя>-2.ext`…)
