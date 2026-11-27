@@ -196,6 +196,7 @@ fn short(n: usize) -> String {
 
 /// Шапка панели ИИ: чаты, модель, режим, контекст.
 pub fn head(st: St) -> impl Widget {
+    let restart_open = use_signal(false);
     let chats_row = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let list: Vec<ChatSummary> = st.ai_chats.get();
         let cur = st.ai_chat.get();
@@ -212,6 +213,7 @@ pub fn head(st: St) -> impl Widget {
                 .child(DecoratedBox::new().class("grow").child(dd))
                 .child(ToolButton::new(icons::ADD).tooltip(tr!("ai.chat.new")).disabled(busy).on_click(move || new_chat(st)))
                 .child(ToolButton::new(icons::DELETE).tooltip(tr!("ai.chat.delete")).disabled(busy).on_click(move || delete_chat(st)))
+                .child(ToolButton::new(icons::REFRESH).tooltip("Начать заново: удалить всё сделанное в проекте и заново отдать агенту первую задачу чата").disabled(busy || first_task(st).is_none()).on_click(move || restart_open.set(true)))
                 .child(ToolButton::new(icons::SETTINGS).tooltip(tr!("ai.settings")).on_click(move || super::settings_page::open_section(st, super::settings_page::SEC_AGENT))),
         )]
     });
@@ -267,6 +269,93 @@ pub fn head(st: St) -> impl Widget {
                 .child(Text::new(text).class("ai-status-text")),
         )]
     });
-    DecoratedBox::new().class("ai-head").child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(chats_row).child(mode_row).child(ctx_row))
+    DecoratedBox::new().class("ai-head").child(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(chats_row)
+            .child(mode_row)
+            .child(ctx_row)
+            .child(ConfirmDialog::new(
+                "Начать заново",
+                "Удалить всё, что сделано в проекте — сгенерированные картинки и ролики, голоса, реплики, документы, медиатеку и таймлайн — и заново отдать агенту первую задачу этого чата?",
+                restart_open,
+                move |ok| {
+                    if ok {
+                        restart(st);
+                    }
+                },
+            )),
+    )
+}
+
+/// Первая задача пользователя в текущем чате.
+fn first_task(st: St) -> Option<String> {
+    st.ai_log.get_untracked().iter().find_map(|l| match l {
+        AiLine::User(t) if !t.trim().is_empty() => Some(t.clone()),
+        _ => None,
+    })
+}
+
+/// «Начать заново»: стереть сделанное в проекте (папки generated, voices,
+/// speech, документы .md, состояние фильма story.json), очистить медиатеку и
+/// таймлайн (настройки кадра остаются), открыть новый чат и снова отдать
+/// агенту первую задачу прежнего.
+pub fn restart(st: St) {
+    if st.ai_busy.get_untracked() {
+        return;
+    }
+    let Some(task) = first_task(st) else { return };
+    {
+        let mut e = super::ed();
+        let path = e.path.clone();
+        if let Some(path) = &path {
+            wipe_work(&crate::store::media_dir(path));
+        }
+        let mut p = crate::doc::Project::new(&e.project.name);
+        p.settings = e.project.settings.clone();
+        e.replace(p, path.clone());
+        if let Some(path) = &path {
+            let _ = crate::store::save(&e.project, path);
+        }
+        st.rev.set(e.revision);
+        st.ph.set(e.playhead);
+    }
+    new_chat(st);
+    st.ask_ai(task);
+}
+
+/// Удалить из папки проекта то, что делает работа над фильмом.
+pub fn wipe_work(dir: &std::path::Path) {
+    for d in ["generated", "voices", "speech"] {
+        let _ = std::fs::remove_dir_all(dir.join(d));
+    }
+    let _ = std::fs::remove_file(dir.join("story.json"));
+    for f in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = f.path();
+        if p.is_file() && p.extension().is_some_and(|x| x == "md") {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    #[test]
+    fn wipe_keeps_project_file() {
+        let d = tempfile::tempdir().unwrap();
+        for sub in ["generated/a", "voices", "speech", "imported"] {
+            std::fs::create_dir_all(d.path().join(sub)).unwrap();
+        }
+        for f in ["p.syn", "story.json", "сценарий.md", "imported/x.mp4", "voices/v.wav"] {
+            std::fs::write(d.path().join(f), b"x").unwrap();
+        }
+        super::wipe_work(d.path());
+        assert!(d.path().join("p.syn").exists());
+        assert!(d.path().join("imported/x.mp4").exists());
+        for f in ["story.json", "сценарий.md", "generated", "voices", "speech"] {
+            assert!(!d.path().join(f).exists(), "{f}");
+        }
+    }
 }
 
