@@ -135,6 +135,7 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
         two_stage: p.two_stage,
         fps_x2: p.fps_x2,
         dfr: p.dfr,
+        diff_decoder: p.diff_decoder,
         strength: p.strength,
         context: p.context.map(PathBuf::from),
         context_frames: p.context_frames,

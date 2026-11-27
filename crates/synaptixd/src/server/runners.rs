@@ -740,6 +740,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                     duration_head: components.get("duration_head").cloned(),
                     temporal_upscaler: components.get("temporal_upscaler").cloned(),
                     detail_lora: components.get("detail_lora").cloned(),
+                    diff_vae: components.get("diff_vae").cloned(),
                 })
             } else {
                 anyhow::bail!("видео {arch} служба пока не исполняет");
