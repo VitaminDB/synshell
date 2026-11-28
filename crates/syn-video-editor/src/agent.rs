@@ -335,9 +335,19 @@ pub fn run_review(ed: &Shared, project: &std::path::Path, n: u32, st: crate::cre
     let &(_, title, reviewer, author) = crate::crew::REVIEWS.iter().find(|r| r.0 == what).ok_or_else(|| format!("нет проверки «{what}»"))?;
     let (reviewer, author) = (crate::crew::who(project, reviewer), crate::crew::who(project, author));
     let r = crate::crew::role(reviewer).ok_or("нет роли проверяющего")?;
-    let (brief, files) = crate::crew::review_brief(project, n, what);
+    let (mut brief, files) = crate::crew::review_brief(project, n, what);
+    // стиль эталонов — сначала кодом (зрение, один вопрос на картинку): не в стиле фильма — ✗ при любом мнении проверяющего
+    let off = if what == "assets" { crate::crew::assets_off_style(project, n) } else { Vec::new() };
+    if !off.is_empty() {
+        brief.push_str(&format!("\n## Проверка стиля кодом\nНе в стиле фильма из задания (модель зрения видит {}): {} — это ✗ независимо от остального.\n", if off[0].1 == "photo" { "фотографию" } else { "стилизованную картинку" }, off.iter().map(|x| format!("@{}", x.0)).collect::<Vec<_>>().join(", ")));
+    }
     let out = run_role(ed, project, r, n, st, &brief, files)?;
-    match crate::crew::parse_verdict(&out) {
+    let verdict = match crate::crew::parse_verdict(&out) {
+        Some(true) if !off.is_empty() => Some(false),
+        v => v,
+    };
+    let out = if off.is_empty() { out } else { format!("{out}\nВЕРДИКТ: ✗ — эталоны не в стиле фильма из задания: {} — переделать в стиле фильма (стиль первыми словами описания, негатив против чужого стиля).", off.iter().map(|x| format!("@{}", x.0)).collect::<Vec<_>>().join(", ")) };
+    match verdict {
         Some(true) => {
             crate::crew::add_review(project, n, what, true, r.id, &out);
             crate::crew::journal(project, &format!("проверка «{title}» сцены {n}: ✓ ({})", r.title));

@@ -377,6 +377,44 @@ pub fn roll_frames(roll: &Path, out: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// Стиль фильма из задания пользователя (правила проекта): "stylized" —
+/// мультфильм, анимация, рисунок; "photo" — живая съёмка, фотореализм; None — не сказано.
+pub fn project_style(project: &Path) -> Option<&'static str> {
+    let r = rules(project).to_lowercase();
+    if ["мульт", "cartoon", "анимац", "animated", "аниме", "anime", "рисован", "illustrat"].iter().any(|k| r.contains(k)) {
+        Some("stylized")
+    } else if ["фотореал", "live action", "живая съёмка", "photoreal", "реалистичн"].iter().any(|k| r.contains(k)) {
+        Some("photo")
+    } else {
+        None
+    }
+}
+
+/// Стиль картинки глазами модели: "photo" или "stylized" (None — не понял).
+pub fn image_style(path: &Path) -> Option<&'static str> {
+    let a = crate::cmd::project::ask_image(path, "Answer with exactly one word. PHOTO — if this image looks like a real photograph or a photorealistic render of real life. CARTOON — if it is a stylized 3D animation, cartoon or illustration.").ok()?.to_uppercase();
+    if a.contains("CARTOON") {
+        Some("stylized")
+    } else if a.contains("PHOTO") {
+        Some("photo")
+    } else {
+        None
+    }
+}
+
+/// Эталоны сцены не в стиле фильма (проверка кодом, до проверяющего): id и что увидено.
+pub fn assets_off_style(project: &Path, n: u32) -> Vec<(String, &'static str)> {
+    let Some(want) = project_style(project) else { return Vec::new() };
+    let scene = read(project, &format!("scene_{n:02}"));
+    let cat = crate::cmd::doc::catalog(&read(project, "04_ассеты"));
+    crate::cmd::doc::asset_refs(&scene)
+        .iter()
+        .filter_map(|id| cat.iter().find(|a| &a.id == id))
+        .filter(|a| Path::new(&a.file).is_file())
+        .filter_map(|a| image_style(Path::new(&a.file)).filter(|s| *s != want).map(|s| (a.id.clone(), s)))
+        .collect()
+}
+
 /// Бриф проверяющего со свежим контекстом: только оригинал сцены, выжимка
 /// библии с правилами и проверяемая вещь (без рассуждений автора), и
 /// вложения для зрения (эталоны, кадры роликов).

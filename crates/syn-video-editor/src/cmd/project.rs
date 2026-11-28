@@ -390,6 +390,18 @@ pub(crate) fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> R
     Err("нет языковой модели со зрением (картинки) — загрузите модель со зрением (например, Qwen3.6) или укажите model".into())
 }
 
+/// Спросить модель со зрением про картинку (файл): короткий ответ текстом.
+pub fn ask_image(path: &std::path::Path, question: &str) -> Result<String, String> {
+    let set = crate::settings::load();
+    let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
+    let model = vision_model(&mut c, None)?;
+    let mut m = synaptixd::Message::user(format!("[file 1: картинка]\n{}\n{question}", synaptixd::MEDIA_MARK));
+    m.media = vec![synaptixd::Media { kind: synaptixd::MediaKind::Image, path: path.display().to_string() }];
+    let r = c.generate(&model, vec![m], 64, Some(0.0), |_| {}).map_err(|e| format!("модель зрения: {e}"))?;
+    let _ = set;
+    Ok(r.text.trim().to_string())
+}
+
 fn check(ed: &mut Editor, a: &Args) -> Res {
     let t = a.need_time("at")?;
     let q = a.str("question")?.filter(|q| !q.trim().is_empty()).unwrap_or_else(|| "Это кадр смонтированного видео. Кратко и по делу: что на кадре; читаются ли титры и текст целиком (не обрезаны ли краями, не сливаются ли с фоном); не обрезан ли главный объект; нет ли пустого или чёрного кадра, пересвета, странного цвета. Перечисли найденные проблемы или скажи, что их нет.".into());

@@ -7,7 +7,7 @@ pub mod audio;
 mod edit;
 pub mod media;
 mod template;
-mod project;
+pub mod project;
 mod timeline;
 mod keys;
 mod lut;
