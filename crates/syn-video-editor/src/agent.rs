@@ -196,6 +196,7 @@ pub const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("crew-camera", include_str!("../library/agent-skills/crew-camera/SKILL.md")),
     ("crew-sound", include_str!("../library/agent-skills/crew-sound/SKILL.md")),
     ("crew-editor", include_str!("../library/agent-skills/crew-editor/SKILL.md")),
+    ("ltx25-dev", include_str!("../library/agent-skills/ltx25-dev/SKILL.md")),
     ("russian-speech", include_str!("../library/agent-skills/russian-speech/SKILL.md")),
     ("screenplay", include_str!("../library/agent-skills/screenplay/SKILL.md")),
     ("subtitles", include_str!("../library/agent-skills/subtitles/SKILL.md")),
