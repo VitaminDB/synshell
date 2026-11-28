@@ -89,6 +89,15 @@ impl Tool for CmdTool {
         // ждут его — без блокировки документа, иначе главный поток, ждущий её для
         // отрисовки, и агент ждали бы друг друга
         // ход роли съёмочной группы — отдельным агентом роли, без блокировки проекта
+        // открыт пустой сохранённый проект (окно создало его под задачу) — агент
+        // работает в нём, а не плодит новые: иначе окно уходит в другую папку
+        if self.cmd.id == "project.new" {
+            let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+            let empty = ed.project.media.is_empty() && ed.project.tracks.iter().all(|t| t.clips.is_empty());
+            if let (Some(p), true) = (ed.path.as_ref(), empty) {
+                return Err(format!("Открыт пустой проект «{}» ({}) — работай в нём, новый не создавай. Параметры кадра — project.settings, имя — переименованием проекта.", ed.project.name, p.display()));
+            }
+        }
         if self.cmd.id == "crew.run" || self.cmd.id == "crew.review" {
             let a = cmd::Args::from_value(self.cmd, args)?;
             // веха согласования: дальше — только с согласия пользователя (кнопка на доске)
