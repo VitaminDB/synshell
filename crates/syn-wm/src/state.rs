@@ -392,6 +392,13 @@ impl Core {
         });
 
         let mut seat = seat_state.new_wl_seat(&dh, seat_name);
+        // text-input-v3 и без метода ввода: поля включают его по фокусу, и synwm
+        // сам отдаёт им строки, которых нет в раскладках («», —, эмодзи) — набор
+        // synlink и экранной клавиатуры (remote.rs, commit_text)
+        {
+            use smithay::wayland::text_input::TextInputSeat;
+            seat.text_input().set_without_input_method(true);
+        }
         let kb = &config.input.keyboard;
         let keyboard = seat
             .add_keyboard(

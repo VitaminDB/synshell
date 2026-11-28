@@ -359,6 +359,7 @@ impl State {
             sent = true;
         });
         if sent {
+            tracing::debug!("набор: «{s}» строкой через text-input");
             ti.done(false);
         } else {
             tracing::warn!("набор: «{s}» нет в раскладках, а у окна с фокусом нет активного text-input — символы пропущены");

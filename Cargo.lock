@@ -7451,7 +7451,7 @@ dependencies = [
 [[package]]
 name = "smithay"
 version = "0.7.0"
-source = "git+https://github.com/VitaminDB/smithay?branch=synshell#e99a1e315f8e2363829bb27ebd2c606288902c6c"
+source = "git+https://github.com/VitaminDB/smithay?branch=synshell#e34df650bc62dbe1bdbfbbd5ac50474a8ee4761b"
 dependencies = [
  "aliasable",
  "appendlist",
