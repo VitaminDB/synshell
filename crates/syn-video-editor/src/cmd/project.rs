@@ -375,6 +375,11 @@ pub(crate) fn vision_model(c: &mut synaptixd::Client, want: Option<String>) -> R
     if let Some(m) = want.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("vision")) {
         return Ok(m);
     }
+    // модель агента, если видит картинки: она уже на карте — вторую модель (по умолчанию службы) не грузить
+    let agent = crate::settings::load().ai_model.trim().to_string();
+    if !agent.is_empty() && c.llm_info(&agent).map(|i| i.media).unwrap_or(false) {
+        return Ok(agent);
+    }
     if c.llm_info("").map(|i| i.media).unwrap_or(false) {
         return Ok(String::new());
     }
