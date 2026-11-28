@@ -6,6 +6,7 @@ pub mod agent;
 pub mod blocks;
 pub mod yo;
 pub mod cmd;
+pub mod crew;
 pub mod doc;
 pub mod editor;
 pub mod fonts;

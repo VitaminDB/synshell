@@ -15,6 +15,7 @@ mod graph;
 mod blocks;
 pub mod recipe;
 pub mod voice;
+pub mod crew;
 pub mod doc;
 pub mod story;
 mod script;
@@ -141,6 +142,7 @@ pub fn all() -> Vec<&'static Command> {
     v.extend(audio::COMMANDS);
     v.extend(voice::COMMANDS);
     v.extend(doc::COMMANDS);
+    v.extend(crew::COMMANDS);
     v.extend(story::COMMANDS);
     v.extend(template::COMMANDS);
     v.extend(timeline::COMMANDS);
@@ -301,6 +303,10 @@ impl Args {
 
     pub fn need_time(&self, name: &str) -> Result<f64, String> {
         self.time(name)?.ok_or_else(|| self.err(name, "обязательно"))
+    }
+
+    pub fn need_num(&self, name: &str) -> Result<f64, String> {
+        self.num(name)?.ok_or_else(|| self.err(name, "нужно число"))
     }
 
     pub fn need_str(&self, name: &str) -> Result<String, String> {

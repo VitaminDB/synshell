@@ -549,6 +549,11 @@ fn speaker_of(line: &str) -> Option<String> {
 
 static SOURCE: std::sync::Mutex<Option<Source>> = std::sync::Mutex::new(None);
 
+/// Приложенный сценарий-источник (если есть).
+pub fn source() -> Option<Source> {
+    SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Запомнить источник по вложениям хода (PDF или текст со сценарием).
 pub fn set_source_from(files: &[std::path::PathBuf]) {
     for f in files {

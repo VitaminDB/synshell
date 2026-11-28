@@ -88,9 +88,17 @@ impl Tool for CmdTool {
         // команды окна (графы панели «Граф», действия окна) идут в главный поток и
         // ждут его — без блокировки документа, иначе главный поток, ждущий её для
         // отрисовки, и агент ждали бы друг друга
+        // ход роли съёмочной группы — отдельным агентом роли, без блокировки проекта
+        if self.cmd.id == "crew.run" {
+            let a = cmd::Args::from_value(self.cmd, args)?;
+            let (p, r, n, st, brief) = {
+                let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+                cmd::crew::prepare_run(&ed, &a)?
+            };
+            return run_role(&self.ed, &p, r, n, st, &brief).map(ToolOutput::text);
+        }
         // документ — службой, без блокировки; картинки страниц — в ответе (модель их видит)
         if self.cmd.id == "document.read" {
-            use syn_assist::tools::Tool as _;
             return syn_assist::builtin::document::DocumentTool.run(args);
         }
         if self.cmd.id.starts_with("nodes.") || self.cmd.id.starts_with("ui.") {
@@ -181,6 +189,13 @@ pub fn tools(ed: &Shared, s: &Settings) -> Vec<Arc<dyn Tool>> {
 /// Встроенные навыки-заготовки (`library/agent-skills/<имя>/SKILL.md`).
 pub const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("montage", include_str!("../library/agent-skills/montage/SKILL.md")),
+    ("crew-director", include_str!("../library/agent-skills/crew-director/SKILL.md")),
+    ("crew-writer", include_str!("../library/agent-skills/crew-writer/SKILL.md")),
+    ("crew-supervisor", include_str!("../library/agent-skills/crew-supervisor/SKILL.md")),
+    ("crew-designer", include_str!("../library/agent-skills/crew-designer/SKILL.md")),
+    ("crew-camera", include_str!("../library/agent-skills/crew-camera/SKILL.md")),
+    ("crew-sound", include_str!("../library/agent-skills/crew-sound/SKILL.md")),
+    ("crew-editor", include_str!("../library/agent-skills/crew-editor/SKILL.md")),
     ("russian-speech", include_str!("../library/agent-skills/russian-speech/SKILL.md")),
     ("screenplay", include_str!("../library/agent-skills/screenplay/SKILL.md")),
     ("subtitles", include_str!("../library/agent-skills/subtitles/SKILL.md")),
@@ -268,6 +283,35 @@ pub fn agent_with(ed: &Shared, s: &Settings) -> Agent {
     let approved: Vec<String> = a.tools.iter().map(|t| t.name().to_string()).collect();
     a.approved = approved;
     a
+}
+
+/// Ход роли съёмочной группы: её указания и навыки, бриф вместо всех
+/// документов, без права поручать дальше (crew.run); итог — в журнал.
+pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str) -> Result<String, String> {
+    let s = settings::load();
+    let mut a = agent_with(ed, &s);
+    a.skills.retain(|k| r.skills.contains(&k.name.as_str()));
+    a.tools.retain(|t| !t.name().contains("crew_run") && !t.name().contains("crew.run"));
+    a.subagent = false;
+    a.instructions = Some(match a.instructions.take() {
+        Some(i) if !i.trim().is_empty() => format!("{}\n\n{i}", r.prompt),
+        _ => r.prompt.to_string(),
+    });
+    let mut chat = Chat::new();
+    prepare_chat(&mut chat, &s);
+    crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
+    let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
+    let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |_| {});
+    let last = chat.messages.iter().rev().find(|m| m.role == syn_assist::chat::Role::Assistant && !m.text.trim().is_empty()).map(|m| m.text.trim().to_string()).unwrap_or_default();
+    let steps = chat.messages.iter().filter(|m| m.role == syn_assist::chat::Role::Tool).count();
+    let short: String = last.chars().take(400).collect();
+    crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: {} (вызовов {steps})", r.title, st.title(), short.replace('\n', " ")));
+    res?;
+    let now = {
+        let e = ed.lock().unwrap_or_else(|e| e.into_inner());
+        crate::crew::stage(project, n, Some(&e.project))
+    };
+    Ok(format!("{} — сцена {n}, шаг «{}», вызовов {steps}:\n{last}\n\nСтатус сцены {n} теперь: «{}» (делает {}).", r.title, st.title(), now.title(), crate::crew::role(now.roles().0).map(|x| x.title).unwrap_or("")))
 }
 
 /// Итоговый системный промпт и число инструментов (сразу / в пуле) — для предпросмотра.
