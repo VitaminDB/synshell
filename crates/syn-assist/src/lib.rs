@@ -6,6 +6,7 @@ pub mod chat;
 pub mod compact;
 pub mod kb;
 pub mod memory;
+pub mod pdf;
 pub mod pipeline;
 pub mod prompt;
 pub mod skills;

@@ -492,6 +492,19 @@ GraphView {
     font-size: 13px;
 }
 
+/* вложения к сообщению агенту */
+.ai-attach-chip {
+    padding: 2px 4px 2px 8px;
+    border-radius: 8px;
+    background: var(--primary-soft);
+    border: 1px solid var(--border-soft);
+}
+
+.ai-attach-text {
+    font-size: 12px;
+    color: var(--text);
+}
+
 .ai-user-text {
     padding: 8px 12px;
     font-size: 13px;

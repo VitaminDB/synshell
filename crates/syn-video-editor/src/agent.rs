@@ -290,10 +290,11 @@ impl Confirm for AutoConfirm {
 }
 
 /// Ход агента: весь ход — одна группа отмены «ИИ: …».
-pub fn run_turn(agent: &Agent, ed: &Shared, chat: &mut Chat, text: &str, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<(), String> {
+pub fn run_turn(agent: &Agent, ed: &Shared, chat: &mut Chat, text: &str, files: Vec<std::path::PathBuf>, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<(), String> {
     let label: String = text.chars().take(40).collect();
     ed.lock().unwrap_or_else(|e| e.into_inner()).begin_group(&format!("ИИ: {label}"));
-    let r = agent.run_turn(chat, text, confirm, cancel, on);
+    // вложения (PDF сценария, картинки, звук) агент получает текстом и медиа (syn_assist::attach)
+    let r = agent.run_turn_files(chat, text, files, confirm, cancel, on);
     ed.lock().unwrap_or_else(|e| e.into_inner()).end_group();
     r
 }

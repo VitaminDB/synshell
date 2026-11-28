@@ -58,7 +58,7 @@ pub fn lines(chat: &Chat) -> Vec<AiLine> {
             continue;
         }
         match m.role {
-            Role::User => out.push(AiLine::User(m.text.clone())),
+            Role::User => out.push(AiLine::User(with_files(&m.text, &m.files))),
             Role::Assistant => {
                 if !m.text.trim().is_empty() {
                     out.push(AiLine::Text(m.text.clone()));
@@ -289,10 +289,35 @@ pub fn head(st: St) -> impl Widget {
     )
 }
 
-/// Первая задача пользователя в текущем чате.
-fn first_task(st: St) -> Option<String> {
+/// Строка вложения в сообщении чата.
+const ATTACHED: &str = "📎 ";
+
+/// Текст сообщения с вложениями (по строке на файл) — так они видны в ленте.
+pub fn with_files(text: &str, files: &[std::path::PathBuf]) -> String {
+    let mut s = text.to_string();
+    for f in files {
+        s.push_str(&format!("\n{ATTACHED}{}", f.display()));
+    }
+    s
+}
+
+/// Обратно: текст и файлы из строки ленты.
+pub fn split_files(line: &str) -> (String, Vec<String>) {
+    let mut text = Vec::new();
+    let mut files = Vec::new();
+    for l in line.lines() {
+        match l.strip_prefix(ATTACHED) {
+            Some(f) => files.push(f.to_string()),
+            None => text.push(l),
+        }
+    }
+    (text.join("\n").trim_end().to_string(), files)
+}
+
+/// Первая задача пользователя в текущем чате (текст и вложения).
+fn first_task(st: St) -> Option<(String, Vec<String>)> {
     st.ai_log.get_untracked().iter().find_map(|l| match l {
-        AiLine::User(t) if !t.trim().is_empty() => Some(t.clone()),
+        AiLine::User(t) if !t.trim().is_empty() => Some(split_files(t)),
         _ => None,
     })
 }
@@ -305,7 +330,7 @@ pub fn restart(st: St) {
     if st.ai_busy.get_untracked() {
         return;
     }
-    let Some(task) = first_task(st) else { return };
+    let Some((task, files)) = first_task(st) else { return };
     {
         let mut e = super::ed();
         let path = e.path.clone();
@@ -322,6 +347,7 @@ pub fn restart(st: St) {
         st.ph.set(e.playhead);
     }
     new_chat(st);
+    st.ai_files.set(files);
     st.ask_ai(task);
 }
 
@@ -341,6 +367,15 @@ pub fn wipe_work(dir: &std::path::Path) {
 
 #[cfg(test)]
 mod restart_tests {
+    #[test]
+    fn attachments_round_trip_in_chat_line() {
+        let line = super::with_files("сними фильм по сценарию", &[std::path::PathBuf::from("/a/b c.pdf")]);
+        assert!(line.contains("📎 /a/b c.pdf"));
+        let (t, f) = super::split_files(&line);
+        assert_eq!(t, "сними фильм по сценарию");
+        assert_eq!(f, vec!["/a/b c.pdf".to_string()]);
+    }
+
     #[test]
     fn wipe_keeps_project_file() {
         let d = tempfile::tempdir().unwrap();

@@ -1074,7 +1074,34 @@ fn ai(st: St) -> impl Widget {
             let stop: Option<Box<dyn Widget>> = busy.then(|| -> Box<dyn Widget> {
                 Box::new(Button::new("Стоп").on_click(|| super::AI_CANCEL.store(true, std::sync::atomic::Ordering::SeqCst)).class("head-btn"))
             });
-            vec![Box::new(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).children(stop.into_iter().collect::<Vec<Box<dyn Widget>>>()).child(DecoratedBox::new().class("grow").child(
+            // вложения к следующему сообщению: плашки с именем и крестиком
+            let files = st.ai_files.get();
+            let chips: Vec<Box<dyn Widget>> = files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| -> Box<dyn Widget> {
+                    let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.clone());
+                    Box::new(
+                        DecoratedBox::new().class("ai-attach-chip").child(
+                            Row::new()
+                                .gap(4.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(Text::new(format!("{} {name}", super::icons::ATTACH)).max_lines(1).elide(Elide::Middle).class("ai-attach-text"))
+                                .child(ToolButton::new(super::icons::CLOSE).tooltip("Убрать вложение").on_click(move || st.ai_files.update(|v| {
+                                    if i < v.len() {
+                                        v.remove(i);
+                                    }
+                                }))),
+                        ),
+                    )
+                })
+                .collect();
+            let attach = ToolButton::new(super::icons::ATTACH).tooltip("Прикрепить файлы (PDF, текст, картинки, звук, видео) — или перетащите их в поле").disabled(busy).on_click(move || {
+                if let Some(paths) = rfd::FileDialog::new().set_title("Прикрепить к сообщению агенту").pick_files() {
+                    st.ai_files.update(|v| v.extend(paths.into_iter().map(|p| p.display().to_string())));
+                }
+            });
+            let row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).children(stop.into_iter().collect::<Vec<Box<dyn Widget>>>()).child(attach).child(DecoratedBox::new().class("grow").child(
                 TextField::new()
                     .text(draft.get_untracked())
                     .on_change(move |s: &str| draft.set(s.to_string()))
@@ -1087,7 +1114,16 @@ fn ai(st: St) -> impl Widget {
                         input_gen.update(|g| *g += 1);
                     })
                     .class("ai-field"),
-            )))]
+            ));
+            // файлы из проводника, брошенные на поле, — вложения (а не импорт в медиатеку)
+            let input = DropArea::new()
+                .accept_types(vec![syngui::DragData::TYPE_FILE.to_string()])
+                .on_drop(move |d: syngui::DragData| {
+                    let paths: Vec<String> = d.payload.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+                    st.ai_files.update(|v| v.extend(paths));
+                })
+                .child(Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Start).children(chips)).child(row));
+            vec![Box::new(input)]
         })))
 }
 

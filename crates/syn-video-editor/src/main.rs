@@ -84,7 +84,8 @@ fn main() {
             "--remote-state" => serde_json::json!({"op": "state"}),
             "--remote-ai-state" => serde_json::json!({"op": "ai_state"}),
             "--remote-ai-new" => serde_json::json!({"op": "ai_new"}),
-            "--remote-ai" => serde_json::json!({"ai": raw.get(1).cloned().unwrap_or_default()}),
+            // --remote-ai «задача» [файл…] — файлы прикрепляются к сообщению, как скрепкой
+            "--remote-ai" => serde_json::json!({"ai": raw.get(1).cloned().unwrap_or_default(), "files": raw.iter().skip(2).map(|f| std::fs::canonicalize(f).map(|p| p.display().to_string()).unwrap_or_else(|_| f.clone())).collect::<Vec<_>>()}),
             _ => {
                 eprintln!("{}", usage());
                 std::process::exit(2);
@@ -229,7 +230,7 @@ fn main() {
         let mut chat = syn_assist::chat::Chat::new();
         agent::prepare_chat(&mut chat, &syn_video_editor::settings::load());
         let cancel = std::sync::atomic::AtomicBool::new(false);
-        let r = agent::run_turn(&a, &shared, &mut chat, &task, &agent::AutoConfirm(yes), &cancel, &mut |ev| {
+        let r = agent::run_turn(&a, &shared, &mut chat, &task, Vec::new(), &agent::AutoConfirm(yes), &cancel, &mut |ev| {
             match ev {
                 AgentEvent::Text(t) => print!("{t}"),
                 AgentEvent::ToolStart { name, summary } => eprint!("\n\x1b[33m→ {name}: {summary}\x1b[0m"),

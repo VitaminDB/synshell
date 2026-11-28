@@ -105,10 +105,7 @@ fn stamp(p: &Path) -> String {
 
 fn read_text(p: &Path) -> Option<String> {
     match crate::attach::kind(p) {
-        crate::attach::Kind::Pdf => {
-            let out = std::process::Command::new("pdftotext").args(["-layout", "-enc", "UTF-8"]).arg(p).arg("-").output().ok()?;
-            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-        }
+        crate::attach::Kind::Pdf => crate::pdf::text(p).ok(),
         _ => std::fs::read(p).ok().map(|b| String::from_utf8_lossy(&b).into_owned()),
     }
 }

@@ -100,9 +100,13 @@ fn handle(st: St, req: Value) -> Value {
     }
     if let Some(text) = req.get("ai").and_then(Value::as_str) {
         let text = text.to_string();
+        let files: Vec<String> = req.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
         return on_main(move || {
             if st.ai_busy.get_untracked() {
                 return json!({"ok": false, "error": "агент занят"});
+            }
+            if !files.is_empty() {
+                st.ai_files.set(files);
             }
             st.open_panel("ai");
             st.ask_ai(text);

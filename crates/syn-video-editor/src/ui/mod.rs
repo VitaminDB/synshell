@@ -82,6 +82,8 @@ pub mod icons {
     pub const DELETE: &str = "\u{E872}";
     pub const SETTINGS: &str = "\u{E8B8}";
     pub const CODE: &str = "\u{E86F}";
+    pub const ATTACH: &str = "\u{E226}";
+    pub const CLOSE: &str = "\u{E5CD}";
 }
 
 static EDITOR: OnceLock<Shared> = OnceLock::new();
@@ -169,6 +171,8 @@ pub struct St {
     pub zoom: RwSignal<f32>,
     pub toast: RwSignal<Option<String>>,
     pub ai_log: RwSignal<Vec<AiLine>>,
+    /// Файлы, прикреплённые к следующему сообщению агенту (скрепка или перетаскивание).
+    pub ai_files: RwSignal<Vec<String>>,
     pub ai_busy: RwSignal<bool>,
     /// Открыта страница «Настройки» (вместо монтажа).
     pub page: RwSignal<bool>,
@@ -286,6 +290,7 @@ impl St {
             zoom: use_signal(60.0),
             toast: use_signal(None),
             ai_log: use_signal(Vec::new()),
+            ai_files: use_signal(Vec::new()),
             ai_busy: use_signal(false),
             page: use_signal(false),
             set_rev: use_signal(0),
@@ -670,12 +675,15 @@ impl St {
 
     /// Ход агента в фоне; события — в панель ИИ, правки — в окно.
     pub fn ask_ai(self, text: String) {
-        if self.ai_busy.get_untracked() || text.trim().is_empty() {
+        let files: Vec<std::path::PathBuf> = self.ai_files.get_untracked().into_iter().map(std::path::PathBuf::from).collect();
+        if self.ai_busy.get_untracked() || (text.trim().is_empty() && files.is_empty()) {
             return;
         }
+        let text = if text.trim().is_empty() { "Посмотри вложения.".to_string() } else { text };
+        self.ai_files.set(Vec::new());
         self.ai_busy.set(true);
         AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
-        self.ai_log.update(|l| l.push(AiLine::User(text.clone())));
+        self.ai_log.update(|l| l.push(AiLine::User(ai_chat::with_files(&text, &files))));
         let rev_before = ed().revision;
         std::thread::spawn(move || {
             use syn_assist::agent::AgentEvent;
@@ -700,7 +708,7 @@ impl St {
                     self.rev.set(ed().revision);
                 });
             };
-            let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
+            let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, files, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
                 AgentEvent::ToolStart { summary, .. } => {
                     // рецепт агента — сразу вкладкой в «Графе»: видно, что и с какими параметрами идёт

@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use synaptixd::{Media, MediaKind};
 
 const TEXT_LIMIT: usize = 16_000;
+/// PDF (сценарий, договор, статья) нужен целиком — предел больше.
+const PDF_LIMIT: usize = 120_000;
 /// Сколько звука расшифровывать (секунд) — длинные записи обрезаются.
 const AUDIO_LIMIT_SEC: u32 = 900;
 
@@ -61,8 +63,12 @@ pub fn describe(files: &[PathBuf]) -> (String, Vec<Media>) {
                 Ok(_) => s.push_str(&format!("\n\nАудио {shown} — речи не распознано.")),
                 Err(e) => s.push_str(&format!("\n\nАудио {shown} ({size} байт) — расшифровать не удалось: {e}.")),
             },
-            Kind::Pdf => match pdf_text(f) {
-                Ok(t) => s.push_str(&format!("\n\nДокумент {shown}:\n```\n{}\n```", crate::tools::truncate(&t, TEXT_LIMIT))),
+            Kind::Pdf => match crate::pdf::text(f) {
+                Ok(t) => {
+                    let full = crate::pdf::cache_file(f);
+                    let cut = if t.len() > PDF_LIMIT { format!(" Показано начало — весь текст в {}.", full.display()) } else { String::new() };
+                    s.push_str(&format!("\n\nДокумент {shown} (текст PDF, страницы размечены; копия текста — {}).{cut}\n```\n{}\n```", full.display(), crate::tools::truncate(&t, PDF_LIMIT)))
+                }
                 Err(e) => s.push_str(&format!("\n\nДокумент {shown} ({size} байт) — текст не извлечён: {e}.")),
             },
             Kind::Text => match std::fs::read_to_string(f) {
@@ -87,15 +93,20 @@ pub fn media_of(files: &[PathBuf]) -> Vec<Media> {
         .collect()
 }
 
-fn cache_dir() -> PathBuf {
+/// Кэш вложений (`~/.cache/synassist`).
+pub(crate) fn cache_root() -> PathBuf {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
-        .join("synassist/transcripts")
+        .join("synassist")
+}
+
+fn cache_dir() -> PathBuf {
+    cache_root().join("transcripts")
 }
 
 /// Ключ кэша: путь, размер и время изменения.
-fn cache_key(f: &Path) -> String {
+pub(crate) fn cache_key(f: &Path) -> String {
     let meta = std::fs::metadata(f).ok();
     let mtime = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
     let len = meta.map(|m| m.len()).unwrap_or(0);
@@ -132,14 +143,6 @@ pub fn transcript(f: &Path) -> Result<String, String> {
     let _ = std::fs::create_dir_all(cache_dir());
     let _ = std::fs::write(&cached, &text);
     Ok(text)
-}
-
-fn pdf_text(f: &Path) -> Result<String, String> {
-    let out = std::process::Command::new("pdftotext").args(["-layout", "-enc", "UTF-8"]).arg(f).arg("-").output().map_err(|e| format!("pdftotext: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[cfg(test)]
