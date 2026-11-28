@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT, &SOURCE_SCENE, &ASSEMBLE];
+pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT, &SOURCE_SCENE, &ASSEMBLE, &ASSET_SHEET];
 
 /// Папка документов проекта (папка проекта; без файла — нет).
 pub fn dir(project: Option<&Path>) -> Option<PathBuf> {
@@ -84,7 +84,10 @@ static SOURCE_SCENE: Cmd = Cmd {
     help: "Текст одной сцены приложенного сценария-источника (по номеру, как в источнике): заголовок, ремарки и реплики оригинала — для перевода и сверки фактов только этой сцены, не держа в работе весь фильм. Без номера — список сцен источника с заголовками.",
     args: &[arg("scene", Ty::Num, "номер сцены источника")],
     danger: false,
-    run: |_, a| {
+    run: |ed, a| {
+        if let Some(p) = ed.path.as_deref() {
+            load_project_source(p);
+        }
         let src = SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("нет приложенного сценария-источника (вложение PDF или текст со сценами)")?;
         match a.num("scene")? {
             Some(n) => {
@@ -97,6 +100,60 @@ static SOURCE_SCENE: Cmd = Cmd {
                 Ok(Out::with(format!("Сцен в источнике {} (страниц без титульной {}):\n{}", src.scenes, src.pages, list.join("\n")), json!({"scenes": src.scenes, "pages": src.pages})))
             }
         }
+    },
+};
+
+static ASSET_SHEET: Cmd = Cmd {
+    id: "asset.sheet",
+    category: "Проект",
+    title: "Лист-референс из ассетов",
+    shortcut: "",
+    keywords: "лист референс ассеты герои предметы место ingredients ltx sheet",
+    help: "Лист-референс для LTX-2.5 (IC-LoRA Ingredients) из каталога 04_ассеты: по id ассетов (@имя) — герои (лицо крупно + фигура), предметы и одно место на чёрном фоне без текста, размер — как у ролика. Файл листа — в поле ref_sheet видео LTX; в промпте «Reference sheet: <по фразе на панель> Generated video: <действие и камера>». Только ассеты кадра: кого нет на листе, модель не удержит.",
+    args: &[req("ids", Ty::Str, "id ассетов кадра через пробел или запятую (@nontle_base @loc_kitchen_day …)"), arg("width", Ty::Num, "ширина листа = ширина ролика (960)"), arg("height", Ty::Num, "высота листа = высота ролика (544)"), arg("face", Ty::Bool, "панель лица к каждому герою (да)")],
+    danger: false,
+    run: |ed, a| {
+        let p = ed.path.clone().ok_or("проект ещё не сохранён")?;
+        let dir = crate::store::media_dir(&p);
+        let cat = catalog(&std::fs::read_to_string(dir.join("04_ассеты.md")).map_err(|_| "нет каталога 04_ассеты.md")?);
+        let ids: Vec<String> = a.need_str("ids")?.split(|c: char| c.is_whitespace() || c == ',').map(|s| s.trim().trim_start_matches('@').to_string()).filter(|s| !s.is_empty()).collect();
+        let (mut chars, mut props, mut loc) = (Vec::new(), Vec::new(), None);
+        for id in &ids {
+            let x = cat.iter().find(|x| &x.id == id).ok_or_else(|| format!("в 04_ассеты нет ассета «{id}»"))?;
+            if !std::path::Path::new(&x.file).is_file() {
+                return Err(format!("у ассета «{id}» нет файла: {}", x.file));
+            }
+            match x.kind.as_str() {
+                k if k.starts_with("loc") || k.contains("мест") || k.contains("локац") => {
+                    if loc.replace(x.file.clone()).is_some() {
+                        return Err("на листе одно место — оставь одну локацию".into());
+                    }
+                }
+                k if k.starts_with("prop") || k.contains("предмет") || k.contains("реквизит") => props.push(x.file.clone()),
+                _ => chars.push(x.file.clone()),
+            }
+        }
+        if chars.is_empty() && props.is_empty() && loc.is_none() {
+            return Err("нет ассетов для листа".into());
+        }
+        let mut node = synaptix_flow::FlowNode::new(1, "ref_sheet");
+        node.fields.insert("characters".into(), json!(chars.join("\n")));
+        node.fields.insert("props".into(), json!(props.join("\n")));
+        if let Some(l) = &loc {
+            node.fields.insert("location".into(), json!(l));
+        }
+        node.fields.insert("width".into(), json!(a.num("width")?.unwrap_or(960.0) as i64));
+        node.fields.insert("height".into(), json!(a.num("height")?.unwrap_or(544.0) as i64));
+        node.fields.insert("face".into(), json!(a.bool("face")?.unwrap_or(true)));
+        let work = std::env::temp_dir().join(format!("syn-video-editor-sheet-{}", std::process::id()));
+        let (out, _) = synaptix_flow::run_node(&node, Default::default(), &work, &synaptix_flow::Cancel::new(), &mut |_| {})?;
+        let img = out.get("image").and_then(|v| v.file().map(|f| f.to_path_buf())).ok_or("узел ref_sheet не дал картинку")?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let to = dir.join("generated").join(format!("ref-sheet-{stamp}")).join(format!("{}.png", ids.join("+")));
+        std::fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
+        std::fs::copy(&img, &to).map_err(|e| format!("лист: {e}"))?;
+        let _ = std::fs::remove_dir_all(&work);
+        Ok(Out::with(format!("Лист-референс: {} (герои {}, предметы {}, место {}). Передай его в ref_sheet видео LTX; промпт — «Reference sheet: …» по фразе на панель, затем «Generated video: …».", to.display(), chars.len(), props.len(), if loc.is_some() { 1 } else { 0 }), json!({"file": to})))
     },
 };
 
