@@ -163,6 +163,14 @@ pub fn new_project_path() -> std::path::PathBuf {
 
 /// Папка проекта: файл лежит в папке своего имени (`X/X.syn`).
 pub fn project_folder(project: &Path) -> Option<std::path::PathBuf> {
+    // относительный путь («-p Имя.syn» из папки проекта) — от текущего каталога
+    let abs;
+    let project = if project.is_relative() {
+        abs = std::env::current_dir().ok()?.join(project);
+        abs.as_path()
+    } else {
+        project
+    };
     let dir = project.parent()?;
     let stem = project.file_stem()?;
     (dir.file_name() == Some(stem)).then(|| dir.to_path_buf())
