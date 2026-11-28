@@ -557,18 +557,57 @@ pub fn source() -> Option<Source> {
     SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Запомнить источник по вложениям хода (PDF или текст со сценарием).
+/// Запомнить источник по вложениям хода (PDF или текст со сценарием); с
+/// проектом — и копией в его папке («источник.<расширение>»): после
+/// перезапуска окна источник подхватится из неё (`load_project_source`).
 pub fn set_source_from(files: &[std::path::PathBuf]) {
+    set_source_for(files, None);
+}
+
+/// То же, что `set_source_from`, с сохранением копии источника в папку проекта.
+pub fn set_source_for(files: &[std::path::PathBuf], project: Option<&std::path::Path>) {
     for f in files {
-        let pages: Vec<String> = match syn_assist::attach::kind(f) {
-            syn_assist::attach::Kind::Pdf => syn_assist::pdf::pages(f).map(|v| v.into_iter().map(|(_, t, _)| t).collect()).unwrap_or_default(),
-            syn_assist::attach::Kind::Text => std::fs::read_to_string(f).map(|t| vec![t]).unwrap_or_default(),
-            _ => continue,
-        };
-        if let Some(s) = source_of(&pages) {
-            *SOURCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(s);
+        if set_source_from_one(f) {
+            if let (Some(p), Some(ext)) = (project, f.extension()) {
+                let dir = crate::store::media_dir(p);
+                let to = dir.join(format!("источник.{}", ext.to_string_lossy().to_lowercase()));
+                if dir.is_dir() && !to.exists() {
+                    let _ = std::fs::copy(f, &to);
+                }
+            }
             return;
         }
+    }
+}
+
+/// Источник проекта из его папки («источник.*»), если в памяти его нет
+/// (окно перезапущено, вложения в этом ходе нет).
+pub fn load_project_source(project: &std::path::Path) {
+    if source().is_some() {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(crate::store::media_dir(project)) else { return };
+    for e in rd.flatten() {
+        let f = e.path();
+        if f.file_stem().is_some_and(|s| s == "источник") && set_source_from_one(&f) {
+            return;
+        }
+    }
+}
+
+/// Разобрать файл как источник и запомнить; false — не сценарий.
+fn set_source_from_one(f: &std::path::Path) -> bool {
+    let pages: Vec<String> = match syn_assist::attach::kind(f) {
+        syn_assist::attach::Kind::Pdf => syn_assist::pdf::pages(f).map(|v| v.into_iter().map(|(_, t, _)| t).collect()).unwrap_or_default(),
+        syn_assist::attach::Kind::Text => std::fs::read_to_string(f).map(|t| vec![t]).unwrap_or_default(),
+        _ => return false,
+    };
+    match source_of(&pages) {
+        Some(s) => {
+            *SOURCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(s);
+            true
+        }
+        None => false,
     }
 }
 

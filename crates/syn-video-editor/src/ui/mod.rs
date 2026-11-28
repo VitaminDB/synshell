@@ -682,9 +682,18 @@ impl St {
     pub fn ask_ai(self, text: String) {
         let files: Vec<std::path::PathBuf> = self.ai_files.get_untracked().into_iter().map(std::path::PathBuf::from).collect();
         // приложенный сценарий — источник для сверки адаптации (doc.write «сценарий»)
-        if !files.is_empty() {
+        // копия источника — в папку проекта; без вложения — источник из неё
+        // (окно перезапущено посреди фильма)
+        let project = ed().path.clone();
+        {
             let f = files.clone();
-            std::thread::spawn(move || crate::cmd::doc::set_source_from(&f));
+            std::thread::spawn(move || {
+                if !f.is_empty() {
+                    crate::cmd::doc::set_source_for(&f, project.as_deref());
+                } else if let Some(p) = project {
+                    crate::cmd::doc::load_project_source(&p);
+                }
+            });
         }
         if self.ai_busy.get_untracked() || (text.trim().is_empty() && files.is_empty()) {
             return;
