@@ -1005,6 +1005,40 @@ fn ai(st: St) -> impl Widget {
                         col = col.child(DecoratedBox::new().class("ai-text").child(MarkdownView::new(t).with_copy_code(true).selectable(true).class("ai-text-text")));
                         continue;
                     }
+                    // размышления — свёрнутый блок: идут — крутилка и «Думает…», готовы — «Думал N с»
+                    AiLine::Thinking { text, done, secs, .. } => {
+                        let is_open = open.contains(&i);
+                        let title = if !done {
+                            "Думает…".to_string()
+                        } else if secs > 0.0 {
+                            format!("Думал {}", if secs < 60.0 { format!("{secs:.0} с") } else { format!("{} мин {:.0} с", (secs / 60.0) as u32, secs % 60.0) })
+                        } else {
+                            "Размышления".to_string()
+                        };
+                        let mut head = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(ToolButton::new(if is_open { "\u{E5CE}" } else { "\u{E5CF}" }).tooltip(if is_open { "Свернуть" } else { "Показать размышления" }).on_click(move || {
+                            expanded.update(|e| {
+                                if !e.remove(&i) {
+                                    e.insert(i);
+                                }
+                            })
+                        }));
+                        if !done {
+                            head = head.child(CircularProgress::new().indeterminate().size(12.0).stroke_width(2.0));
+                        }
+                        head = head.child(Text::new(title).class("ai-think-title"));
+                        let mut block = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head);
+                        if is_open {
+                            block = block.child(Text::new(text.trim().to_string()).selectable(true).class("ai-think-text"));
+                        }
+                        col = col.child(DecoratedBox::new().class("ai-think").child(block));
+                        continue;
+                    }
+                    // вызов ещё собирается — крутилка и имя инструмента, когда известно
+                    AiLine::Preparing(name) => {
+                        let label = if name.is_empty() { "Готовлюсь к запуску команды…".to_string() } else { format!("Готовлюсь к запуску команды {name}…") };
+                        col = col.child(DecoratedBox::new().class("ai-prep").child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(12.0).stroke_width(2.0)).child(Text::new(label).class("ai-prep-text"))));
+                        continue;
+                    }
                     AiLine::Tool(t) => ("ai-tool", format!("→ {t}")),
                     AiLine::Result(t) => ("ai-result", t),
                     AiLine::Error(t) => ("ai-error", t),

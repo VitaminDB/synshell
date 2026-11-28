@@ -492,6 +492,32 @@ GraphView {
     font-size: 13px;
 }
 
+/* размышления модели и сборка вызова */
+.ai-think {
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border-soft);
+}
+
+.ai-think-title {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.ai-think-text {
+    font-size: 12px;
+    color: var(--text-subtle);
+}
+
+.ai-prep {
+    padding: 2px 8px;
+}
+
+.ai-prep-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 /* вложения к сообщению агенту */
 .ai-attach-chip {
     padding: 2px 4px 2px 8px;

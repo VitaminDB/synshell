@@ -151,6 +151,11 @@ pub enum AiLine {
     Tool(String),
     Result(String),
     Error(String),
+    /// Размышления модели: `done` — закончились (тогда `secs` — сколько
+    /// длились; 0 — неизвестно, из истории), `started` — мс от эпохи.
+    Thinking { text: String, done: bool, secs: f32, started: u64 },
+    /// Модель собирает вызов инструмента (имя, если уже известно).
+    Preparing(String),
     /// Итог хода: что изменилось; `rev` — номер правки сразу после хода
     /// (откат возможен, пока после хода ничего не правили); `undone` — откачен.
     Diff { lines: Vec<String>, rev: u64, undone: bool },
@@ -704,17 +709,15 @@ impl St {
             let cancel = &AI_CANCEL;
             let push = move |line: AiLine| {
                 syngui::async_runtime::run_on_main_thread(move || {
-                    self.ai_log.update(|l| match (&line, l.last_mut()) {
-                        (AiLine::Text(t), Some(AiLine::Text(prev))) => prev.push_str(t),
-                        // ход того же узла («cover (image) · 11/40») — обновить строку, а не плодить
-                        (AiLine::Result(t), Some(AiLine::Result(prev))) if t.starts_with("… ") && prev.starts_with("… ") && t.split(" · ").next() == prev.split(" · ").next() => *prev = t.clone(),
-                        _ => l.push(line),
-                    });
+                    self.ai_log.update(|l| add_line(l, line));
                     self.rev.set(ed().revision);
                 });
             };
             let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, files, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
+                AgentEvent::Thinking(t) => push(AiLine::Thinking { text: t, done: false, secs: 0.0, started: now_ms() }),
+                // вызов инструмента ещё собирается — строка «готовлюсь» с именем, когда оно известно
+                AgentEvent::ToolText(t) => push(AiLine::Preparing(tool_name_of(&t))),
                 AgentEvent::ToolStart { summary, .. } => {
                     // рецепт агента — сразу вкладкой в «Графе»: видно, что и с какими параметрами идёт
                     if let Some(rest) = summary.strip_prefix("Прогнать рецепт в проект") {
@@ -772,7 +775,14 @@ impl St {
                 }
                 _ => {}
             });
-            syngui::async_runtime::run_on_main_thread(move || self.gen_tiles.set(Vec::new()));
+            syngui::async_runtime::run_on_main_thread(move || {
+                self.gen_tiles.set(Vec::new());
+                // ход кончился — размышления закрыты, недособранный вызов убран
+                self.ai_log.update(|l| {
+                    finish_thinking(l);
+                    l.retain(|x| !matches!(x, AiLine::Preparing(_)));
+                });
+            });
             let stopped = AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst);
             match r {
                 Err(e) => push(AiLine::Error(if stopped { "Остановлено".into() } else { e })),
@@ -1616,4 +1626,83 @@ pub fn autosave(st: St) {
             saved_path = path;
         }
     });
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Закрыть идущие размышления (с длительностью).
+fn finish_thinking(l: &mut [AiLine]) {
+    for x in l.iter_mut().rev() {
+        if let AiLine::Thinking { done, secs, started, .. } = x {
+            if !*done {
+                *done = true;
+                *secs = now_ms().saturating_sub(*started) as f32 / 1000.0;
+            }
+            break;
+        }
+    }
+}
+
+/// Имя инструмента из потока собираемого вызова (`"name": "…"`, `<function=…>`).
+pub fn tool_name_of(t: &str) -> String {
+    if let Some(i) = t.find("\"name\"") {
+        let rest = &t[i + 6..];
+        if let Some(q) = rest.find('"') {
+            let r = &rest[q + 1..];
+            if let Some(e) = r.find('"') {
+                return r[..e].to_string();
+            }
+        }
+    }
+    if let Some(i) = t.find("<function=") {
+        let r = &t[i + 10..];
+        return r.split(['>', ' ', '\n']).next().unwrap_or("").to_string();
+    }
+    String::new()
+}
+
+/// Добавить строку в ленту хода: размышления и текст — потоком в свои
+/// блоки, строка «готовлюсь» — одна и уточняет имя, вызов её заменяет.
+pub fn add_line(l: &mut Vec<AiLine>, line: AiLine) {
+    if !matches!(line, AiLine::Thinking { .. }) {
+        finish_thinking(l);
+    }
+    match (line, l.last_mut()) {
+        (AiLine::Thinking { text, .. }, Some(AiLine::Thinking { text: prev, done: false, .. })) => prev.push_str(&text),
+        (AiLine::Text(t), Some(AiLine::Text(prev))) => prev.push_str(&t),
+        (AiLine::Preparing(n), Some(AiLine::Preparing(prev))) => {
+            if !n.is_empty() {
+                *prev = n;
+            }
+        }
+        (AiLine::Tool(t), Some(AiLine::Preparing(_))) => {
+            l.pop();
+            l.push(AiLine::Tool(t));
+        }
+        // ход того же узла («cover (image) · 11/40») — обновить строку, а не плодить
+        (AiLine::Result(t), Some(AiLine::Result(prev))) if t.starts_with("… ") && prev.starts_with("… ") && t.split(" · ").next() == prev.split(" · ").next() => *prev = t,
+        (line, _) => l.push(line),
+    }
+}
+
+#[cfg(test)]
+mod ai_line_tests {
+    use super::*;
+
+    #[test]
+    fn thinking_preparing_tool() {
+        let mut l = Vec::new();
+        add_line(&mut l, AiLine::Thinking { text: "раз".into(), done: false, secs: 0.0, started: now_ms() });
+        add_line(&mut l, AiLine::Thinking { text: " два".into(), done: false, secs: 0.0, started: now_ms() });
+        add_line(&mut l, AiLine::Preparing(String::new()));
+        add_line(&mut l, AiLine::Preparing(tool_name_of("{\"name\": \"doc_write\", \"arg")));
+        assert!(matches!(&l[0], AiLine::Thinking { text, done: true, .. } if text == "раз два"));
+        assert!(matches!(&l[1], AiLine::Preparing(n) if n == "doc_write"));
+        add_line(&mut l, AiLine::Tool("Записать документ".into()));
+        assert_eq!(l.len(), 2);
+        assert!(matches!(&l[1], AiLine::Tool(_)));
+        assert_eq!(tool_name_of("<tool_call>\n<function=clip_add>\n"), "clip_add");
+    }
 }

@@ -60,6 +60,9 @@ pub fn lines(chat: &Chat) -> Vec<AiLine> {
         match m.role {
             Role::User => out.push(AiLine::User(with_files(&m.text, &m.files))),
             Role::Assistant => {
+                if !m.thinking.trim().is_empty() {
+                    out.push(AiLine::Thinking { text: m.thinking.clone(), done: true, secs: 0.0, started: 0 });
+                }
                 if !m.text.trim().is_empty() {
                     out.push(AiLine::Text(m.text.clone()));
                 }
