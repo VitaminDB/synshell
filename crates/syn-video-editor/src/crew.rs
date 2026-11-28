@@ -221,7 +221,7 @@ pub fn stage(project: &Path, n: u32, timeline: Option<&crate::doc::Project>) -> 
     let has_lines = scene.contains('«');
     let voiced = std::fs::read_dir(dir(project).join("speech")).into_iter().flatten().flatten().any(|e| {
         let f = e.file_name().to_string_lossy().to_lowercase();
-        f.starts_with(&format!("сцена-{n}-")) && !f.contains("-ролик-")
+        (f.starts_with(&format!("сцена-{n}-")) || f.starts_with(&format!("сцена-{n:02}-"))) && !f.contains("-ролик-")
     });
     if has_lines && !voiced {
         return Stage::Voice;
