@@ -73,6 +73,9 @@ pub struct Settings {
     pub asr_language: String,
     /// При запуске без файла — открыть последний проект; по умолчанию новый.
     pub open_last_project: bool,
+    /// LoRA видео MiniMax-H3 для съёмки (ref-scenes, story-video): пусто — Turbo по
+    /// умолчанию службы (8 шагов), «off» — без LoRA (полные шаги, качество выше), иначе файл.
+    pub video_lora: String,
     /// Съёмочная группа: свой системный промпт роли (id роли → текст); нет — по умолчанию.
     pub crew_prompts: BTreeMap<String, String>,
     /// Съёмочная группа: модель роли (id роли → модель службы); нет — модель агента.
@@ -99,6 +102,7 @@ impl Default for Settings {
             instructions: String::new(),
             models: BTreeMap::new(),
             node_models: BTreeMap::new(),
+            video_lora: String::new(),
             crew_prompts: BTreeMap::new(),
             crew_models: BTreeMap::new(),
             vision_width: 768,

@@ -296,6 +296,14 @@ fn agent_chats(st: St) -> impl Widget {
 fn crew_page(st: St, s: &Settings) -> impl Widget {
     let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     col = col.child(Text::new("Фильм делает группа ролей: режиссёр ведёт конвейер сцена за сценой и поручает шаги ролям. У каждой роли свой системный промпт (роль и обязательные правила) и свои навыки (знания). Правила проекта из задания пользователя (язык, мат, стиль, длина) добавляются к промпту каждой роли сами.").class("set-hint"));
+    let lora = TextField::new()
+        .text(s.video_lora.clone())
+        .placeholder("пусто — Turbo 8 шагов; off — без LoRA")
+        .on_change(move |t: &str| {
+            let t = t.trim().to_string();
+            settings::update(move |s| s.video_lora = t);
+        });
+    col = col.child(card("Съёмка видео (MiniMax-H3)".to_string(), "LoRA для съёмки сцен: пусто — Turbo на 8 шагов (быстро), off — без LoRA, полные шаги (качество выше, дольше), или имя файла LoRA. Действует, если агент не задал LoRA сам.".to_string(), lora));
     for r in crate::crew::ROLES {
         let id = r.id;
         let custom = s.crew_prompts.get(id).is_some_and(|p| !p.trim().is_empty());

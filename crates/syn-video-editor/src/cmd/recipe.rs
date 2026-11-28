@@ -103,6 +103,13 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let mut params = a.object("params")?.unwrap_or_default();
     params.remove("asset");
     params.remove("label");
+    // LoRA съёмки — из настроек приложения, если агент её не задал явно
+    if matches!(g.name.as_str(), "ref-scenes" | "story-video") && !params.get("lora").and_then(|v| v.as_str()).is_some_and(|v| !v.trim().is_empty()) {
+        let l = crate::settings::load().video_lora;
+        if !l.trim().is_empty() {
+            params.insert("lora".into(), json!(l.trim()));
+        }
+    }
     // сцена той же локации (первая строка без [CUT]) продолжает хвост латента
     // предыдущей снятой сцены — бесшовно, как в одном прогоне
     if g.name == "ref-scenes" && !params.contains_key("context") {
