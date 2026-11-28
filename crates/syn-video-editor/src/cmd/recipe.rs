@@ -432,10 +432,12 @@ pub fn speech_problem(expected: &str, heard: &str) -> Option<String> {
         let w = heard_words(heard);
         return (!w.is_empty()).then(|| format!("в ролике без реплик звучит речь «{}»", heard.trim()));
     }
-    // сверх реплик — ни одного чужого слова (допуск — одно, на ошибку распознавания)
+    // сверх реплик — ни одного чужого слова; допуск на ошибку распознавания —
+    // одно слово на пять слов реплик (в короткой реплике лишнее слово —
+    // это болтовня модели или повтор реплики прошлого ролика на стыке)
     let exp_w = heard_words(expected);
     let extra: Vec<String> = heard_words(heard).into_iter().filter(|h| !exp_w.iter().any(|e| close(e, h))).collect();
-    if extra.len() >= 2 {
+    if extra.len() > exp / 5 {
         return Some(format!("чужие слова сверх реплик ({}): слышно «{}»", extra.join(", "), heard.trim()));
     }
     let score = super::voice::word_match(expected, heard);
@@ -638,6 +640,10 @@ mod tests {
         // чужие слова сверх реплик; ошибка распознавания в букве — не чужое
         assert!(super::speech_problem("Ну что, пошли?", "ну что пошли быстрее домой").is_some());
         assert!(super::speech_problem("Грымза, мой друг!", "гримза мой друг").is_none());
+        // короткая реплика: одно чужое слово (повтор реплики прошлого ролика на стыке) — брак
+        assert!(super::speech_problem("Мамочка, всё в порядке?", "Чёрт! Мамочка, всё в порядке?").is_some());
+        // длинная: одно слово — допуск на распознавание
+        assert!(super::speech_problem("Слушай, солнышко, прости меня, у мамочки тяжёлое время на работе", "ну слушай солнышко прости меня у мамочки тяжёлое время на работе").is_none());
         // звуки окружения
         let line = "detailed_description: x. overall_soundscape: kettle whistling, rain on the window; distant traffic. non_diegetic_music: N/A.";
         assert_eq!(super::expected_sounds(line), vec!["kettle whistling", "rain on the window", "distant traffic"]);
