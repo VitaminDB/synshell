@@ -177,6 +177,7 @@ pub fn video(mgr: &Arc<Manager>, model: &str, prompt: String, p: VideoParams, ca
         lora_strength: p.lora_strength,
         model_id: Some(model.clone()),
         guided: p.guided,
+        ref_sheet: p.ref_sheet.map(PathBuf::from),
     };
     mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация видео");
     let r = mgr.run(&model, |m| m.video(&req, cancel, progress));

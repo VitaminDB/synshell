@@ -1160,6 +1160,9 @@ pub enum Request {
         /// шаги с CFG/STG, половинное разрешение → апскейл); `None` — по модели.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         guided: Option<bool>,
+        /// LTX-2.5: лист-референс IC-LoRA Ingredients (картинка).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ref_sheet: Option<String>,
     },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
@@ -1565,6 +1568,8 @@ pub struct VideoParams {
     pub lora_strength: Option<f32>,
     /// LTX dev: `Some(false)` — быстрый путь с дистилл-LoRA вместо управляемого.
     pub guided: Option<bool>,
+    /// LTX-2.5: лист-референс героев, предметов и места (IC-LoRA Ingredients).
+    pub ref_sheet: Option<String>,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -2134,6 +2139,7 @@ impl Client {
             lora: p.lora.clone(),
             lora_strength: p.lora_strength,
             guided: p.guided,
+            ref_sheet: p.ref_sheet.clone(),
         };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {

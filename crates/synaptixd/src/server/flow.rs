@@ -644,6 +644,7 @@ fn video(cx: &mut Cx) -> R {
             Some("on") => Some(true),
             _ => None,
         },
+        ref_sheet: cx.file("ref_sheet"),
     };
     let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
     // Универсальные графы (например story-video) подключают и refs (для Ref2VA),

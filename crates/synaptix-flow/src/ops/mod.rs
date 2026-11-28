@@ -188,6 +188,7 @@ pub static VIDEO: NodeSpec = NodeSpec {
         field("enhance", n_!("Улучшить описание"), F::Bool, "false").hint(n_!("LTX-2.5: короткое описание разворачивается в подробное (улучшитель промпта модели)")).advanced(),
         field("dfr", n_!("DFR (детализация)"), F::Bool, "false").hint(n_!("LTX-2.5: половинное разрешение с ключевыми кадрами, затем полное с LoRA детализации — резче лица, текстуры и надписи; ширина и высота кратны 64")).advanced(),
         field("guided", n_!("Полные шаги с CFG"), F::Choice(&["auto", "on", "off"]), "auto").hint(n_!("LTX dev: auto/on — как у Lightricks: половинное разрешение, 30 шагов с CFG и STG, отрицательный промпт, апскейл ×2 и доводка; off — быстрый путь с дистилл-LoRA")).advanced(),
+        field("ref_sheet", n_!("Лист-референс"), F::File, "").hint(n_!("LTX-2.5 (distilled): одна картинка — герои (лицо крупно + развороты), предметы, место отдельными панелями на чёрном фоне, без текста; промпт «Reference sheet: … / Generated video: …» (IC-LoRA Ingredients)")).advanced(),
         field("diff_decoder", n_!("Диффузионный декодер"), F::Bool, "false").hint(n_!("LTX-2.5: декодировать видео диффузионным декодером вместо VAE (дольше)")).advanced(),
         field("fps_x2", n_!("48 кадр/с"), F::Bool, "false").hint(n_!("LTX-2.5: удвоить частоту кадров временным апскейлером")).advanced(),
         field("lora", "LoRA", F::Text, "").hint(n_!("MiniMax-H3: пусто — Turbo (8 шагов по умолчанию), «off» — без LoRA (20 шагов, выше детализация), либо путь/имя файла в lora/h3")).advanced(),
