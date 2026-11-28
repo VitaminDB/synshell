@@ -1005,7 +1005,7 @@ fn crew_chips(st: St) -> impl Widget {
             let e = ed();
             let n = crate::cmd::crew::scene_count(p);
             (1..=n).map(|s| (s, crate::crew::stage(p, s, Some(&e.project)))).find(|(_, st)| *st != crate::crew::Stage::Done).map(|(s, st)| {
-                crate::crew::review_due(p, s, st).and_then(|w| crate::crew::REVIEWS.iter().find(|r| r.0 == w)).map(|r| r.2).unwrap_or(st.roles().0)
+                crate::crew::who(p, crate::crew::review_due(p, s, st).and_then(|w| crate::crew::REVIEWS.iter().find(|r| r.0 == w)).map(|r| r.2).unwrap_or(st.roles().0))
             })
         });
         let notes = project.as_deref().map(crate::crew::notes).unwrap_or_default();
@@ -1054,7 +1054,7 @@ fn crew_board(st: St) -> Box<dyn Widget> {
     let mut current_set = false;
     for s in 1..=n {
         let stg = crate::crew::stage(&p, s, Some(&project));
-        let (a, b) = stg.roles();
+        let (a, b) = (crate::crew::who(&p, stg.roles().0), crate::crew::who(&p, stg.roles().1));
         let done = stages.iter().position(|x| *x == stg).unwrap_or(0);
         let mut bar = Row::new().gap(2.0);
         for (k, _) in stages.iter().enumerate().take(stages.len() - 1) {

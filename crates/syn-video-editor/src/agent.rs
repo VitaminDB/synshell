@@ -331,6 +331,7 @@ fn role_emit(e: RoleEvent) {
 /// вложениями, модель их видит); вердикт ✓/✗ — в проверки.json, ✗ — записка автору.
 pub fn run_review(ed: &Shared, project: &std::path::Path, n: u32, st: crate::crew::Stage, what: &str) -> Result<String, String> {
     let &(_, title, reviewer, author) = crate::crew::REVIEWS.iter().find(|r| r.0 == what).ok_or_else(|| format!("нет проверки «{what}»"))?;
+    let (reviewer, author) = (crate::crew::who(project, reviewer), crate::crew::who(project, author));
     let r = crate::crew::role(reviewer).ok_or("нет роли проверяющего")?;
     let (brief, files) = crate::crew::review_brief(project, n, what);
     let out = run_role(ed, project, r, n, st, &brief, files)?;

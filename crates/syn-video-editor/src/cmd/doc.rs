@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT, &SOURCE_SCENE, &ASSEMBLE, &ASSET_SHEET];
+pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT, &SOURCE_SCENE, &ASSEMBLE, &ASSET_SHEET, &VERSIONS, &RESTORE];
 
 /// Папка документов проекта (папка проекта; без файла — нет).
 pub fn dir(project: Option<&Path>) -> Option<PathBuf> {
@@ -100,6 +100,87 @@ static SOURCE_SCENE: Cmd = Cmd {
                 Ok(Out::with(format!("Сцен в источнике {} (страниц без титульной {}):\n{}", src.scenes, src.pages, list.join("\n")), json!({"scenes": src.scenes, "pages": src.pages})))
             }
         }
+    },
+};
+
+/// Папка версий документа: `<папка проекта>/версии/<имя файла>/`.
+fn versions_dir(doc: &Path) -> PathBuf {
+    doc.parent().unwrap_or(Path::new(".")).join("версии").join(doc.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+}
+
+/// Версии документа по порядку (номер с 1, файл).
+pub fn versions(doc: &Path) -> Vec<(u32, PathBuf)> {
+    let mut v: Vec<(u32, PathBuf)> = std::fs::read_dir(versions_dir(doc))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let n: u32 = e.path().file_stem()?.to_string_lossy().split('-').next()?.parse().ok()?;
+            Some((n, e.path()))
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// Сохранить прежнюю редакцию перед перезаписью (если она есть и отличается). Номер версии.
+pub fn save_version(doc: &Path, new_body: &str) -> Option<u32> {
+    let old = std::fs::read_to_string(doc).ok().filter(|o| !o.trim().is_empty() && o != new_body)?;
+    let n = versions(doc).last().map(|v| v.0).unwrap_or(0) + 1;
+    let d = versions_dir(doc);
+    std::fs::create_dir_all(&d).ok()?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    std::fs::write(d.join(format!("{n}-{stamp}.md")), old).ok()?;
+    Some(n)
+}
+
+static VERSIONS: Cmd = Cmd {
+    id: "doc.versions",
+    category: "Проект",
+    title: "Версии документа",
+    shortcut: "",
+    keywords: "версии история документ откат редакции",
+    help: "Прежние редакции документа проекта (каждая перезапись сохраняет прежнюю): номер, время, размер, первая строка. Откат — doc.restore.",
+    args: &[req("name", Ty::Str, "документ (например scene_01 или 01_библия)")],
+    danger: false,
+    run: |ed, a| {
+        let p = doc_path(ed, &a.need_str("name")?)?;
+        let v = versions(&p);
+        if v.is_empty() {
+            return Ok(Out::text(format!("У {} прежних версий нет", p.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default())));
+        }
+        let lines: Vec<String> = v
+            .iter()
+            .map(|(n, f)| {
+                let t = std::fs::read_to_string(f).unwrap_or_default();
+                format!("версия {n}: {} строк — {}", t.lines().count(), t.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(80).collect::<String>())
+            })
+            .collect();
+        Ok(Out::text(lines.join("\n")))
+    },
+};
+
+static RESTORE: Cmd = Cmd {
+    id: "doc.restore",
+    category: "Проект",
+    title: "Откатить документ к версии",
+    shortcut: "",
+    keywords: "откат версия вернуть документ",
+    help: "Вернуть документ к прежней версии (текущая редакция при этом тоже сохраняется версией — откат обратим).",
+    args: &[req("name", Ty::Str, "документ"), req("version", Ty::Num, "номер версии из doc.versions")],
+    danger: false,
+    run: |ed, a| {
+        let p = doc_path(ed, &a.need_str("name")?)?;
+        let want = a.need_num("version")? as u32;
+        let (_, f) = versions(&p).into_iter().find(|(n, _)| *n == want).ok_or_else(|| format!("версии {want} нет"))?;
+        let body = std::fs::read_to_string(&f).map_err(|e| e.to_string())?;
+        let saved = save_version(&p, &body);
+        std::fs::write(&p, &body).map_err(|e| e.to_string())?;
+        ed.revision += 1;
+        if let Some(project) = ed.path.as_deref() {
+            crate::crew::journal(project, &format!("{} откачен к версии {want}{}", p.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default(), saved.map(|s| format!(" (редакция до отката — версия {s})")).unwrap_or_default()));
+        }
+        Ok(Out::text(format!("{} — версия {want} восстановлена{}", p.display(), saved.map(|s| format!("; редакция до отката сохранена версией {s}")).unwrap_or_default())))
     },
 };
 
@@ -442,9 +523,11 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
     } else {
         text
     };
+    // прежняя редакция — версией (откат: doc.restore)
+    let ver = save_version(&p, &body);
     std::fs::write(&p, &body).map_err(|e| format!("{}: {e}", p.display()))?;
     ed.revision += 1;
-    let mut msg = format!("Документ {} ({} строк)", p.display(), body.lines().count());
+    let mut msg = format!("Документ {} ({} строк{})", p.display(), body.lines().count(), ver.map(|v| format!(", прежняя редакция — версия {v}")).unwrap_or_default());
     // полнота сцен — только у сценария (у диалогов другие разделы)
     let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
     // сценарий и диалоги под любым именем (агент мог назвать по-своему)

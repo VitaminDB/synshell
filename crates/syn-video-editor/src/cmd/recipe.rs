@@ -70,7 +70,18 @@ pub struct Generated {
 /// ждущее ту же блокировку для отрисовки, висит всю генерацию).
 /// `project` — файл текущего проекта: генерация ложится в его папку
 /// (`<имя>.media/generated/…`), без файла — в кэш программы.
+/// Очередь видеокарты: генерации рецептами идут строго по одной (агент окна,
+/// роли группы, ручной запуск) — вторая ждёт первую, а не делит память карты.
+static GPU_QUEUE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn FnMut(&str, &[std::path::PathBuf])) -> Result<Generated, String> {
+    let _gpu = match GPU_QUEUE.try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            syn_assist::tools::progress(0, 0, "ждёт очереди видеокарты (идёт другая генерация)");
+            GPU_QUEUE.lock().unwrap_or_else(|e| e.into_inner())
+        }
+    };
     let name = a.need_str("name")?;
     let g = synaptix_graph::recipes::find(&crate::recipe::dir(), &name).ok_or_else(|| format!("рецепта «{name}» нет — recipe.list"))?;
     // эталон без имени — в медиатеке одинаковые «ref.png»: имя обязательно
@@ -80,6 +91,12 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
             super::story::gate(project, n, "Съёмка")?;
+            // продюсер: лимит пересъёмок сцены — дальше только с согласия пользователя
+            if let Some(pr) = project {
+                if let Some(w) = crate::crew::retake_limit(pr, n) {
+                    return Err(w);
+                }
+            }
             // все ассеты кадров сцены (@id в scene_NN) готовы в каталоге
             if let Some(dir) = project.map(crate::store::media_dir) {
                 let scene = std::fs::read_to_string(dir.join(format!("scene_{n:02}.md"))).unwrap_or_default();

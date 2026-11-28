@@ -8,7 +8,7 @@ use super::{arg, req, Args, Command as Cmd, Out, Ty};
 use crate::crew::{self, Stage, Status};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&STATUS, &BRIEF, &NOTE, &NOTE_SET, &NOTES, &RUN, &REVIEW];
+pub static COMMANDS: &[&Cmd] = &[&STATUS, &BRIEF, &NOTE, &NOTE_SET, &NOTES, &RUN, &REVIEW, &LINEUP, &RETRO];
 
 fn project(ed: &Editor) -> Result<std::path::PathBuf, String> {
     ed.path.clone().ok_or_else(|| "проект ещё не сохранён".into())
@@ -44,7 +44,7 @@ static STATUS: Cmd = Cmd {
         let mut current: Option<(u32, Stage)> = None;
         for s in 1..=n {
             let st = crew::stage(&p, s, Some(&ed.project));
-            let (a, b) = st.roles();
+            let (a, b) = (crew::who(&p, st.roles().0), crew::who(&p, st.roles().1));
             let open = crew::notes(&p).iter().filter(|x| x.scene == s && x.status != Status::Closed).count();
             let due = crew::review_due(&p, s, st).and_then(|w| crew::REVIEWS.iter().find(|r| r.0 == w));
             match due {
@@ -64,7 +64,8 @@ static STATUS: Cmd = Cmd {
             None if n > 0 => "Все сцены готовы — монтаж фильма.".to_string(),
             None => "Сцен нет: сначала 03_структура.".to_string(),
         };
-        Ok(Out::with(format!("{head}\n{}", lines.join("\n")), json!({"scenes": rows, "current": current.map(|(s, st)| json!({"scene": s, "stage": st.title()}))})))
+        let eta = crew::estimate_left(&p, Some(&ed.project)).map(|e| format!("\nПродюсер: {e}.")).unwrap_or_default();
+        Ok(Out::with(format!("{head}\n{}{eta}", lines.join("\n")), json!({"scenes": rows, "current": current.map(|(s, st)| json!({"scene": s, "stage": st.title()}))})))
     },
 };
 
@@ -179,6 +180,98 @@ static REVIEW: Cmd = Cmd {
     run: |_, _| Err("crew.review выполняется агентом (ход проверяющего — отдельным агентом)".into()),
 };
 
+static LINEUP: Cmd = Cmd {
+    id: "crew.lineup",
+    category: "Съёмочная группа",
+    title: "Состав группы",
+    shortcut: "",
+    keywords: "crew состав формат роли клип рилс подкаст фильм мультфильм",
+    help: "Состав съёмочной группы под формат: film, cartoon (полный), clip (без сценариста, монтаж под ритм), reels (режиссёр, художник, оператор, монтажёр), podcast (режиссёр, сценарист, звукорежиссёр, монтажёр). add/remove — роль в состав или из него по просьбе пользователя. Работу роли вне состава делает режиссёр. Без аргументов — текущий состав.",
+    args: &[arg("format", Ty::Str, "film | cartoon | clip | reels | podcast"), arg("add", Ty::Str, "роль в состав"), arg("remove", Ty::Str, "роль из состава")],
+    danger: false,
+    run: |ed, a| {
+        let p = project(ed)?;
+        let mut l = crew::lineup(&p);
+        if let Some(f) = a.str("format")? {
+            let (id, _, roles) = crew::FORMATS.iter().find(|x| x.0 == f.trim() || x.1 == f.trim()).ok_or_else(|| format!("формат «{f}»: film | cartoon | clip | reels | podcast"))?;
+            l = crew::Lineup { format: id.to_string(), roles: roles.iter().map(|s| s.to_string()).collect() };
+        }
+        if let Some(r) = a.str("add")? {
+            let r = crew::role(&r).ok_or_else(|| format!("нет роли «{r}»"))?;
+            if !l.roles.iter().any(|x| x == r.id) {
+                l.roles.push(r.id.into());
+            }
+        }
+        if let Some(r) = a.str("remove")? {
+            let r = crew::role(&r).ok_or_else(|| format!("нет роли «{r}»"))?;
+            if r.id == "director" {
+                return Err("режиссёр в составе всегда".into());
+            }
+            l.roles.retain(|x| x != r.id);
+        }
+        crew::save_lineup(&p, &l);
+        let names: Vec<&str> = l.roles.iter().filter_map(|r| crew::role(r).map(|x| x.title)).collect();
+        let fmt = crew::FORMATS.iter().find(|x| x.0 == l.format).map(|x| x.1).unwrap_or("свой");
+        Ok(Out::with(format!("Состав ({fmt}): {}. Работу ролей вне состава делает режиссёр.", names.join(", ")), json!({"format": l.format, "roles": l.roles})))
+    },
+};
+
+static RETRO: Cmd = Cmd {
+    id: "crew.retro",
+    category: "Съёмочная группа",
+    title: "Разбор после проекта",
+    shortcut: "",
+    keywords: "crew разбор ретро итоги замечания уроки навыки",
+    help: "Разбор проекта: сколько проверок не прошло с первого раза и по каким предметам, частые записки между ролями, пересъёмки, эскалации — документом «разбор». Предложения общих правил в навыки — только списком для пользователя: в навыки вносятся с его согласия и только общими правилами, без конкретики проекта.",
+    args: &[],
+    danger: false,
+    run: |ed, _| {
+        let p = project(ed)?;
+        let reviews = crew::reviews(&p);
+        let notes = crew::notes(&p);
+        let mut md = String::from("# Разбор проекта\n\n## Проверки (правило двух ключей)\n| Предмет | Проверок | Не принято | Принято с первого раза |\n|---|---|---|---|\n");
+        for &(what, title, _, _) in crew::REVIEWS {
+            let v: Vec<&crew::Review> = reviews.iter().filter(|r| r.what == what).collect();
+            if v.is_empty() {
+                continue;
+            }
+            let bad = v.iter().filter(|r| !r.ok).count();
+            let scenes: std::collections::BTreeSet<u32> = v.iter().map(|r| r.scene).collect();
+            let first_ok = scenes.iter().filter(|s| v.iter().find(|r| r.scene == **s).is_some_and(|r| r.ok)).count();
+            md.push_str(&format!("| {title} | {} | {bad} | {first_ok} из {} сцен |\n", v.len(), scenes.len()));
+        }
+        md.push_str("\n## Причины «не принято»\n");
+        for r in reviews.iter().filter(|r| !r.ok) {
+            let why = r.text.lines().rev().find(|l| l.to_uppercase().contains("ВЕРДИКТ")).unwrap_or("").trim();
+            md.push_str(&format!("- сцена {}, {}: {}\n", r.scene, crew::REVIEWS.iter().find(|x| x.0 == r.what).map(|x| x.1).unwrap_or(&r.what), why));
+        }
+        md.push_str("\n## Записки между ролями\n");
+        let mut by: std::collections::BTreeMap<(String, String), (usize, u32)> = Default::default();
+        for n in &notes {
+            let e = by.entry((n.from.clone(), n.to.clone())).or_default();
+            e.0 += 1;
+            e.1 = e.1.max(n.rounds);
+        }
+        for ((f, t), (c, rounds)) in &by {
+            md.push_str(&format!("- {} → {}: {c} записок, кругов до {rounds}\n", crew::role(f).map(|r| r.title).unwrap_or(f), crew::role(t).map(|r| r.title).unwrap_or(t)));
+        }
+        let esc = notes.iter().filter(|n| n.to == "user").count();
+        md.push_str(&format!("\nЭскалаций пользователю: {esc}.\n"));
+        let s = super::story::load(Some(&p));
+        let retakes: Vec<String> = s.planned.iter().filter_map(|(n, plan)| {
+            let shot = crew::scene_rolls(&p, *n).len();
+            (shot > *plan).then(|| format!("сцена {n}: {shot} роликов при плане {plan}"))
+        }).collect();
+        if !retakes.is_empty() {
+            md.push_str(&format!("\n## Пересъёмки\n- {}\n", retakes.join("\n- ")));
+        }
+        md.push_str("\n## Предложения общих правил (на согласование пользователю)\nСформулируй по частым причинам выше общие правила для навыков ролей — без имён, сюжетов и файлов проекта — и предложи пользователю; вносить в навыки только после его согласия.\n");
+        let path = crate::store::media_dir(&p).join("разбор.md");
+        std::fs::write(&path, &md).map_err(|e| e.to_string())?;
+        Ok(Out::with(format!("Разбор: {}\n{md}", path.display()), json!({"file": path})))
+    },
+};
+
 /// Что делать по `crew.run`/`crew.review`: проверка (если ждёт) или ход автора.
 pub fn review_target(ed: &Editor, a: &Args, forced: bool) -> Result<(std::path::PathBuf, u32, Stage, Option<&'static str>), String> {
     let p = project(ed)?;
@@ -203,7 +296,7 @@ pub fn prepare_run(ed: &Editor, a: &Args) -> Result<(std::path::PathBuf, &'stati
     let p = project(ed)?;
     let n = a.need_num("scene")? as u32;
     let st = crew::stage(&p, n, Some(&ed.project));
-    let rid = a.str("role")?.unwrap_or_else(|| st.roles().0.to_string());
+    let rid = a.str("role")?.unwrap_or_else(|| crew::who(&p, st.roles().0).to_string());
     let r = crew::role(&rid).ok_or_else(|| format!("нет роли «{rid}»"))?;
     let mut brief = crew::scene_brief(&p, r.id, n, st);
     if let Some(t) = a.str("task")?.filter(|t| !t.trim().is_empty()) {

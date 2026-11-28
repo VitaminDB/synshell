@@ -439,6 +439,103 @@ pub fn parse_verdict(text: &str) -> Option<bool> {
     }
 }
 
+// ---------------------------------------------------------------- состав под формат
+
+/// Форматы: (id, название, роли состава).
+pub const FORMATS: &[(&str, &str, &[&str])] = &[
+    ("film", "фильм", &["director", "writer", "supervisor", "designer", "camera", "sound", "editor"]),
+    ("cartoon", "мультфильм", &["director", "writer", "supervisor", "designer", "camera", "sound", "editor"]),
+    ("clip", "клип", &["director", "supervisor", "designer", "camera", "sound", "editor"]),
+    ("reels", "рилс", &["director", "designer", "camera", "editor"]),
+    ("podcast", "подкаст", &["director", "writer", "sound", "editor"]),
+];
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Lineup {
+    pub format: String,
+    pub roles: Vec<String>,
+}
+
+impl Default for Lineup {
+    fn default() -> Self {
+        Lineup { format: "film".into(), roles: FORMATS[0].2.iter().map(|s| s.to_string()).collect() }
+    }
+}
+
+pub fn lineup(project: &Path) -> Lineup {
+    std::fs::read_to_string(dir(project).join("состав.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+pub fn save_lineup(project: &Path, l: &Lineup) {
+    let _ = std::fs::write(dir(project).join("состав.json"), serde_json::to_string_pretty(l).unwrap_or_default());
+}
+
+/// Кто в составе выполняет работу роли: сама роль или, если её нет в
+/// составе, режиссёр.
+pub fn who(project: &Path, role_id: &'static str) -> &'static str {
+    if role_id == "director" || lineup(project).roles.iter().any(|r| r == role_id) {
+        role_id
+    } else {
+        "director"
+    }
+}
+
+// ---------------------------------------------------------------- продюсер
+
+/// Сколько роликов сцены можно снять сверх плана (пересъёмки), во сколько раз.
+pub const RETAKES: usize = 3;
+
+/// Лимит пересъёмок: снято роликов сцены больше плана × RETAKES — дальше
+/// только с согласия пользователя (записка ему).
+pub fn retake_limit(project: &Path, n: u32) -> Option<String> {
+    let s = crate::cmd::story::load(Some(project));
+    let planned = *s.planned.get(&n)?;
+    let shot = scene_rolls(project, n).len();
+    (planned > 0 && shot >= planned * RETAKES).then(|| {
+        let _ = add_note(project, "director", "user", n, "лимит пересъёмок", &format!("Сцена {n}: снято {shot} роликов при плане {planned} — лимит пересъёмок ({RETAKES}×) исчерпан. Что не так — в проверках и записках сцены; переснимать ещё?"));
+        format!("Сцена {n}: лимит пересъёмок исчерпан ({shot} роликов при плане {planned}, предел {}). Спроси пользователя, переснимать ли ещё, и дождись ответа.", planned * RETAKES)
+    })
+}
+
+/// Скорость съёмки по прошлым прогонам: секунд работы на секунду ролика.
+pub fn shoot_rate(project: &Path) -> Option<f64> {
+    let (mut work, mut video) = (0.0f64, 0.0f64);
+    for e in std::fs::read_dir(dir(project).join("generated")).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(ms) = name.strip_prefix("ref-scenes-").and_then(|x| x.parse::<u64>().ok()) else { continue };
+        let rep = e.path().join("report.json");
+        let Ok(end) = std::fs::metadata(&rep).and_then(|m| m.modified()) else { continue };
+        let end = end.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let rolls: f64 = std::fs::read_dir(e.path()).into_iter().flatten().flatten().map(|f| f.path()).filter(|f| f.to_string_lossy().contains("ролик") && f.extension().is_some_and(|x| x == "mp4")).filter_map(|f| crate::cmd::story::media_seconds(&f).ok()).sum();
+        if end > ms && rolls > 0.0 {
+            work += (end - ms) as f64 / 1000.0;
+            video += rolls;
+        }
+    }
+    (video > 0.0).then(|| work / video)
+}
+
+/// Оценка оставшейся съёмки: секунды неснятых сцен по структуре × скорость.
+pub fn estimate_left(project: &Path, timeline: Option<&crate::doc::Project>) -> Option<String> {
+    let rate = shoot_rate(project)?;
+    let structure = read(project, "03_структура");
+    let n = crate::cmd::crew::scene_count(project);
+    let mut left = 0.0;
+    for s in 1..=n {
+        if stage(project, s, timeline) >= Stage::Check {
+            continue;
+        }
+        let row = structure.lines().find(|l| {
+            let c = l.trim().trim_start_matches('|').split('|').next().unwrap_or("").trim().to_lowercase();
+            c.trim_start_matches("сцена").trim().parse::<u32>().ok() == Some(s)
+        });
+        let secs = row.and_then(|r| r.rsplit('|').map(|c| c.trim().trim_start_matches('~')).find_map(|c| c.parse::<f64>().ok())).unwrap_or(30.0);
+        left += secs;
+    }
+    let min = left * rate / 60.0;
+    Some(format!("съёмка: ≈{:.0} с работы на секунду ролика, осталось ≈{:.0} мин ({:.0} с фильма)", rate, min, left))
+}
+
 // ---------------------------------------------------------------- вехи согласования
 
 /// Вехи: (id, название, что показать пользователю).
@@ -717,6 +814,27 @@ mod tests {
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
         std::fs::File::options().write(true).open(&sc).unwrap().set_modified(later).unwrap();
         assert_eq!(review_ok(&p, 1, "script"), None);
+    }
+
+    #[test]
+    fn lineup_and_versions() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("l").join("l.syn");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        assert_eq!(who(&p, "writer"), "writer");
+        save_lineup(&p, &Lineup { format: "clip".into(), roles: FORMATS[2].2.iter().map(|s| s.to_string()).collect() });
+        assert_eq!(who(&p, "writer"), "director");
+        assert_eq!(who(&p, "camera"), "camera");
+        let doc = p.parent().unwrap().join("scene_01.md");
+        assert_eq!(crate::cmd::doc::save_version(&doc, "новое"), None);
+        std::fs::write(&doc, "первая").unwrap();
+        assert_eq!(crate::cmd::doc::save_version(&doc, "вторая"), Some(1));
+        assert_eq!(crate::cmd::doc::save_version(&doc, "первая"), None);
+        std::fs::write(&doc, "вторая").unwrap();
+        assert_eq!(crate::cmd::doc::save_version(&doc, "третья"), Some(2));
+        let v = crate::cmd::doc::versions(&doc);
+        assert_eq!(v.len(), 2);
+        assert_eq!(std::fs::read_to_string(&v[0].1).unwrap(), "первая");
     }
 
     #[test]
