@@ -216,7 +216,17 @@ fn media(st: St) -> impl Widget {
             let what = match g.op.as_str() { "image" => "картинка", "video" => "ролик", "music" => "музыка", "speak" => "голос", _ => "звук" };
             let item = g.item.map(|(k, n)| format!(" {k} из {n}")).unwrap_or_default();
             let speech = g.op == "speak";
-            let step = if g.total > 0 { format!("шаг {}/{}", g.step, g.total) } else if speech { "синтез речи…".into() } else { "подготовка…".into() };
+            let step = if g.total > 0 {
+                match g.eta() {
+                    Some((this, all)) if (all - this) > 1.0 => format!("шаг {}/{} · осталось {} (всё {})", g.step, g.total, crate::ui::eta_text(this), crate::ui::eta_text(all)),
+                    Some((this, _)) => format!("шаг {}/{} · осталось {}", g.step, g.total, crate::ui::eta_text(this)),
+                    None => format!("шаг {}/{}", g.step, g.total),
+                }
+            } else if speech {
+                "синтез речи…".into()
+            } else {
+                "подготовка…".into()
+            };
             // место в фильме от агента («Сцена 3 из 12: …») — вместо «ролик 1 из 1»
             let title = match (&label, g.item) {
                 (Some(l), Some((k, n))) if n > 1 => format!("{l} · {what} {k} из {n}"),

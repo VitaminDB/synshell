@@ -122,6 +122,35 @@ pub struct GenTile {
     pub total: usize,
     /// Последнее превью генерации (картинка проявляется).
     pub preview: Option<std::path::PathBuf>,
+    /// Когда пошли шаги этого элемента (мс от эпохи; 0 — ещё нет) — для оценки времени.
+    pub t0: u64,
+}
+
+impl GenTile {
+    /// Оценка оставшегося: до конца элемента и до конца всех элементов узла
+    /// (остальные — с той же скоростью шагов). None — шагов ещё нет.
+    pub fn eta(&self) -> Option<(f64, f64)> {
+        // отсчёт — с первого замеченного шага: скорость видна со второго
+        if self.t0 == 0 || self.step < 2 || self.total == 0 {
+            return None;
+        }
+        let per = (now_ms().saturating_sub(self.t0)) as f64 / 1000.0 / (self.step - 1) as f64;
+        let this = per * (self.total.saturating_sub(self.step)) as f64;
+        let rest = self.item.map(|(k, n)| n.saturating_sub(k) as f64 * per * self.total as f64).unwrap_or(0.0);
+        Some((this, this + rest))
+    }
+}
+
+/// Длительность словами: «≈ 12 мин», «≈ 1 ч 5 мин», «≈ 40 с».
+pub fn eta_text(secs: f64) -> String {
+    let s = secs.max(0.0).round() as u64;
+    if s >= 3600 {
+        format!("≈ {} ч {} мин", s / 3600, (s % 3600) / 60)
+    } else if s >= 60 {
+        format!("≈ {} мин", (s + 30) / 60)
+    } else {
+        format!("≈ {s} с")
+    }
 }
 
 /// Разобрать строку хода рецепта «refs (image) — 2 из 5 · 13/40».
@@ -140,7 +169,7 @@ pub fn parse_gen(label: &str) -> Option<GenTile> {
         return None;
     }
     let (s, t) = step.and_then(|x| x.split_once('/')).and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?))).unwrap_or((0, 0));
-    Some(GenTile { node: node.to_string(), op, item, step: s, total: t, preview: None })
+    Some(GenTile { node: node.to_string(), op, item, step: s, total: t, preview: None, t0: 0 })
 }
 
 /// Строка панели ИИ.
@@ -1551,7 +1580,16 @@ fn statusbar(st: St) -> impl Widget {
             let e = ed();
             let s = &e.project.settings;
             let file = e.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "не сохранён".into());
-            (format!("{}{} — {}", e.project.name, if e.dirty { " ●" } else { "" }, file), format!("{}{} / {}  ·  {}×{}  ·  {} fps", &format!("{}{}", st.exporting.get().map(|f| format!("Экспорт {:.0} %  ·  ", f * 100.0)).unwrap_or_default(), if st.ai_busy.get() { "ИИ работает…  ·  " } else { "" }), crate::doc::tc(e.playhead), crate::doc::tc(e.project.duration()), s.width, s.height, s.fps))
+            (format!("{}{} — {}", e.project.name, if e.dirty { " ●" } else { "" }, file), format!("{}{} / {}  ·  {}×{}  ·  {} fps", &format!("{}{}", st.exporting.get().map(|f| format!("Экспорт {:.0} %  ·  ", f * 100.0)).unwrap_or_default(), if st.ai_busy.get() {
+                // генерация идёт — шаг и сколько осталось
+                match st.gen_tiles.get().iter().find(|g| g.total > 0).map(|g| (g.step, g.total, g.item, g.eta())) {
+                    Some((s, tot, item, Some((_, all)))) => format!("ИИ: {}шаг {s}/{tot}, осталось {}  ·  ", item.map(|(k, n)| format!("{k} из {n}, ")).unwrap_or_default(), eta_text(all)),
+                    Some((s, tot, item, None)) => format!("ИИ: {}шаг {s}/{tot}  ·  ", item.map(|(k, n)| format!("{k} из {n}, ")).unwrap_or_default()),
+                    None => "ИИ работает…  ·  ".to_string(),
+                }
+            } else {
+                String::new()
+            }), crate::doc::tc(e.playhead), crate::doc::tc(e.project.duration()), s.width, s.height, s.fps))
         };
         vec![Box::new(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(left).max_lines(1).elide(Elide::End).class("status-text")).child(DecoratedBox::new().class("grow")).child(Text::new(right).class("status-text")))]
     }))
@@ -1808,10 +1846,19 @@ fn gen_event(st: St, ev: &syn_assist::agent::AgentEvent) {
                         match v.iter_mut().find(|x| x.node == t.node && x.item == t.item) {
                             Some(x) => {
                                 let keep = x.preview.take();
+                                // время первого шага: шаги пошли — отсчёт для оценки
+                                let t0 = if x.t0 > 0 { x.t0 } else if t.step > 0 { now_ms() } else { 0 };
                                 *x = t;
                                 x.preview = keep;
+                                x.t0 = t0;
                             }
-                            None => v.push(t),
+                            None => {
+                                let mut t = t;
+                                if t.step > 0 {
+                                    t.t0 = now_ms();
+                                }
+                                v.push(t)
+                            }
                         }
                     });
                 });
