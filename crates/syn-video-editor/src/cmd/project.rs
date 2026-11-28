@@ -26,10 +26,23 @@ static NEW: Command = Command {
 };
 
 fn new(ed: &mut Editor, a: &Args) -> Res {
-    let mut p = Project::new(&a.str("name")?.unwrap_or_else(|| "Без названия".into()));
+    let name = a.str("name")?.filter(|n| !n.trim().is_empty());
+    let mut p = Project::new(name.as_deref().unwrap_or("Без названия"));
     apply_settings(&mut p, a)?;
-    ed.replace(p, None);
-    Ok(Out::text(format!("Создан проект «{}»", ed.project.name)))
+    // новый проект — сразу файлом в своей папке (~/Videos/Новый проект N/): у
+    // генераций, документов и состояния фильма есть куда лечь, каким бы путём
+    // проект ни создали (окно, сокет, агент)
+    let path = store::new_project_path();
+    if name.is_none() {
+        if let Some(n) = path.file_stem() {
+            p.name = n.to_string_lossy().into_owned();
+        }
+    }
+    match (!cfg!(test)).then(|| store::save(&p, &path)) {
+        Some(Ok(())) => ed.replace(p, Some(path.clone())),
+        _ => ed.replace(p, None),
+    }
+    Ok(Out::text(format!("Создан проект «{}»{}", ed.project.name, ed.path.as_ref().map(|p| format!(" ({})", p.display())).unwrap_or_default())))
 }
 
 static OPEN: Command = Command {
