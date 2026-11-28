@@ -90,6 +90,11 @@ pub struct Agent {
     pub backend: Arc<dyn Backend>,
     pub tools: Vec<Arc<dyn Tool>>,
     pub max_steps: usize,
+    /// Мягкий предел: `max_steps` — порция шагов, которая продлевается, пока
+    /// агент движется вперёд (за порцию не меньше четверти шагов — новые
+    /// успешные вызовы, без повторов), но не дальше этого жёсткого предела.
+    /// `None` — предел `max_steps` жёсткий.
+    pub max_steps_hard: Option<usize>,
     pub auto_approve: bool,
     pub compact_percent: u32,
     pub subagent: bool,
@@ -140,7 +145,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new(), app_skills: false, repeat_hint: None }
+        Self { backend, tools, max_steps: 24, max_steps_hard: None, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None, inbox: None, params: Params::new(), app_skills: false, repeat_hint: None }
     }
 
     /// Очередь сообщений пользователя во время хода (см. [`Agent::inbox`]).
@@ -396,7 +401,21 @@ impl Agent {
         // ход, оборванный на пределе длины, продолжается один раз
         let mut retried = false;
         let mut nudge: Option<&str> = None;
-        for _ in 0..self.max_steps {
+        let mut budget = self.max_steps;
+        let mut step = 0usize;
+        // новые успешные вызовы с последнего продления
+        let mut progress = 0usize;
+        loop {
+            if step >= budget {
+                match self.max_steps_hard {
+                    Some(cap) if budget < cap && skipped == 0 && progress * 4 >= self.max_steps.max(1) => {
+                        budget = (budget + self.max_steps.max(1)).min(cap);
+                        progress = 0;
+                    }
+                    _ => break,
+                }
+            }
+            step += 1;
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
@@ -503,10 +522,14 @@ impl Agent {
                     )
                 } else {
                     skipped = 0;
-                    match self.pool_gate(chat, &call.name) {
+                    let msg = match self.pool_gate(chat, &call.name) {
                         Some(msg) => msg,
                         None => self.execute(&model, &call.name, &call.arguments, confirm, cancel, on),
+                    };
+                    if repeats == 0 && msg.tool.as_ref().is_some_and(|t| t.ok) {
+                        progress += 1;
                     }
+                    msg
                 };
                 chat.messages.push(msg.clone());
                 on(AgentEvent::Message(msg));
@@ -713,6 +736,7 @@ impl Agent {
             backend: self.backend.clone(),
             tools,
             max_steps: self.subagent_steps,
+            max_steps_hard: None,
             auto_approve: true,
             compact_percent: self.compact_percent,
             subagent: false,
@@ -1006,6 +1030,38 @@ mod tests {
         let log = script.1.lock().unwrap();
         assert_eq!(log[2].0, 0);
         assert_eq!(log[2].1.last().unwrap().content, LIMIT_PROMPT);
+    }
+
+    #[test]
+    fn soft_limit_extends_while_progressing() {
+        // 5 разных успешных вызовов при порции 2 и потолке 10 — ход доходит до итога
+        let mut steps: Vec<_> = (0..5).map(|i| calls("echo", &format!(r#"{{"text":"{i}"}}"#))).collect();
+        steps.push(text("Готово"));
+        let script = Arc::new(Script::new(steps));
+        let mut agent = Agent::new(script.clone(), vec![Arc::new(Echo)]);
+        agent.max_steps = 2;
+        agent.max_steps_hard = Some(10);
+        agent.auto_approve = true;
+        let mut chat = Chat::new();
+        agent.run_turn(&mut chat, "x", &|_: &str, _: &str| false, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(chat.messages.last().unwrap().text, "Готово");
+        assert!(script.1.lock().unwrap().iter().all(|(_, h)| h.last().unwrap().content != LIMIT_PROMPT));
+    }
+
+    #[test]
+    fn soft_limit_stops_at_hard_cap() {
+        let mut steps: Vec<_> = (0..8).map(|i| calls("echo", &format!(r#"{{"text":"{i}"}}"#))).collect();
+        steps.push(text("Итог"));
+        let script = Arc::new(Script::new(steps));
+        let mut agent = Agent::new(script.clone(), vec![Arc::new(Echo)]);
+        agent.max_steps = 2;
+        agent.max_steps_hard = Some(4);
+        agent.auto_approve = true;
+        let mut chat = Chat::new();
+        agent.run_turn(&mut chat, "x", &|_: &str, _: &str| false, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let log = script.1.lock().unwrap();
+        assert_eq!(log.len(), 5, "4 шага и итог");
+        assert_eq!(log[4].1.last().unwrap().content, LIMIT_PROMPT);
     }
 
     #[test]

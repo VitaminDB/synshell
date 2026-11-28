@@ -251,6 +251,9 @@ pub fn agent_with(ed: &Shared, s: &Settings) -> Agent {
     a.system = Some(base_prompt(s));
     a.subagent = s.ai_subagent;
     a.max_steps = s.ai_max_steps.max(1);
+    // фильм — сотни шагов: лимит продлевается порциями, пока агент движется
+    // вперёд (новые успешные вызовы, без повторов); потолок — защита от петли
+    a.max_steps_hard = Some(a.max_steps * 30);
     a.compact_percent = if s.ai_autocompact { s.ai_compact_percent.clamp(50, 98) } else { 0 };
     a.params = s.gen_params();
     a.repeat_hint = Some(REPEAT_HINT.into());
