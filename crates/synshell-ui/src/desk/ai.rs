@@ -388,11 +388,13 @@ fn idle_min(m: &ModelEntry) -> Option<i64> {
     Some(((now - m.last_used_ms) / 60_000).max(0))
 }
 
-/// Контекст сессий модели: занято токенов из окна и место (несколько чатов —
-/// суммой, окно — наибольшее).
+/// Контекст сессий модели: занято токенов из окна и место. Окно у каждого
+/// чата своё, поэтому «X из Y» — по одному чату (самому заполненному из
+/// активных, иначе из припаркованных); место — суммой по всем чатам.
 fn context_label(kvs: &[&synaptixd::KvUsage], bytes: u64) -> String {
-    let tokens: u64 = kvs.iter().map(|k| k.tokens as u64).sum();
-    let cap = kvs.iter().map(|k| k.capacity).max().unwrap_or(0);
+    let main = kvs.iter().filter(|k| !k.parked).max_by_key(|k| k.tokens).or_else(|| kvs.iter().max_by_key(|k| k.tokens));
+    let tokens = main.map_or(0, |k| k.tokens as u64);
+    let cap = main.map_or(0, |k| k.capacity);
     let chats = if kvs.len() > 1 { t!(" ({n} чата)", n = kvs.len()).to_string() } else { String::new() };
     if cap > 0 {
         t!(" · контекст {t} из {c} ток · {v}{n}", t = tokens, c = cap, v = human_bytes(bytes), n = chats).to_string()
