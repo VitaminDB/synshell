@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT];
+pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT, &SOURCE_SCENE, &ASSEMBLE];
 
 /// Папка документов проекта (папка проекта; без файла — нет).
 pub fn dir(project: Option<&Path>) -> Option<PathBuf> {
@@ -75,6 +75,143 @@ static DOCUMENT: Cmd = Cmd {
     },
 };
 
+static SOURCE_SCENE: Cmd = Cmd {
+    id: "source.scene",
+    category: "Проект",
+    title: "Сцена источника",
+    shortcut: "",
+    keywords: "источник сценарий сцена текст оригинал перевод",
+    help: "Текст одной сцены приложенного сценария-источника (по номеру, как в источнике): заголовок, ремарки и реплики оригинала — для перевода и сверки фактов только этой сцены, не держа в работе весь фильм. Без номера — список сцен источника с заголовками.",
+    args: &[arg("scene", Ty::Num, "номер сцены источника")],
+    danger: false,
+    run: |_, a| {
+        let src = SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("нет приложенного сценария-источника (вложение PDF или текст со сценами)")?;
+        match a.num("scene")? {
+            Some(n) => {
+                let n = n as usize;
+                let t = src.scene_texts.get(n.wrapping_sub(1)).ok_or_else(|| format!("в источнике {} сцен, сцены {n} нет", src.scenes))?;
+                Ok(Out::with(format!("Сцена {n} из {} источника:\n{t}", src.scenes), json!({"scene": n, "text": t})))
+            }
+            None => {
+                let list: Vec<String> = src.scene_texts.iter().enumerate().map(|(i, t)| format!("{}. {}", i + 1, t.lines().next().unwrap_or("").trim())).collect();
+                Ok(Out::with(format!("Сцен в источнике {} (страниц без титульной {}):\n{}", src.scenes, src.pages, list.join("\n")), json!({"scenes": src.scenes, "pages": src.pages})))
+            }
+        }
+    },
+};
+
+static ASSEMBLE: Cmd = Cmd {
+    id: "script.assemble",
+    category: "Проект",
+    title: "Собрать сценарий из сцен",
+    shortcut: "",
+    keywords: "сценарий собрать сцены scene итог",
+    help: "Собрать итоговый документ «сценарий» из документов сцен scene_NN по порядку (для пользователя: целиком, как снято).",
+    args: &[],
+    danger: false,
+    run: |ed, _| {
+        let dir = ed.path.as_deref().map(crate::store::media_dir).ok_or("проект не сохранён")?;
+        let mut scenes: Vec<(u32, std::path::PathBuf)> = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten().filter_map(|e| { let p = e.path(); scene_doc_number(&p.file_stem()?.to_string_lossy()).map(|n| (n, p)) }).collect();
+        scenes.sort();
+        if scenes.is_empty() {
+            return Err("нет документов сцен scene_NN".into());
+        }
+        let mut out = String::from("# Сценарий (собран из документов сцен)\n");
+        for (_, p) in &scenes {
+            out.push_str("\n");
+            out.push_str(std::fs::read_to_string(p).unwrap_or_default().trim());
+            out.push_str("\n");
+        }
+        let target = dir.join("сценарий.md");
+        std::fs::write(&target, &out).map_err(|e| e.to_string())?;
+        ed.revision += 1;
+        Ok(Out::with(format!("Сценарий собран из {} сцен: {}", scenes.len(), target.display()), json!({"path": target, "scenes": scenes.len()})))
+    },
+};
+
+/// Номер документа сцены: `scene_03`, `сцена_3`, `scene-12`.
+pub fn scene_doc_number(stem: &str) -> Option<u32> {
+    let low = stem.to_lowercase();
+    let rest = low.strip_prefix("scene").or_else(|| low.strip_prefix("сцена"))?;
+    let d: String = rest.trim_start_matches(['_', '-', ' ']).chars().take_while(|c| c.is_ascii_digit()).collect();
+    d.parse().ok()
+}
+
+/// Разделы, обязательные в документе сцены (по ключевым словам заголовков).
+const SCENE_SECTIONS: &[(&str, &str)] = &[("перевод", "Перевод сцены (реплики и действие 1:1 из источника)"), ("кадр", "Кадры (крупность, камера, длительность)"), ("эталон", "Эталоны (какие нужны, пути)"), ("свет", "Свет, время, погода"), ("звук", "Звук (фон, шумы, музыка)"), ("преемствен", "Преемственность с прошлой сценой")];
+
+/// Проверка документа сцены: порядок, разделы, имена; в ответ — текст сцены источника для сверки.
+fn check_scene_doc(_project: Option<&std::path::Path>, n: u32, body: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let heads: String = body.lines().filter(|l| l.starts_with('#') || l.starts_with("**")).collect::<Vec<_>>().join("\n").to_lowercase();
+    let missing: Vec<&str> = SCENE_SECTIONS.iter().filter(|(k, _)| !heads.contains(k)).map(|(_, t)| *t).collect();
+    if !missing.is_empty() {
+        out.push(format!("В документе сцены нет разделов: {} — допиши их и перезапиши", missing.join("; ")));
+    }
+    if let Some(src) = SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        out.extend(names_coverage(body, &src));
+        if let Some(t) = src.scene_texts.get(n as usize - 1) {
+            out.push(format!("Сверь факты сцены с источником пункт за пунктом — место, кто в кадре, что каждый делает, реквизит (где лежит, у кого), кто притворяется, порядок событий; расхождение исправь и перезапиши документ. Сцена {n} источника:\n{t}"));
+        }
+    }
+    Ok(out)
+}
+
+/// Имена источника в документе: у каждого имени должна быть его точная
+/// транскрипция; похожее, но не то написание («перестановка», пропуск буквы) — замечание.
+pub fn names_coverage(text: &str, src: &Source) -> Vec<String> {
+    let words: Vec<String> = text.split(|c: char| !c.is_alphabetic()).filter(|w| w.chars().next().is_some_and(|c| c.is_uppercase() && ('\u{400}'..='\u{4FF}').contains(&c)) && w.chars().count() >= 3).map(|w| w.to_string()).collect();
+    let mut wrong = Vec::new();
+    for name in src.names.iter().filter(|n| !n.contains(' ')) {
+        let target = name.to_lowercase();
+        let mut exact = false;
+        let mut near: Option<String> = None;
+        for w in &words {
+            let sc = similar(&latin(w), &target);
+            if sc >= 0.99 {
+                exact = true;
+                break;
+            }
+            if sc >= 0.5 && near.is_none() {
+                near = Some(w.clone());
+            }
+        }
+        if let (false, Some(w)) = (exact, near) {
+            wrong.push(format!("«{w}» (в источнике {name})"));
+        }
+    }
+    if wrong.is_empty() {
+        Vec::new()
+    } else {
+        vec![format!("Имена не совпадают с источником: {} — имя транскрипцией по произношению оригинала, без пропуска, перестановки и замены букв, одинаково во всех документах; роль без имени — переводом; исправь и перезапиши", wrong.join(", "))]
+    }
+}
+
+/// Длина по документу структуры: сумма длительностей строк со сценами против
+/// «страница ≈ минута» источника (не меньше 80 %).
+pub fn structure_check(text: &str, src: &Source) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut n = 0;
+    let mut sum = 0.0;
+    for l in text.lines() {
+        let low = l.to_lowercase();
+        if low.contains("сцена") || l.trim_start().starts_with('|') {
+            if let Some((a, b)) = durations(l) {
+                n += 1;
+                sum += (a + b) / 2.0;
+            }
+        }
+    }
+    if n != src.scenes {
+        out.push(format!("В структуре {n} сцен с длительностью, а в источнике {} — перечисли все сцены источника 1:1 (номер, место, время, длительность ~N с)", src.scenes));
+    }
+    let need = src.pages as f64 * 60.0 * 0.8;
+    if src.pages > 0 && sum < need {
+        out.push(format!("Длина фильма по структуре {:.1} мин, а по источнику (≈1 страница = 1 мин, {} стр.) — не меньше {:.1} мин; если пользователь не просил короче, распредели длительность по объёму сцен", sum / 60.0, src.pages, need / 60.0));
+    }
+    out
+}
+
 static LIST: Cmd = Cmd {
     id: "doc.list",
     category: "Проект",
@@ -89,6 +226,10 @@ static LIST: Cmd = Cmd {
 
 fn write(ed: &mut Editor, a: &Args) -> Res {
     let p = doc_path(ed, &a.need_str("name")?)?;
+    // сцена за сценой: документ сцены N+1 — только после съёмки сцены N
+    if let Some(n) = p.file_stem().and_then(|s| scene_doc_number(&s.to_string_lossy())) {
+        super::story::gate(ed.path.as_deref(), n, "Документ")?;
+    }
     let text = crate::yo::yofy(&a.need_str("text")?);
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
@@ -112,6 +253,27 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
             ". Сцены {} описаны неполно — допиши каждую по шаблону навыка screenplay (поля: Задача, План и камера, Действие, Эмоции, Звук, Реплики) и перезапиши документ",
             thin.join(", ")
         ));
+    }
+    let kind_src = SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // пакет документов фильма: библия, структура, сцены
+    if stem.contains("библи") {
+        if let Some(src) = &kind_src {
+            for w in names_coverage(&body, src) {
+                msg.push_str(&format!(". {w}"));
+            }
+        }
+    }
+    if stem.contains("структур") {
+        if let Some(src) = &kind_src {
+            for w in structure_check(&body, src) {
+                msg.push_str(&format!(". {w}"));
+            }
+        }
+    }
+    if let Some(n) = scene_doc_number(&stem) {
+        for w in check_scene_doc(ed.path.as_deref(), n, &body)? {
+            msg.push_str(&format!(". {w}"));
+        }
     }
     if is_script {
         if let Some(w) = length_mismatch(&body) {
@@ -163,6 +325,8 @@ pub struct Source {
     pub title: String,
     /// Имена говорящих (строки капсом над репликами).
     pub names: Vec<String>,
+    /// Текст каждой сцены источника (заголовок, ремарки, реплики).
+    pub scene_texts: Vec<String>,
     /// Грубых ругательств в репликах источника.
     pub profanity: usize,
 }
@@ -237,7 +401,19 @@ pub fn source_of(pages: &[String]) -> Option<Source> {
     let names = counts.into_iter().filter(|(n, c)| *c >= 2 && *n != title).map(|(n, _)| n).collect();
     let low = pages.join("\n").to_lowercase();
     let profanity = STRONG.iter().map(|w| low.matches(w).count()).sum();
-    Some(Source { scenes, pages: with_text.len() - usize::from(title_page), title, names, profanity })
+    let mut scene_texts: Vec<String> = Vec::new();
+    for p in pages {
+        for l in p.lines() {
+            if is_slug(l) {
+                scene_texts.push(String::new());
+            }
+            if let Some(cur) = scene_texts.last_mut() {
+                cur.push_str(l);
+                cur.push('\n');
+            }
+        }
+    }
+    Some(Source { scenes, pages: with_text.len() - usize::from(title_page), title, names, profanity, scene_texts })
 }
 
 /// Русская запись латиницей — для сравнения названия с оригиналом.
@@ -589,6 +765,16 @@ mod length_tests {
         assert!(w.iter().any(|x| x.contains("блин")), "{w:?}");
         assert!(super::names_and_profanity("КОФИ: «Сука.»\nАМАРА: «Нет.»", &src, true).is_empty());
         assert!(super::cut_sends("кофи: «иди ты!»"));
+        // пакет: сцены источника, имена, структура, номер документа сцены
+        assert_eq!(src.scene_texts.len(), 2);
+        assert!(src.scene_texts[1].starts_with("INT. HALL"));
+        assert_eq!(super::scene_doc_number("scene_03"), Some(3));
+        assert_eq!(super::scene_doc_number("Сцена-12"), Some(12));
+        assert_eq!(super::scene_doc_number("сценарий"), None);
+        assert!(!super::names_coverage("### Коф\n### Амара", &src).is_empty());
+        assert!(super::names_coverage("### Кофи\n### Амара", &src).is_empty());
+        let w = super::structure_check("| Сцена 1 | ~10 с |\n| Сцена 2 | ~10 с |", &super::Source { pages: 2, ..src.clone() });
+        assert!(w.iter().any(|x| x.contains("Длина фильма")), "{w:?}");
         assert_eq!(super::quoted_latin("КОФИ: «Get out!»\nАМАРА: «Нет.»\nКОФИ: «Why?»"), (2, 3));
         assert!(super::cut_sends("кофи: «может быть… иди ты»"));
         assert!(!super::cut_sends("кофи: «иди ты нахуй!»"));
