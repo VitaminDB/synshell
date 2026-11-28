@@ -19,6 +19,9 @@ pub struct Config {
     pub idle_unload_min: u32,
     /// Сколько минут держать в RAM KV-кэш чатов выгруженной модели (0 — нет).
     pub kv_keep_min: u32,
+    /// Потолок RAM (МБ) под припаркованные KV-сессии модели: головы ролей и
+    /// чатов, ждущие своего хода. Сверх него вытесняются самые давние.
+    pub kv_park_ram_mb: u64,
     pub max_loaded: usize,
     /// Программы (имя процесса), которым на время работы отдаётся вся
     /// видеокарта: модели уходят с неё, новые грузятся на CPU/NPU.
@@ -61,6 +64,7 @@ impl Default for Config {
             min_available_mb: 1024,
             idle_unload_min: 10,
             kv_keep_min: 60,
+            kv_park_ram_mb: 8192,
             max_loaded: 0,
             yield_vram_to: vec!["resolve".into()],
             model_dirs: Vec::new(),

@@ -33,8 +33,65 @@ pub struct LlmSlot {
 /// Сессия для метрик: (ключ, программа, токенов, ёмкость, байт, припаркована).
 pub type KvRow = (String, crate::AppInfo, u32, u32, u64, bool);
 
-/// Сколько KV-сессий держать (на устройстве из них — одна).
-const SESSIONS: usize = 4;
+/// Сколько KV-сессий держать самое большее (на устройстве из них — одна).
+/// Сверх этого и сверх [`PARK_RAM_BYTES`] вытесняются самые давние.
+const SESSIONS: usize = 16;
+
+/// Потолок RAM под припаркованные сессии одной модели (`kv_park_ram_mb`
+/// конфига службы). Голова роли на 20–40 тыс. токенов — сотни МБ – единицы ГБ.
+pub static PARK_RAM_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(8 << 30);
+/// Сколько RAM оставлять системе (`min_available_mb`): парковка её не съедает —
+/// при нехватке вытесняются самые давние сессии.
+pub static PARK_MIN_AVAILABLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 30);
+
+/// Ключ сессии головы промпта: хэш её токенов (FNV-1a, стабильный между
+/// запусками). Тот же префикс у любого клиента — тот же кэш.
+pub fn prefix_key(ids: &[u32]) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for id in ids {
+        for b in id.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("prefix:{h:016x}:{}", ids.len())
+}
+
+/// Каких сессий лишиться: `entries` — (припаркована, байт) от самой давней
+/// к свежей; последняя (только что отработавшая) не трогается. Вытесняются
+/// самые давние, пока сессий больше `max`, припаркованное больше `budget`
+/// или до запаса свободной RAM не хватает `deficit` байт.
+fn evict_plan(entries: &[(bool, u64)], max: usize, budget: u64, deficit: u64) -> Vec<usize> {
+    let mut count = entries.len();
+    let mut parked: u64 = entries.iter().filter(|e| e.0).map(|e| e.1).sum();
+    let mut deficit = deficit;
+    let mut out = Vec::new();
+    for (i, &(is_parked, bytes)) in entries.iter().enumerate().take(entries.len().saturating_sub(1)) {
+        if count <= max && parked <= budget && deficit == 0 {
+            break;
+        }
+        out.push(i);
+        count -= 1;
+        if is_parked {
+            parked -= bytes;
+            deficit = deficit.saturating_sub(bytes);
+        }
+    }
+    out
+}
+
+/// Ужать набор сессий по [`evict_plan`]: число, потолок RAM, запас RAM системы.
+fn trim_sessions(all: &mut Vec<KvEntry>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (_, avail) = crate::server::manager::meminfo();
+    let deficit = PARK_MIN_AVAILABLE.load(Relaxed).saturating_sub(avail);
+    let shape: Vec<(bool, u64)> = all.iter().map(|e| (e.parked, e.bytes())).collect();
+    let plan = evict_plan(&shape, SESSIONS, PARK_RAM_BYTES.load(Relaxed), deficit);
+    for i in plan.into_iter().rev() {
+        let e = all.remove(i);
+        tracing::info!("kv: сессия «{}» ({} токенов, {} МБ) вытеснена", e.key, e.kv.cached_tokens(), e.bytes() >> 20);
+    }
+}
 
 /// Сбрасывает сессию хода в метриках, как бы ход ни кончился. Вернувшаяся
 /// в `sessions` сессия видна там раньше, чем guard уйдёт, — `kv_usage`
@@ -971,9 +1028,7 @@ impl Loaded {
                 all.push(e);
             }
         }
-        while all.len() > SESSIONS {
-            all.remove(0);
-        }
+        trim_sessions(&mut all);
     }
 
     /// Настройки генерации языковой модели (на лету, без перезагрузки).
@@ -1419,7 +1474,7 @@ impl Loaded {
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
-        let max_tokens = params.u32("max_tokens").unwrap_or(16384).max(1) as usize;
+        let max_tokens = if params.bool("park").unwrap_or(false) { 1 } else { params.u32("max_tokens").unwrap_or(16384).max(1) as usize };
         // Без своей системной реплики — та, с которой модель обучена (WeMM-Video).
         // Пустой стартовый промпт — без системной реплики (Qwen3-Omni).
         let system = params
@@ -1428,6 +1483,9 @@ impl Loaded {
             .or_else(|| llm.default_system_prompt().map(str::to_string))
             .filter(|s| !s.trim().is_empty());
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
+        // Сообщений перед сообщениями клиента (своя системная реплика,
+        // подсказка схемы JSON) — для границы головы `prefix_messages`.
+        let mut lead_n = usize::from(lead.is_some());
         // Картинки и видео: эмбеддинги (из кэша или башней зрения), блоки — перед текстом.
         let mut cache = b.media.lock().unwrap_or_else(|e| e.into_inner());
         let parts: Vec<Vec<MediaPart>> = encode_media(b, &mut cache, messages, params);
@@ -1524,7 +1582,10 @@ impl Loaded {
                     m.content.push_str("\n\n");
                     m.content.push_str(&hint);
                 }
-                None => msgs.insert(0, Message::system(hint)),
+                None => {
+                    msgs.insert(0, Message::system(hint));
+                    lead_n += 1;
+                }
             }
         }
         let thinking = params.bool("thinking").unwrap_or(false);
@@ -1538,6 +1599,21 @@ impl Loaded {
         // Qwen4Exp ставится сюда, а не на конец промпта — иначе ход, после
         // которого прерванный ответ в историю не попал, префиллит её всю.
         let history = history_tokens(tok, &msgs, thinking, params.text("reasoning"), tools_opt, &prompt, &ids);
+        // Голова промпта (`prefix_messages`: первые N сообщений клиента —
+        // системная подсказка роли, выжимка проекта): её KV паркуется под
+        // ключом-хэшем токенов, точка возврата ставится на её конец, и
+        // следующий ход с той же головой считает только свой хвост.
+        let head = params.i64("prefix_messages").filter(|n| *n > 0).and_then(|n| {
+            synaptix::facade::chat::head_tokens(tok, &msgs, lead_n + n as usize, thinking, params.text("reasoning"), tools_opt, &prompt, &ids)
+        });
+        if params.i64("prefix_messages").is_some_and(|n| n > 0) && head.is_none() {
+            tracing::warn!("generate: голова prefix_messages={} не легла на токены промпта — ход без парковки головы", params.i64("prefix_messages").unwrap_or(0));
+        }
+        // «Только припарковать» (`park`): посчитать голову и ничего не
+        // генерировать — ход на один токен, событий нет.
+        let park_only = params.bool("park").unwrap_or(false);
+        let quiet = |_: crate::Event| {};
+        let on_event: &dyn Fn(crate::Event) = if park_only { &quiet } else { on_event };
         let window = params.u32("context").map(|v| v as usize).filter(|v| *v > 0).unwrap_or(b.window).clamp(2048, b.window);
         let room = window.saturating_sub(ids.len() + 16);
         if room < 64 {
@@ -1612,7 +1688,10 @@ impl Loaded {
             !parser.borrow().tool_call_ready() && !stopped()
         };
         let need = ids.len() + max_tokens + 16;
-        let key = params.text("session").unwrap_or("").to_string();
+        let key = match head {
+            Some(h) => prefix_key(&ids[..h]),
+            None => params.text("session").unwrap_or("").to_string(),
+        };
         // Сессия ключа: остальные — в RAM (на устройстве одна), своя —
         // обратно на устройство; короткая — заново.
         let mut entry = {
@@ -1687,7 +1766,7 @@ impl Loaded {
         let _active = ActiveKv(&b.kv_active);
         let t0 = std::time::Instant::now();
         if let Some(e) = entry.as_mut() {
-            e.kv.set_resume_at(history);
+            e.kv.set_resume_at(head.or(history));
         }
         let reused = match entry.as_mut().map(|e| &mut e.kv) {
             Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
@@ -1704,9 +1783,7 @@ impl Loaded {
         if let Some(e) = entry {
             let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
             all.push(e);
-            while all.len() > SESSIONS {
-                all.remove(0);
-            }
+            trim_sessions(&mut all);
         }
         let done = std::time::Instant::now();
         let prefill_ms = first.get().unwrap_or(done).duration_since(t0).as_millis() as u64;
@@ -1727,6 +1804,7 @@ impl Loaded {
         // Остановил сам ход (on_piece вернул false): на готовом вызове
         // инструмента или по отмене.
         let finish_reason = match fin.reason {
+            _ if park_only => "parked",
             synaptix::facade::llm::FinishReason::Callback if !tool_calls.is_empty() => "tool_call",
             synaptix::facade::llm::FinishReason::Callback if stopped() => "cancel",
             r => r.as_str(),
@@ -1738,6 +1816,9 @@ impl Loaded {
                 fin.thinking_tokens,
                 if fin.thinking_open { ", модель не вышла из размышлений" } else { "" }
             );
+        }
+        if park_only {
+            text.clear();
         }
         Ok(crate::Generated {
             text,
@@ -2501,5 +2582,38 @@ pub fn llm_info_at(path: &std::path::Path, window: usize, media: bool) -> crate:
             .collect(),
         reasoning_levels: profile.reasoning.as_ref().map(|r| r.levels.clone()).unwrap_or_default(),
         reasoning_default: profile.reasoning.as_ref().map(|r| r.default.clone()),
+    }
+}
+
+#[cfg(test)]
+mod park_tests {
+    use super::{evict_plan, prefix_key};
+
+    #[test]
+    fn prefix_key_stable_and_distinct() {
+        assert_eq!(prefix_key(&[1, 2, 3]), prefix_key(&[1, 2, 3]));
+        assert_ne!(prefix_key(&[1, 2, 3]), prefix_key(&[1, 2, 4]));
+        assert_ne!(prefix_key(&[1, 2]), prefix_key(&[1, 2, 0]));
+        // Стабилен между запусками (FNV-1a, без случайного зерна).
+        assert_eq!(prefix_key(&[]), "prefix:cbf29ce484222325:0");
+    }
+
+    #[test]
+    fn evict_by_count_budget_and_ram() {
+        let g = 1u64 << 30;
+        // В пределах — никого.
+        assert!(evict_plan(&[(true, g), (false, g)], 16, 8 * g, 0).is_empty());
+        // Сверх числа — самые давние.
+        let many: Vec<(bool, u64)> = (0..5).map(|_| (true, 1)).collect();
+        assert_eq!(evict_plan(&many, 3, u64::MAX, 0), vec![0, 1]);
+        // Сверх потолка RAM: 3+3+3 ГБ при потолке 5 — уходят две давние.
+        assert_eq!(evict_plan(&[(true, 3 * g), (true, 3 * g), (true, 3 * g)], 16, 5 * g, 0), vec![0, 1]);
+        assert_eq!(evict_plan(&[(true, 3 * g), (true, 3 * g), (true, 3 * g), (false, g)], 16, 5 * g, 0), vec![0, 1]);
+        // Нехватка свободной RAM системы: вытесняется, пока не покрыта.
+        assert_eq!(evict_plan(&[(true, g), (true, g), (true, g), (false, g)], 16, 8 * g, g + 1), vec![0, 1]);
+        // Сессия на карте RAM не освобождает, но число уменьшает.
+        assert_eq!(evict_plan(&[(false, g), (true, g), (false, g)], 16, 8 * g, g), vec![0, 1]);
+        // Последняя (свежая) не вытесняется никогда.
+        assert!(evict_plan(&[(true, 9 * g)], 0, 0, u64::MAX).is_empty());
     }
 }

@@ -315,6 +315,15 @@ fn run(args: &[String]) -> Result<(), String> {
             if std::env::var("THINK").is_ok_and(|v| v == "1") {
                 params = params.with("thinking", true);
             }
+            // PREFIX=N — первые N сообщений (HISTORY) — голова: её KV
+            // паркуется и берётся из кэша следующими ходами с той же головой;
+            // PARK=1 — только посчитать и припарковать голову, без ответа.
+            if let Some(n) = std::env::var("PREFIX").ok().and_then(|v| v.parse::<i64>().ok()) {
+                params = params.with("prefix_messages", n);
+            }
+            if std::env::var("PARK").is_ok_and(|v| v == "1") {
+                params = params.with("park", true);
+            }
             // GEN_TEMP / GEN_SEED / GEN_TOPK — сэмплирование хода (проверка
             // воспроизводимости: одинаковый seed — одинаковый ответ).
             if let Some(t) = std::env::var("GEN_TEMP").ok().and_then(|v| v.parse::<f64>().ok()) {
