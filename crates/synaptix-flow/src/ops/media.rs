@@ -191,7 +191,8 @@ pub fn decode_pcm(src: &str, rate: u32) -> Result<Vec<f32>, String> {
 }
 
 /// Панель листа-референса: какую картинку, какой вырез (x, y, w, h в долях
-/// исходника) и куда (x, y, w, h в пикселях листа).
+/// исходника), куда (x, y, w, h в пикселях листа) и как вписать: целиком на
+/// светло-сером фоне (`contain`, герои и предметы) или заполнить (`cover`, место).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SheetPanel {
     pub src: usize,
@@ -200,52 +201,54 @@ pub struct SheetPanel {
     pub y: u32,
     pub w: u32,
     pub h: u32,
+    pub contain: bool,
 }
 
-/// Раскладка листа-референса LTX-2.5 Ingredients (правила Lightricks): чёрный
-/// холст `w×h`; сверху герои — у каждого лицо крупно (квадрат из верхней
-/// середины портрета в полный рост) и фигура целиком; снизу место (самая
-/// крупная панель) и предметы. Ряд, не влезающий по ширине, ужимается целиком.
+/// Промежуток между панелями, px (чёрный, как у листов Lightricks).
+const SHEET_GAP: f64 = 8.0;
+
+/// Раскладка листа-референса LTX-2.5 Ingredients по образцу листов Lightricks:
+/// сплошная мозаика на весь холст с узкими чёрными промежутками, без пустых
+/// полей. Верхний ряд — герои: у каждого лицо крупно (квадрат из верхней
+/// середины портрета в полный рост) и фигура целиком; нижний — место (шире
+/// всего, заполняет ячейку) и предметы. Ряды растягиваются на всю ширину.
 /// `sizes` — размеры картинок: сначала герои, потом место (если есть), потом предметы.
 pub fn sheet_layout(w: u32, h: u32, sizes: &[(u32, u32)], chars: usize, location: bool, face: bool) -> Vec<SheetPanel> {
     let rest = sizes.len() - chars;
-    let rows = usize::from(chars > 0) + usize::from(rest > 0);
-    if rows == 0 {
-        return Vec::new();
-    }
-    let row_h = h as f64 / rows as f64;
-    // (источник, вырез, ширина при высоте ряда)
-    let mut top: Vec<(usize, Option<(f64, f64, f64, f64)>, f64)> = Vec::new();
+    // (источник, вырез, вес ширины, вписать целиком)
+    type Cell = (usize, Option<(f64, f64, f64, f64)>, f64, bool);
+    let mut top: Vec<Cell> = Vec::new();
     for (i, &(iw, ih)) in sizes.iter().enumerate().take(chars) {
         let (iw, ih) = (iw.max(1) as f64, ih.max(1) as f64);
         if face && ih > iw {
             // Голова портрета в полный рост — в верхней четверти по центру.
             let side = (ih * 0.23).min(iw);
-            top.push((i, Some(((iw - side) / 2.0 / iw, ih * 0.03 / ih, side / iw, side / ih)), row_h));
+            top.push((i, Some(((iw - side) / 2.0 / iw, ih * 0.03 / ih, side / iw, side / ih)), 1.0, true));
         }
-        top.push((i, None, row_h * iw / ih));
+        top.push((i, None, 0.8, true));
     }
-    let bottom: Vec<(usize, Option<(f64, f64, f64, f64)>, f64)> = (chars..sizes.len())
-        .map(|i| {
-            let (iw, ih) = (sizes[i].0.max(1) as f64, sizes[i].1.max(1) as f64);
-            // Место — крупнее предметов: до половины ширины листа.
-            let cap = if location && i == chars { w as f64 * 0.5 } else { w as f64 * 0.3 };
-            (i, None, (row_h * iw / ih).min(cap))
-        })
-        .collect();
+    let bottom: Vec<Cell> = (chars..sizes.len()).map(|i| (i, None, if location && i == chars { 2.0 } else { 1.0 }, !(location && i == chars))).collect();
+    let rows: Vec<(Vec<Cell>, f64)> = match (top.is_empty(), bottom.is_empty() || rest == 0) {
+        (false, false) => vec![(top, 0.55), (bottom, 0.45)],
+        (false, true) => vec![(top, 1.0)],
+        (true, false) => vec![(bottom, 1.0)],
+        (true, true) => return Vec::new(),
+    };
     let mut out = Vec::new();
-    for (r, row) in [top, bottom].into_iter().filter(|r| !r.is_empty()).enumerate() {
-        let total: f64 = row.iter().map(|p| p.2).sum();
-        let s = (w as f64 / total).min(1.0);
-        let ph = row_h * s;
-        let mut x = (w as f64 - total * s) / 2.0;
-        let y = r as f64 * row_h + (row_h - ph) / 2.0;
-        for (src, crop, pw) in row {
-            let pw = pw * s;
+    let mut y = SHEET_GAP;
+    let inner_h = h as f64 - SHEET_GAP * (rows.len() as f64 + 1.0);
+    for (row, share) in rows {
+        let rh = inner_h * share;
+        let total: f64 = row.iter().map(|c| c.2).sum();
+        let inner_w = w as f64 - SHEET_GAP * (row.len() as f64 + 1.0);
+        let mut x = SHEET_GAP;
+        for (src, crop, weight, contain) in row {
+            let cw = inner_w * weight / total;
             let even = |v: f64| ((v / 2.0).floor() * 2.0).max(2.0) as u32;
-            out.push(SheetPanel { src, crop, x: x.round() as u32, y: y.round() as u32, w: even(pw), h: even(ph) });
-            x += pw;
+            out.push(SheetPanel { src, crop, x: x.round() as u32, y: y.round() as u32, w: even(cw), h: even(rh), contain });
+            x += cw + SHEET_GAP;
         }
+        y += rh + SHEET_GAP;
     }
     out
 }
@@ -288,7 +291,13 @@ pub fn ref_sheet(cx: &mut Cx) -> R {
             Some((x, y, cw, ch)) => format!("crop=iw*{cw:.4}:ih*{ch:.4}:iw*{x:.4}:ih*{y:.4},"),
             None => String::new(),
         };
-        graph.push_str(&format!("[{}:v]{crop}scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}[p{k}];", p.src, p.w, p.h, p.w, p.h));
+        let fit = if p.contain {
+            // Целиком на светло-сером фоне — как предметные и персонажные панели Lightricks.
+            format!("scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=0xE4E4E4", w = p.w, h = p.h)
+        } else {
+            format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}", w = p.w, h = p.h)
+        };
+        graph.push_str(&format!("[{}:v]{crop}{fit}[p{k}];", p.src));
     }
     for (k, p) in panels.iter().enumerate() {
         let last = if k + 1 == panels.len() { "out".to_string() } else { format!("c{}", k + 1) };
@@ -314,30 +323,31 @@ mod sheet_tests {
         // Два портрета 768×1152, кухня 1344×768, предмет 1024×1024 на 960×544.
         let p = sheet_layout(960, 544, &[(768, 1152), (768, 1152), (1344, 768), (1024, 1024)], 2, true, true);
         assert_eq!(p.len(), 2 * 2 + 2);
-        // Верхний ряд: лицо, фигура, лицо, фигура; всё в пределах листа и в верхней половине.
-        assert!(p[..4].iter().all(|q| q.y + q.h <= 272 && q.x + q.w <= 960));
-        assert!(p[0].crop.is_some() && p[1].crop.is_none());
-        // Нижний ряд: место крупнее предмета, в нижней половине.
-        assert!(p[4].w > p[5].w && p[4].y >= 272 && p[4].y + p[4].h <= 544);
-        // Без пересечений по горизонтали в ряду.
+        // Сплошная мозаика: ряды во всю ширину, без пустых полей.
+        let right = |r: &[super::SheetPanel]| r.iter().map(|q| q.x + q.w).max().unwrap();
+        assert!(right(&p[..4]) >= 948 && right(&p[..4]) <= 960);
+        assert!(right(&p[4..]) >= 948 && right(&p[4..]) <= 960);
+        let bottom = p.iter().map(|q| q.y + q.h).max().unwrap();
+        assert!(bottom >= 530 && bottom <= 544, "лист заполнен по высоте: {bottom}");
+        // Лицо — вырез и вписано; место — шире предмета и заполняет ячейку.
+        assert!(p[0].crop.is_some() && p[0].contain && p[1].crop.is_none());
+        assert!(p[4].w > p[5].w && !p[4].contain && p[5].contain);
         for row in [&p[..4], &p[4..]] {
             for w in row.windows(2) {
-                assert!(w[0].x + w[0].w <= w[1].x + 1);
+                assert!(w[0].x + w[0].w <= w[1].x);
             }
         }
     }
 
     #[test]
-    fn only_characters_fill_height_and_shrink_to_width() {
+    fn only_characters_fill_whole_sheet() {
         let p = sheet_layout(960, 544, &[(768, 1152); 4], 4, false, true);
         assert_eq!(p.len(), 8);
-        let right = p.iter().map(|q| q.x + q.w).max().unwrap();
-        assert!(right <= 960, "ряд ужат по ширине: {right}");
+        assert!(p.iter().all(|q| q.x + q.w <= 960 && q.y + q.h <= 544));
+        assert!(p[0].h >= 520, "один ряд — на всю высоту");
     }
 }
 
-/// Живой прогон узла на настоящих картинках:
-/// `SHEET_CHARS="a.png\nb.png" SHEET_LOC=k.png SHEET_OUT=каталог cargo test -p synaptix-flow sheet_live -- --ignored`.
 #[cfg(test)]
 mod sheet_live {
     #[test]
