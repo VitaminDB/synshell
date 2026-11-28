@@ -14,13 +14,14 @@ use super::{icons, St};
 use crate::settings::{self, RoleKind, Settings, ToolMode, ROLES};
 
 /// Разделы: значок и ключ названия.
-const SECTIONS: [(&str, &str); 7] = [
+const SECTIONS: [(&str, &str); 8] = [
     (icons::AI, "settings.sec.agent"),
     (icons::DESCRIPTION, "settings.sec.prompt"),
     (icons::PSYCHOLOGY, "settings.sec.skills"),
     (icons::BUILD, "settings.sec.tools"),
     (icons::HUB, "settings.sec.models"),
     (icons::ACCOUNT_TREE, "settings.sec.nodes"),
+    (icons::MOVIE, "settings.sec.crew"),
     (icons::TUNE, "settings.sec.advanced"),
 ];
 
@@ -29,6 +30,7 @@ pub const SEC_PROMPT: usize = 1;
 pub const SEC_SKILLS: usize = 2;
 pub const SEC_TOOLS: usize = 3;
 pub const SEC_MODELS: usize = 4;
+pub const SEC_CREW: usize = 6;
 
 thread_local! {
     static SECTION: std::cell::RefCell<Option<RwSignal<usize>>> = const { std::cell::RefCell::new(None) };
@@ -288,6 +290,56 @@ fn agent_chats(st: St) -> impl Widget {
 }
 
 // ── системный промпт ─────────────────────────────────────────────────────
+
+/// Съёмочная группа: у каждой роли — системный промпт (свой или по умолчанию),
+/// её навыки и документы, модель роли (пусто — модель агента).
+fn crew_page(st: St, s: &Settings) -> impl Widget {
+    let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    col = col.child(Text::new("Фильм делает группа ролей: режиссёр ведёт конвейер сцена за сценой и поручает шаги ролям. У каждой роли свой системный промпт (роль и обязательные правила) и свои навыки (знания). Правила проекта из задания пользователя (язык, мат, стиль, длина) добавляются к промпту каждой роли сами.").class("set-hint"));
+    for r in crate::crew::ROLES {
+        let id = r.id;
+        let custom = s.crew_prompts.get(id).is_some_and(|p| !p.trim().is_empty());
+        let prompt = MultilineTextEdit::new()
+            .text(crate::crew::role_system(r, s))
+            .soft_wrap(true)
+            .rows(6)
+            .on_change(move |t: &str| {
+                let t = t.to_string();
+                settings::update(move |s| {
+                    let def = crate::crew::role(id).map(|r| r.prompt.trim()).unwrap_or("");
+                    if t.trim().is_empty() || t.trim() == def {
+                        s.crew_prompts.remove(id);
+                    } else {
+                        s.crew_prompts.insert(id.to_string(), t);
+                    }
+                });
+            })
+            .class("set-instr-editor");
+        let model = TextField::new()
+            .text(s.crew_models.get(id).cloned().unwrap_or_default())
+            .placeholder("модель агента (по умолчанию)")
+            .on_change(move |t: &str| {
+                let t = t.trim().to_string();
+                settings::update(move |s| {
+                    if t.is_empty() {
+                        s.crew_models.remove(id);
+                    } else {
+                        s.crew_models.insert(id.to_string(), t);
+                    }
+                });
+            });
+        let reset = Button::new(tr!("settings.prompt.reset")).icon(icons::RESTORE).disabled(!custom).on_click(move || change(st, move |s| {
+            s.crew_prompts.remove(id);
+        })).class("btn-small");
+        let hint = format!("Навыки: {}. Документы: {}.{}", r.skills.join(", "), r.owns.join(", "), if custom { " Промпт изменён." } else { "" });
+        col = col.child(card(
+            r.title.to_string(),
+            hint,
+            Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(prompt).child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Модель роли").class("set-label")).child(DecoratedBox::new().class("grow").child(model)).child(reset)),
+        ));
+    }
+    col
+}
 
 fn prompt_page(st: St, s: &Settings) -> impl Widget {
     let custom = !s.prompt.trim().is_empty();
@@ -932,6 +984,7 @@ pub fn view(st: St) -> impl Widget {
             SEC_TOOLS => Box::new(tools_page(st, &s)),
             SEC_MODELS => Box::new(models_page(st, &s)),
             5 => Box::new(nodes_page(st, &s)),
+            SEC_CREW => Box::new(crew_page(st, &s)),
             _ => Box::new(advanced_page(st, &s)),
         };
         vec![Box::new(DecoratedBox::new().class("set-body").child(Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(tr!(SECTIONS[i.min(SECTIONS.len() - 1)].1)).class("set-title")).child(content)))]
