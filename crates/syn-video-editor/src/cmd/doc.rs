@@ -129,6 +129,49 @@ static ASSEMBLE: Cmd = Cmd {
     },
 };
 
+/// Раздел «Сцена N» документа (до следующего заголовка того же уровня или выше).
+pub fn section(text: &str, n: u32) -> Option<String> {
+    let mut out: Option<String> = None;
+    let mut level = 0;
+    for l in text.lines() {
+        if l.starts_with('#') {
+            let lv = l.chars().take_while(|c| *c == '#').count();
+            let t = l.trim_start_matches('#').trim().to_lowercase();
+            if t.starts_with("сцена") {
+                let d: String = t.trim_start_matches("сцена").trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+                if out.is_some() && lv <= level {
+                    break;
+                }
+                if d.parse::<u32>().ok() == Some(n) {
+                    out = Some(String::new());
+                    level = lv;
+                    continue;
+                }
+            } else if out.is_some() && lv <= level {
+                break;
+            }
+        }
+        if let Some(s) = out.as_mut() {
+            s.push_str(l);
+            s.push('\n');
+        }
+    }
+    out
+}
+
+/// Дословный перевод сцены `n` в `00_оригинал`: раздел есть и по объёму
+/// сопоставим с текстом сцены источника (не меньше половины его знаков).
+pub fn original_check(orig: &str, src: &Source, n: u32) -> Option<String> {
+    let want = src.scene_texts.get(n as usize - 1)?.chars().filter(|c| c.is_alphanumeric()).count();
+    match section(orig, n) {
+        None => Some(format!("в 00_оригинал нет раздела «Сцена {n}» — возьми source.scene {n} и допиши дословный перевод сцены 1:1 (со страницей PDF, без сокращений и склеек)")),
+        Some(t) => {
+            let got = t.chars().filter(|c| c.is_alphanumeric()).count();
+            (got * 2 < want).then(|| format!("раздел «Сцена {n}» в 00_оригинал короче источника ({got} знаков против {want}) — переведи сцену дословно целиком, без сокращений"))
+        }
+    }
+}
+
 /// Номер документа сцены: `scene_03`, `сцена_3`, `scene-12`.
 pub fn scene_doc_number(stem: &str) -> Option<u32> {
     let low = stem.to_lowercase();
@@ -227,8 +270,15 @@ static LIST: Cmd = Cmd {
 fn write(ed: &mut Editor, a: &Args) -> Res {
     let p = doc_path(ed, &a.need_str("name")?)?;
     // сцена за сценой: документ сцены N+1 — только после съёмки сцены N
+    // и после дословного перевода сцены N в 00_оригинал
     if let Some(n) = p.file_stem().and_then(|s| scene_doc_number(&s.to_string_lossy())) {
         super::story::gate(ed.path.as_deref(), n, "Документ")?;
+        if let (Some(src), Some(dir)) = (SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone(), ed.path.as_deref().map(crate::store::media_dir)) {
+            let orig = std::fs::read_to_string(dir.join("00_оригинал.md")).unwrap_or_default();
+            if let Some(w) = original_check(&orig, &src, n) {
+                return Err(format!("scene_{n:02} — рано: {w}"));
+            }
+        }
     }
     let text = crate::yo::yofy(&a.need_str("text")?);
     if let Some(d) = p.parent() {
@@ -261,6 +311,29 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
             for w in names_coverage(&body, src) {
                 msg.push_str(&format!(". {w}"));
             }
+        }
+    }
+    // дословный перевод источника: каждый раздел сцены — по объёму не меньше половины оригинала
+    if stem.contains("оригинал") {
+        if let Some(src) = &kind_src {
+            let mut short = Vec::new();
+            for n in 1..=src.scenes as u32 {
+                if section(&body, n).is_some() {
+                    if let Some(w) = original_check(&body, src, n) {
+                        short.push(w);
+                    }
+                }
+            }
+            for w in short {
+                msg.push_str(&format!(". {w}"));
+            }
+        }
+    }
+    // сверка фактов: строки с ✗ — вернуть агенту
+    if stem.contains("сверк") {
+        let bad: Vec<String> = body.lines().filter(|l| l.trim_start().starts_with('|') && l.contains('✗')).map(|l| l.trim().chars().take(120).collect()).collect();
+        if !bad.is_empty() {
+            msg.push_str(&format!(". В сверке есть ✗ — исправь соответствующие scene_NN по источнику и обнови строки: {}", bad.join(" / ")));
         }
     }
     if stem.contains("структур") {
@@ -769,6 +842,12 @@ mod length_tests {
         assert_eq!(src.scene_texts.len(), 2);
         assert!(src.scene_texts[1].starts_with("INT. HALL"));
         assert_eq!(super::scene_doc_number("scene_03"), Some(3));
+        // оригинал: раздел сцены и его объём
+        let orig = "# Оригинал\n## Сцена 1 (стр. 2)\nКОФИ: «Пошла вон, сука!» АМАРА: «Нет.» Длинный дословный перевод сцены.\n## Сцена 2\nкоротко\n";
+        assert!(super::section(orig, 1).unwrap().contains("Пошла вон"));
+        assert!(super::original_check(orig, &src, 1).is_none());
+        assert!(super::original_check("## Сцена 3\nx", &src, 1).unwrap().contains("нет раздела"));
+        assert!(super::original_check("## Сцена 2\nx", &src, 2).unwrap().contains("короче"));
         assert_eq!(super::scene_doc_number("Сцена-12"), Some(12));
         assert_eq!(super::scene_doc_number("сценарий"), None);
         assert!(!super::names_coverage("### Коф\n### Амара", &src).is_empty());

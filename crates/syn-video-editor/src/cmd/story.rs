@@ -78,6 +78,10 @@ pub fn scene_number(s: &str) -> Option<u32> {
 /// Можно ли работать со сценой `n`: снята каждая сцена до неё (или режим «все разом»).
 pub fn gate(project: Option<&Path>, n: u32, what: &str) -> Result<(), String> {
     let Some(p) = project else { return Ok(()) };
+    // озвучка, план и съёмка сцены — только после сверки её фактов с источником
+    if what != "Документ" {
+        facts_gate(p, n)?;
+    }
     let s = load(Some(p));
     if s.all_at_once || n <= 1 {
         return Ok(());
@@ -101,6 +105,39 @@ pub fn set_tail(project: Option<&Path>, n: u32, t: &Path) {
     let mut s = load(Some(p));
     s.tail.insert(n, t.to_path_buf());
     save(p, &s);
+}
+
+/// Строки сцены `n` в таблице сверки (`02_сверка.md`): первая ячейка — номер.
+pub fn facts_rows(table: &str, n: u32) -> Vec<String> {
+    table
+        .lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .filter(|l| {
+            let cell = l.trim().trim_start_matches('|').split('|').next().unwrap_or("").trim().to_lowercase();
+            let d: String = cell.trim_start_matches("сцена").trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+            d.parse::<u32>().ok() == Some(n)
+        })
+        .map(|l| l.trim().to_string())
+        .collect()
+}
+
+/// Сверка фактов сцены `n` пройдена: в проекте по готовому сценарию (есть
+/// `00_оригинал` или `02_сверка`) строка сцены есть и в ней нет ✗.
+pub fn facts_gate(project: &Path, n: u32) -> Result<(), String> {
+    let dir = crate::store::media_dir(project);
+    let table = dir.join("02_сверка.md");
+    if !table.is_file() && !dir.join("00_оригинал.md").is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&table).unwrap_or_default();
+    let rows = facts_rows(&text, n);
+    if rows.is_empty() {
+        return Err(format!("Сцена {n}: нет строки в 02_сверка — сначала заполни её (место и чьё оно, кто в кадре, что делают, реквизит — где и у кого, кто притворяется или скрывается; ✓ или ✗ по каждому факту против источника)"));
+    }
+    if let Some(bad) = rows.iter().find(|r| r.contains('✗')) {
+        return Err(format!("Сцена {n}: в 02_сверка есть ✗ — исправь scene_{n:02} по источнику (source.scene {n}) и обнови строку сверки: {bad}"));
+    }
+    Ok(())
 }
 
 /// Сняты ещё `k` роликов сцены `n`; сцена снята, когда сняты все ролики её
@@ -635,5 +672,24 @@ mod tests {
         assert_eq!(scene_number("Сцена 3 из 8: x"), Some(3));
         assert_eq!(scene_number("12"), Some(12));
         assert_eq!(scene_number("сцена-4"), None);
+    }
+}
+
+#[cfg(test)]
+mod facts_tests {
+    #[test]
+    fn facts_table_gate() {
+        let t = "| Сцена | Место | Кто | ✓/✗ |\n|---|---|---|---|\n| 1 | кухня героини | мать, дочь | ✓ |\n| 2 | гостиная | мать | ✗ место |\n";
+        assert_eq!(super::facts_rows(t, 1).len(), 1);
+        assert!(super::facts_rows(t, 2)[0].contains('✗'));
+        assert!(super::facts_rows(t, 3).is_empty());
+        let d = tempfile::tempdir().unwrap();
+        let proj = d.path().join("p").join("p.syn");
+        let dir = crate::store::media_dir(&proj);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("02_сверка.md"), t).unwrap();
+        assert!(super::facts_gate(&proj, 1).is_ok());
+        assert!(super::facts_gate(&proj, 2).unwrap_err().contains("✗"));
+        assert!(super::facts_gate(&proj, 3).unwrap_err().contains("нет строки"));
     }
 }
