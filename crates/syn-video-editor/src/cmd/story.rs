@@ -378,23 +378,72 @@ static STATUS: Cmd = Cmd {
 /// `[CUT]`): начало кадра обязано совпасть с концом предыдущего ролика, иначе
 /// H3 уводит хвост в новый план растворением через эталоны на белом фоне.
 pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, timing: &str, windows: &str) -> String {
-    let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
-    let mut sd = String::from("subject_definitions: <каждая картинка ролика: <Picture k> is …>.");
-    let mut ra = String::from("retention_analysis: <роль каждой картинки: fully_preserved / partially_preserved / …>.");
+    // имена — латиницей: в английском тексте вне <d> кириллицу H3 норовит зачитать
+    let speakers: Vec<String> = tracks.iter().filter_map(|t| t["latin"].as_str().filter(|s| !s.is_empty()).map(str::to_string).or_else(|| t["speaker"].as_str().map(latin))).collect();
+    let mut sd = String::from("subject_definitions: <по строке на каждого героя, место и важный предмет ролика: <Subject N> is <кто или что: приметы теми же словами, что в библии> in <Picture k>.>");
+    let mut ra = String::from("retention_analysis: <по строке на каждый <Subject N>: <Subject N> (appears in [Shot 1], …): fully_preserved - <что сохраняется>; место — fully_preserved - the layout, walls, windows and doors stay exactly as in the reference.>");
     for (j, sp) in speakers.iter().enumerate() {
         let k = base + j + 1;
-        sd.push_str(&format!(" <Audio {k}> is the exact dialogue track of {sp}."));
+        sd.push_str(&format!(" <Audio {k}> is the exact dialogue track of {sp} (S{}).", j + 1));
         ra.push_str(&format!(" <Audio {k}>: fully_copy - {sp}'s speech, copied exactly and lip-synced."));
     }
     let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
     format!(
-        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус> <действие по битам с таймкодами «At 00:0X.X, …» по сценарию ({}): в окнах без речи — заметное действие (движение, перемещения, работа с предметами, падения, реакции), во время реплик герои тоже заняты делом; без глаголов речи> <по раскадровке — следующие планы этого ролика: [Shot 2] At 00:0X.X, <другая крупность или ракурс: крупно реакция, через плечо, деталь реквизита> …; иначе убери>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
-        if speakers.is_empty() { "" } else { " + [audio reuse]" },
+        "{sd} summary: [reference generation{}] <суть ролика одной фразой: кто, где, что происходит>. {ra} detailed_description: <стиль: 1–2 предложения>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой в кадре (лево/центр/право, передний/задний план) и куда направлены его взгляд и корпус> <действие по битам с таймкодами «At 00:0X.X, …» по сценарию ({}): в окнах без речи — заметное действие (движение, перемещения, работа с предметами, падения, реакции), во время реплик герои тоже заняты делом; без глаголов речи> <по раскадровке — следующие планы этого ролика: [Shot 2] At 00:0X.X, the shot cuts to <другая крупность или ракурс: крупно реакция, через плечо, деталь реквизита> …; иначе убери> <конец ролика: позы, взгляды и предметы на последнем кадре>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <фон места и звуки действий ролика>. non_diegetic_music: <музыка: инструменты, темп, динамика — или N/A>.",
+        if speakers.is_empty() { "" } else { " + audio reuse" },
         if continues { CONTINUES } else { "" },
         if continues { CAMERA_CONT } else { "" },
         timing,
         if speakers.is_empty() { " No one speaks, shouts, hums or makes any vocal sound in this shot; all mouths stay closed or only breathe.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.{windows}", who.join(", ")) }
     )
+}
+
+/// Латинское имя героя из словаря имён библии: строка «- <Имя> (<Latin>) …»
+/// или «<Имя> (<Latin>)»; нет — транслитерация.
+pub fn latin_name(bible: &str, name: &str) -> String {
+    let low = name.trim().to_lowercase();
+    for l in bible.lines() {
+        let l = l.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("**");
+        if let Some(i) = l.find('(') {
+            let head = l[..i].trim().trim_end_matches("**").trim().to_lowercase();
+            if head == low {
+                let inner: String = l[i + 1..].chars().take_while(|c| *c != ')').collect();
+                let inner = inner.trim();
+                if !inner.is_empty() && inner.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '-' || c == '\'') {
+                    return inner.to_string();
+                }
+            }
+        }
+    }
+    latin(name)
+}
+
+/// Имя латиницей (для английского текста промпта): кириллица — по простой
+/// транслитерации, остальное как есть.
+pub fn latin(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        let lower = c.to_lowercase().next().unwrap_or(c);
+        let t = match lower {
+            'а' => "a", 'б' => "b", 'в' => "v", 'г' => "g", 'д' => "d", 'е' => "e", 'ё' => "yo", 'ж' => "zh", 'з' => "z", 'и' => "i", 'й' => "y",
+            'к' => "k", 'л' => "l", 'м' => "m", 'н' => "n", 'о' => "o", 'п' => "p", 'р' => "r", 'с' => "s", 'т' => "t", 'у' => "u", 'ф' => "f",
+            'х' => "kh", 'ц' => "ts", 'ч' => "ch", 'ш' => "sh", 'щ' => "shch", 'ъ' => "", 'ы' => "y", 'ь' => "", 'э' => "e", 'ю' => "yu", 'я' => "ya",
+            _ => {
+                out.push(c);
+                continue;
+            }
+        };
+        if c != lower {
+            let mut it = t.chars();
+            if let Some(f) = it.next() {
+                out.extend(f.to_uppercase());
+                out.push_str(it.as_str());
+            }
+        } else {
+            out.push_str(t);
+        }
+    }
+    out
 }
 
 /// Время ролика словами: когда кто говорит и окна без речи (для битов действия).
@@ -527,6 +576,8 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
         s.seconds = h3_seconds(s.seconds);
     }
     let base = project.map(crate::store::media_dir).unwrap_or_else(std::env::temp_dir).join("speech");
+    // латинские имена героев — из словаря имён библии («- Имя (Latin) — …»)
+    let bible = project.map(|p| std::fs::read_to_string(crate::store::media_dir(p).join("01_библия.md")).unwrap_or_default()).unwrap_or_default();
     let mut files = Vec::new();
     let mut shots_json = Vec::new();
     let mut md = format!("\n## Сцена {n}{}\n\nДлина {total:.1} с (действие {action:.1} с, речь {:.1} с), роликов {}.\n\n| Ролик | Окно сцены | Длина | Дорожки | Реплики |\n|---|---|---|---|---|\n", a.str("title")?.map(|t| format!(" — {t}")).unwrap_or_default(), placed.last().map(|l| l.at + l.seconds + TAIL).unwrap_or(0.0), shots.len());
@@ -544,7 +595,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             let p = base.join(format!("сцена-{n}-ролик-{}-{}.wav", i + 1, slug(sp)));
             make_track(&s.lines.iter().filter(|l| &l.speaker == sp).map(|l| (l.file.clone(), l.offset, l.seconds, l.at)).collect::<Vec<_>>(), s.seconds, &p)?;
             files.push(p.clone());
-            tracks.push(json!({"speaker": sp, "file": p}));
+            tracks.push(json!({"speaker": sp, "latin": latin_name(&bible, sp), "file": p}));
         }
         let said: Vec<String> = s.lines.iter().map(|l| format!("{} @{:.1}", l.speaker, l.at)).collect();
         md.push_str(&format!(
@@ -648,6 +699,10 @@ mod tests {
     fn continuation_needs_phrase() {
         assert!((h3_seconds(4.5) - 124.0 / 24.0).abs() < 1e-9);
         assert!((h3_seconds(124.0 / 24.0) - 124.0 / 24.0).abs() < 1e-9);
+        assert_eq!(latin_name("## Словарь\n- Бухле (Buhle) — девочка\n- **Тренер** (Coach) — x", "Бухле"), "Buhle");
+        assert_eq!(latin_name("- **Тренер** (Coach) — x", "Тренер"), "Coach");
+        assert_eq!(latin_name("", "Бухле"), "Bukhle");
+        assert_eq!(latin("Щука-Ёж Bob"), "Shchuka-Yozh Bob");
         // окна речи и тишины ролика словами
         let ln = |sp: &str, at: f64, s: f64| Line { speaker: sp.into(), file: PathBuf::new(), offset: 0.0, seconds: s, pauses: vec![], at, before: 0.0 };
         let shot = Shot { start: 0.0, seconds: 5.0, lines: vec![ln("A", 1.5, 1.2), ln("B", 3.0, 1.0)], quiet: vec![] };
