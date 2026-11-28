@@ -8,7 +8,7 @@
     },
     "style": {
       "type": "text",
-      "description": "визуальный стиль фильма по-английски",
+      "description": "визуальный стиль фильма по-английски — якорь: ставится первым в промпте и повторяется в конце (описание должно быть уже в этом стиле)",
       "default": "3D animated feature film, rich textures, expressive characters, cinematic volumetric lighting"
     },
     "base": {
@@ -28,7 +28,7 @@
     },
     "negative": {
       "type": "text",
-      "description": "дополнительный негатив по-английски — чего НЕ должно быть (обрезанные ноги, портрет по пояс…); встроенный негатив против коллажа и текста уже есть. В prompt запреты не пиши — модель их нарисует",
+      "description": "дополнительный негатив по-английски — чего НЕ должно быть (обрезанные ноги, портрет по пояс…); встроенный негатив против коллажа и текста уже есть. В prompt запреты не пиши — модель их нарисует Под стиль — противоположный вид (мультфильм: photorealistic, photograph, live action, realistic skin texture; живая съёмка: cartoon, 3D render, illustration).",
       "default": ""
     },
     "image_model": {
@@ -46,7 +46,7 @@
     {
       "id": "ref",
       "op": "image",
-      "prompt": "{{prompt}}, {{style}}, single clean film still, sharp detail, no text",
+      "prompt": "{{style}}. {{prompt}}. Everything in this {{style}} look, single clean film still, sharp detail, no text",
       "images": "{{base}}",
       "model": "{{image_model}}",
       "width": "{{width}}",
