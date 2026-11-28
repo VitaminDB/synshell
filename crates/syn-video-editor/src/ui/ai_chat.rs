@@ -244,7 +244,7 @@ pub fn head(st: St) -> impl Widget {
         if !list.iter().any(|c| c.id == cur) {
             items.insert(0, DropdownItem::new(cur.clone(), tr!("ai.chat.new_title")));
         }
-        let dd = Dropdown::with_items(items).selected(cur).on_change(move |id: &str| open_chat(st, id));
+        let dd = Dropdown::with_items(items).selected(cur).on_change(move |id: &str| open_chat(st, id)).class("ai-ctl");
         vec![Box::new(
             Row::new()
                 .gap(4.0)
@@ -272,7 +272,7 @@ pub fn head(st: St) -> impl Widget {
             crate::settings::update(move |s| s.ai_model = id);
             st.set_rev.update(|r| *r += 1);
             load_info(st);
-        });
+        }).class("ai-ctl");
         let thinking = s.ai_thinking;
         let mut row = Row::new()
             .gap(6.0)
@@ -280,7 +280,7 @@ pub fn head(st: St) -> impl Widget {
             .child(SegmentedButton::new(vec![Segment::new(tr!("ai.mode.instruct")), Segment::new(tr!("ai.mode.think"))]).selected(usize::from(thinking)).on_change(move |i| {
                 crate::settings::update(move |s| s.ai_thinking = i == 1);
                 st.set_rev.update(|r| *r += 1);
-            }));
+            }).class("ai-ctl"));
         let levels = info.as_ref().map(|i| i.reasoning_levels.clone()).unwrap_or_default();
         if thinking && !levels.is_empty() {
             // уровней бывает много (none, minimal, low…) — списком, а не сегментами
@@ -291,7 +291,7 @@ pub fn head(st: St) -> impl Widget {
                 let l = l.to_string();
                 crate::settings::update(move |s| s.ai_reasoning = l);
                 st.set_rev.update(|r| *r += 1);
-            }));
+            }).class("ai-ctl"));
         }
         // модель, режим и глубина — одной строкой (шапка не съедает ленту)
         vec![Box::new(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(model)).child(row))]

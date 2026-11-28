@@ -76,11 +76,14 @@
 .ai-field { flex-grow: 1; }
 .ai-queued { opacity: 0.75; border-width: 1px; border-color: var(--primary); }
 .ai-ctx { padding: 4px 10px; border-top-width: 1px; border-color: var(--border-soft); }
-.ai-chips { padding: 6px 8px; border-bottom-width: 1px; border-color: var(--border-soft); }
-.ai-chip { padding: 4px 10px; border-radius: 12px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border); }
-.ai-chip-text { color: var(--text-dim); font-size: 11px; }
-.ai-chip-text-on { color: #ffffff; font-size: 11px; }
-.ai-chip-on { background-color: var(--primary); color: #ffffff; border-color: var(--primary); }
+.ai-chips { padding: 6px 10px; border-bottom-width: 1px; border-color: var(--border-soft); }
+.ai-role { padding: 3px 10px; border-radius: 11px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border-soft); }
+.ai-role-text { color: var(--text-muted); font-size: 11px; }
+.ai-role-text-on { color: #ffffff; font-size: 11px; font-weight: 600; }
+.ai-role-on { background-color: var(--primary); border-color: var(--primary); }
+/* шапка панели ИИ: элементы одной высоты */
+.ai-ctl { height: 28px; font-size: 12px; }
+.ai-head-row { height: 28px; }
 .crew-cell { width: 12px; height: 10px; border-radius: 2px; background-color: var(--bg-panel-2); }
 .crew-cell-done { background-color: var(--primary); }
 .crew-cell-now { background-color: var(--warning, #e0a030); }

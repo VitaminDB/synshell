@@ -329,6 +329,10 @@ fn gui(project: Option<PathBuf>, shot: Option<(String, (u32, u32))>) {
                 if let Ok(at) = std::env::var("SYN_VIDEO_EDITOR_AT") {
                     st.exec("playhead.set", serde_json::json!({"at": at}));
                 }
+                // панель на переднем плане снимка (ai, inspector, media…)
+                if let Ok(panel) = std::env::var("SYN_VIDEO_EDITOR_PANEL") {
+                    st.open_panel(panel.trim());
+                }
                 st.toast.set(None);
                 Box::new(ui::root(st)) as Box<dyn Widget>
             },

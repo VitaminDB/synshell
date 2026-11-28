@@ -997,7 +997,7 @@ fn crew_chips(st: St) -> impl Widget {
         }
         let chip = |label: String, on: bool, busy: bool, v: Option<String>| -> Box<dyn Widget> {
             let text = if busy { format!("● {label}") } else { label };
-            Box::new(GestureDetector::new().on_press(move |_| st.ai_view.set(v.clone())).child(DecoratedBox::new().class(if on { "ai-chip ai-chip-on" } else { "ai-chip" }).child(Text::new(text).max_lines(1).class(if on { "ai-chip-text-on" } else { "ai-chip-text" }))))
+            Box::new(GestureDetector::new().on_press(move |_| st.ai_view.set(v.clone())).child(DecoratedBox::new().class(if on { "ai-role ai-role-on" } else { "ai-role" }).child(Text::new(text).max_lines(1).class(if on { "ai-role-text-on" } else { "ai-role-text" }))))
         };
         let mut chips: Vec<Box<dyn Widget>> = vec![chip("Режиссёр".into(), view.is_none(), st.ai_busy.get() && active.is_none(), None)];
         // чей шаг следующий по доске (автор текущего шага или ждущий проверяющий)
