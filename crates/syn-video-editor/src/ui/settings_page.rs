@@ -303,14 +303,6 @@ fn crew_page(st: St, s: &Settings) -> impl Widget {
             let t = t.trim().to_string();
             settings::update(move |s| s.video_lora = t);
         });
-    let res = TextField::new()
-        .text(s.video_res.clone())
-        .placeholder("960x544")
-        .on_change(move |t: &str| {
-            let t = t.trim().to_string();
-            settings::update(move |s| s.video_res = t);
-        });
-    col = col.child(card("Разрешение съёмки".to_string(), "Размер роликов H3 поверх выбора агента: 960x544 (540p — быстрее, по умолчанию), 1344x768 (768p — чистовик, на 24 ГБ карты втрое дольше); пусто — как выберет агент.".to_string(), res));
     col = col.child(card("Съёмка видео (MiniMax-H3)".to_string(), "LoRA для съёмки сцен: пусто — без LoRA, полные шаги (по умолчанию: качество выше), или имя файла LoRA из lora/h3 (например, Turbo — быстрее, но хуже мелочи и удержание эталонов). Действует, если агент не задал LoRA сам.".to_string(), lora));
     for r in crate::crew::ROLES {
         let id = r.id;
