@@ -345,7 +345,7 @@ fn music(args: &Value, cancel: &AtomicBool) -> ToolResult {
         None if lyrics.trim().is_empty() => c
             .list()
             .ok()
-            .and_then(|l| l.into_iter().filter(|m| m.kind == ModelKind::Music && m.id.contains("acestep")).min_by_key(|m| !m.id.contains("turbo")))
+            .and_then(|l| l.into_iter().filter(|m| m.kind == ModelKind::Music && m.id.contains("acestep")).min_by_key(|m| m.id.contains("turbo")))
             .map(|m| m.id),
         None => None,
     };

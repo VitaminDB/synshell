@@ -694,7 +694,7 @@ fn music(cx: &mut Cx) -> R {
     // Инструментал — ACE-Step (YuE2 — песенная модель).
     let model = cx.str("model").or_else(|| {
         if lyrics.is_empty() {
-            mgr().resolve_fit(ModelKind::Music, &|m| m.arch.to_lowercase().contains("acestep"), &|m| !m.id.contains("turbo") as u8)
+            mgr().resolve_fit(ModelKind::Music, &|m| m.arch.to_lowercase().contains("acestep"), &|m| m.id.contains("turbo") as u8)
         } else {
             None
         }
