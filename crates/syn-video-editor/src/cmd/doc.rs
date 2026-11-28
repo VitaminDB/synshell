@@ -407,6 +407,10 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
             for w in names_coverage(&body, src) {
                 msg.push_str(&format!(". {w}"));
             }
+            // правила брани в библии: мягкие замены грубой брани источника
+            for w in names_and_profanity(&body, src, true).into_iter().filter(|w| w.contains("брань")) {
+                msg.push_str(&format!(". {w} (правило брани в библии)"));
+            }
         }
     }
     // дословный перевод источника: каждый раздел сцены — по объёму не меньше половины оригинала
