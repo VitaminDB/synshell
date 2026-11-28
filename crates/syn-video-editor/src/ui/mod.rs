@@ -835,50 +835,14 @@ impl St {
                 // вызов инструмента ещё собирается — строка «готовлюсь» с именем, когда оно известно
                 AgentEvent::ToolText(t) => push(AiLine::Preparing(tool_name_of(&t))),
                 AgentEvent::ToolStart { summary, .. } => {
-                    // рецепт агента — сразу вкладкой в «Графе»: видно, что и с какими параметрами идёт
-                    if let Some(rest) = summary.strip_prefix("Прогнать рецепт в проект") {
-                        let args: serde_json::Value = rest.find('{').and_then(|i| serde_json::from_str(&rest[i..]).ok()).unwrap_or_default();
-                        let label = args.get("label").and_then(|v| v.as_str()).map(str::to_string).filter(|l| !l.trim().is_empty());
-                        syngui::async_runtime::run_on_main_thread(move || self.gen_label.set(label));
-                        if let Some(name) = args.get("name").and_then(|v| v.as_str()).map(str::to_string) {
-                            let params = args.get("params").and_then(|v| v.as_object()).cloned().unwrap_or_default();
-                            syngui::async_runtime::run_on_main_thread(move || templates::open_recipe_run(self, &name, &params));
-                        }
-                    }
+                    gen_event(self, &AgentEvent::ToolStart { name: String::new(), summary: summary.clone() });
                     push(AiLine::Tool(summary))
                 }
-                // ход долгого инструмента (шаги рецепта) — строками в чат, а не тишина
-                AgentEvent::ToolProgress { label, .. } if label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => {
-                    let rest = &label[crate::cmd::recipe::PREVIEW_TAG.len()..];
-                    if let Some((node, png)) = rest.split_once('\t') {
-                        let (node, png) = (node.to_string(), std::path::PathBuf::from(png));
-                        syngui::async_runtime::run_on_main_thread(move || {
-                            self.gen_tiles.update(|v| {
-                                if let Some(t) = v.iter_mut().rev().find(|t| t.node == node) {
-                                    t.preview = Some(png);
-                                }
-                            })
-                        });
-                    }
+                AgentEvent::ToolProgress { step, total, label } if label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => {
+                    gen_event(self, &AgentEvent::ToolProgress { step, total, label });
                 }
-                AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => {
-                    // плитка генерируемого ассета в медиатеке: прошлые элементы того же
-                    // узла и другие узлы уже готовы (прогон последовательный)
-                    if let Some(t) = parse_gen(&label) {
-                        syngui::async_runtime::run_on_main_thread(move || {
-                            self.gen_tiles.update(|v| {
-                                v.retain(|x| x.node == t.node && x.item == t.item);
-                                match v.iter_mut().find(|x| x.node == t.node && x.item == t.item) {
-                                    Some(x) => {
-                                        let keep = x.preview.take();
-                                        *x = t;
-                                        x.preview = keep;
-                                    }
-                                    None => v.push(t),
-                                }
-                            });
-                        });
-                    }
+                AgentEvent::ToolProgress { step, total, label } if !label.trim().is_empty() => {
+                    gen_event(self, &AgentEvent::ToolProgress { step, total, label: label.clone() });
                     push(AiLine::Result(format!("… {label}")))
                 }
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::User => {
@@ -886,11 +850,7 @@ impl St {
                     syngui::async_runtime::run_on_main_thread(move || self.ai_log.update(|l| dequeued(l, &text)));
                 }
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => {
-                    // инструмент закончил — готовые файлы уже в медиатеке, плитки хода убрать
-                    syngui::async_runtime::run_on_main_thread(move || {
-                        self.gen_tiles.set(Vec::new());
-                        self.gen_label.set(None);
-                    });
+                    gen_event(self, &AgentEvent::Message(m.clone()));
                     push(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string()))
                 }
                 _ => {}
@@ -1759,6 +1719,64 @@ fn now_ms() -> u64 {
 }
 
 /// Закрыть идущие размышления (с длительностью).
+/// Генерация по ходу агента или роли: вкладка рецепта в «Графе», плитки
+/// генерируемых ассетов с живыми превью в медиатеке, подпись хода; инструмент
+/// закончил — плитки убрать (файлы уже в медиатеке).
+fn gen_event(st: St, ev: &syn_assist::agent::AgentEvent) {
+    use syn_assist::agent::AgentEvent;
+    match ev {
+        AgentEvent::ToolStart { summary, .. } => {
+            if let Some(rest) = summary.strip_prefix("Прогнать рецепт в проект") {
+                let args: serde_json::Value = rest.find('{').and_then(|i| serde_json::from_str(&rest[i..]).ok()).unwrap_or_default();
+                let label = args.get("label").and_then(|v| v.as_str()).map(str::to_string).filter(|l| !l.trim().is_empty());
+                syngui::async_runtime::run_on_main_thread(move || st.gen_label.set(label));
+                if let Some(name) = args.get("name").and_then(|v| v.as_str()).map(str::to_string) {
+                    let params = args.get("params").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+                    syngui::async_runtime::run_on_main_thread(move || templates::open_recipe_run(st, &name, &params));
+                }
+            }
+        }
+        AgentEvent::ToolProgress { label, .. } if label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => {
+            let rest = &label[crate::cmd::recipe::PREVIEW_TAG.len()..];
+            if let Some((node, png)) = rest.split_once('\t') {
+                let (node, png) = (node.to_string(), std::path::PathBuf::from(png));
+                syngui::async_runtime::run_on_main_thread(move || {
+                    st.gen_tiles.update(|v| {
+                        if let Some(t) = v.iter_mut().rev().find(|t| t.node == node) {
+                            t.preview = Some(png);
+                        }
+                    })
+                });
+            }
+        }
+        AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() => {
+            if let Some(t) = parse_gen(label) {
+                syngui::async_runtime::run_on_main_thread(move || {
+                    st.gen_tiles.update(|v| {
+                        v.retain(|x| x.node == t.node && x.item == t.item);
+                        match v.iter_mut().find(|x| x.node == t.node && x.item == t.item) {
+                            Some(x) => {
+                                let keep = x.preview.take();
+                                *x = t;
+                                x.preview = keep;
+                            }
+                            None => v.push(t),
+                        }
+                    });
+                });
+            }
+        }
+        AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => {
+            syngui::async_runtime::run_on_main_thread(move || {
+                st.gen_tiles.set(Vec::new());
+                st.gen_label.set(None);
+                st.rev.set(ed().revision);
+            });
+        }
+        _ => {}
+    }
+}
+
 /// Ходы ролей съёмочной группы — в их чаты (чипы ролей в панели ИИ).
 fn bind_roles(st: St) {
     use crate::agent::RoleEvent;
@@ -1778,7 +1796,8 @@ fn bind_roles(st: St) {
             }
             RoleEvent::Event { role, ev } => (
                 role,
-                match ev {
+                // генерация роли (оператор снимает, художник делает эталоны) — плитки и превью как у агента
+                match { gen_event(st, &ev); ev } {
                     AgentEvent::Text(t) => Some(AiLine::Text(t)),
                     AgentEvent::Thinking(t) => Some(AiLine::Thinking { text: t, done: false, secs: 0.0, started: now_ms() }),
                     AgentEvent::ToolText(t) => Some(AiLine::Preparing(tool_name_of(&t))),
