@@ -359,17 +359,14 @@ pub fn cards_for(bible: &str, scene_text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Бриф шага роли: только нужное для сцены `n`.
-pub fn brief(project: &Path, role_id: &str, n: u32, st: Stage) -> String {
-    let r = role(role_id);
-    let mut out = String::new();
-    out.push_str(&format!("# Бриф: {}, сцена {n}, шаг «{}»\n\n", r.map(|r| r.title).unwrap_or(role_id), st.title()));
-    out.push_str(&format!("**Задача:** {}\n\n", st.task(n)));
-    // выжимка: шапка библии (до первого раздела) и словарь имён, стиль, правила
+/// Выжимка проекта — общая и стабильная часть контекста всех ходов (голова,
+/// которую служба кэширует): шапка библии, словарь имён, стиль, правила, структура.
+pub fn summary(project: &Path) -> String {
+    let mut out = String::from("# Выжимка проекта\n");
     let bible = read(project, "01_библия");
     let head: String = bible.lines().take_while(|l| !l.starts_with("##")).collect::<Vec<_>>().join("\n");
     if !head.trim().is_empty() {
-        out.push_str(&format!("## Выжимка проекта\n{}\n", head.trim()));
+        out.push_str(&format!("{}\n", head.trim()));
     }
     for (h, b) in sections(&bible) {
         let hl = h.to_lowercase();
@@ -377,6 +374,25 @@ pub fn brief(project: &Path, role_id: &str, n: u32, st: Stage) -> String {
             out.push_str(&format!("\n### {h}\n{}\n", b.trim()));
         }
     }
+    let structure = read(project, "03_структура");
+    if !structure.trim().is_empty() {
+        out.push_str(&format!("\n## Структура фильма\n{}\n", structure.trim()));
+    }
+    out
+}
+
+/// Бриф шага роли: выжимка проекта и бриф сцены.
+pub fn brief(project: &Path, role_id: &str, n: u32, st: Stage) -> String {
+    format!("{}\n{}", summary(project), scene_brief(project, role_id, n, st))
+}
+
+/// Бриф сцены: задача шага и только нужное для сцены `n` (меняется от шага к шагу).
+pub fn scene_brief(project: &Path, role_id: &str, n: u32, st: Stage) -> String {
+    let r = role(role_id);
+    let mut out = String::new();
+    out.push_str(&format!("# Бриф: {}, сцена {n}, шаг «{}»\n\n", r.map(|r| r.title).unwrap_or(role_id), st.title()));
+    out.push_str(&format!("**Задача:** {}\n\n", st.task(n)));
+    let bible = read(project, "01_библия");
     // место сцены в структуре
     let structure = read(project, "03_структура");
     let row = structure.lines().find(|l| {

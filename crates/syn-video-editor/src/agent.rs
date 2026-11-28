@@ -296,9 +296,14 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
     // системный промпт роли: общая часть редактора + роль (из настроек или по умолчанию) + обязательные правила проекта
     let base = a.system.take().unwrap_or_default();
     a.system = Some(with_rules(format!("{base}\n\n# Твоя роль в съёмочной группе\n{}", crate::crew::role_system(r, &s)), project));
+    // раскладка под парковку контекста службы: [system — роль, правила, навыки]
+    // [user — выжимка проекта] — голова (prefix_messages = 2), её KV служба держит
+    // между ходами роли; [user — бриф шага] — хвост, префиллится заново
+    a.params = a.params.clone().with("prefix_messages", 2i64);
     let mut chat = Chat::new();
     prepare_chat(&mut chat, &s);
     chat.model = crate::crew::role_model(r, &s);
+    chat.messages.push(syn_assist::chat::ChatMsg::user(&crate::crew::summary(project)));
     crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
     let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
     let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |_| {});

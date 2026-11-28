@@ -167,7 +167,7 @@ pub fn prepare_run(ed: &Editor, a: &Args) -> Result<(std::path::PathBuf, &'stati
     let st = crew::stage(&p, n, Some(&ed.project));
     let rid = a.str("role")?.unwrap_or_else(|| st.roles().0.to_string());
     let r = crew::role(&rid).ok_or_else(|| format!("нет роли «{rid}»"))?;
-    let mut brief = crew::brief(&p, r.id, n, st);
+    let mut brief = crew::scene_brief(&p, r.id, n, st);
     if let Some(t) = a.str("task")?.filter(|t| !t.trim().is_empty()) {
         brief = format!("**Задание режиссёра:** {t}\n\n{brief}");
     }
