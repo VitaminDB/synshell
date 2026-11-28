@@ -31,6 +31,16 @@ const LEAD: f64 = 0.4;
 const GAP: f64 = 0.5;
 const TAIL: f64 = 0.6;
 
+/// Длина ролика по сетке кадров MiniMax-H3 (5 + 17·k кадров при 24 кадр/с),
+/// вверх: служба округляет длину ролика так же, и если дорожка короче ролика,
+/// в хвосте без референса H3 досочиняет речь (повторяет реплику). Дорожка
+/// ролика — ровно на всю его длину.
+pub fn h3_seconds(s: f64) -> f64 {
+    let f = ((s * 24.0).round() as usize).max(5);
+    let k = (f - 5).div_ceil(17);
+    (17 * k + 5) as f64 / 24.0
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Story {
     /// Все сцены разом (только по прямой просьбе пользователя).
@@ -367,7 +377,7 @@ static STATUS: Cmd = Cmd {
 /// следующие ролики сцены и первый ролик сцены, продолжающей прошлую без
 /// `[CUT]`): начало кадра обязано совпасть с концом предыдущего ролика, иначе
 /// H3 уводит хвост в новый план растворением через эталоны на белом фоне.
-pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, timing: &str) -> String {
+pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, timing: &str, windows: &str) -> String {
     let speakers: Vec<String> = tracks.iter().filter_map(|t| t["speaker"].as_str().map(str::to_string)).collect();
     let mut sd = String::from("subject_definitions: <каждая картинка ролика: <Picture k> is …>.");
     let mut ra = String::from("retention_analysis: <роль каждой картинки: fully_preserved / partially_preserved / …>.");
@@ -383,7 +393,7 @@ pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, ti
         if continues { CONTINUES } else { "" },
         if continues { CAMERA_CONT } else { "" },
         timing,
-        if speakers.is_empty() { " No one speaks, shouts, hums or makes any vocal sound in this shot; all mouths stay closed or only breathe.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
+        if speakers.is_empty() { " No one speaks, shouts, hums or makes any vocal sound in this shot; all mouths stay closed or only breathe.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.{windows}", who.join(", ")) }
     )
 }
 
@@ -394,6 +404,40 @@ fn timing(s: &Shot) -> String {
         parts.push(format!("без речи {}", s.quiet.iter().map(|q| format!("{:.1}–{:.1} с", q.0, q.1)).collect::<Vec<_>>().join(", ")));
     }
     format!("ролик {:.1} с: {}", s.seconds, parts.join("; "))
+}
+
+/// Время речи и тишины ролика словами для H3 (английский, таймкоды от начала
+/// ролика). Звуковой референс H3 не привязан ко времени: тишину дорожки модель
+/// сама не соблюдает — заполняет болтовнёй, сдвигает реплику или повторяет её
+/// до конца ролика. Окна речи и тишины, названные прямо, держат её на месте.
+pub fn speech_windows(s: &Shot) -> String {
+    if s.lines.is_empty() {
+        return String::new();
+    }
+    let tc = |x: f64| format!("00:{:04.1}", x.max(0.0));
+    let mut order: Vec<&str> = Vec::new();
+    for l in &s.lines {
+        if !order.contains(&l.speaker.as_str()) {
+            order.push(&l.speaker);
+        }
+    }
+    let speech: Vec<String> = s.lines.iter().map(|l| format!("(S{}) at {}–{}", order.iter().position(|x| *x == l.speaker).unwrap_or(0) + 1, tc(l.at), tc(l.at + l.seconds))).collect();
+    let mut quiet = Vec::new();
+    let mut t = 0.0;
+    for l in &s.lines {
+        if l.at - t >= 0.3 {
+            quiet.push(format!("{}–{}", tc(t), tc(l.at)));
+        }
+        t = t.max(l.at + l.seconds);
+    }
+    if s.seconds - t >= 0.3 {
+        quiet.push(format!("{}–{}", tc(t), tc(s.seconds)));
+    }
+    let mut out = format!(" Speech timing: each line is heard exactly once, only at {}.", speech.join(", "));
+    if !quiet.is_empty() {
+        out.push_str(&format!(" Silence at {}: nobody speaks, mutters, repeats a line or makes any vocal sound, and all mouths stay closed.", quiet.join(" and ")));
+    }
+    out
 }
 
 /// Начало ролика, продолжающего предыдущий по латентному хвосту.
@@ -477,7 +521,11 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
     if lines.is_empty() && action <= 0.0 {
         return Err("сцена без речи — укажи action_seconds (сколько нужно действию по сценарию)".into());
     }
-    let (total, placed, shots) = layout(lines, action, SHOT_LIMIT)?;
+    // запас на округление вверх по сетке H3 — ролик не длиннее предела
+    let (total, placed, mut shots) = layout(lines, action, SHOT_LIMIT - 17.0 / 24.0)?;
+    for s in &mut shots {
+        s.seconds = h3_seconds(s.seconds);
+    }
     let base = project.map(crate::store::media_dir).unwrap_or_else(std::env::temp_dir).join("speech");
     let mut files = Vec::new();
     let mut shots_json = Vec::new();
@@ -508,7 +556,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             tracks.iter().filter_map(|t| t["file"].as_str()).map(|f| Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).collect::<Vec<_>>().join(", "),
             if said.is_empty() { "без речи".into() } else { said.join("; ") }
         ));
-        shots_json.push(json!({"shot": i + 1, "start": s.start, "seconds": s.seconds, "tracks": tracks, "lines": s.lines.iter().map(|l| json!({"speaker": l.speaker, "at": l.at, "seconds": l.seconds, "file": l.file})).collect::<Vec<_>>(), "quiet": s.quiet.iter().map(|q| json!([q.0, q.1])).collect::<Vec<_>>(), "timing": timing(s)}));
+        shots_json.push(json!({"shot": i + 1, "start": s.start, "seconds": s.seconds, "tracks": tracks, "lines": s.lines.iter().map(|l| json!({"speaker": l.speaker, "at": l.at, "seconds": l.seconds, "file": l.file})).collect::<Vec<_>>(), "quiet": s.quiet.iter().map(|q| json!([q.0, q.1])).collect::<Vec<_>>(), "timing": timing(s), "windows": speech_windows(s)}));
     }
     if let Some(p) = project {
         // раскадровка: раздел сцены заменяется новым планом
@@ -551,7 +599,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
             })
             .collect();
         numbering.push(format!("ролик {} (строка {} storyboard): {}", i + 1, i + 1, if parts.is_empty() { "без речи — ни одного <Audio>".into() } else { parts.join(", ") }));
-        skeletons.push(skeleton(i, &tr, k - tr.len(), i > 0 || from_prev, sj["timing"].as_str().unwrap_or("")));
+        skeletons.push(skeleton(i, &tr, k - tr.len(), i > 0 || from_prev, sj["timing"].as_str().unwrap_or(""), sj["windows"].as_str().unwrap_or("")));
     }
     Ok((
         format!(
@@ -598,9 +646,18 @@ mod tests {
 
     #[test]
     fn continuation_needs_phrase() {
-        let sk = skeleton(0, &[], 0, true, "");
+        assert!((h3_seconds(4.5) - 124.0 / 24.0).abs() < 1e-9);
+        assert!((h3_seconds(124.0 / 24.0) - 124.0 / 24.0).abs() < 1e-9);
+        // окна речи и тишины ролика словами
+        let ln = |sp: &str, at: f64, s: f64| Line { speaker: sp.into(), file: PathBuf::new(), offset: 0.0, seconds: s, pauses: vec![], at, before: 0.0 };
+        let shot = Shot { start: 0.0, seconds: 5.0, lines: vec![ln("A", 1.5, 1.2), ln("B", 3.0, 1.0)], quiet: vec![] };
+        let w = speech_windows(&shot);
+        assert!(w.contains("(S1) at 00:01.5–00:02.7, (S2) at 00:03.0–00:04.0"), "{w}");
+        assert!(w.contains("Silence at 00:00.0–00:01.5 and 00:04.0–00:05.0"), "{w}");
+        assert!(speech_windows(&Shot { start: 0.0, seconds: 3.0, lines: vec![], quiet: vec![] }).is_empty());
+        let sk = skeleton(0, &[], 0, true, "", "");
         assert!(sk.contains("continues seamlessly"));
-        assert!(!skeleton(0, &[], 0, false, "").contains("continues seamlessly"));
+        assert!(!skeleton(0, &[], 0, false, "", "").contains("continues seamlessly"));
         assert!(check_continuation("a new shot", true, 2).is_err());
         assert!(check_continuation("a new shot", false, 2).is_ok());
         assert!(check_continuation("[CUT] new place", false, 2).is_ok());

@@ -440,6 +440,16 @@ pub fn speech_problem(expected: &str, heard: &str) -> Option<String> {
     if extra.len() > exp / 5 {
         return Some(format!("чужие слова сверх реплик ({}): слышно «{}»", extra.join(", "), heard.trim()));
     }
+    // повтор: слово реплики (от 3 букв) звучит больше раз, чем в реплике —
+    // H3 повторил или предвосхитил реплику в окне тишины
+    let heard_w = heard_words(heard);
+    for e in exp_w.iter().filter(|e| e.chars().count() >= 3) {
+        let want = exp_w.iter().filter(|x| close(x, e)).count();
+        let got_n = heard_w.iter().filter(|h| close(e, h)).count();
+        if got_n > want {
+            return Some(format!("повтор слова «{e}» ({got_n} раз вместо {want}): слышно «{}»", heard.trim()));
+        }
+    }
     let score = super::voice::word_match(expected, heard);
     if score < 0.6 {
         return Some(format!("речь не совпадает с репликами ({:.0}%): слышно «{}»", score * 100.0, heard.trim()));
@@ -642,6 +652,8 @@ mod tests {
         assert!(super::speech_problem("Грымза, мой друг!", "гримза мой друг").is_none());
         // короткая реплика: одно чужое слово (повтор реплики прошлого ролика на стыке) — брак
         assert!(super::speech_problem("Мамочка, всё в порядке?", "Чёрт! Мамочка, всё в порядке?").is_some());
+        // слово реплики дважды (предвосхищение в тишине до реплики) — брак
+        assert!(super::speech_problem("Мамочка, всё в порядке?", "Мамочка, мамочка, всё в порядке?").is_some());
         // длинная: одно слово — допуск на распознавание
         assert!(super::speech_problem("Слушай, солнышко, прости меня, у мамочки тяжёлое время на работе", "ну слушай солнышко прости меня у мамочки тяжёлое время на работе").is_none());
         // звуки окружения
