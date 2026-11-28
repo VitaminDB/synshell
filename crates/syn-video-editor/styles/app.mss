@@ -74,6 +74,8 @@
 .ai-error-text { color: var(--error); font-size: 12px; }
 .ai-input { padding: 8px; border-top-width: 1px; border-color: var(--border-soft); }
 .ai-field { flex-grow: 1; }
+.ai-queued { opacity: 0.75; border-width: 1px; border-color: var(--primary); }
+.ai-ctx { padding: 4px 10px; border-top-width: 1px; border-color: var(--border-soft); }
 .ai-chips { padding: 6px 8px; border-bottom-width: 1px; border-color: var(--border-soft); }
 .ai-chip { padding: 4px 10px; border-radius: 12px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border); }
 .ai-chip-text { color: var(--text-dim); font-size: 11px; }

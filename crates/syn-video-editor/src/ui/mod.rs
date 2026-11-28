@@ -159,6 +159,36 @@ pub enum AiLine {
     /// Итог хода: что изменилось; `rev` — номер правки сразу после хода
     /// (откат возможен, пока после хода ничего не правили); `undone` — откачен.
     Diff { lines: Vec<String>, rev: u64, undone: bool },
+    /// Сообщение, написанное во время хода: ждёт ближайшего шага агента
+    /// (можно изменить или отменить, пока не взято).
+    Queued { id: u64, text: String },
+}
+
+/// Очередь сообщений во время хода: (id, кому — None режиссёру / Some(роль), текст).
+pub static AI_QUEUE: std::sync::Mutex<Vec<(u64, Option<String>, String)>> = std::sync::Mutex::new(Vec::new());
+static QUEUE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Забрать из очереди сообщения адресата (агент берёт их на шаге).
+pub fn take_queue(to: Option<&str>) -> Vec<String> {
+    let mut q = AI_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+    let (mine, rest): (Vec<_>, Vec<_>) = q.drain(..).partition(|(_, who, _)| who.as_deref() == to);
+    *q = rest;
+    mine.into_iter().map(|x| x.2).collect()
+}
+
+/// Убрать сообщение из очереди (отмена или правка); `true` — ещё не было взято.
+pub fn unqueue(id: u64) -> bool {
+    let mut q = AI_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+    let n = q.len();
+    q.retain(|x| x.0 != id);
+    q.len() != n
+}
+
+/// Взятое агентом сообщение: строка очереди становится обычной строкой пользователя.
+fn dequeued(l: &mut Vec<AiLine>, text: &str) {
+    if let Some(x) = l.iter_mut().find(|x| matches!(x, AiLine::Queued { text: t, .. } if t.trim() == text.trim())) {
+        *x = AiLine::User(text.to_string());
+    }
 }
 
 /// Флаг «Стоп» текущего хода агента.
@@ -187,6 +217,8 @@ pub struct St {
     pub ai_view: RwSignal<Option<String>>,
     /// Раскрытая сцена на доске группы.
     pub board_open: RwSignal<Option<u32>>,
+    /// Занятый контекст и окно у чатов ролей (id роли → (занято, окно)).
+    pub role_ctx: RwSignal<Vec<(String, (usize, usize))>>,
     /// Открыта страница «Настройки» (вместо монтажа).
     pub page: RwSignal<bool>,
     /// Номер правки настроек — страница и шапка ИИ перечитывают по нему.
@@ -310,6 +342,7 @@ impl St {
             role_active: use_signal(None),
             ai_view: use_signal(None),
             board_open: use_signal(None),
+            role_ctx: use_signal(Vec::new()),
             page: use_signal(false),
             set_rev: use_signal(0),
             ai_chats: use_signal(Vec::new()),
@@ -691,6 +724,24 @@ impl St {
         self.dock.open(id, near);
     }
 
+    /// Сообщение во время хода — в очередь: войдёт в разговор на ближайшем
+    /// шаге агента (режиссёра или роли `to`); в чате сразу видно с пометкой.
+    pub fn enqueue(self, to: Option<String>, text: String) {
+        if text.trim().is_empty() {
+            return;
+        }
+        let id = QUEUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        AI_QUEUE.lock().unwrap_or_else(|e| e.into_inner()).push((id, to.clone(), text.clone()));
+        let line = AiLine::Queued { id, text };
+        match to {
+            None => self.ai_log.update(|l| l.push(line)),
+            Some(r) => self.role_logs.update(|v| match v.iter_mut().find(|x| x.0 == r) {
+                Some(x) => x.2.push(line),
+                None => v.push((r.clone(), crate::crew::role(&r).map(|x| x.title).unwrap_or("").to_string(), vec![line])),
+            }),
+        }
+    }
+
     /// Сообщение роли съёмочной группы напрямую (из её чата): роль получает
     /// бриф текущей сцены и слова пользователя, отвечает в своём чате.
     pub fn ask_role(self, role: String, text: String) {
@@ -753,6 +804,8 @@ impl St {
             // агент заново на каждый ход — правки «Настроек» действуют сразу
             let set = crate::settings::load();
             let mut agent = crate::agent::agent_with(shared(), &set);
+            // сообщения, написанные во время хода, — на ближайшем шаге
+            agent = agent.with_inbox(std::sync::Arc::new(|| take_queue(None)));
             let mut chat = ai_chat::take();
             // правила проекта из первого задания пользователя — обязательным блоком в системный промпт
             let project = ed().path.clone();
@@ -776,6 +829,8 @@ impl St {
             };
             let r = crate::agent::run_turn(&agent, shared(), &mut chat, &text, files, &crate::agent::AutoConfirm(false), cancel, &mut |ev| match ev {
                 AgentEvent::Text(t) => push(AiLine::Text(t)),
+                // занятый контекст — после каждого вызова модели, а не в конце хода
+                AgentEvent::Usage { prompt_tokens, context, .. } => syngui::async_runtime::run_on_main_thread(move || self.ai_ctx.set((prompt_tokens, context))),
                 AgentEvent::Thinking(t) => push(AiLine::Thinking { text: t, done: false, secs: 0.0, started: now_ms() }),
                 // вызов инструмента ещё собирается — строка «готовлюсь» с именем, когда оно известно
                 AgentEvent::ToolText(t) => push(AiLine::Preparing(tool_name_of(&t))),
@@ -826,6 +881,10 @@ impl St {
                     }
                     push(AiLine::Result(format!("… {label}")))
                 }
+                AgentEvent::Message(m) if m.role == syn_assist::chat::Role::User => {
+                    let text = m.text.clone();
+                    syngui::async_runtime::run_on_main_thread(move || self.ai_log.update(|l| dequeued(l, &text)));
+                }
                 AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => {
                     // инструмент закончил — готовые файлы уже в медиатеке, плитки хода убрать
                     syngui::async_runtime::run_on_main_thread(move || {
@@ -868,6 +927,12 @@ impl St {
                 ai_chat::after_turn(self, &shown);
                 self.ai_busy.set(false);
                 self.rev.set(ed().revision);
+                // ход кончился, а в очереди остались сообщения — следующим ходом
+                let left = take_queue(None);
+                if !left.is_empty() {
+                    self.ai_log.update(|l| l.retain(|x| !matches!(x, AiLine::Queued { .. })));
+                    self.ask_ai(left.join("\n\n"));
+                }
             });
         });
     }
@@ -1702,6 +1767,15 @@ fn bind_roles(st: St) {
         let (role, line, start, end): (&'static str, Option<AiLine>, Option<&'static str>, bool) = match e {
             RoleEvent::Start { role, title, scene, stage, task } => (role, Some(AiLine::User(format!("Сцена {scene}, шаг «{stage}»\n{}", task.chars().take(1500).collect::<String>()))), Some(title), false),
             RoleEvent::End { role, ok } => (role, if ok { None } else { Some(AiLine::Error("Ход роли прерван".into())) }, None, true),
+            RoleEvent::Event { role, ev: AgentEvent::Usage { prompt_tokens, context, .. } } => {
+                syngui::async_runtime::run_on_main_thread(move || {
+                    st.role_ctx.update(|v| match v.iter_mut().find(|(id, _)| id == role) {
+                        Some(x) => x.1 = (prompt_tokens, context),
+                        None => v.push((role.to_string(), (prompt_tokens, context))),
+                    })
+                });
+                return;
+            }
             RoleEvent::Event { role, ev } => (
                 role,
                 match ev {
@@ -1711,6 +1785,17 @@ fn bind_roles(st: St) {
                     AgentEvent::ToolStart { summary, .. } => Some(AiLine::Tool(summary)),
                     AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() && !label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => Some(AiLine::Result(format!("… {label}"))),
                     AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => Some(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
+                    AgentEvent::Message(m) if m.role == syn_assist::chat::Role::User => {
+                        let text = m.text.clone();
+                        syngui::async_runtime::run_on_main_thread(move || {
+                            st.role_logs.update(|v| {
+                                if let Some(x) = v.iter_mut().find(|x| x.0 == role) {
+                                    dequeued(&mut x.2, &text);
+                                }
+                            })
+                        });
+                        None
+                    }
                     _ => None,
                 },
                 None,

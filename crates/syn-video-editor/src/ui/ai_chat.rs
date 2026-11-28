@@ -198,6 +198,42 @@ fn short(n: usize) -> String {
 }
 
 /// Шапка панели ИИ: чаты, модель, режим, контекст.
+/// Подпись модели в списке: название службы без повтора id («имя · имя» → «имя»).
+fn model_title(id: &str, title: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in title.split(" · ").map(str::trim).filter(|p| !p.is_empty()) {
+        if !parts.contains(&p) {
+            parts.push(p);
+        }
+    }
+    if parts.is_empty() {
+        id.to_string()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+/// Шкала занятого контекста открытого чата (режиссёра или роли) — внизу панели ИИ, над вводом.
+pub fn context_bar(st: St) -> impl Widget {
+    DecoratedBox::new().class("ai-ctx").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        // контекст того чата, что открыт: режиссёра или роли
+        let (used, window) = match st.ai_view.get().filter(|v| v != "board" && v != "notes") {
+            Some(r) => st.role_ctx.get().iter().find(|(id, _)| *id == r).map(|x| x.1).unwrap_or((0, 0)),
+            None => st.ai_ctx.get(),
+        };
+        let window = if window > 0 { window } else { st.ai_info.get().map(|i| i.window).unwrap_or(0) };
+        let frac = if window > 0 { (used as f32 / window as f32).clamp(0.0, 1.0) } else { 0.0 };
+        let text = if window > 0 { tr!("ai.context", used = short(used), window = short(window), pct = format!("{:.0}", frac * 100.0)) } else { tr!("ai.context.unknown") };
+        vec![Box::new(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().class("grow").child(ProgressBar::with_value(frac).class(if frac > 0.85 { "ai-ctx-bar full" } else { "ai-ctx-bar" })))
+                .child(Text::new(text).max_lines(1).class("ai-status-text")),
+        )]
+    }))
+}
+
 pub fn head(st: St) -> impl Widget {
     let restart_open = use_signal(false);
     let chats_row = Reactive::new(move || -> Vec<Box<dyn Widget>> {
@@ -227,7 +263,7 @@ pub fn head(st: St) -> impl Widget {
         let models = st.ai_models.get();
         let cur = s.ai_model.clone();
         let mut items = vec![DropdownItem::new(String::new(), tr!("settings.model.default"))];
-        items.extend(models.iter().map(|(id, title)| DropdownItem::new(id.clone(), if title.is_empty() { id.clone() } else { title.clone() })));
+        items.extend(models.iter().map(|(id, title)| DropdownItem::new(id.clone(), model_title(id, title))));
         if !cur.is_empty() && !models.iter().any(|(id, _)| *id == cur) {
             items.push(DropdownItem::new(cur.clone(), cur.clone()));
         }
@@ -251,26 +287,14 @@ pub fn head(st: St) -> impl Widget {
             let mut opts = vec![String::new()];
             opts.extend(levels);
             let items: Vec<DropdownItem> = opts.iter().map(|l| DropdownItem::new(l.clone(), level_title(l))).collect();
-            row = row.child(Text::new(tr!("ai.depth")).class("ai-status-text")).child(DecoratedBox::new().class("grow").child(Dropdown::with_items(items).selected(s.ai_reasoning.clone()).on_change(move |l: &str| {
+            row = row.child(Dropdown::with_items(items).selected(s.ai_reasoning.clone()).on_change(move |l: &str| {
                 let l = l.to_string();
                 crate::settings::update(move |s| s.ai_reasoning = l);
                 st.set_rev.update(|r| *r += 1);
-            })));
+            }));
         }
-        vec![Box::new(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(model).child(row))]
-    });
-    let ctx_row = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let (used, window) = st.ai_ctx.get();
-        let window = if window > 0 { window } else { st.ai_info.get().map(|i| i.window).unwrap_or(0) };
-        let frac = if window > 0 { (used as f32 / window as f32).clamp(0.0, 1.0) } else { 0.0 };
-        let text = if window > 0 { tr!("ai.context", used = short(used), window = short(window), pct = format!("{:.0}", frac * 100.0)) } else { tr!("ai.context.unknown") };
-        vec![Box::new(
-            Column::new()
-                .gap(3.0)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(ProgressBar::with_value(frac).class(if frac > 0.85 { "ai-ctx-bar full" } else { "ai-ctx-bar" }))
-                .child(Text::new(text).class("ai-status-text")),
-        )]
+        // модель, режим и глубина — одной строкой (шапка не съедает ленту)
+        vec![Box::new(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(model)).child(row))]
     });
     DecoratedBox::new().class("ai-head").child(
         Column::new()
@@ -278,7 +302,6 @@ pub fn head(st: St) -> impl Widget {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(chats_row)
             .child(mode_row)
-            .child(ctx_row)
             .child(ConfirmDialog::new(
                 "Начать заново",
                 "Удалить всё, что сделано в проекте — сгенерированные картинки и ролики, голоса, реплики, документы, медиатеку и таймлайн — и заново отдать агенту первую задачу этого чата?",

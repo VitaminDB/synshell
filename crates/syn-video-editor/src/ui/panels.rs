@@ -1191,6 +1191,32 @@ fn ai(st: St) -> impl Widget {
             for (i, l) in log.into_iter().enumerate() {
                 let (class, text) = match l {
                     AiLine::User(t) => ("ai-user", t),
+                    // сообщение в очереди: ждёт шага агента; изменить — вернуть в поле, отменить — убрать
+                    AiLine::Queued { id, text } => {
+                        let drop_line = move || {
+                            st.ai_log.update(|l| l.retain(|x| !matches!(x, AiLine::Queued { id: q, .. } if *q == id)));
+                            st.role_logs.update(|v| v.iter_mut().for_each(|x| x.2.retain(|y| !matches!(y, AiLine::Queued { id: q, .. } if *q == id))));
+                        };
+                        let t2 = text.clone();
+                        let row = Row::new()
+                            .gap(6.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().class("grow").child(Text::new(format!("{text}\n· в очереди — войдёт на следующем шаге")).selectable(true).class("ai-user-text")))
+                            .child(Button::new("Изменить").on_click(move || {
+                                if crate::ui::unqueue(id) {
+                                    drop_line();
+                                    draft.set(t2.clone());
+                                    input_gen.update(|g| *g += 1);
+                                }
+                            }).class("head-btn"))
+                            .child(Button::new("Отменить").on_click(move || {
+                                if crate::ui::unqueue(id) {
+                                    drop_line();
+                                }
+                            }).class("head-btn"));
+                        col = col.child(DecoratedBox::new().class("ai-user ai-queued").child(row));
+                        continue;
+                    }
                     // ответ агента — Markdown (списки, код, выделение)
                     AiLine::Text(t) => {
                         // ответ из одних пробелов (после размышлений) — не пустым блоком
@@ -1298,6 +1324,7 @@ fn ai(st: St) -> impl Widget {
             vec![Box::new(col)]
         })))]
         })))
+        .child(super::ai_chat::context_bar(st))
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();
             let busy = st.ai_busy.get();
@@ -1336,7 +1363,7 @@ fn ai(st: St) -> impl Widget {
                     .text(draft.get_untracked())
                     .on_change(move |s: &str| draft.set(s.to_string()))
                     .placeholder(if busy {
-                        "Агент работает…".to_string()
+                        "Агент работает — сообщение войдёт на следующем шаге… (Enter)".to_string()
                     } else {
                         match st.ai_view.get().filter(|r| r != "board" && r != "notes").and_then(|r| crate::crew::role(&r)) {
                             Some(r) => format!("Сообщение роли «{}»… (Enter)", r.title),
@@ -1344,12 +1371,17 @@ fn ai(st: St) -> impl Widget {
                         }
                     })
                     .prefix_icon(icons::AI)
-                    .disabled(busy)
                     .on_submit(move |q: &str| {
-                        // открыт чат роли — сообщение ей напрямую, иначе — режиссёру (главный агент)
-                        match st.ai_view.get_untracked() {
-                            Some(r) if r != "board" && r != "notes" => st.ask_role(r, q.to_string()),
-                            _ => st.ask_ai(q.to_string()),
+                        // открыт чат роли — сообщение ей напрямую, иначе — режиссёру (главный агент);
+                        // во время хода — в очередь: войдёт на ближайшем шаге
+                        let to = st.ai_view.get_untracked().filter(|r| r != "board" && r != "notes");
+                        if st.ai_busy.get_untracked() {
+                            st.enqueue(to, q.to_string());
+                        } else {
+                            match to {
+                                Some(r) => st.ask_role(r, q.to_string()),
+                                None => st.ask_ai(q.to_string()),
+                            }
                         }
                         draft.set(String::new());
                         input_gen.update(|g| *g += 1);

@@ -364,6 +364,9 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
         !["crew.run", "crew.review", "project.new", "project.open", "project.close"].iter().any(|x| n.contains(x))
     });
     a.subagent = false;
+    // сообщения пользователя роли, написанные во время хода, — на ближайшем шаге
+    let rid_q = r.id;
+    a = a.with_inbox(std::sync::Arc::new(move || crate::ui::take_queue(Some(rid_q))));
     // системный промпт роли: общая часть редактора + роль (из настроек или по умолчанию) + обязательные правила проекта
     let base = a.system.take().unwrap_or_default();
     a.system = Some(with_rules(format!("{base}\n\n# Твоя роль в съёмочной группе\n{}", crate::crew::role_system(r, &s)), project));
