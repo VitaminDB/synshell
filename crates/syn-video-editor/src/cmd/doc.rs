@@ -445,7 +445,13 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
     }
     // сверка фактов: строки с ✗ — вернуть агенту
     if stem.contains("сверк") {
-        let bad: Vec<String> = body.lines().filter(|l| l.trim_start().starts_with('|') && l.contains('✗')).map(|l| l.trim().chars().take(120).collect()).collect();
+        // только строки сцен (первая ячейка — номер), не шапка «✓/✗»
+        let bad: Vec<String> = body
+            .lines()
+            .filter(|l| l.trim_start().starts_with('|') && l.contains('✗'))
+            .filter(|l| l.trim().trim_start_matches('|').split('|').next().unwrap_or("").trim().to_lowercase().trim_start_matches("сцена").trim().starts_with(|c: char| c.is_ascii_digit()))
+            .map(|l| l.trim().chars().take(120).collect())
+            .collect();
         if !bad.is_empty() {
             msg.push_str(&format!(". В сверке есть ✗ — исправь соответствующие scene_NN по источнику и обнови строки: {}", bad.join(" / ")));
         }
