@@ -179,6 +179,12 @@ pub struct St {
     /// Файлы, прикреплённые к следующему сообщению агенту (скрепка или перетаскивание).
     pub ai_files: RwSignal<Vec<String>>,
     pub ai_busy: RwSignal<bool>,
+    /// Чаты ролей съёмочной группы (id роли → лента) в порядке появления.
+    pub role_logs: RwSignal<Vec<(String, String, Vec<AiLine>)>>,
+    /// Роль, чей ход идёт сейчас.
+    pub role_active: RwSignal<Option<String>>,
+    /// Что показывает панель ИИ: None — главный чат (режиссёр), Some(id) — чат роли.
+    pub ai_view: RwSignal<Option<String>>,
     /// Открыта страница «Настройки» (вместо монтажа).
     pub page: RwSignal<bool>,
     /// Номер правки настроек — страница и шапка ИИ перечитывают по нему.
@@ -276,6 +282,7 @@ impl St {
         thumbs::bind(st.thumbs);
         install_ui_bridge(st);
         ai_chat::init(st);
+        bind_roles(st);
         st
     }
 
@@ -297,6 +304,9 @@ impl St {
             ai_log: use_signal(Vec::new()),
             ai_files: use_signal(Vec::new()),
             ai_busy: use_signal(false),
+            role_logs: use_signal(Vec::new()),
+            role_active: use_signal(None),
+            ai_view: use_signal(None),
             page: use_signal(false),
             set_rev: use_signal(0),
             ai_chats: use_signal(Vec::new()),
@@ -1650,6 +1660,57 @@ fn now_ms() -> u64 {
 }
 
 /// Закрыть идущие размышления (с длительностью).
+/// Ходы ролей съёмочной группы — в их чаты (чипы ролей в панели ИИ).
+fn bind_roles(st: St) {
+    use crate::agent::RoleEvent;
+    use syn_assist::agent::AgentEvent;
+    crate::agent::set_role_sink(Box::new(move |e: RoleEvent| {
+        let (role, line, start, end): (&'static str, Option<AiLine>, Option<&'static str>, bool) = match e {
+            RoleEvent::Start { role, title, scene, stage, task } => (role, Some(AiLine::User(format!("Сцена {scene}, шаг «{stage}»\n{}", task.chars().take(1500).collect::<String>()))), Some(title), false),
+            RoleEvent::End { role, ok } => (role, if ok { None } else { Some(AiLine::Error("Ход роли прерван".into())) }, None, true),
+            RoleEvent::Event { role, ev } => (
+                role,
+                match ev {
+                    AgentEvent::Text(t) => Some(AiLine::Text(t)),
+                    AgentEvent::Thinking(t) => Some(AiLine::Thinking { text: t, done: false, secs: 0.0, started: now_ms() }),
+                    AgentEvent::ToolText(t) => Some(AiLine::Preparing(tool_name_of(&t))),
+                    AgentEvent::ToolStart { summary, .. } => Some(AiLine::Tool(summary)),
+                    AgentEvent::ToolProgress { label, .. } if !label.trim().is_empty() && !label.starts_with(crate::cmd::recipe::PREVIEW_TAG) => Some(AiLine::Result(format!("… {label}"))),
+                    AgentEvent::Message(m) if m.role == syn_assist::chat::Role::Tool => Some(AiLine::Result(m.text.lines().next().unwrap_or_default().to_string())),
+                    _ => None,
+                },
+                None,
+                false,
+            ),
+        };
+        syngui::async_runtime::run_on_main_thread(move || {
+            st.role_logs.update(|v| {
+                let i = match v.iter().position(|(id, _, _)| id == role) {
+                    Some(i) => i,
+                    None => {
+                        let title = start.or_else(|| crate::crew::role(role).map(|r| r.title)).unwrap_or(role);
+                        v.push((role.to_string(), title.to_string(), Vec::new()));
+                        v.len() - 1
+                    }
+                };
+                let log = &mut v[i].2;
+                if let Some(l) = line {
+                    add_line(log, l);
+                }
+                if end {
+                    finish_thinking(log);
+                    log.retain(|x| !matches!(x, AiLine::Preparing(_)));
+                }
+            });
+            if start.is_some() {
+                st.role_active.set(Some(role.to_string()));
+            } else if end {
+                st.role_active.set(None);
+            }
+        });
+    }));
+}
+
 fn finish_thinking(l: &mut [AiLine]) {
     for x in l.iter_mut().rev() {
         if let AiLine::Thinking { done, secs, started, .. } = x {

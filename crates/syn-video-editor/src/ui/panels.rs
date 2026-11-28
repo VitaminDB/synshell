@@ -978,6 +978,93 @@ fn viewer_frame(st: St) -> impl Widget {
         .child(pinch)
 }
 
+// ── Съёмочная группа: чипы ролей, доска, записки ─────────────────────────
+
+/// Ряд чипов над чатом ИИ: режиссёр (главный чат), каждая роль, что уже
+/// работала (её чат; идущая сейчас — с крутилкой), доска сцен и записки.
+/// Пока группа не работала (нет ролей и записок) — ряда нет.
+fn crew_chips(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let roles = st.role_logs.get();
+        let active = st.role_active.get();
+        let view = st.ai_view.get();
+        let _ = st.rev.get();
+        let project = ed().path.clone();
+        let notes_open = project.as_deref().map(|p| crate::crew::notes(p).iter().filter(|n| n.status != crate::crew::Status::Closed).count()).unwrap_or(0);
+        let has_crew = !roles.is_empty() || project.as_deref().is_some_and(|p| crate::store::media_dir(p).join("правила.md").is_file());
+        if !has_crew {
+            return Vec::new();
+        }
+        let chip = |label: String, on: bool, busy: bool, v: Option<String>| -> Box<dyn Widget> {
+            let text = if busy { format!("● {label}") } else { label };
+            Box::new(Button::new(text).on_click(move || st.ai_view.set(v.clone())).class(if on { "ai-chip ai-chip-on" } else { "ai-chip" }))
+        };
+        let mut chips: Vec<Box<dyn Widget>> = vec![chip("Режиссёр".into(), view.is_none(), st.ai_busy.get() && active.is_none(), None)];
+        for (id, title, _) in &roles {
+            chips.push(chip(title.clone(), view.as_deref() == Some(id.as_str()), active.as_deref() == Some(id.as_str()), Some(id.clone())));
+        }
+        chips.push(chip("Доска".into(), view.as_deref() == Some("board"), false, Some("board".into())));
+        chips.push(chip(if notes_open > 0 { format!("Записки · {notes_open}") } else { "Записки".into() }, view.as_deref() == Some("notes"), false, Some("notes".into())));
+        vec![Box::new(DecoratedBox::new().class("ai-chips").child(Flex::new().gap(4.0).wrap().children(chips)))]
+    })
+}
+
+/// Доска производства: сцены × шаг конвейера, кто делает и проверяет, записки.
+fn crew_board(st: St) -> Box<dyn Widget> {
+    let _ = st.rev.get();
+    let _ = st.role_active.get();
+    let Some(p) = ed().path.clone() else { return empty("Проект не сохранён — доски нет") };
+    let n = crate::cmd::crew::scene_count(&p);
+    if n == 0 {
+        return empty("Сцен пока нет: доска появится после структуры фильма (03_структура)");
+    }
+    let project = ed().project.clone();
+    let notes = crate::crew::notes(&p);
+    let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("ai-log");
+    let stages = crate::crew::Stage::ALL;
+    let mut current_set = false;
+    for s in 1..=n {
+        let stg = crate::crew::stage(&p, s, Some(&project));
+        let (a, b) = stg.roles();
+        let done = stages.iter().position(|x| *x == stg).unwrap_or(0);
+        let mut bar = Row::new().gap(2.0);
+        for (k, _) in stages.iter().enumerate().take(stages.len() - 1) {
+            bar = bar.child(DecoratedBox::new().class(if k < done { "crew-cell crew-cell-done" } else if k == done { "crew-cell crew-cell-now" } else { "crew-cell" }));
+        }
+        let open = notes.iter().filter(|x| x.scene == s && x.status != crate::crew::Status::Closed).count();
+        let current = !current_set && stg != crate::crew::Stage::Done;
+        current_set |= current;
+        let who = if stg == crate::crew::Stage::Done { "готово".to_string() } else { format!("{} · {} → {}", stg.title(), crate::crew::role(a).map(|r| r.title).unwrap_or(a), crate::crew::role(b).map(|r| r.title).unwrap_or(b)) };
+        let line = Row::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Text::new(format!("{s:>2}")).class(if current { "crew-scene crew-scene-now" } else { "crew-scene" }))
+            .child(bar)
+            .child(Text::new(if open > 0 { format!("{who} · записок {open}") } else { who }).max_lines(1).class("ai-result-text"));
+        col = col.child(line);
+    }
+    col = col.child(Text::new(format!("Шаги: {}", stages.iter().map(|s| s.title()).collect::<Vec<_>>().join(" → "))).class("ai-think-text"));
+    Box::new(col)
+}
+
+/// Лента записок между ролями: открытые сверху, круги и эскалация.
+fn crew_notes(st: St) -> Box<dyn Widget> {
+    let _ = st.rev.get();
+    let _ = st.role_active.get();
+    let Some(p) = ed().path.clone() else { return empty("Проект не сохранён") };
+    let mut v = crate::crew::notes(&p);
+    if v.is_empty() {
+        return empty("Записок нет: роли пишут их друг другу, когда что-то не так");
+    }
+    v.sort_by_key(|n| (n.status == crate::crew::Status::Closed, std::cmp::Reverse(n.id)));
+    let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("ai-log");
+    for n in v {
+        let closed = n.status == crate::crew::Status::Closed;
+        col = col.child(DecoratedBox::new().class(if closed { "ai-note ai-note-closed" } else if n.to == "user" { "ai-note ai-note-user" } else { "ai-note" }).child(Text::new(crate::crew::note_line(&n)).selectable(true).class("ai-result-text")));
+    }
+    Box::new(col)
+}
+
 // ── ИИ ──────────────────────────────────────────────────────────────────
 
 fn ai(st: St) -> impl Widget {
@@ -989,8 +1076,16 @@ fn ai(st: St) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("ai-panel")
         .child(super::ai_chat::head(st))
+        .child(crew_chips(st))
         .child(DecoratedBox::new().class("grow").child(ScrollView::new().vertical().follow_end(true).child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
-            let log = st.ai_log.get();
+            // чат роли, доска или записки группы — вместо главного чата
+            let view = st.ai_view.get();
+            let log = match view.as_deref() {
+                None => st.ai_log.get(),
+                Some("board") => return vec![crew_board(st)],
+                Some("notes") => return vec![crew_notes(st)],
+                Some(r) => st.role_logs.get().into_iter().find(|(id, _, _)| id == r).map(|x| x.2).unwrap_or_default(),
+            };
             let open = expanded.get();
             if log.is_empty() {
                 return vec![empty("Агент монтирует сам: импорт, нарезка, титры, эффекты.\nНапример: «собери ролик на 30 секунд из ~/Videos/Test, в начале титр»")];

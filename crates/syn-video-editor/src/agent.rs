@@ -288,6 +288,27 @@ pub fn agent_with(ed: &Shared, s: &Settings) -> Agent {
 
 /// Ход роли съёмочной группы: её указания и навыки, бриф вместо всех
 /// документов, без права поручать дальше (crew.run); итог — в журнал.
+/// Событие хода роли для окна (чат роли): начало (задание), событие агента, конец.
+pub enum RoleEvent {
+    Start { role: &'static str, title: &'static str, scene: u32, stage: String, task: String },
+    Event { role: &'static str, ev: syn_assist::agent::AgentEvent },
+    End { role: &'static str, ok: bool },
+}
+
+type RoleSink = Box<dyn Fn(RoleEvent) + Send + Sync>;
+static ROLE_SINK: std::sync::OnceLock<RoleSink> = std::sync::OnceLock::new();
+
+/// Окно подписывается на ходы ролей (чипы ролей и их чаты в панели ИИ).
+pub fn set_role_sink(f: RoleSink) {
+    let _ = ROLE_SINK.set(f);
+}
+
+fn role_emit(e: RoleEvent) {
+    if let Some(f) = ROLE_SINK.get() {
+        f(e);
+    }
+}
+
 pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str) -> Result<String, String> {
     let s = settings::load();
     let mut a = agent_with(ed, &s);
@@ -307,7 +328,10 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
     chat.messages.push(syn_assist::chat::ChatMsg::user(&crate::crew::summary(project)));
     crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
     let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
-    let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |_| {});
+    role_emit(RoleEvent::Start { role: r.id, title: r.title, scene: n, stage: st.title().to_string(), task: brief.to_string() });
+    let rid = r.id;
+    let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |ev| role_emit(RoleEvent::Event { role: rid, ev }));
+    role_emit(RoleEvent::End { role: rid, ok: res.is_ok() });
     let last = chat.messages.iter().rev().find(|m| m.role == syn_assist::chat::Role::Assistant && !m.text.trim().is_empty()).map(|m| m.text.trim().to_string()).unwrap_or_default();
     let steps = chat.messages.iter().filter(|m| m.role == syn_assist::chat::Role::Tool).count();
     let short: String = last.chars().take(400).collect();

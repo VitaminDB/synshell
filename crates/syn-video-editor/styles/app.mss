@@ -74,6 +74,17 @@
 .ai-error-text { color: var(--error); font-size: 12px; }
 .ai-input { padding: 8px; border-top-width: 1px; border-color: var(--border-soft); }
 .ai-field { flex-grow: 1; }
+.ai-chips { padding: 6px 8px; border-bottom-width: 1px; border-color: var(--border-soft); }
+.ai-chip { height: 24px; font-size: 11px; padding: 0 10px; border-radius: 12px; }
+.ai-chip-on { background-color: var(--primary); color: #ffffff; border-color: var(--primary); }
+.crew-cell { width: 12px; height: 10px; border-radius: 2px; background-color: var(--bg-panel-2); }
+.crew-cell-done { background-color: var(--primary); }
+.crew-cell-now { background-color: var(--warning, #e0a030); }
+.crew-scene { color: var(--text-dim); font-size: 12px; width: 22px; }
+.crew-scene-now { color: var(--text); font-weight: 600; }
+.ai-note { padding: 6px 8px; border-radius: 8px; border-width: 1px; border-color: var(--border); }
+.ai-note-user { border-color: var(--warning, #e0a030); }
+.ai-note-closed { opacity: 0.55; }
 
 .toast { padding: 10px 14px; border-radius: 10px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); max-width: 520px; }
 .toast-text { color: var(--text); font-size: 12px; }
