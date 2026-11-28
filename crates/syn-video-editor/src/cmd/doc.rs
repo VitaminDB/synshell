@@ -298,7 +298,7 @@ pub fn names_coverage(text: &str, src: &Source) -> Vec<String> {
             }
         }
         if let (false, Some(w)) = (exact, near) {
-            wrong.push(format!("«{w}» (в источнике {name})"));
+            wrong.push(format!("«{w}» (в источнике {name}, по произношению «{}»)", cyrillic(name)));
         }
     }
     if wrong.is_empty() {
@@ -595,6 +595,40 @@ fn latin(s: &str) -> String {
         }
     };
     s.to_lowercase().chars().map(|c| if c.is_ascii_alphabetic() { c.to_string() } else { map(c).to_string() }).collect()
+}
+
+/// Практическая транскрипция латинского имени кириллицей (подсказка агенту).
+pub fn cyrillic(name: &str) -> String {
+    let low = name.to_lowercase();
+    let rules: &[(&str, &str)] = &[("sch", "ш"), ("tch", "ч"), ("sh", "ш"), ("ch", "ч"), ("zh", "ж"), ("kh", "х"), ("ph", "ф"), ("th", "т"), ("ts", "ц"), ("ya", "я"), ("yu", "ю"), ("yo", "йо"), ("ye", "е"), ("ee", "и"), ("oo", "у"), ("ou", "у"), ("qu", "кв")];
+    let single = |c: char| -> &'static str {
+        match c {
+            'a' => "а", 'b' => "б", 'c' => "к", 'd' => "д", 'e' => "е", 'f' => "ф", 'g' => "г", 'h' => "х", 'i' => "и", 'j' => "дж", 'k' => "к", 'l' => "л", 'm' => "м",
+            'n' => "н", 'o' => "о", 'p' => "п", 'q' => "к", 'r' => "р", 's' => "с", 't' => "т", 'u' => "у", 'v' => "в", 'w' => "в", 'x' => "кс", 'y' => "й", 'z' => "з", _ => "",
+        }
+    };
+    let mut out = String::new();
+    let mut i = 0;
+    let b = low.as_bytes();
+    while i < b.len() {
+        if let Some((l, r)) = rules.iter().find(|(l, _)| low[i..].starts_with(*l)) {
+            out.push_str(r);
+            i += l.len();
+            continue;
+        }
+        let c = b[i] as char;
+        // «e» в начале слова и после гласной — «э»
+        if c == 'e' && (i == 0 || "aeiouy".contains(b[i - 1] as char)) {
+            out.push('э');
+        } else if c.is_ascii_alphabetic() {
+            out.push_str(single(c));
+        } else {
+            out.push(c);
+        }
+        i += 1;
+    }
+    let mut ch = out.chars();
+    ch.next().map(|f| f.to_uppercase().collect::<String>() + ch.as_str()).unwrap_or_default()
 }
 
 /// Похожесть строк по общим биграммам (0…1).
@@ -961,6 +995,9 @@ mod length_tests {
         assert_eq!(super::scene_doc_number("сценарий"), None);
         assert!(!super::names_coverage("### Коф\n### Амара", &src).is_empty());
         assert!(super::names_coverage("### Кофи\n### Амара", &src).is_empty());
+        assert_eq!(super::cyrillic("NDUMISO"), "Ндумисо");
+        assert_eq!(super::cyrillic("BUHLE"), "Бухле");
+        assert_eq!(super::cyrillic("NONTLE"), "Нонтле");
         let w = super::structure_check("| Сцена 1 | ~10 с |\n| Сцена 2 | ~10 с |", &super::Source { pages: 2, ..src.clone() });
         assert!(w.iter().any(|x| x.contains("Длина фильма")), "{w:?}");
         assert_eq!(super::quoted_latin("КОФИ: «Get out!»\nАМАРА: «Нет.»\nКОФИ: «Why?»"), (2, 3));
