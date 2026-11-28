@@ -217,7 +217,9 @@ pub fn source_mismatch(text: &str) -> Vec<String> {
 pub fn source_check(text: &str, src: &Source) -> Vec<String> {
     let mut out = Vec::new();
     let scenes = text.lines().filter(|l| l.starts_with('#') && l.trim_start_matches('#').trim().to_lowercase().starts_with("сцена ")).count();
-    if scenes > 0 && scenes != src.scenes {
+    if scenes == 0 {
+        out.push(format!("В сценарии нет разделов сцен («### Сцена N — <место, время> — ~<длительность>»), а в источнике {} сцен — распиши каждую сцену отдельным разделом по шаблону навыка screenplay", src.scenes));
+    } else if scenes != src.scenes {
         out.push(format!("В сценарии-источнике {} сцен, а в адаптации {scenes} — перенеси все сцены источника в его порядке, ничего не объединяя и не выбрасывая", src.scenes));
     }
     if let Some(l) = text.lines().find(|l| l.to_lowercase().contains("страниц")) {
@@ -390,6 +392,7 @@ mod length_tests {
         assert_eq!(w.len(), 3, "{w:?}");
         let good = "# «Дорога домой» (ориг.: TOGO MAKUNDA WENI)\n**Длина:** ~2 мин · 3 сцены · ~2 страниц\n### Сцена 1\n### Сцена 2\n### Сцена 3\n";
         assert!(super::source_check(good, &src).is_empty(), "{:?}", super::source_check(good, &src));
+        assert!(super::source_check("# «Дорога домой»\nпросто пересказ без сцен", &src).iter().any(|w| w.contains("нет разделов сцен")));
     }
 }
 
