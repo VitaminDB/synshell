@@ -8,7 +8,7 @@ use super::{arg, req, Args, Command as Cmd, Out, Ty};
 use crate::crew::{self, Stage, Status};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&STATUS, &BRIEF, &NOTE, &NOTE_SET, &NOTES, &RUN];
+pub static COMMANDS: &[&Cmd] = &[&STATUS, &BRIEF, &NOTE, &NOTE_SET, &NOTES, &RUN, &REVIEW];
 
 fn project(ed: &Editor) -> Result<std::path::PathBuf, String> {
     ed.path.clone().ok_or_else(|| "проект ещё не сохранён".into())
@@ -46,14 +46,21 @@ static STATUS: Cmd = Cmd {
             let st = crew::stage(&p, s, Some(&ed.project));
             let (a, b) = st.roles();
             let open = crew::notes(&p).iter().filter(|x| x.scene == s && x.status != Status::Closed).count();
-            lines.push(format!("сцена {s}: {} — делает {}, проверяет {}{}", st.title(), crew::role(a).map(|r| r.title).unwrap_or(a), crew::role(b).map(|r| r.title).unwrap_or(b), if open > 0 { format!(", записок {open}") } else { String::new() }));
+            let due = crew::review_due(&p, s, st).and_then(|w| crew::REVIEWS.iter().find(|r| r.0 == w));
+            match due {
+                Some(&(_, title, rv, _)) => lines.push(format!("сцена {s}: {} — ждёт проверки «{title}» ({}){}", st.title(), crew::role(rv).map(|r| r.title).unwrap_or(rv), if open > 0 { format!(", записок {open}") } else { String::new() })),
+                None => lines.push(format!("сцена {s}: {} — делает {}, проверяет {}{}", st.title(), crew::role(a).map(|r| r.title).unwrap_or(a), crew::role(b).map(|r| r.title).unwrap_or(b), if open > 0 { format!(", записок {open}") } else { String::new() })),
+            }
             rows.push(json!({"scene": s, "stage": st.title(), "author": a, "reviewer": b, "open_notes": open}));
             if current.is_none() && st != Stage::Done {
                 current = Some((s, st));
             }
         }
         let head = match current {
-            Some((s, st)) => format!("Текущая: сцена {s}, шаг «{}» — {} (crew.run {{scene: {s}}}).", st.title(), crew::role(st.roles().0).map(|r| r.title).unwrap_or("")),
+            Some((s, st)) => match crew::review_due(&p, s, st).and_then(|w| crew::REVIEWS.iter().find(|r| r.0 == w)) {
+                Some(&(_, title, rv, _)) => format!("Текущая: сцена {s}, шаг «{}» сделан — проверка «{title}» свежим взглядом: {} (crew.run {{scene: {s}}}).", st.title(), crew::role(rv).map(|r| r.title).unwrap_or(rv)),
+                None => format!("Текущая: сцена {s}, шаг «{}» — {} (crew.run {{scene: {s}}}).", st.title(), crew::role(st.roles().0).map(|r| r.title).unwrap_or("")),
+            },
             None if n > 0 => "Все сцены готовы — монтаж фильма.".to_string(),
             None => "Сцен нет: сначала 03_структура.".to_string(),
         };
@@ -159,6 +166,37 @@ static RUN: Cmd = Cmd {
     // ход роли выполняет агент окна (agent.rs, без блокировки проекта); из скрипта — нельзя
     run: |_, _| Err("crew.run выполняется агентом (ход роли — отдельным агентом)".into()),
 };
+
+static REVIEW: Cmd = Cmd {
+    id: "crew.review",
+    category: "Съёмочная группа",
+    title: "Проверка свежим взглядом",
+    shortcut: "",
+    keywords: "crew проверка ревью два ключа зрение эталоны ролики диалоги",
+    help: "Правило двух ключей: вещь сцены проверяет другая роль свежим контекстом — только оригинал, правила и сама вещь (эталоны и кадры роликов — картинками). what: script (сценарий — скрипт-супервайзер), assets (эталоны — скрипт-супервайзер), dialogue (диалоги и озвучка — сценарист), shots (ролики — скрипт-супервайзер). Вердикт ✓ открывает следующий шаг, ✗ — записка автору. crew.run делает проверку сам, когда автор шаг закончил.",
+    args: &[req("scene", Ty::Num, "номер сцены"), arg("what", Ty::Str, "script | assets | dialogue | shots (без — что ждёт на текущем шаге)")],
+    danger: false,
+    run: |_, _| Err("crew.review выполняется агентом (ход проверяющего — отдельным агентом)".into()),
+};
+
+/// Что делать по `crew.run`/`crew.review`: проверка (если ждёт) или ход автора.
+pub fn review_target(ed: &Editor, a: &Args, forced: bool) -> Result<(std::path::PathBuf, u32, Stage, Option<&'static str>), String> {
+    let p = project(ed)?;
+    let n = a.need_num("scene")? as u32;
+    let st = crew::stage(&p, n, Some(&ed.project));
+    if forced {
+        let what = match a.str("what")? {
+            Some(w) => crew::REVIEWS.iter().find(|r| r.0 == w.trim()).map(|r| r.0).ok_or_else(|| format!("проверка «{w}»: script | assets | dialogue | shots"))?,
+            None => crew::review_due(&p, n, st).ok_or_else(|| format!("сцена {n}: на шаге «{}» проверять пока нечего — автор шага ещё не закончил", st.title()))?,
+        };
+        return Ok((p, n, st, Some(what)));
+    }
+    // явное поручение роли (role/task) — её ход; иначе — проверка, если ждёт
+    if a.str("role")?.is_some() || a.str("task")?.is_some() {
+        return Ok((p, n, st, None));
+    }
+    Ok((p.clone(), n, st, crew::review_due(&p, n, st)))
+}
 
 /// Задание и бриф хода роли (для `crew.run`).
 pub fn prepare_run(ed: &Editor, a: &Args) -> Result<(std::path::PathBuf, &'static crew::Role, u32, Stage, String), String> {

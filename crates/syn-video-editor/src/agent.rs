@@ -89,13 +89,21 @@ impl Tool for CmdTool {
         // ждут его — без блокировки документа, иначе главный поток, ждущий её для
         // отрисовки, и агент ждали бы друг друга
         // ход роли съёмочной группы — отдельным агентом роли, без блокировки проекта
-        if self.cmd.id == "crew.run" {
+        if self.cmd.id == "crew.run" || self.cmd.id == "crew.review" {
             let a = cmd::Args::from_value(self.cmd, args)?;
+            let (p, n, st, due) = {
+                let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+                cmd::crew::review_target(&ed, &a, self.cmd.id == "crew.review")?
+            };
+            // правило двух ключей: автор свою часть сделал — проверка свежим взглядом
+            if let Some(what) = due {
+                return run_review(&self.ed, &p, n, st, what).map(ToolOutput::text);
+            }
             let (p, r, n, st, brief) = {
                 let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
                 cmd::crew::prepare_run(&ed, &a)?
             };
-            return run_role(&self.ed, &p, r, n, st, &brief).map(ToolOutput::text);
+            return run_role(&self.ed, &p, r, n, st, &brief, Vec::new()).map(ToolOutput::text);
         }
         // документ — службой, без блокировки; картинки страниц — в ответе (модель их видит)
         if self.cmd.id == "document.read" {
@@ -309,11 +317,42 @@ fn role_emit(e: RoleEvent) {
     }
 }
 
-pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str) -> Result<String, String> {
+/// Проверка свежим взглядом (правило двух ключей): ход роли-проверяющего с
+/// брифом из оригинала, правил и самой вещи (эталоны, кадры роликов —
+/// вложениями, модель их видит); вердикт ✓/✗ — в проверки.json, ✗ — записка автору.
+pub fn run_review(ed: &Shared, project: &std::path::Path, n: u32, st: crate::crew::Stage, what: &str) -> Result<String, String> {
+    let &(_, title, reviewer, author) = crate::crew::REVIEWS.iter().find(|r| r.0 == what).ok_or_else(|| format!("нет проверки «{what}»"))?;
+    let r = crate::crew::role(reviewer).ok_or("нет роли проверяющего")?;
+    let (brief, files) = crate::crew::review_brief(project, n, what);
+    let out = run_role(ed, project, r, n, st, &brief, files)?;
+    match crate::crew::parse_verdict(&out) {
+        Some(true) => {
+            crate::crew::add_review(project, n, what, true, r.id, &out);
+            crate::crew::journal(project, &format!("проверка «{title}» сцены {n}: ✓ ({})", r.title));
+            Ok(format!("Проверка «{title}» сцены {n} принята ({}).\n{out}", r.title))
+        }
+        Some(false) => {
+            let why: String = out.lines().rev().find(|l| l.to_uppercase().contains("ВЕРДИКТ")).unwrap_or("").to_string();
+            let body: String = out.chars().rev().take(1500).collect::<String>().chars().rev().collect();
+            crate::crew::add_review(project, n, what, false, r.id, &out);
+            let note = crate::crew::add_note(project, r.id, author, n, &format!("проверка: {title}"), &format!("{why}\n{body}"))?;
+            crate::crew::journal(project, &format!("проверка «{title}» сцены {n}: ✗ — записка {}", crate::crew::note_line(&note)));
+            Ok(format!("Проверка «{title}» сцены {n} НЕ принята ({}): записка #{} — {}. Поручи исправление: crew.run {{scene: {n}, role: \"{author}\", task: \"исправь по записке #{}\"}}, затем снова crew.run (проверка повторится).\n{out}", r.title, note.id, crate::crew::role(author).map(|x| x.title).unwrap_or(author), note.id))
+        }
+        None => Err(format!("проверяющий не дал вердикта (нужна последняя строка «ВЕРДИКТ: ✓» или «ВЕРДИКТ: ✗ — …»); ответ: {}", out.chars().take(600).collect::<String>())),
+    }
+}
+
+pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str, files: Vec<std::path::PathBuf>) -> Result<String, String> {
     let s = settings::load();
     let mut a = agent_with(ed, &s);
     a.skills.retain(|k| r.skills.contains(&k.name.as_str()));
-    a.tools.retain(|t| !t.name().contains("crew_run") && !t.name().contains("crew.run"));
+    // роль делает свой шаг в этом проекте: поручать дальше, проверять за других,
+    // создавать и открывать проекты — нельзя (иначе окно уходит в другой проект)
+    a.tools.retain(|t| {
+        let n = t.name().replace('_', ".");
+        !["crew.run", "crew.review", "project.new", "project.open", "project.close"].iter().any(|x| n.contains(x))
+    });
     a.subagent = false;
     // системный промпт роли: общая часть редактора + роль (из настроек или по умолчанию) + обязательные правила проекта
     let base = a.system.take().unwrap_or_default();
@@ -330,7 +369,7 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
     let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
     role_emit(RoleEvent::Start { role: r.id, title: r.title, scene: n, stage: st.title().to_string(), task: brief.to_string() });
     let rid = r.id;
-    let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |ev| role_emit(RoleEvent::Event { role: rid, ev }));
+    let res = run_turn(&a, ed, &mut chat, &task, files, &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |ev| role_emit(RoleEvent::Event { role: rid, ev }));
     role_emit(RoleEvent::End { role: rid, ok: res.is_ok() });
     let last = chat.messages.iter().rev().find(|m| m.role == syn_assist::chat::Role::Assistant && !m.text.trim().is_empty()).map(|m| m.text.trim().to_string()).unwrap_or_default();
     let steps = chat.messages.iter().filter(|m| m.role == syn_assist::chat::Role::Tool).count();

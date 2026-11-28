@@ -210,11 +210,11 @@ pub fn stage(project: &Path, n: u32, timeline: Option<&crate::doc::Project>) -> 
     if scene.trim().is_empty() {
         return Stage::Script;
     }
-    if crate::cmd::story::facts_gate(project, n).is_err() {
+    if crate::cmd::story::facts_gate(project, n).is_err() || review_ok(project, n, "script") != Some(true) {
         return Stage::Facts;
     }
     let catalog = read(project, "04_ассеты");
-    if crate::cmd::doc::asset_refs(&scene).is_empty() || !crate::cmd::doc::scene_assets_missing(&scene, &catalog).is_empty() {
+    if crate::cmd::doc::asset_refs(&scene).is_empty() || !crate::cmd::doc::scene_assets_missing(&scene, &catalog).is_empty() || review_ok(project, n, "assets") != Some(true) {
         return Stage::Assets;
     }
     // реплики в сцене есть — нужна их озвучка (файлы speech/сцена-N-*)
@@ -223,7 +223,7 @@ pub fn stage(project: &Path, n: u32, timeline: Option<&crate::doc::Project>) -> 
         let f = e.file_name().to_string_lossy().to_lowercase();
         (f.starts_with(&format!("сцена-{n}-")) || f.starts_with(&format!("сцена-{n:02}-"))) && !f.contains("-ролик-")
     });
-    if has_lines && !voiced {
+    if has_lines && (!voiced || review_ok(project, n, "dialogue") != Some(true)) {
         return Stage::Voice;
     }
     let story = crate::cmd::story::load(Some(project));
@@ -233,7 +233,7 @@ pub fn stage(project: &Path, n: u32, timeline: Option<&crate::doc::Project>) -> 
     if !story.done.contains(&n) {
         return Stage::Shoot;
     }
-    if notes(project).iter().any(|x| x.scene == n && x.status != Status::Closed) {
+    if review_ok(project, n, "shots") != Some(true) || notes(project).iter().any(|x| x.scene == n && x.status != Status::Closed) {
         return Stage::Check;
     }
     if let Some(p) = timeline {
@@ -244,6 +244,198 @@ pub fn stage(project: &Path, n: u32, timeline: Option<&crate::doc::Project>) -> 
         }
     }
     Stage::Done
+}
+
+// ---------------------------------------------------------------- проверки (правило двух ключей)
+
+/// Приёмка проверяющим: сценарий сцены, её эталоны, озвучка (диалоги), ролики.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Review {
+    pub scene: u32,
+    /// script | assets | dialogue | shots
+    pub what: String,
+    pub ok: bool,
+    pub by: String,
+    pub text: String,
+    pub at: String,
+}
+
+/// Что проверяется: (id, название, роль-проверяющий, роль-автор).
+pub const REVIEWS: &[(&str, &str, &str, &str)] = &[
+    ("script", "сценарий сцены", "supervisor", "writer"),
+    ("assets", "эталоны сцены", "supervisor", "designer"),
+    ("dialogue", "диалоги и озвучка", "writer", "sound"),
+    ("shots", "ролики сцены", "supervisor", "camera"),
+];
+
+pub fn reviews(project: &Path) -> Vec<Review> {
+    std::fs::read_to_string(dir(project).join("проверки.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// Последний вердикт по предмету сцены (None — не проверялось). Проверка
+/// устаревает, если проверяемое поменялось позже неё.
+pub fn review_ok(project: &Path, n: u32, what: &str) -> Option<bool> {
+    let r = reviews(project).into_iter().rev().find(|r| r.scene == n && r.what == what)?;
+    let at = chrono_secs(&r.at);
+    if r.ok && review_inputs(project, n, what).iter().any(|f| mtime(f) > at + 1) {
+        return None;
+    }
+    Some(r.ok)
+}
+
+fn mtime(f: &Path) -> u64 {
+    std::fs::metadata(f).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn chrono_secs(s: &str) -> u64 {
+    s.parse().unwrap_or(0)
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+pub fn add_review(project: &Path, n: u32, what: &str, ok: bool, by: &str, text: &str) {
+    let mut v = reviews(project);
+    v.push(Review { scene: n, what: what.into(), ok, by: by.into(), text: text.trim().into(), at: now_secs().to_string() });
+    let _ = std::fs::write(dir(project).join("проверки.json"), serde_json::to_string_pretty(&v).unwrap_or_default());
+}
+
+/// Какая проверка ждёт на текущем шаге сцены (автор свою часть сделал).
+pub fn review_due(project: &Path, n: u32, st: Stage) -> Option<&'static str> {
+    let scene = read(project, &format!("scene_{n:02}"));
+    let what = match st {
+        Stage::Facts if crate::cmd::story::facts_gate(project, n).is_ok() => "script",
+        Stage::Assets if !crate::cmd::doc::asset_refs(&scene).is_empty() && crate::cmd::doc::scene_assets_missing(&scene, &read(project, "04_ассеты")).is_empty() => "assets",
+        Stage::Voice if voiced(project, n) => "dialogue",
+        Stage::Check => "shots",
+        _ => return None,
+    };
+    (review_ok(project, n, what) != Some(true)).then_some(what)
+}
+
+fn voiced(project: &Path, n: u32) -> bool {
+    std::fs::read_dir(dir(project).join("speech")).into_iter().flatten().flatten().any(|e| {
+        let f = e.file_name().to_string_lossy().to_lowercase();
+        (f.starts_with(&format!("сцена-{n}-")) || f.starts_with(&format!("сцена-{n:02}-"))) && !f.contains("-ролик-")
+    })
+}
+
+/// Ролики сцены: файлы съёмки с меткой сцены (без склеек и хвостов).
+pub fn scene_rolls(project: &Path, n: u32) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir(project).join("generated"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("ref-scenes-"))
+        .flat_map(|e| std::fs::read_dir(e.path()).into_iter().flatten().flatten().map(|f| f.path()))
+        .filter(|f| {
+            let name = f.file_name().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+            name.ends_with(".mp4") && name.contains("ролик") && crate::cmd::story::scene_number(&name) == Some(n)
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// Файлы, которые смотрит проверка (по ним же видно, что вещь поменялась).
+pub fn review_inputs(project: &Path, n: u32, what: &str) -> Vec<PathBuf> {
+    let d = dir(project);
+    match what {
+        "script" => vec![d.join(format!("scene_{n:02}.md"))],
+        "assets" => {
+            let scene = read(project, &format!("scene_{n:02}"));
+            let cat = crate::cmd::doc::catalog(&read(project, "04_ассеты"));
+            crate::cmd::doc::asset_refs(&scene).iter().filter_map(|id| cat.iter().find(|a| &a.id == id)).map(|a| PathBuf::from(&a.file)).filter(|f| f.is_file()).collect()
+        }
+        "dialogue" => std::fs::read_dir(d.join("speech"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|f| {
+                let s = f.file_name().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+                (s.starts_with(&format!("сцена-{n}-")) || s.starts_with(&format!("сцена-{n:02}-"))) && !s.contains("-ролик-")
+            })
+            .collect(),
+        "shots" => scene_rolls(project, n),
+        _ => Vec::new(),
+    }
+}
+
+/// Кадры ролика для проверки зрением: начало, середина, конец (PNG рядом во временной папке).
+pub fn roll_frames(roll: &Path, out: &Path) -> Vec<PathBuf> {
+    let secs = crate::cmd::story::media_seconds(roll).unwrap_or(0.0);
+    let mut v = Vec::new();
+    for (k, at) in [0.3, secs / 2.0, (secs - 0.3).max(0.0)].into_iter().enumerate() {
+        let f = out.join(format!("{}-{k}.png", roll.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()));
+        let ok = std::process::Command::new("ffmpeg").args(["-v", "error", "-y", "-ss", &format!("{at:.2}")]).arg("-i").arg(roll).args(["-frames:v", "1", "-vf", "scale=768:-2"]).arg(&f).status().is_ok_and(|s| s.success());
+        if ok && f.is_file() {
+            v.push(f);
+        }
+    }
+    v
+}
+
+/// Бриф проверяющего со свежим контекстом: только оригинал сцены, выжимка
+/// библии с правилами и проверяемая вещь (без рассуждений автора), и
+/// вложения для зрения (эталоны, кадры роликов).
+pub fn review_brief(project: &Path, n: u32, what: &str) -> (String, Vec<PathBuf>) {
+    let title = REVIEWS.iter().find(|r| r.0 == what).map(|r| r.1).unwrap_or(what);
+    let src = crate::cmd::doc::source().and_then(|s| s.scene_texts.get(n as usize - 1).cloned()).unwrap_or_default();
+    let scene = read(project, &format!("scene_{n:02}"));
+    let mut files = Vec::new();
+    let mut b = format!("# Проверка: {title}, сцена {n}\nТы проверяешь чужую работу свежим взглядом: перед тобой только оригинал сцены, правила и сама вещь. Сравни факт за фактом.\n\n## Оригинал сцены {n} (источник)\n{}\n\n## Документ сцены scene_{n:02}\n{}\n", if src.trim().is_empty() { "(источник не приложен — сверяйся с 00_оригинал)".into() } else { src }, scene.trim());
+    match what {
+        "script" => b.push_str("\n## Что проверить\n- все события, герои, места и реквизит оригинала на месте, ничего не выдумано;\n- реплики переданы полностью и по смыслу, язык и сила брани — по правилам проекта;\n- нет черновых рассуждений, мусорных символов, ссылок «см. источник» вместо текста;\n- кадры с ассетами @id, свет и звук по кадрам указаны.\n"),
+        "assets" => {
+            let cat = crate::cmd::doc::catalog(&read(project, "04_ассеты"));
+            b.push_str("\n## Эталоны сцены (картинки во вложениях, по порядку)\n");
+            for id in crate::cmd::doc::asset_refs(&scene) {
+                if let Some(a) = cat.iter().find(|a| a.id == id) {
+                    b.push_str(&format!("- @{}: {} {} — {}\n", a.id, a.kind, a.variant, a.file));
+                    if std::path::Path::new(&a.file).is_file() {
+                        files.push(PathBuf::from(&a.file));
+                    }
+                }
+            }
+            b.push_str("\n## Что проверить (смотри картинки)\n- тот ли герой: возраст, пол, телосложение, внешность по библии; тот ли вариант (костюм, рана, грим) для этой сцены;\n- место и время суток как в сцене; эпоха и стиль как в правилах (стиль фильма — одинаковый у всех эталонов);\n- реквизит тот, что в сцене; на картинке нет надписей, рамок, лишних людей;\n- лицо читаемо, герой во весь рост (для героя).\n");
+        }
+        "dialogue" => {
+            b.push_str("\n## Записи реплик сцены\n");
+            for f in review_inputs(project, n, "dialogue") {
+                let heard = crate::cmd::audio::transcribe_file(&f, Some("ru")).map(|t| t.text).unwrap_or_default();
+                b.push_str(&format!("- {}: слышно «{}»\n", f.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default(), heard.trim()));
+            }
+            b.push_str("\n## Что проверить (редактор диалогов)\n- каждая реплика сцены озвучена, слова совпадают с документом;\n- язык живой, без кальки; род и число согласованы с героем;\n- брань — по правилам проекта, не слабее оригинала;\n- голос подходит герою (пол, возраст), подача по ремарке.\n");
+        }
+        "shots" => {
+            let tmp = std::env::temp_dir().join(format!("syn-video-editor-review-{}-{n}", std::process::id()));
+            let _ = std::fs::create_dir_all(&tmp);
+            b.push_str("\n## Ролики сцены (кадры во вложениях: начало, середина, конец каждого ролика)\n");
+            for r in scene_rolls(project, n) {
+                let heard = crate::cmd::audio::transcribe_file(&r, Some("ru")).map(|t| t.text).unwrap_or_default();
+                b.push_str(&format!("- {}: речь «{}»\n", r.display(), heard.trim()));
+                files.extend(roll_frames(&r, &tmp));
+            }
+            b.push_str("\n## Что проверить (смотри кадры; при сомнении — frame_check по файлу ролика и секунде)\n- ключевые события сцены в кадре, в нужном порядке;\n- герои те же, что на эталонах, в нужных костюмах; лица видны;\n- место то же, обстановка не плывёт, свет как в сцене; стык роликов без скачка;\n- речь — только реплики сцены, без лишних слов и повторов;\n- нет надписей, мусора, разваленных рук и лиц.\n");
+        }
+        _ => {}
+    }
+    b.push_str("\n## Ответ\nПоследней строкой — вердикт ровно в одном из видов:\nВЕРДИКТ: ✓\nВЕРДИКТ: ✗ — <что не так, по пунктам, конкретно: что и где исправить>\n");
+    (b, files)
+}
+
+/// Вердикт из ответа проверяющего: Some(true) — ✓, Some(false) — ✗, None — нет вердикта.
+pub fn parse_verdict(text: &str) -> Option<bool> {
+    let line = text.lines().rev().find(|l| l.to_uppercase().contains("ВЕРДИКТ"))?;
+    if line.contains('✗') || line.to_lowercase().contains("не принят") {
+        Some(false)
+    } else if line.contains('✓') {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------- записки
@@ -456,6 +648,28 @@ mod tests {
     }
 
     #[test]
+    fn two_keys_reviews() {
+        assert_eq!(parse_verdict("всё хорошо\nВЕРДИКТ: ✓"), Some(true));
+        assert_eq!(parse_verdict("ВЕРДИКТ: ✗ — у героя не тот костюм"), Some(false));
+        assert_eq!(parse_verdict("без вердикта"), None);
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("t").join("t.syn");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "{}").unwrap();
+        let sc = p.parent().unwrap().join("scene_01.md");
+        std::fs::write(&sc, "# Сцена 1").unwrap();
+        assert_eq!(review_ok(&p, 1, "script"), None);
+        add_review(&p, 1, "script", false, "supervisor", "ВЕРДИКТ: ✗ — нет события");
+        assert_eq!(review_ok(&p, 1, "script"), Some(false));
+        add_review(&p, 1, "script", true, "supervisor", "ВЕРДИКТ: ✓");
+        assert_eq!(review_ok(&p, 1, "script"), Some(true));
+        // документ поменялся после приёмки — нужна новая проверка
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
+        std::fs::File::options().write(true).open(&sc).unwrap().set_modified(later).unwrap();
+        assert_eq!(review_ok(&p, 1, "script"), None);
+    }
+
+    #[test]
     fn project_rules_and_mat() {
         assert!(mat_allowed("Мат — на русском как есть, можно жёстче"));
         assert!(!mat_allowed("сними фильм без мата"));
@@ -503,14 +717,23 @@ mod tests {
         std::fs::create_dir_all(dir).unwrap();
         assert_eq!(stage(&proj, 1, None), Stage::Script);
         std::fs::write(dir.join("scene_01.md"), "## Сцена 1\nкадр @кухня\nАННА: «Привет.»").unwrap();
-        // без 00_оригинал/02_сверка сверка не требуется — дальше ассеты
+        // сценарий написан — ждёт приёмки проверяющим (правило двух ключей)
+        assert_eq!(stage(&proj, 1, None), Stage::Facts);
+        assert_eq!(review_due(&proj, 1, Stage::Facts), Some("script"));
+        add_review(&proj, 1, "script", true, "supervisor", "ВЕРДИКТ: ✓");
         assert_eq!(stage(&proj, 1, None), Stage::Assets);
+        assert_eq!(review_due(&proj, 1, Stage::Assets), None);
         let f = dir.join("k.png");
         std::fs::write(&f, b"x").unwrap();
         std::fs::write(dir.join("04_ассеты.md"), format!("| id | тип | вариант | base | файл | сцены |\n|---|---|---|---|---|---|\n| кухня | локация | базовый | — | {} | 1 |\n", f.display())).unwrap();
+        assert_eq!(stage(&proj, 1, None), Stage::Assets);
+        assert_eq!(review_due(&proj, 1, Stage::Assets), Some("assets"));
+        add_review(&proj, 1, "assets", true, "supervisor", "ВЕРДИКТ: ✓");
         assert_eq!(stage(&proj, 1, None), Stage::Voice);
         std::fs::create_dir_all(dir.join("speech")).unwrap();
         std::fs::write(dir.join("speech").join("сцена-1-анна-1-01.wav"), b"x").unwrap();
+        assert_eq!(review_due(&proj, 1, Stage::Voice), Some("dialogue"));
+        add_review(&proj, 1, "dialogue", true, "writer", "ВЕРДИКТ: ✓");
         assert_eq!(stage(&proj, 1, None), Stage::Plan);
     }
 }
