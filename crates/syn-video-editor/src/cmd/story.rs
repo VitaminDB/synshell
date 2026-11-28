@@ -70,7 +70,9 @@ fn save(project: &Path, s: &Story) {
 /// Номер сцены из «3», «Сцена 3», «Сцена 3 из 8: …».
 pub fn scene_number(s: &str) -> Option<u32> {
     let t = s.trim();
-    let t = t.strip_prefix("Сцена").or_else(|| t.strip_prefix("сцена")).unwrap_or(t).trim_start();
+    let low = t.to_lowercase();
+    // «Сцена 1», «Сцена-01», «сцена_3», «Scene 2», «3»
+    let t = ["сцена", "scene"].iter().find_map(|p| low.strip_prefix(p)).unwrap_or(&low).trim_start_matches(['-', '_', ' ', '№', '#']);
     let d: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
     d.parse().ok()
 }
@@ -671,7 +673,11 @@ mod tests {
     fn numbers() {
         assert_eq!(scene_number("Сцена 3 из 8: x"), Some(3));
         assert_eq!(scene_number("12"), Some(12));
-        assert_eq!(scene_number("сцена-4"), None);
+        // метка ролика агентом бывает «Сцена-01», «scene_2»
+        assert_eq!(scene_number("сцена-4"), Some(4));
+        assert_eq!(scene_number("Сцена-01"), Some(1));
+        assert_eq!(scene_number("scene_2"), Some(2));
+        assert_eq!(scene_number("Кря"), None);
     }
 }
 
