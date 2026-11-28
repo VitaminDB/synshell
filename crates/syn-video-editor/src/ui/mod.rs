@@ -676,6 +676,11 @@ impl St {
     /// Ход агента в фоне; события — в панель ИИ, правки — в окно.
     pub fn ask_ai(self, text: String) {
         let files: Vec<std::path::PathBuf> = self.ai_files.get_untracked().into_iter().map(std::path::PathBuf::from).collect();
+        // приложенный сценарий — источник для сверки адаптации (doc.write «сценарий»)
+        if !files.is_empty() {
+            let f = files.clone();
+            std::thread::spawn(move || crate::cmd::doc::set_source_from(&f));
+        }
         if self.ai_busy.get_untracked() || (text.trim().is_empty() && files.is_empty()) {
             return;
         }
