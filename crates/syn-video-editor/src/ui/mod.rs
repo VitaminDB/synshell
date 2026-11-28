@@ -699,8 +699,16 @@ impl St {
             use syn_assist::agent::AgentEvent;
             // агент заново на каждый ход — правки «Настроек» действуют сразу
             let set = crate::settings::load();
-            let agent = crate::agent::agent_with(shared(), &set);
+            let mut agent = crate::agent::agent_with(shared(), &set);
             let mut chat = ai_chat::take();
+            // правила проекта из первого задания пользователя — обязательным блоком в системный промпт
+            let project = ed().path.clone();
+            if let Some(project) = project {
+                let first = chat.messages.iter().find(|m| m.role == syn_assist::chat::Role::User).map(|m| m.text.clone()).unwrap_or_else(|| text.clone());
+                crate::crew::save_rules(&project, &first);
+                let sys = agent.system.take().unwrap_or_default();
+                agent.system = Some(crate::agent::with_rules(sys, &project));
+            }
             crate::agent::prepare_chat(&mut chat, &set);
             if chat.title.trim().is_empty() {
                 chat.title = syn_assist::chat::title_from(&text);

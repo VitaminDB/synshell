@@ -73,6 +73,10 @@ pub struct Settings {
     pub asr_language: String,
     /// При запуске без файла — открыть последний проект; по умолчанию новый.
     pub open_last_project: bool,
+    /// Съёмочная группа: свой системный промпт роли (id роли → текст); нет — по умолчанию.
+    pub crew_prompts: BTreeMap<String, String>,
+    /// Съёмочная группа: модель роли (id роли → модель службы); нет — модель агента.
+    pub crew_models: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -95,6 +99,8 @@ impl Default for Settings {
             instructions: String::new(),
             models: BTreeMap::new(),
             node_models: BTreeMap::new(),
+            crew_prompts: BTreeMap::new(),
+            crew_models: BTreeMap::new(),
             vision_width: 768,
             vision_max_tokens: 700,
             vision_temperature: 0.2,

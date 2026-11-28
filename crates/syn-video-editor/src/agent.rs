@@ -293,12 +293,12 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
     a.skills.retain(|k| r.skills.contains(&k.name.as_str()));
     a.tools.retain(|t| !t.name().contains("crew_run") && !t.name().contains("crew.run"));
     a.subagent = false;
-    a.instructions = Some(match a.instructions.take() {
-        Some(i) if !i.trim().is_empty() => format!("{}\n\n{i}", r.prompt),
-        _ => r.prompt.to_string(),
-    });
+    // системный промпт роли: общая часть редактора + роль (из настроек или по умолчанию) + обязательные правила проекта
+    let base = a.system.take().unwrap_or_default();
+    a.system = Some(with_rules(format!("{base}\n\n# Твоя роль в съёмочной группе\n{}", crate::crew::role_system(r, &s)), project));
     let mut chat = Chat::new();
     prepare_chat(&mut chat, &s);
+    chat.model = crate::crew::role_model(r, &s);
     crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
     let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
     let res = run_turn(&a, ed, &mut chat, &task, Vec::new(), &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |_| {});
@@ -312,6 +312,16 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
         crate::crew::stage(project, n, Some(&e.project))
     };
     Ok(format!("{} — сцена {n}, шаг «{}», вызовов {steps}:\n{last}\n\nСтатус сцены {n} теперь: «{}» (делает {}).", r.title, st.title(), now.title(), crate::crew::role(now.roles().0).map(|x| x.title).unwrap_or("")))
+}
+
+/// Системный промпт с обязательными правилами проекта (`правила.md`) в конце.
+pub fn with_rules(system: String, project: &std::path::Path) -> String {
+    let rules = crate::crew::rules(project);
+    if rules.trim().is_empty() {
+        system
+    } else {
+        format!("{system}\n\n{}", rules.trim())
+    }
 }
 
 /// Итоговый системный промпт и число инструментов (сразу / в пуле) — для предпросмотра.

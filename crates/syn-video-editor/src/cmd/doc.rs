@@ -196,11 +196,10 @@ pub fn catalog(text: &str) -> Vec<Asset> {
         .collect()
 }
 
-/// Базовый ли эталон (вариант «базовый», «base», «—» или пусто, без base).
+/// Базовый ли эталон: колонка base пуста («—», «-», «нет»), вариант может быть описан словами.
 fn is_base(a: &Asset) -> bool {
-    let v = a.variant.trim();
-    let b = a.base.trim();
-    (v.is_empty() || v.starts_with("баз") || v == "base" || v == "—" || v == "-") && (b.is_empty() || b == "—" || b == "-")
+    let b = a.base.trim().to_lowercase();
+    b.is_empty() || b == "—" || b == "-" || b == "нет" || b == "none" || b == a.id.to_lowercase()
 }
 
 /// Проверка каталога: файлы на месте, варианты — правкой базового эталона того же героя или локации.
@@ -1010,7 +1009,7 @@ mod length_tests {
         let f = d.path().join("a.png");
         std::fs::write(&f, b"x").unwrap();
         let fp = f.display().to_string();
-        let cat = format!("| id | тип | вариант | base | файл | сцены |\n|---|---|---|---|---|---|\n| мать | герой | базовый | — | {fp} | 1 |\n| мать-профиль | герой | профиль | мать | {fp} | 2 |\n| кухня-окно | локация | окно | — | /нет.png | 1 |\n| дочь-спина | герой | спина | дочь | {fp} | 3 |\n");
+        let cat = format!("| id | тип | вариант | base | файл | сцены |\n|---|---|---|---|---|---|\n| мать | герой | анфас, полный рост | - | {fp} | 1 |\n| мать-профиль | герой | профиль | мать | {fp} | 2 |\n| кухня-окно | локация | окно | — | /нет.png | 1 |\n| дочь-спина | герой | спина | дочь | {fp} | 3 |\n");
         assert_eq!(super::catalog(&cat).len(), 4);
         let w = super::catalog_check(&cat);
         assert!(w.iter().any(|x| x.contains("кухня-окно")), "{w:?}");
