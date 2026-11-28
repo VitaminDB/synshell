@@ -37,7 +37,7 @@
     },
     "lora": {
       "type": "text",
-      "description": "LoRA для MiniMax-H3: пусто — Turbo 8 шагов; «off» — полные 20 шагов для максимального качества",
+      "description": "LoRA для MiniMax-H3: пусто или «off» — без LoRA, полные 20 шагов (по умолчанию); путь к LoRA (например, Turbo) — только по просьбе пользователя",
       "default": ""
     },
     "width": {

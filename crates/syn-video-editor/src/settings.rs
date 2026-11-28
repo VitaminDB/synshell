@@ -73,8 +73,8 @@ pub struct Settings {
     pub asr_language: String,
     /// При запуске без файла — открыть последний проект; по умолчанию новый.
     pub open_last_project: bool,
-    /// LoRA видео MiniMax-H3 для съёмки (ref-scenes, story-video): пусто — Turbo по
-    /// умолчанию службы (8 шагов), «off» — без LoRA (полные шаги, качество выше), иначе файл.
+    /// LoRA видео MiniMax-H3 для съёмки (ref-scenes, story-video): пусто или «off» —
+    /// без LoRA (полные шаги, по умолчанию), иначе файл (Turbo — только явным выбором).
     pub video_lora: String,
     /// Съёмочная группа: свой системный промпт роли (id роли → текст); нет — по умолчанию.
     pub crew_prompts: BTreeMap<String, String>,

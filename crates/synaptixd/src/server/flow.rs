@@ -635,7 +635,7 @@ fn video(cx: &mut Cx) -> R {
         context: ctx.as_ref().map(|(p, _)| p.display().to_string()),
         context_frames: cx.pos("context_frames").map(|v| v as usize),
         tail_out: Some(tail_out.display().to_string()),
-        // H3: LoRA узла (путь или «off»); не задана — Turbo 8 шагов по умолчанию
+        // H3: LoRA узла (путь или «off»); не задана — без LoRA, полные шаги
         lora: cx.file("lora").or_else(|| cx.str("lora")),
         lora_strength: cx.pos("lora_strength").map(|v| v as f32),
         // LTX dev: управляемая генерация Lightricks (auto — по модели)

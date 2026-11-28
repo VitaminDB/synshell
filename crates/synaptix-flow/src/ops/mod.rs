@@ -191,7 +191,7 @@ pub static VIDEO: NodeSpec = NodeSpec {
         field("ref_sheet", n_!("Лист-референс"), F::File, "").hint(n_!("LTX-2.5 (distilled): одна картинка — герои (лицо крупно + развороты), предметы, место отдельными панелями на чёрном фоне, без текста; промпт «Reference sheet: … / Generated video: …» (IC-LoRA Ingredients)")).advanced(),
         field("diff_decoder", n_!("Диффузионный декодер"), F::Bool, "false").hint(n_!("LTX-2.5: декодировать видео диффузионным декодером вместо VAE (дольше)")).advanced(),
         field("fps_x2", n_!("48 кадр/с"), F::Bool, "false").hint(n_!("LTX-2.5: удвоить частоту кадров временным апскейлером")).advanced(),
-        field("lora", "LoRA", F::Text, "").hint(n_!("MiniMax-H3: пусто — Turbo (8 шагов по умолчанию), «off» — без LoRA (20 шагов, выше детализация), либо путь/имя файла в lora/h3")).advanced(),
+        field("lora", "LoRA", F::Text, "").hint(n_!("MiniMax-H3: пусто или «off» — без LoRA (20 шагов, по умолчанию), либо путь/имя файла в lora/h3")).advanced(),
     ],
     stage: false,
 };

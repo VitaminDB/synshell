@@ -1151,7 +1151,7 @@ pub enum Request {
         #[serde(default)]
         strength: Option<f32>,
         /// H3: LoRA поверх DiT — путь к .safetensors; «off» — без LoRA;
-        /// не задано — Turbo 8 шагов из библиотеки (lora/h3).
+        /// не задано — без LoRA (полные шаги); Turbo — только явным путём.
         #[serde(default)]
         lora: Option<String>,
         #[serde(default)]
@@ -1563,7 +1563,7 @@ pub struct VideoParams {
     pub context_frames: Option<usize>,
     /// Куда записать `.safetensors` латента хвоста этого ролика.
     pub tail_out: Option<String>,
-    /// H3: LoRA (путь; «off» — без неё; `None` — Turbo 8 шагов по умолчанию) и сила.
+    /// H3: LoRA (путь; «off» — без неё; `None` — без LoRA, полные шаги) и сила.
     pub lora: Option<String>,
     pub lora_strength: Option<f32>,
     /// LTX dev: `Some(false)` — быстрый путь с дистилл-LoRA вместо управляемого.
