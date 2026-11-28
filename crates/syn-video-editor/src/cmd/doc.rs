@@ -125,6 +125,18 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
         if !latin.is_empty() {
             msg.push_str(&format!(". Имена говорящих латиницей ({}) при репликах на языке перевода — напиши их на языке перевода, как в сценарии, и перезапиши документ", latin.join(", ")));
         }
+        let bad = bad_lines(&body);
+        if !bad.is_empty() {
+            msg.push_str(&format!(". Реплики не в едином формате «ИМЯ [подача]: «реплика»» ({} строк, например: {}) — приведи все реплики к нему и перезапиши документ", bad.len(), bad.iter().take(2).map(|l| format!("«{}»", l.chars().take(60).collect::<String>())).collect::<Vec<_>>().join(", ")));
+        }
+    }
+    if is_dialog || is_script {
+        let src = SOURCE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(src) = src {
+            for w in names_and_profanity(&body, &src, is_dialog) {
+                msg.push_str(&format!(". {w}"));
+            }
+        }
     }
     let mixed = mixed_words(&body);
     if !mixed.is_empty() {
@@ -141,6 +153,33 @@ pub struct Source {
     pub scenes: usize,
     pub pages: usize,
     pub title: String,
+    /// Имена говорящих (строки капсом над репликами).
+    pub names: Vec<String>,
+    /// Грубых ругательств в репликах источника.
+    pub profanity: usize,
+}
+
+/// Грубые ругательства (основы) в тексте источника.
+const STRONG: &[&str] = &["fuck", "shit", "bitch", "asshole", "cunt", "dick", "bastard", "motherf", "damn"];
+/// Мягкие замены брани в переводе.
+const SOFT: &[&str] = &["блин", "чёрт", "черт", "отвали", "фиг", "блинский", "ёлки", "елки", "проклят"];
+
+/// Имя говорящего в строке сценария: строка капсом латиницей (2–30 знаков),
+/// с пометками (O.S.), (V.O.), (CONT'D); не заголовок сцены и не переход.
+fn speaker_of(line: &str) -> Option<String> {
+    let t = line.trim();
+    let name = t.split('(').next().unwrap_or("").trim().trim_end_matches(|c: char| c.is_ascii_digit() || c == ' ');
+    let n = name.chars().count();
+    if !(2..=30).contains(&n) || is_slug(t) || t.ends_with(':') || t.ends_with('.') && !t.contains('(') {
+        return None;
+    }
+    if !name.chars().all(|c| c.is_ascii_uppercase() || c == ' ' || c == '\'' || c == '.' || c == '-') || !name.chars().any(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    if ["BEAT", "FADE IN", "FADE OUT", "CUT TO", "THE END", "CONTINUED", "LATER", "INTERCUT", "BLACK", "SUPER", "TITLE", "MONTAGE", "FLASHBACK", "END FLASHBACK", "WRITTEN BY"].iter().any(|w| name.starts_with(w)) {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 static SOURCE: std::sync::Mutex<Option<Source>> = std::sync::Mutex::new(None);
@@ -175,7 +214,22 @@ pub fn source_of(pages: &[String]) -> Option<Source> {
     let with_text: Vec<&String> = pages.iter().filter(|p| p.chars().any(char::is_alphanumeric)).collect();
     let title_page = with_text.first().is_some_and(|p| !p.lines().any(is_slug));
     let title = with_text.first().filter(|_| title_page).and_then(|p| p.lines().map(str::trim).find(|l| !l.is_empty())).unwrap_or("").to_string();
-    Some(Source { scenes, pages: with_text.len() - usize::from(title_page), title })
+    // имена: строки-говорящие, встреченные хотя бы дважды
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for p in pages {
+        for l in p.lines() {
+            if let Some(n) = speaker_of(l) {
+                match counts.iter_mut().find(|(k, _)| *k == n) {
+                    Some(c) => c.1 += 1,
+                    None => counts.push((n, 1)),
+                }
+            }
+        }
+    }
+    let names = counts.into_iter().filter(|(n, c)| *c >= 2 && *n != title).map(|(n, _)| n).collect();
+    let low = pages.join("\n").to_lowercase();
+    let profanity = STRONG.iter().map(|w| low.matches(w).count()).sum();
+    Some(Source { scenes, pages: with_text.len() - usize::from(title_page), title, names, profanity })
 }
 
 /// Русская запись латиницей — для сравнения названия с оригиналом.
@@ -324,6 +378,90 @@ pub fn latin_speakers(text: &str) -> Vec<String> {
     out
 }
 
+/// Метки говорящих кириллицей капсом в начале строк (`ИМЯ [..]:`, `**ИМЯ:**`, `3. ИМЯ:`).
+pub fn cyr_speakers(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in text.lines() {
+        let t = l.trim().trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ' || c == '*' || c == '-');
+        let label: String = t.chars().take_while(|c| c.is_alphabetic() && c.is_uppercase() || *c == ' ' || *c == '-').collect();
+        let label = label.trim();
+        let rest = t[t.char_indices().nth(label.chars().count()).map(|(i, _)| i).unwrap_or(t.len())..].trim_start().trim_start_matches('*');
+        if label.chars().count() >= 2 && label.chars().any(|c| ('\u{400}'..='\u{4FF}').contains(&c)) && (rest.starts_with(':') || rest.starts_with('[') || rest.starts_with('(')) {
+            for w in label.split_whitespace() {
+                if w.chars().count() >= 3 && !out.iter().any(|o| o == w) {
+                    out.push(w.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Строки реплик не в формате `ИМЯ [подача]: «реплика»` (подача и пометки
+/// в [] или () — по желанию).
+pub fn bad_lines(text: &str) -> Vec<String> {
+    let mut bad = Vec::new();
+    for l in text.lines() {
+        let t = l.trim();
+        let label: String = t.chars().take_while(|c| c.is_alphabetic() && c.is_uppercase() || *c == ' ' || *c == '-').collect();
+        if label.trim().chars().count() < 2 || !label.chars().any(|c| ('\u{400}'..='\u{4FF}').contains(&c)) {
+            // не начинается с имени капсом — реплика ли это? (**ИМЯ**, «1. ИМЯ», «ИМЯ —»)
+            let stripped = t.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ' || c == '*');
+            let lab2: String = stripped.chars().take_while(|c| c.is_alphabetic() && c.is_uppercase() || *c == ' ').collect();
+            if stripped.len() != t.len() && lab2.trim().chars().count() >= 2 && lab2.chars().any(|c| ('\u{400}'..='\u{4FF}').contains(&c)) && (stripped.contains('«') || stripped.contains(':') || stripped.contains('—')) {
+                bad.push(t.to_string());
+            }
+            continue;
+        }
+        let mut rest = t[label.len()..].trim_start();
+        // подача и пометки
+        while rest.starts_with('[') || rest.starts_with('(') {
+            let close = if rest.starts_with('[') { ']' } else { ')' };
+            match rest.find(close) {
+                Some(i) => rest = rest[i + close.len_utf8()..].trim_start(),
+                None => break,
+            }
+        }
+        let ok = rest.starts_with(':') && {
+            let r = rest[1..].trim();
+            r.starts_with('«') && r.ends_with('»')
+        };
+        if !ok && (rest.starts_with(':') || rest.starts_with('—') || rest.starts_with('*')) {
+            bad.push(t.to_string());
+        }
+    }
+    bad
+}
+
+/// Имена говорящих против источника и смягчённая брань.
+pub fn names_and_profanity(text: &str, src: &Source, is_dialog: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut wrong = Vec::new();
+    for ru in cyr_speakers(text) {
+        let lat = latin(&ru);
+        let Some((best, score)) = src.names.iter().map(|n| (n, similar(&lat, &n.to_lowercase()))).max_by(|a, b| a.1.total_cmp(&b.1)) else { continue };
+        let mut a: Vec<char> = lat.chars().collect();
+        let mut b: Vec<char> = best.to_lowercase().chars().filter(|c| c.is_ascii_alphabetic()).collect();
+        a.sort_unstable();
+        b.sort_unstable();
+        let permuted = a == b && lat != best.to_lowercase().replace(' ', "");
+        if permuted || (0.4..0.85).contains(&score) {
+            wrong.push(format!("«{ru}» (в источнике {best})"));
+        }
+    }
+    if !wrong.is_empty() {
+        out.push(format!("Имена не совпадают с источником: {} — имя человека транскрипцией по произношению оригинала, без перестановки и замены букв, одинаково во всех документах; роль без имени (водитель, тренер и т. п.) — переводом; исправь и перезапиши", wrong.join(", ")));
+    }
+    if is_dialog && src.profanity > 0 {
+        let low = text.to_lowercase();
+        let soft: Vec<&str> = SOFT.iter().copied().filter(|w| low.contains(*w)).collect();
+        if !soft.is_empty() {
+            out.push(format!("В источнике грубая брань ({} мест), а в переводе мягкие замены ({}) — брань переводится не слабее оригинала (а если пользователь разрешил мат — матом); исправь и перезапиши", src.profanity, soft.join(", ")));
+        }
+    }
+    out
+}
+
 /// Слова, где смешаны латиница и кириллица («Арrogant»).
 pub fn mixed_words(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -393,6 +531,19 @@ mod length_tests {
         let good = "# «Дорога домой» (ориг.: TOGO MAKUNDA WENI)\n**Длина:** ~2 мин · 3 сцены · ~2 страниц\n### Сцена 1\n### Сцена 2\n### Сцена 3\n";
         assert!(super::source_check(good, &src).is_empty(), "{:?}", super::source_check(good, &src));
         assert!(super::source_check("# «Дорога домой»\nпросто пересказ без сцен", &src).iter().any(|w| w.contains("нет разделов сцен")));
+        // имена и брань
+        let pages = vec!["INT. ROOM - DAY 1\nKOFI\nGet out, you bitch!\nAMARA (O.S.)\nNo.\nINT. HALL - NIGHT 2\nKOFI\nFuck.\nAMARA\nWhy?".to_string()];
+        let src = super::source_of(&pages).unwrap();
+        assert_eq!(src.names, vec!["KOFI".to_string(), "AMARA".to_string()]);
+        assert_eq!(src.profanity, 2);
+        let d = "КОФИ [зло]: «Пошла вон, сука!»\nАРАМА: «Нет.»\nКОФИ: «Блин.»";
+        let w = super::names_and_profanity(d, &src, true);
+        assert!(w.iter().any(|x| x.contains("АРАМА")), "{w:?}");
+        assert!(w.iter().any(|x| x.contains("блин")), "{w:?}");
+        assert!(super::names_and_profanity("КОФИ: «Сука.»\nАМАРА: «Нет.»", &src, true).is_empty());
+        // формат реплик
+        assert!(super::bad_lines("КОФИ [зло]: «Пошла вон!»\nАМАРА (за кадром): «Нет.»").is_empty());
+        assert_eq!(super::bad_lines("**КОФИ:** — Пошла вон!\n3. АМАРА: «Нет.»\nАМАРА — да").len(), 3);
     }
 }
 
@@ -418,4 +569,23 @@ fn list(ed: &mut Editor, _a: &Args) -> Res {
     }
     let names: Vec<String> = v.iter().filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned())).collect();
     Ok(Out::with(names.join("\n"), json!({"docs": v})))
+}
+
+#[cfg(test)]
+mod real_check {
+    /// `SYN_SRC=текст_источника.txt SYN_DOC=диалоги.md cargo test -p syn-video-editor real_check -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn real_check() {
+        let src = std::fs::read_to_string(std::env::var("SYN_SRC").unwrap()).unwrap();
+        let pages: Vec<String> = src.split("--- страница").map(str::to_string).collect();
+        let s = super::source_of(&pages).unwrap();
+        println!("источник: сцен {}, имена {:?}, брани {}", s.scenes, s.names, s.profanity);
+        let d = std::fs::read_to_string(std::env::var("SYN_DOC").unwrap()).unwrap();
+        for w in super::names_and_profanity(&d, &s, true) {
+            println!("ЗАМЕЧАНИЕ: {w}");
+        }
+        let bad = super::bad_lines(&d);
+        println!("строк не в формате: {} {:?}", bad.len(), bad.iter().take(2).collect::<Vec<_>>());
+    }
 }
