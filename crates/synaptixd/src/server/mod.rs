@@ -13,6 +13,7 @@ mod stages;
 mod manager;
 mod registry;
 mod runners;
+mod kvdisk;
 mod train;
 mod voices;
 #[cfg(feature = "cuda")]
@@ -595,7 +596,7 @@ impl Conn {
                 }
                 // Параметры запроса, а не настройки модели: схема их не знает.
                 let request_only: Vec<(&str, crate::ParamValue)> =
-                    ["session", "stop", "max_image_tokens", "json_schema", "priority", "prefix_messages", "park"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                    ["session", "stop", "max_image_tokens", "json_schema", "priority", "prefix_messages", "project_messages", "park"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
                 let mut params = mgr.params(&model, &call);
                 for (k, v) in request_only {
                     params.set(k, Some(v));

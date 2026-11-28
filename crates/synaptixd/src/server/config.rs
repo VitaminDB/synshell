@@ -22,6 +22,9 @@ pub struct Config {
     /// Потолок RAM (МБ) под припаркованные KV-сессии модели: головы ролей и
     /// чатов, ждущие своего хода. Сверх него вытесняются самые давние.
     pub kv_park_ram_mb: u64,
+    /// Потолок диска (МБ) под головы, вытесненные из RAM, и общие головы
+    /// проектов (`/var/cache/synaptix/kv`); 0 — без диска.
+    pub kv_park_disk_mb: u64,
     pub max_loaded: usize,
     /// Программы (имя процесса), которым на время работы отдаётся вся
     /// видеокарта: модели уходят с неё, новые грузятся на CPU/NPU.
@@ -65,6 +68,7 @@ impl Default for Config {
             idle_unload_min: 10,
             kv_keep_min: 60,
             kv_park_ram_mb: 8192,
+            kv_park_disk_mb: 32768,
             max_loaded: 0,
             yield_vram_to: vec!["resolve".into()],
             model_dirs: Vec::new(),

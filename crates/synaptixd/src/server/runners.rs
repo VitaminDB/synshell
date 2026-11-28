@@ -81,7 +81,9 @@ fn evict_plan(entries: &[(bool, u64)], max: usize, budget: u64, deficit: u64) ->
 }
 
 /// Ужать набор сессий по [`evict_plan`]: число, потолок RAM, запас RAM системы.
-fn trim_sessions(all: &mut Vec<KvEntry>) {
+/// Вытесненная голова (сессия `prefix:`) уходит на диск — третий уровень
+/// (см. [`crate::server::kvdisk`]); запись — в фоне, ход её не ждёт.
+fn trim_sessions(all: &mut Vec<KvEntry>, model: &Path) {
     use std::sync::atomic::Ordering::Relaxed;
     let (_, avail) = crate::server::manager::meminfo();
     let deficit = PARK_MIN_AVAILABLE.load(Relaxed).saturating_sub(avail);
@@ -89,7 +91,28 @@ fn trim_sessions(all: &mut Vec<KvEntry>) {
     let plan = evict_plan(&shape, SESSIONS, PARK_RAM_BYTES.load(Relaxed), deficit);
     for i in plan.into_iter().rev() {
         let e = all.remove(i);
-        tracing::info!("kv: сессия «{}» ({} токенов, {} МБ) вытеснена", e.key, e.kv.cached_tokens(), e.bytes() >> 20);
+        tracing::info!("kv: сессия «{}» ({} токенов, {} МБ) вытеснена из RAM", e.key, e.kv.cached_tokens(), e.bytes() >> 20);
+        if e.key.starts_with("prefix:") {
+            spill_head(&e, model);
+        }
+    }
+}
+
+/// Голова сессии — на диск в фоне (ключ — хэш токенов её точки возврата).
+fn spill_head(e: &KvEntry, model: &Path) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if crate::server::kvdisk::DISK_BYTES.load(Relaxed) == 0 {
+        return;
+    }
+    match e.kv.export_head() {
+        Ok(Some(h)) => {
+            let fp = crate::server::kvdisk::model_fingerprint(model);
+            std::thread::spawn(move || {
+                crate::server::kvdisk::save(&crate::server::kvdisk::root(), &fp, &prefix_key(h.tokens()), &h);
+            });
+        }
+        Ok(None) => {}
+        Err(err) => tracing::warn!("kv: голова «{}» не выгружена ({err})", e.key),
     }
 }
 
@@ -994,6 +1017,10 @@ impl Loaded {
             if e.kv.cached_tokens() == 0 {
                 continue;
             }
+            // Голова роли переживёт и выгрузку модели, и перезапуск службы.
+            if e.key.starts_with("prefix:") {
+                spill_head(&e, &b.path);
+            }
             if !e.parked {
                 match e.park() {
                     Ok(()) => {}
@@ -1028,7 +1055,7 @@ impl Loaded {
                 all.push(e);
             }
         }
-        trim_sessions(&mut all);
+        trim_sessions(&mut all, &b.path);
     }
 
     /// Настройки генерации языковой модели (на лету, без перезагрузки).
@@ -1606,6 +1633,13 @@ impl Loaded {
         let head = params.i64("prefix_messages").filter(|n| *n > 0).and_then(|n| {
             synaptix::facade::chat::head_tokens(tok, &msgs, lead_n + n as usize, thinking, params.text("reasoning"), tools_opt, &prompt, &ids)
         });
+        // Общая голова проекта (`project_messages`: первые M < N сообщений —
+        // то, что одинаково у всех ролей): с неё начинается сессия роли, чьей
+        // головы ещё нет ни в RAM, ни на диске.
+        let project = head.and_then(|h| {
+            let m = params.i64("project_messages").filter(|m| *m > 0)?;
+            synaptix::facade::chat::head_tokens(tok, &msgs, lead_n + m as usize, thinking, params.text("reasoning"), tools_opt, &prompt, &ids).filter(|p| *p < h)
+        });
         if params.i64("prefix_messages").is_some_and(|n| n > 0) && head.is_none() {
             tracing::warn!("generate: голова prefix_messages={} не легла на токены промпта — ход без парковки головы", params.i64("prefix_messages").unwrap_or(0));
         }
@@ -1710,6 +1744,39 @@ impl Loaded {
             }
             mine
         };
+        // Головы нет в RAM — с диска: сперва голова роли, иначе голова проекта.
+        // Нет и её — ход считает всё, а точку возврата ставит на конец головы
+        // проекта, чтобы после хода отдать её другим ролям.
+        let mut export_project = false;
+        if let (None, Some(h)) = (entry.as_ref(), head) {
+            let fp = crate::server::kvdisk::model_fingerprint(&b.path);
+            let root = crate::server::kvdisk::root();
+            let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
+            let found = std::iter::once(h).chain(project).find_map(|at| {
+                let k = prefix_key(&ids[..at]);
+                let t0 = std::time::Instant::now();
+                let head = crate::server::kvdisk::load(&root, &fp, &k, &ids[..at])?;
+                match llm.import_kv_head(&head, want) {
+                    Ok(Some(kv)) => {
+                        tracing::info!("generate: голова «{k}» ({at} токенов) поднята с диска за {:.2} с", t0.elapsed().as_secs_f32());
+                        Some(kv)
+                    }
+                    Ok(None) => None,
+                    Err(err) => {
+                        tracing::warn!("generate: голова «{k}» с диска не легла в модель ({err}) — удалена");
+                        crate::server::kvdisk::forget(&root, &fp, &k);
+                        None
+                    }
+                }
+            });
+            match found {
+                Some(kv) => {
+                    let app = crate::server::activity::current().map(|l| l.app().clone()).unwrap_or_default();
+                    entry = Some(KvEntry { key: key.clone(), kv, parked: false, parked_bytes: 0, app });
+                }
+                None => export_project = project.is_some(),
+            }
+        }
         if let Some(e) = entry.as_mut().filter(|e| e.parked) {
             match e.kv.unpark_to(llm.device().clone()) {
                 Ok(_) => e.parked = false,
@@ -1766,7 +1833,7 @@ impl Loaded {
         let _active = ActiveKv(&b.kv_active);
         let t0 = std::time::Instant::now();
         if let Some(e) = entry.as_mut() {
-            e.kv.set_resume_at(head.or(history));
+            e.kv.set_resume_at(if export_project { project } else { head.or(history) });
         }
         let reused = match entry.as_mut().map(|e| &mut e.kv) {
             Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
@@ -1781,9 +1848,13 @@ impl Loaded {
             }
         };
         if let Some(e) = entry {
+            // Голова проекта посчитана этим ходом — копию на диск для других ролей.
+            if export_project {
+                spill_head(&e, &b.path);
+            }
             let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
             all.push(e);
-            trim_sessions(&mut all);
+            trim_sessions(&mut all, &b.path);
         }
         let done = std::time::Instant::now();
         let prefill_ms = first.get().unwrap_or(done).duration_since(t0).as_millis() as u64;

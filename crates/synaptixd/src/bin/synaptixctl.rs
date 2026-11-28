@@ -321,6 +321,10 @@ fn run(args: &[String]) -> Result<(), String> {
             if let Some(n) = std::env::var("PREFIX").ok().and_then(|v| v.parse::<i64>().ok()) {
                 params = params.with("prefix_messages", n);
             }
+            // PROJECT=M — первые M сообщений (M < N) общие у всех ролей.
+            if let Some(m) = std::env::var("PROJECT").ok().and_then(|v| v.parse::<i64>().ok()) {
+                params = params.with("project_messages", m);
+            }
             if std::env::var("PARK").is_ok_and(|v| v == "1") {
                 params = params.with("park", true);
             }

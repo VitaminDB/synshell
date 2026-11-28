@@ -349,6 +349,7 @@ impl Manager {
     pub fn new(cfg: Config) -> Arc<Self> {
         crate::server::runners::PARK_RAM_BYTES.store(cfg.kv_park_ram_mb << 20, std::sync::atomic::Ordering::Relaxed);
         crate::server::runners::PARK_MIN_AVAILABLE.store(cfg.min_available_mb << 20, std::sync::atomic::Ordering::Relaxed);
+        crate::server::kvdisk::DISK_BYTES.store(cfg.kv_park_disk_mb << 20, std::sync::atomic::Ordering::Relaxed);
         let state = StateFile::load(&cfg.state);
         let mut slots = BTreeMap::new();
         for (id, m) in scan_all(&cfg, &state.libraries) {
