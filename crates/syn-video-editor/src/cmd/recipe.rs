@@ -80,6 +80,17 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
             super::story::gate(project, n, "Съёмка")?;
+            // все ассеты кадров сцены (@id в scene_NN) готовы в каталоге
+            if let Some(dir) = project.map(crate::store::media_dir) {
+                let scene = std::fs::read_to_string(dir.join(format!("scene_{n:02}.md"))).unwrap_or_default();
+                let cat = std::fs::read_to_string(dir.join("04_ассеты.md")).unwrap_or_default();
+                if !scene.is_empty() && !cat.is_empty() {
+                    let miss = super::doc::scene_assets_missing(&scene, &cat);
+                    if !miss.is_empty() {
+                        return Err(format!("Съёмка сцены {n} — ассеты не готовы: {} — сделай их (вариант — ref-image с base от базового эталона) и внеси в 04_ассеты", miss.join("; ")));
+                    }
+                }
+            }
         }
         let p = a.object("params")?.unwrap_or_default();
         let refs: Vec<String> = p.get("refs").and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();

@@ -172,6 +172,84 @@ pub fn original_check(orig: &str, src: &Source, n: u32) -> Option<String> {
     }
 }
 
+/// Ассет каталога `04_ассеты`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Asset {
+    pub id: String,
+    pub kind: String,
+    pub variant: String,
+    pub base: String,
+    pub file: String,
+}
+
+/// Строки каталога: `| id | тип | вариант | base | файл | сцены |` (шапка и разделитель пропускаются).
+pub fn catalog(text: &str) -> Vec<Asset> {
+    text.lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .filter_map(|l| {
+            let c: Vec<String> = l.trim().trim_matches('|').split('|').map(|x| x.trim().trim_matches('`').to_string()).collect();
+            if c.len() < 5 || c[0].is_empty() || c[0].chars().all(|ch| ch == '-' || ch == ':') || c[0].to_lowercase() == "id" {
+                return None;
+            }
+            Some(Asset { id: c[0].clone(), kind: c[1].to_lowercase(), variant: c[2].to_lowercase(), base: c[3].clone(), file: c[4].clone() })
+        })
+        .collect()
+}
+
+/// Базовый ли эталон (вариант «базовый», «base», «—» или пусто, без base).
+fn is_base(a: &Asset) -> bool {
+    let v = a.variant.trim();
+    let b = a.base.trim();
+    (v.is_empty() || v.starts_with("баз") || v == "base" || v == "—" || v == "-") && (b.is_empty() || b == "—" || b == "-")
+}
+
+/// Проверка каталога: файлы на месте, варианты — правкой базового эталона того же героя или локации.
+pub fn catalog_check(text: &str) -> Vec<String> {
+    let cat = catalog(text);
+    let mut out = Vec::new();
+    let missing: Vec<String> = cat.iter().filter(|a| !std::path::Path::new(&a.file).is_file()).map(|a| a.id.clone()).collect();
+    if !missing.is_empty() {
+        out.push(format!("В каталоге нет файлов у ассетов: {} — укажи полный путь к готовой картинке (из ответа ref-image) или сделай ассет", missing.join(", ")));
+    }
+    let mut no_base = Vec::new();
+    for a in cat.iter().filter(|a| !is_base(a)) {
+        match cat.iter().find(|b| b.id == a.base) {
+            Some(b) if is_base(b) && b.kind == a.kind => {}
+            _ => no_base.push(format!("{} (base «{}»)", a.id, a.base)),
+        }
+    }
+    if !no_base.is_empty() {
+        out.push(format!("Варианты без базового эталона: {} — вариант делается только правкой базового эталона того же героя или локации (ref-image с base: [<файл базового>]), а не новой генерацией; в колонке base — id базового", no_base.join(", ")));
+    }
+    out
+}
+
+/// Ассеты, упомянутые в тексте как `@<id>`.
+pub fn asset_refs(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in text.split('@').skip(1) {
+        let id: String = part.chars().take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.').collect();
+        let id = id.trim_end_matches('.').to_string();
+        if !id.is_empty() && !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Ассеты сцены против каталога: нет в каталоге или нет файла — список замечаний.
+pub fn scene_assets_missing(scene: &str, catalog_text: &str) -> Vec<String> {
+    let cat = catalog(catalog_text);
+    asset_refs(scene)
+        .into_iter()
+        .filter_map(|id| match cat.iter().find(|a| a.id == id) {
+            None => Some(format!("@{id} — нет в 04_ассеты")),
+            Some(a) if !std::path::Path::new(&a.file).is_file() => Some(format!("@{id} — нет файла {}", a.file)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Номер документа сцены: `scene_03`, `сцена_3`, `scene-12`.
 pub fn scene_doc_number(stem: &str) -> Option<u32> {
     let low = stem.to_lowercase();
@@ -326,6 +404,24 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
             }
             for w in short {
                 msg.push_str(&format!(". {w}"));
+            }
+        }
+    }
+    // каталог ассетов: файлы и варианты от базового эталона
+    if stem.contains("ассет") || stem.contains("asset") {
+        for w in catalog_check(&body) {
+            msg.push_str(&format!(". {w}"));
+        }
+    }
+    // ассеты кадров сцены — из каталога
+    if scene_doc_number(&stem).is_some() {
+        let cat = std::fs::read_to_string(p.with_file_name("04_ассеты.md")).unwrap_or_default();
+        if asset_refs(&body).is_empty() {
+            msg.push_str(". У кадров сцены нет ассетов: укажи у каждого кадра точные id из 04_ассеты как @<id> (ракурс героя и точка локации под крупность и направление камеры)");
+        } else {
+            let miss = scene_assets_missing(&body, &cat);
+            if !miss.is_empty() {
+                msg.push_str(&format!(". Ассеты сцены не готовы: {} — добавь их в 04_ассеты (новый вариант — правкой базового эталона) до съёмки", miss.join("; ")));
             }
         }
     }
@@ -842,6 +938,19 @@ mod length_tests {
         assert_eq!(src.scene_texts.len(), 2);
         assert!(src.scene_texts[1].starts_with("INT. HALL"));
         assert_eq!(super::scene_doc_number("scene_03"), Some(3));
+        // каталог ассетов
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("a.png");
+        std::fs::write(&f, b"x").unwrap();
+        let fp = f.display().to_string();
+        let cat = format!("| id | тип | вариант | base | файл | сцены |\n|---|---|---|---|---|---|\n| мать | герой | базовый | — | {fp} | 1 |\n| мать-профиль | герой | профиль | мать | {fp} | 2 |\n| кухня-окно | локация | окно | — | /нет.png | 1 |\n| дочь-спина | герой | спина | дочь | {fp} | 3 |\n");
+        assert_eq!(super::catalog(&cat).len(), 4);
+        let w = super::catalog_check(&cat);
+        assert!(w.iter().any(|x| x.contains("кухня-окно")), "{w:?}");
+        assert!(w.iter().any(|x| x.contains("дочь-спина")), "{w:?}");
+        assert_eq!(super::asset_refs("Кадр 1: @мать-профиль, @кухня-окно. Кадр 2: @мать."), vec!["мать-профиль", "кухня-окно", "мать"]);
+        let miss = super::scene_assets_missing("@мать @кухня-окно @сосед", &cat);
+        assert_eq!(miss.len(), 2, "{miss:?}");
         // оригинал: раздел сцены и его объём
         let orig = "# Оригинал\n## Сцена 1 (стр. 2)\nКОФИ: «Пошла вон, сука!» АМАРА: «Нет.» Длинный дословный перевод сцены.\n## Сцена 2\nкоротко\n";
         assert!(super::section(orig, 1).unwrap().contains("Пошла вон"));
