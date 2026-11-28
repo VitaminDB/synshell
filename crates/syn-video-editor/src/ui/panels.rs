@@ -978,6 +978,33 @@ fn viewer_frame(st: St) -> impl Widget {
         .child(pinch)
 }
 
+/// Полоса «Продолжить» над вводом: работа оборвалась (остановили, закрыли
+/// окно) — продолжить с того же места тем, кто работал.
+fn resume_bar(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let busy = st.ai_busy.get();
+        let _ = st.rev.get();
+        let Some(p) = ed().path.clone() else { return Vec::new() };
+        if busy {
+            return Vec::new();
+        }
+        let label = match (crate::crew::pending(&p, false), crate::crew::pending(&p, true)) {
+            (Some(r), _) => format!("Продолжить: {}{}", crate::crew::role(&r.role).map(|x| x.title).unwrap_or("роль"), if r.scene > 0 { format!(" — сцена {}, шаг «{}»", r.scene, r.stage) } else { String::new() }),
+            (None, Some(_)) => "Продолжить: режиссёр".to_string(),
+            _ => return Vec::new(),
+        };
+        vec![Box::new(
+            DecoratedBox::new().class("ai-resume").child(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("grow").child(Text::new("Работа прервана — можно продолжить с того же места").max_lines(1).class("ai-status-text")))
+                    .child(Button::new(label).on_click(move || st.resume()).class("head-btn")),
+            ),
+        )]
+    })
+}
+
 // ── Съёмочная группа: чипы ролей, доска, записки ─────────────────────────
 
 /// Ряд чипов над чатом ИИ: режиссёр (главный чат), каждая роль, что уже
@@ -1324,6 +1351,7 @@ fn ai(st: St) -> impl Widget {
             vec![Box::new(col)]
         })))]
         })))
+        .child(resume_bar(st))
         .child(super::ai_chat::context_bar(st))
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();

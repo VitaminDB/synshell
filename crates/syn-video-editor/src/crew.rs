@@ -480,6 +480,40 @@ pub fn who(project: &Path, role_id: &'static str) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------- прерванный ход (кнопка «Продолжить»)
+
+/// Ход, который шёл, когда окно остановили или закрыли: роль (или режиссёр — "director"
+/// для главного чата), сцена и задание. Пишется при старте хода, стирается при обычном конце.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Pending {
+    pub role: String,
+    #[serde(default)]
+    pub scene: u32,
+    #[serde(default)]
+    pub stage: String,
+    pub task: String,
+}
+
+fn pending_path(project: &Path, main: bool) -> PathBuf {
+    dir(project).join(if main { "ход-режиссёра.json" } else { "ход-роли.json" })
+}
+
+pub fn set_pending(project: &Path, main: bool, p: Option<&Pending>) {
+    let f = pending_path(project, main);
+    match p {
+        Some(p) => {
+            let _ = std::fs::write(&f, serde_json::to_string_pretty(p).unwrap_or_default());
+        }
+        None => {
+            let _ = std::fs::remove_file(&f);
+        }
+    }
+}
+
+pub fn pending(project: &Path, main: bool) -> Option<Pending> {
+    std::fs::read_to_string(pending_path(project, main)).ok().and_then(|t| serde_json::from_str(&t).ok())
+}
+
 // ---------------------------------------------------------------- продюсер
 
 /// Сколько роликов сцены можно снять сверх плана (пересъёмки), во сколько раз.

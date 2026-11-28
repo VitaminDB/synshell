@@ -309,6 +309,8 @@ pub fn agent_with(ed: &Shared, s: &Settings) -> Agent {
 pub enum RoleEvent {
     Start { role: &'static str, title: &'static str, scene: u32, stage: String, task: String },
     Event { role: &'static str, ev: syn_assist::agent::AgentEvent },
+    /// Прерванный ход роли продолжается (чат не меняется — только «работает»).
+    Resume { role: &'static str, title: &'static str },
     End { role: &'static str, ok: bool },
 }
 
@@ -353,9 +355,9 @@ pub fn run_review(ed: &Shared, project: &std::path::Path, n: u32, st: crate::cre
     }
 }
 
-pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str, files: Vec<std::path::PathBuf>) -> Result<String, String> {
-    let s = settings::load();
-    let mut a = agent_with(ed, &s);
+/// Агент роли: её навыки, без поручений и смены проекта, системный промпт роли с правилами проекта.
+fn role_agent(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, s: &Settings) -> Agent {
+    let mut a = agent_with(ed, s);
     a.skills.retain(|k| r.skills.contains(&k.name.as_str()));
     // роль делает свой шаг в этом проекте: поручать дальше, проверять за других,
     // создавать и открывать проекты — нельзя (иначе окно уходит в другой проект)
@@ -369,21 +371,58 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
     a = a.with_inbox(std::sync::Arc::new(move || crate::ui::take_queue(Some(rid_q))));
     // системный промпт роли: общая часть редактора + роль (из настроек или по умолчанию) + обязательные правила проекта
     let base = a.system.take().unwrap_or_default();
-    a.system = Some(with_rules(format!("{base}\n\n# Твоя роль в съёмочной группе\n{}", crate::crew::role_system(r, &s)), project));
+    a.system = Some(with_rules(format!("{base}\n\n# Твоя роль в съёмочной группе\n{}", crate::crew::role_system(r, s)), project));
     // раскладка под парковку контекста службы: [system — роль, правила, навыки]
     // [user — выжимка проекта] — голова (prefix_messages = 2), её KV служба держит
     // между ходами роли; [user — бриф шага] — хвост, префиллится заново
     a.params = a.params.clone().with("prefix_messages", 2i64);
-    let mut chat = Chat::new();
-    prepare_chat(&mut chat, &s);
-    chat.model = crate::crew::role_model(r, &s);
-    chat.messages.push(syn_assist::chat::ChatMsg::user(&crate::crew::summary(project)));
-    crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
-    let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
-    role_emit(RoleEvent::Start { role: r.id, title: r.title, scene: n, stage: st.title().to_string(), task: brief.to_string() });
+    a
+}
+
+/// Разговор роли в проекте (последний ход): для «Продолжить» и чата роли после перезапуска.
+pub fn role_chat_path(project: &std::path::Path, role: &str) -> std::path::PathBuf {
+    crate::store::media_dir(project).join("чаты-ролей").join(format!("{role}.json"))
+}
+
+pub fn load_role_chat(project: &std::path::Path, role: &str) -> Option<Chat> {
+    std::fs::read_to_string(role_chat_path(project, role)).ok().and_then(|t| serde_json::from_str(&t).ok())
+}
+
+fn save_role_chat(project: &std::path::Path, role: &str, chat: &Chat) {
+    let p = role_chat_path(project, role);
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(&p, serde_json::to_string(chat).unwrap_or_default());
+}
+
+/// Ход роли с разговором `chat`: `task` — новое задание (None — продолжить
+/// прерванный ход из истории, ничего не добавляя в разговор). Разговор
+/// сохраняется в проект по ходу (каждое сообщение) и в конце.
+fn drive_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, a: &Agent, chat: &mut Chat, task: Option<(&str, Vec<std::path::PathBuf>)>) -> Result<String, String> {
     let rid = r.id;
-    let res = run_turn(&a, ed, &mut chat, &task, files, &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut |ev| role_emit(RoleEvent::Event { role: rid, ev }));
+    let mut mirror = chat.clone();
+    let mut on = |ev: AgentEvent| {
+        if let AgentEvent::Message(m) = &ev {
+            mirror.messages.push(m.clone());
+            save_role_chat(project, rid, &mirror);
+        }
+        role_emit(RoleEvent::Event { role: rid, ev });
+    };
+    let res = match task {
+        Some((text, files)) => run_turn(a, ed, chat, text, files, &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut on),
+        None => {
+            ed.lock().unwrap_or_else(|e| e.into_inner()).begin_group(&format!("ИИ: {} — продолжение", r.title));
+            let r2 = a.continue_turn(chat, &AutoConfirm(true), &crate::ui::AI_CANCEL, &mut on);
+            ed.lock().unwrap_or_else(|e| e.into_inner()).end_group();
+            r2
+        }
+    };
+    save_role_chat(project, rid, chat);
     role_emit(RoleEvent::End { role: rid, ok: res.is_ok() });
+    if !crate::ui::AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+        crate::crew::set_pending(project, false, None);
+    }
     let last = chat.messages.iter().rev().find(|m| m.role == syn_assist::chat::Role::Assistant && !m.text.trim().is_empty()).map(|m| m.text.trim().to_string()).unwrap_or_default();
     let steps = chat.messages.iter().filter(|m| m.role == syn_assist::chat::Role::Tool).count();
     let short: String = last.chars().take(400).collect();
@@ -394,6 +433,35 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
         crate::crew::stage(project, n, Some(&e.project))
     };
     Ok(format!("{} — сцена {n}, шаг «{}», вызовов {steps}:\n{last}\n\nСтатус сцены {n} теперь: «{}» (делает {}).", r.title, st.title(), now.title(), crate::crew::role(now.roles().0).map(|x| x.title).unwrap_or("")))
+}
+
+pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage, brief: &str, files: Vec<std::path::PathBuf>) -> Result<String, String> {
+    let s = settings::load();
+    let a = role_agent(ed, project, r, &s);
+    let mut chat = Chat::new();
+    prepare_chat(&mut chat, &s);
+    chat.model = crate::crew::role_model(r, &s);
+    chat.messages.push(syn_assist::chat::ChatMsg::user(&crate::crew::summary(project)));
+    crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: начал", r.title, st.title()));
+    let task = format!("{brief}\n\nСделай этот шаг сам (навыки роли — загрузи нужные). Замечание другой роли — crew.note. В конце коротко отчитайся: что сделано, что осталось, какие записки написал.");
+    role_emit(RoleEvent::Start { role: r.id, title: r.title, scene: n, stage: st.title().to_string(), task: brief.to_string() });
+    // ход роли — в проект: остановят или закроют окно — кнопка «Продолжить» поднимет его
+    crate::crew::set_pending(project, false, Some(&crate::crew::Pending { role: r.id.into(), scene: n, stage: st.title().into(), task: brief.to_string() }));
+    save_role_chat(project, r.id, &chat);
+    drive_role(ed, project, r, n, st, &a, &mut chat, Some((&task, files)))
+}
+
+/// «Продолжить» прерванный ход роли: её сохранённый разговор — дальше с того
+/// же места, без новых сообщений в нём.
+pub fn resume_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage) -> Result<String, String> {
+    let s = settings::load();
+    let a = role_agent(ed, project, r, &s);
+    let mut chat = load_role_chat(project, r.id).ok_or_else(|| format!("разговор роли «{}» не сохранён — продолжить нечего", r.title))?;
+    prepare_chat(&mut chat, &s);
+    chat.model = crate::crew::role_model(r, &s);
+    role_emit(RoleEvent::Resume { role: r.id, title: r.title });
+    crate::crew::journal(project, &format!("{} — сцена {n}, шаг «{}»: продолжает после остановки", r.title, st.title()));
+    drive_role(ed, project, r, n, st, &a, &mut chat, None)
 }
 
 /// Системный промпт с обязательными правилами проекта (`правила.md`) в конце.
@@ -434,6 +502,12 @@ impl Confirm for AutoConfirm {
 pub fn run_turn(agent: &Agent, ed: &Shared, chat: &mut Chat, text: &str, files: Vec<std::path::PathBuf>, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<(), String> {
     let label: String = text.chars().take(40).collect();
     ed.lock().unwrap_or_else(|e| e.into_inner()).begin_group(&format!("ИИ: {label}"));
+    // пустой текст — продолжить прерванный ход из истории разговора, ничего в него не добавляя
+    if text.is_empty() && files.is_empty() {
+        let r = agent.continue_turn(chat, confirm, cancel, on);
+        ed.lock().unwrap_or_else(|e| e.into_inner()).end_group();
+        return r;
+    }
     // вложения (PDF сценария, картинки, звук) агент получает текстом и медиа (syn_assist::attach)
     let r = agent.run_turn_files(chat, text, files, confirm, cancel, on);
     ed.lock().unwrap_or_else(|e| e.into_inner()).end_group();

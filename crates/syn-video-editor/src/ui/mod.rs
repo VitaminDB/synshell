@@ -164,6 +164,9 @@ pub enum AiLine {
     Queued { id: u64, text: String },
 }
 
+/// Метка «продолжить прерванный ход режиссёра» для `ask_ai` (не текст пользователя).
+pub const CONTINUE: &str = "\u{1}продолжить";
+
 /// Очередь сообщений во время хода: (id, кому — None режиссёру / Some(роль), текст).
 pub static AI_QUEUE: std::sync::Mutex<Vec<(u64, Option<String>, String)>> = std::sync::Mutex::new(Vec::new());
 static QUEUE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -742,6 +745,42 @@ impl St {
         }
     }
 
+    /// «Продолжить» прерванную работу тем, кто работал: роль — её сохранённый
+    /// разговор дальше с того же места, режиссёр — свой; в чаты ничего не добавляется.
+    pub fn resume(self) {
+        if self.ai_busy.get_untracked() {
+            return;
+        }
+        let Some(project) = ed().path.clone() else { return };
+        if let Some(p) = crate::crew::pending(&project, false) {
+            let Some(r) = crate::crew::role(&p.role) else {
+                crate::crew::set_pending(&project, false, None);
+                return;
+            };
+            self.ai_busy.set(true);
+            AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+            std::thread::spawn(move || {
+                let n = p.scene.max(1);
+                let st = {
+                    let e = ed();
+                    crate::crew::stage(&project, n, Some(&e.project))
+                };
+                let res = crate::agent::resume_role(shared(), &project, r, n, st);
+                syngui::async_runtime::run_on_main_thread(move || {
+                    if let Err(e) = res {
+                        self.toast.set(Some(format!("{}: {e}", r.title)));
+                    }
+                    self.ai_busy.set(false);
+                    self.rev.set(ed().revision);
+                });
+            });
+            return;
+        }
+        if crate::crew::pending(&project, true).is_some() {
+            self.ask_ai(CONTINUE.into());
+        }
+    }
+
     /// Сообщение роли съёмочной группы напрямую (из её чата): роль получает
     /// бриф текущей сцены и слова пользователя, отвечает в своём чате.
     pub fn ask_role(self, role: String, text: String) {
@@ -775,7 +814,9 @@ impl St {
 
     /// Ход агента в фоне; события — в панель ИИ, правки — в окно.
     pub fn ask_ai(self, text: String) {
-        let files: Vec<std::path::PathBuf> = self.ai_files.get_untracked().into_iter().map(std::path::PathBuf::from).collect();
+        // «Продолжить» режиссёра: прерванный ход дальше из истории, без нового сообщения
+        let resume = text == CONTINUE;
+        let files: Vec<std::path::PathBuf> = if resume { Vec::new() } else { self.ai_files.get_untracked().into_iter().map(std::path::PathBuf::from).collect() };
         // приложенный сценарий — источник для сверки адаптации (doc.write «сценарий»)
         // копия источника — в папку проекта; без вложения — источник из неё
         // (окно перезапущено посреди фильма)
@@ -793,11 +834,13 @@ impl St {
         if self.ai_busy.get_untracked() || (text.trim().is_empty() && files.is_empty()) {
             return;
         }
-        let text = if text.trim().is_empty() { "Посмотри вложения.".to_string() } else { text };
+        let text = if resume { String::new() } else if text.trim().is_empty() { "Посмотри вложения.".to_string() } else { text };
         self.ai_files.set(Vec::new());
         self.ai_busy.set(true);
         AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
-        self.ai_log.update(|l| l.push(AiLine::User(ai_chat::with_files(&text, &files))));
+        if !resume {
+            self.ai_log.update(|l| l.push(AiLine::User(ai_chat::with_files(&text, &files))));
+        }
         let rev_before = ed().revision;
         std::thread::spawn(move || {
             use syn_assist::agent::AgentEvent;
@@ -809,14 +852,17 @@ impl St {
             let mut chat = ai_chat::take();
             // правила проекта из первого задания пользователя — обязательным блоком в системный промпт
             let project = ed().path.clone();
-            if let Some(project) = project {
+            if let Some(project) = project.clone() {
+                if !resume {
+                    crate::crew::set_pending(&project, true, Some(&crate::crew::Pending { role: "director".into(), task: text.clone(), ..Default::default() }));
+                }
                 let first = chat.messages.iter().find(|m| m.role == syn_assist::chat::Role::User).map(|m| m.text.clone()).unwrap_or_else(|| text.clone());
                 crate::crew::save_rules(&project, &first);
                 let sys = agent.system.take().unwrap_or_default();
                 agent.system = Some(crate::agent::with_rules(sys, &project));
             }
             crate::agent::prepare_chat(&mut chat, &set);
-            if chat.title.trim().is_empty() {
+            if chat.title.trim().is_empty() && !text.is_empty() {
                 chat.title = syn_assist::chat::title_from(&text);
             }
             // «Стоп» из панели — флаг хода (агент проверяет его между шагами)
@@ -864,6 +910,11 @@ impl St {
                 });
             });
             let stopped = AI_CANCEL.load(std::sync::atomic::Ordering::SeqCst);
+            if !stopped {
+                if let Some(p) = project.as_deref() {
+                    crate::crew::set_pending(p, true, None);
+                }
+            }
             match r {
                 Err(e) => push(AiLine::Error(if stopped { "Остановлено".into() } else { e })),
                 Ok(()) if stopped => push(AiLine::Error("Остановлено".into())),
@@ -1781,10 +1832,19 @@ fn gen_event(st: St, ev: &syn_assist::agent::AgentEvent) {
 fn bind_roles(st: St) {
     use crate::agent::RoleEvent;
     use syn_assist::agent::AgentEvent;
+    // чаты ролей проекта — как были до закрытия окна
+    if let Some(p) = ed().path.clone() {
+        let logs: Vec<(String, String, Vec<AiLine>)> = crate::crew::ROLES
+            .iter()
+            .filter_map(|r| crate::agent::load_role_chat(&p, r.id).map(|c| (r.id.to_string(), r.title.to_string(), ai_chat::lines(&c))))
+            .collect();
+        st.role_logs.set(logs);
+    }
     crate::agent::set_role_sink(Box::new(move |e: RoleEvent| {
         let (role, line, start, end): (&'static str, Option<AiLine>, Option<&'static str>, bool) = match e {
             RoleEvent::Start { role, title, scene, stage, task } => (role, Some(AiLine::User(format!("Сцена {scene}, шаг «{stage}»\n{}", task.chars().take(1500).collect::<String>()))), Some(title), false),
             RoleEvent::End { role, ok } => (role, if ok { None } else { Some(AiLine::Error("Ход роли прерван".into())) }, None, true),
+            RoleEvent::Resume { role, title } => (role, None, Some(title), false),
             RoleEvent::Event { role, ev: AgentEvent::Usage { prompt_tokens, context, .. } } => {
                 syngui::async_runtime::run_on_main_thread(move || {
                     st.role_ctx.update(|v| match v.iter_mut().find(|(id, _)| id == role) {
