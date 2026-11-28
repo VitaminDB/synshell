@@ -1002,6 +1002,10 @@ fn ai(st: St) -> impl Widget {
                     AiLine::User(t) => ("ai-user", t),
                     // ответ агента — Markdown (списки, код, выделение)
                     AiLine::Text(t) => {
+                        // ответ из одних пробелов (после размышлений) — не пустым блоком
+                        if t.trim().is_empty() {
+                            continue;
+                        }
                         col = col.child(DecoratedBox::new().class("ai-text").child(MarkdownView::new(t).with_copy_code(true).selectable(true).class("ai-text-text")));
                         continue;
                     }
