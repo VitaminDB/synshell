@@ -269,6 +269,14 @@ pub fn rev() -> u64 {
 }
 
 /// Текущие настройки (с диска при первом обращении; битый файл — умолчания).
+/// Модель агента только для этого процесса (CLI `--model`, проверки): в
+/// настройки на диске не пишется, действует и на роли группы без своей модели.
+pub fn override_model(model: &str) {
+    let mut s = load();
+    s.ai_model = model.trim().to_string();
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(s);
+}
+
 pub fn load() -> Settings {
     let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = c.as_ref() {

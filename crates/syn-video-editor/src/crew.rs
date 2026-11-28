@@ -382,6 +382,7 @@ pub fn roll_frames(roll: &Path, out: &Path) -> Vec<PathBuf> {
 /// вложения для зрения (эталоны, кадры роликов).
 pub fn review_brief(project: &Path, n: u32, what: &str) -> (String, Vec<PathBuf>) {
     let title = REVIEWS.iter().find(|r| r.0 == what).map(|r| r.1).unwrap_or(what);
+    crate::cmd::doc::load_project_source(project);
     let src = crate::cmd::doc::source().and_then(|s| s.scene_texts.get(n as usize - 1).cloned()).unwrap_or_default();
     let scene = read(project, &format!("scene_{n:02}"));
     let mut files = Vec::new();

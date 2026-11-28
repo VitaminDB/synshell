@@ -15,7 +15,7 @@ use syn_video_editor::{agent, cmd, editor::Editor, store};
 fn usage() -> &'static str {
     "syn-video-editor [ПРОЕКТ.syn]\n\
      syn-video-editor [-p ПРОЕКТ.syn] --cmd ID 'JSON' [--cmd …]\n\
-     syn-video-editor [-p ПРОЕКТ.syn] --ai \"задача словами\" [--yes]\n\
+     syn-video-editor [-p ПРОЕКТ.syn] --ai \"задача словами\" [--yes] [--model МОДЕЛЬ]\n\
      syn-video-editor [-p ПРОЕКТ.syn] --dump\n\
      syn-video-editor --commands [--json]\n\
      syn-video-editor --remote ID 'JSON' | --remote-state | --remote-ai \"задача\"   (в запущенное окно, сокет)"
@@ -148,6 +148,12 @@ fn main() {
                 cmds.push((id, js));
             }
             "--ai" => ai = args.next(),
+            // модель агента на этот запуск (настройки на диске не меняются)
+            "--model" => {
+                if let Some(m) = args.next() {
+                    syn_video_editor::settings::override_model(&m);
+                }
+            }
             "--dump" => dump = true,
             "--commands" => commands = true,
             "--json" => json = true,
