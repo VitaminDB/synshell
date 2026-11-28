@@ -805,6 +805,14 @@ pub fn scene_brief(project: &Path, role_id: &str, n: u32, st: Stage) -> String {
 }
 
 /// Строка в журнал проекта.
+/// Строки журнала проекта о роли (по её названию).
+pub fn journal_of(project: &Path, title: &str) -> Vec<String> {
+    if title.is_empty() {
+        return Vec::new();
+    }
+    read(project, "журнал").lines().filter(|l| l.contains(title)).map(|l| l.trim_start_matches("- ").to_string()).collect()
+}
+
 pub fn journal(project: &Path, line: &str) {
     let p = dir(project).join("журнал.md");
     let mut body = std::fs::read_to_string(&p).unwrap_or_else(|_| "# Журнал\n\n".into());

@@ -1046,6 +1046,19 @@ fn crew_chips(st: St) -> impl Widget {
             })
         });
         let notes = project.as_deref().map(crate::crew::notes).unwrap_or_default();
+        // весь состав группы — чипами всегда (у кого чата ещё нет — пустой лог)
+        let mut roles = roles;
+        if let Some(p) = project.as_deref() {
+            for rid in crate::crew::lineup(p).roles {
+                if rid != "director" && !roles.iter().any(|(id, _, _)| *id == rid) {
+                    if let Some(r) = crate::crew::role(&rid) {
+                        roles.push((rid.clone(), r.title.to_string(), Vec::new()));
+                    }
+                }
+            }
+            let order = |id: &str| crate::crew::ROLES.iter().position(|r| r.id == id).unwrap_or(99);
+            roles.sort_by_key(|(id, _, _)| order(id));
+        }
         for (id, title, log) in &roles {
             let busy = active.as_deref() == Some(id.as_str());
             let to_me = notes.iter().filter(|x| &x.to == id && x.status != crate::crew::Status::Closed).count();
@@ -1057,16 +1070,14 @@ fn crew_chips(st: St) -> impl Widget {
                 "ошибка".to_string()
             } else if next_role == Some(id.as_str()) {
                 "ждёт".to_string()
+            } else if log.is_empty() && !project.as_deref().is_some_and(|p| crate::crew::journal_of(p, title).is_empty()) {
+                "готово".to_string()
+            } else if log.is_empty() {
+                "—".to_string()
             } else {
                 "готово".to_string()
             };
             chips.push(chip(format!("{title} · {state}"), view.as_deref() == Some(id.as_str()), busy, Some(id.clone())));
-        }
-        // роли, которые ещё не работали, но чей шаг следующий, — тоже чипом
-        if let Some(nr) = next_role.filter(|nr| !roles.iter().any(|(id, _, _)| id == nr)) {
-            if let Some(r) = crate::crew::role(nr) {
-                chips.push(chip(format!("{} · ждёт", r.title), view.as_deref() == Some(nr), false, Some(nr.to_string())));
-            }
         }
         chips.push(chip("Доска".into(), view.as_deref() == Some("board"), false, Some("board".into())));
         chips.push(chip(if notes_open > 0 { format!("Записки · {notes_open}") } else { "Записки".into() }, view.as_deref() == Some("notes"), false, Some("notes".into())));
@@ -1218,7 +1229,22 @@ fn ai(st: St) -> impl Widget {
                 None => st.ai_log.get(),
                 Some("board") => return vec![crew_board(st)],
                 Some("notes") => return vec![crew_notes(st)],
-                Some(r) => st.role_logs.get().into_iter().find(|(id, _, _)| id == r).map(|x| x.2).unwrap_or_default(),
+                Some(r) => {
+                    let log = st.role_logs.get().into_iter().find(|(id, _, _)| id == r).map(|x| x.2).unwrap_or_default();
+                    if log.is_empty() {
+                        // разговор роли не сохранён (до перезапуска) — её строки журнала проекта
+                        let title = crate::crew::role(r).map(|x| x.title).unwrap_or("");
+                        let lines = ed().path.clone().map(|p| crate::crew::journal_of(&p, title)).unwrap_or_default();
+                        if lines.is_empty() {
+                            return vec![empty("Роль ещё не работала в этом проекте")];
+                        }
+                        let mut v = vec![AiLine::Result("Разговор роли до перезапуска не сохранён — её работа по журналу проекта:".into())];
+                        v.extend(lines.into_iter().map(AiLine::Text));
+                        v
+                    } else {
+                        log
+                    }
+                }
             };
             let open = expanded.get();
             if log.is_empty() {
