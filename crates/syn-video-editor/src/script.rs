@@ -168,6 +168,20 @@ pub fn run_with(ed: &mut Editor, code: &str, params: Value) -> Result<String, St
             }
         };
         let c2 = call.clone();
+        // документы проекта (сценарий, диалоги…) — текстом: модель зовёт их
+        // так же, как инструменты doc_read / doc_list
+        let c3 = call.clone();
+        e.register_fn("doc_read", move |name: &str| -> Result<String, Box<EvalAltResult>> {
+            let mut m = Map::new();
+            m.insert("name".into(), Dynamic::from(name.to_string()));
+            let r = c3("doc.read", Dynamic::from(m))?;
+            Ok(r.get("text").map(|t| t.to_string()).unwrap_or_default())
+        });
+        let c4 = call.clone();
+        e.register_fn("doc_list", move || -> Result<String, Box<EvalAltResult>> {
+            let r = c4("doc.list", Dynamic::UNIT)?;
+            Ok(r.get("text").map(|t| t.to_string()).unwrap_or_default())
+        });
         e.register_fn("cmd", call);
         e.register_fn("cmd", move |id: &str| c2(id, Dynamic::UNIT));
         let ed = shared.clone();

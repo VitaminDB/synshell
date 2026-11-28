@@ -1114,3 +1114,13 @@ fn project_templates_build_and_fill() {
     assert!(slots::slots(&ed.project).iter().filter(|x| x.2 == "media").all(|x| x.0.slot.as_ref().unwrap().filled), "{}", out.text);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn script_reads_project_docs() {
+    let d = tempfile::tempdir().unwrap();
+    let mut ed = Editor::new();
+    ed.path = Some(d.path().join("p.syn"));
+    run(&mut ed, "doc.write", &json!({"name": "сценарий", "text": "# Фильм\n\n## Сцена 1\nтекст"})).unwrap();
+    let o = run(&mut ed, "script.run", &json!({"code": "let t = doc_read(\"сценарий\"); let l = doc_list(); print(`${t.len() > 0} ${l.contains(\"сценарий\")}`);"})).unwrap();
+    assert!(o.text.contains("true true"), "{}", o.text);
+}
