@@ -1169,6 +1169,10 @@ pub enum Request {
         seed: Option<u64>,
         #[serde(default)]
         steps: Option<usize>,
+        /// Настройки модели на этот запрос поверх её параметров (у YuE2 —
+        /// все родные: vocals, cot, abc, midi, cover_audio, cfg_scale, сэмплинг…).
+        #[serde(default, skip_serializing_if = "Params::is_empty")]
+        params: Params,
     },
     /// Эмбеддинги текстов (модель вида embed, например bge-m3).
     Embed {
@@ -1567,6 +1571,12 @@ pub struct MusicReply {
     pub label: String,
     pub wav: FdRef,
     pub bytes: usize,
+    /// Партитура, по которой звучит результат (YuE2; при `plan_only` — без звука).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<String>,
+    /// Что сделано по ходу (откуда партитура, перенос голосов, итоговые стиль и лирика).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// Параметры картинки для [`Client::image`].
@@ -2132,8 +2142,15 @@ impl Client {
     }
 
     /// Музыка: WAV-байты и описание; `on_progress(шаг, всего)` (где модель его даёт).
-    pub fn music(&mut self, model: &str, prompt: &str, lyrics: &str, seconds: Option<u32>, seed: Option<u64>, mut on_progress: impl FnMut(usize, usize)) -> Result<(MusicReply, Vec<u8>)> {
-        let req = Request::Music { model: model.into(), prompt: prompt.into(), lyrics: lyrics.into(), seconds, seed, steps: None };
+    pub fn music(&mut self, model: &str, prompt: &str, lyrics: &str, seconds: Option<u32>, seed: Option<u64>, on_progress: impl FnMut(usize, usize)) -> Result<(MusicReply, Vec<u8>)> {
+        self.music_with(model, prompt, lyrics, seconds, seed, &Params::new(), on_progress)
+    }
+
+    /// То же с настройками модели на этот запрос (`params`: у YuE2 —
+    /// `vocals`, `cot`, `abc`, `midi`, `cover_audio`, `cfg_scale`, сэмплинг, `plan_only`…).
+    #[allow(clippy::too_many_arguments)]
+    pub fn music_with(&mut self, model: &str, prompt: &str, lyrics: &str, seconds: Option<u32>, seed: Option<u64>, params: &Params, mut on_progress: impl FnMut(usize, usize)) -> Result<(MusicReply, Vec<u8>)> {
+        let req = Request::Music { model: model.into(), prompt: prompt.into(), lyrics: lyrics.into(), seconds, seed, steps: None, params: params.clone() };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {
                 on_progress(step, total);

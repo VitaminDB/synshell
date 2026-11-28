@@ -198,11 +198,12 @@ pub fn music(
     seconds: Option<u32>,
     seed: Option<u64>,
     steps: Option<usize>,
+    call: &Params,
     cancel: Arc<AtomicBool>,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<MusicResult, Error> {
     let model = mgr.resolve_id(model, ModelKind::Music)?;
-    let mp = mgr.params(&model, &Params::new());
+    let mp = mgr.params(&model, call);
     let seed = seed_of(seed, &mp);
     // Длительность не задана: песня с текстом — как обычная песня, 3 минуты
     // (модель может закончить раньше); инструментал — по умолчанию движка.
@@ -215,6 +216,7 @@ pub fn music(
         steps: steps.or(mp.u32("steps").map(|v| v as usize)),
         guidance: mp.f32("guidance"),
         quant: None,
+        yue2: yue2_settings(&mp),
     };
     mgr.clear_device(&model, crate::DeviceKind::Cuda, "генерация музыки");
     let progress = std::cell::RefCell::new(progress);
@@ -222,4 +224,41 @@ pub fn music(
     manager::release_vram(Some(crate::DeviceKind::Cuda));
     let (wav, out) = r?;
     Ok(MusicResult { wav, out, seed })
+}
+
+/// Родные настройки YuE2 из параметров модели и запроса (см. `yue2_params`
+/// в synaptix). Значения, равные умолчанию оригинала, не трогают его конфиг.
+fn yue2_settings(p: &Params) -> synaptix_gen::music::Yue2Settings {
+    use synaptix_gen::music::SamplingOverride;
+    let text = |k: &str| p.text(k).map(str::trim).filter(|v| !v.is_empty()).map(String::from);
+    let path = |k: &str| text(k).map(std::path::PathBuf::from);
+    let usize_of = |k: &str| p.i64(k).filter(|v| *v >= 0).map(|v| v as usize);
+    let sampling = |pre: &str| SamplingOverride {
+        temperature: p.f32(&format!("{pre}_temperature")),
+        top_p: p.f32(&format!("{pre}_top_p")),
+        top_k: usize_of(&format!("{pre}_top_k")),
+        repetition_penalty: p.f32(&format!("{pre}_repetition_penalty")),
+        penalty_window: usize_of(&format!("{pre}_penalty_window")),
+        min_tokens: usize_of(&format!("{pre}_min_tokens")),
+        max_tokens: usize_of(&format!("{pre}_max_tokens")),
+    };
+    synaptix_gen::music::Yue2Settings {
+        vocals: match text("vocals").as_deref() {
+            Some("on") => Some(true),
+            Some("off") => Some(false),
+            _ => None,
+        },
+        cot: text("cot"),
+        abc: text("abc"),
+        midi: path("midi"),
+        midi_track: usize_of("midi_track"),
+        cover: path("cover_audio"),
+        cover_harmony: p.bool("cover_harmony").unwrap_or(false),
+        cfg_scale: p.f32("cfg_scale").filter(|v| *v > 0.0),
+        abc_sampling: sampling("abc"),
+        semantic_sampling: SamplingOverride { min_tokens: None, max_tokens: None, ..sampling("semantic") },
+        min_seconds: p.f32("min_duration"),
+        context: usize_of("context"),
+        plan_only: p.bool("plan_only").unwrap_or(false),
+    }
 }

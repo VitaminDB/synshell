@@ -452,12 +452,36 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let seconds = std::env::var("SECONDS").ok().and_then(|v| v.parse::<u32>().ok());
             let seed = std::env::var("SEED").ok().and_then(|v| v.parse::<u64>().ok());
+            // MUSIC_PARAMS="vocals=off;cot=melody;cfg_scale=1.2" — настройки модели на запрос
+            // (у YuE2 все родные; значение-файл — путь, например midi=/путь/мелодия.mid).
+            let mut params = synaptixd::Params::new();
+            for kv in std::env::var("MUSIC_PARAMS").unwrap_or_default().split(';') {
+                if let Some((k, v)) = kv.split_once('=') {
+                    let (k, v) = (k.trim(), v.trim());
+                    params = match (v.parse::<f64>(), v) {
+                        (Ok(n), _) => params.with(k, n),
+                        (_, "true") => params.with(k, true),
+                        (_, "false") => params.with(k, false),
+                        _ => params.with(k, v),
+                    };
+                }
+            }
             let t0 = std::time::Instant::now();
             let (reply, wav) = c
-                .music(model, &prompt, &lyrics, seconds, seed, |i, n| eprint!("\r  шаг {i}/{n}"))
+                .music_with(model, &prompt, &lyrics, seconds, seed, &params, |i, n| eprint!("\r  шаг {i}/{n}"))
                 .map_err(|e| e.to_string())?;
-            std::fs::write(out, &wav).map_err(|e| e.to_string())?;
             eprintln!();
+            for n in &reply.notes {
+                println!("  · {n}");
+            }
+            if let Some(score) = &reply.score {
+                let abc = format!("{out}.abc");
+                std::fs::write(&abc, score).map_err(|e| e.to_string())?;
+                println!("  партитура → {abc}");
+            }
+            if wav.len() > 44 {
+                std::fs::write(out, &wav).map_err(|e| e.to_string())?;
+            }
             println!("{} · {:.1} с · зерно {} → {out} за {:.1} с", reply.label, reply.seconds, reply.seed, t0.elapsed().as_secs_f32());
         }
         "asr" => {

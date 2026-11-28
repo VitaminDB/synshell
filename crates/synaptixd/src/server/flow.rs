@@ -694,12 +694,52 @@ fn music(cx: &mut Cx) -> R {
     });
     let secs = cx.pos("seconds").map(|v| v as u32);
     let seed = cx.pos("seed").map(|v| v as u64);
-    let r = with_progress(cx, |progress, stop| gen::music(mgr(), &model.unwrap_or_default(), prompt, lyrics, secs, seed, None, stop.clone(), &mut |i, n| progress(i, n)))
+    let steps = cx.pos("steps").map(|v| v as usize);
+    // Родные настройки YuE2 (ACE-Step их не смотрит).
+    let mut call = Params::new();
+    for k in ["vocals", "cot", "abc"] {
+        if let Some(v) = cx.str(k) {
+            call = call.with(k, v);
+        }
+    }
+    for k in ["midi", "cover_audio"] {
+        if let Some(f) = cx.file(k) {
+            call = call.with(k, f);
+        }
+    }
+    for k in ["cfg_scale", "min_duration"] {
+        if let Some(v) = cx.pos(k) {
+            call = call.with(k, v);
+        }
+    }
+    if let Some(v) = cx.num("midi_track").filter(|v| *v >= 0.0) {
+        call = call.with("midi_track", v as i64);
+    }
+    for k in ["cover_harmony", "plan_only"] {
+        if cx.bool(k) {
+            call = call.with(k, true);
+        }
+    }
+    for line in cx.str("params").unwrap_or_default().lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            let (k, v) = (k.trim(), v.trim());
+            call = match v.parse::<f64>() {
+                Ok(n) => call.with(k, n),
+                Err(_) => call.with(k, v),
+            };
+        }
+    }
+    let r = with_progress(cx, |progress, stop| gen::music(mgr(), &model.unwrap_or_default(), prompt, lyrics, secs, seed, steps, &call, stop.clone(), &mut |i, n| progress(i, n)))
     .map_err(|e| stopped(cx, e.message))?;
-    let path = cx.out_path("wav");
-    std::fs::write(&path, &r.wav).map_err(|e| e.to_string())?;
-    cx.label = r.out.label;
-    cx.out("audio", Val::File(path));
+    cx.label = r.out.label.clone();
+    if let Some(score) = r.out.score.clone() {
+        cx.out("score", Val::Text(score));
+    }
+    if !r.wav.is_empty() && !r.out.samples.is_empty() {
+        let path = cx.out_path("wav");
+        std::fs::write(&path, &r.wav).map_err(|e| e.to_string())?;
+        cx.out("audio", Val::File(path));
+    }
     Ok(())
 }
 

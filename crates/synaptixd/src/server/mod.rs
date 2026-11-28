@@ -327,7 +327,7 @@ impl Conn {
                 let reply = crate::VideoReply { width: o.width, height: o.height, frames: o.frames, fps: o.fps, seed: r.seed, label: o.label, mp4: FdRef { fd: 0 }, bytes: r.mp4.len() };
                 (data(reply), vec![fd])
             }
-            Request::Music { model, prompt, lyrics, seconds, seed, steps } => {
+            Request::Music { model, prompt, lyrics, seconds, seed, steps, params } => {
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -345,11 +345,11 @@ impl Conn {
                         c2.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 };
-                let r = gen::music(&mgr, &model, prompt, lyrics, seconds, seed, steps, cancel.clone(), &mut send)?;
+                let r = gen::music(&mgr, &model, prompt, lyrics, seconds, seed, steps, &params, cancel.clone(), &mut send)?;
                 let fd = wire::memfd("music", &r.wav)?;
                 let o = r.out;
                 let seconds = o.samples.len() as f32 / (o.sample_rate.max(1) as f32 * o.channels.max(1) as f32);
-                let reply = crate::MusicReply { seconds, sample_rate: o.sample_rate, channels: o.channels, seed: r.seed, label: o.label, wav: FdRef { fd: 0 }, bytes: r.wav.len() };
+                let reply = crate::MusicReply { seconds, sample_rate: o.sample_rate, channels: o.channels, seed: r.seed, label: o.label, wav: FdRef { fd: 0 }, bytes: r.wav.len(), score: o.score, notes: o.notes };
                 (data(reply), vec![fd])
             }
             Request::Embed { model, texts } => {
