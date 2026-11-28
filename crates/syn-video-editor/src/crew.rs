@@ -439,6 +439,55 @@ pub fn parse_verdict(text: &str) -> Option<bool> {
     }
 }
 
+// ---------------------------------------------------------------- вехи согласования
+
+/// Вехи: (id, название, что показать пользователю).
+pub const MILESTONES: &[(&str, &str, &str)] = &[
+    ("script", "сценарий", "библию и структуру фильма (01_библия, 03_структура)"),
+    ("lookbook", "лукбук", "все базовые эталоны героев, мест и реквизита (04_ассеты) — одной подборкой"),
+    ("first_scene", "первая сцена", "снятую и склеенную первую сцену"),
+];
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Milestones {
+    pub enabled: bool,
+    #[serde(default)]
+    pub approved: Vec<String>,
+}
+
+pub fn milestones(project: &Path) -> Milestones {
+    std::fs::read_to_string(dir(project).join("вехи.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+pub fn save_milestones(project: &Path, m: &Milestones) {
+    let _ = std::fs::write(dir(project).join("вехи.json"), serde_json::to_string_pretty(m).unwrap_or_default());
+}
+
+/// Веха, которая ждёт согласия пользователя (вехи включены, работа до неё сделана).
+pub fn milestone_due(project: &Path, timeline: Option<&crate::doc::Project>) -> Option<&'static (&'static str, &'static str, &'static str)> {
+    let m = milestones(project);
+    if !m.enabled {
+        return None;
+    }
+    let pending = |id: &str| !m.approved.iter().any(|a| a == id);
+    let d = dir(project);
+    let has = |f: &str| std::fs::read_to_string(d.join(f)).is_ok_and(|t| !t.trim().is_empty());
+    let cat = crate::cmd::doc::catalog(&read(project, "04_ассеты"));
+    let s1 = stage(project, 1, timeline);
+    for ms in MILESTONES {
+        let ready = match ms.0 {
+            "script" => has("01_библия.md") && has("03_структура.md"),
+            "lookbook" => !cat.is_empty() && cat.iter().all(|a| std::path::Path::new(&a.file).is_file()) && s1 > Stage::Assets,
+            "first_scene" => s1 == Stage::Done,
+            _ => false,
+        };
+        if ready && pending(ms.0) {
+            return Some(ms);
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------- записки
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -668,6 +717,22 @@ mod tests {
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
         std::fs::File::options().write(true).open(&sc).unwrap().set_modified(later).unwrap();
         assert_eq!(review_ok(&p, 1, "script"), None);
+    }
+
+    #[test]
+    fn milestones_gate() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("m").join("m.syn");
+        let dir = p.parent().unwrap();
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("01_библия.md"), "# Б").unwrap();
+        std::fs::write(dir.join("03_структура.md"), "# С").unwrap();
+        // выключены — не держат
+        assert!(milestone_due(&p, None).is_none());
+        save_milestones(&p, &Milestones { enabled: true, approved: vec![] });
+        assert_eq!(milestone_due(&p, None).map(|m| m.0), Some("script"));
+        save_milestones(&p, &Milestones { enabled: true, approved: vec!["script".into()] });
+        assert!(milestone_due(&p, None).is_none());
     }
 
     #[test]

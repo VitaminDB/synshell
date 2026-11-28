@@ -185,6 +185,8 @@ pub struct St {
     pub role_active: RwSignal<Option<String>>,
     /// Что показывает панель ИИ: None — главный чат (режиссёр), Some(id) — чат роли.
     pub ai_view: RwSignal<Option<String>>,
+    /// Раскрытая сцена на доске группы.
+    pub board_open: RwSignal<Option<u32>>,
     /// Открыта страница «Настройки» (вместо монтажа).
     pub page: RwSignal<bool>,
     /// Номер правки настроек — страница и шапка ИИ перечитывают по нему.
@@ -307,6 +309,7 @@ impl St {
             role_logs: use_signal(Vec::new()),
             role_active: use_signal(None),
             ai_view: use_signal(None),
+            board_open: use_signal(None),
             page: use_signal(false),
             set_rev: use_signal(0),
             ai_chats: use_signal(Vec::new()),
@@ -686,6 +689,37 @@ impl St {
             _ => None,
         };
         self.dock.open(id, near);
+    }
+
+    /// Сообщение роли съёмочной группы напрямую (из её чата): роль получает
+    /// бриф текущей сцены и слова пользователя, отвечает в своём чате.
+    pub fn ask_role(self, role: String, text: String) {
+        if self.ai_busy.get_untracked() || text.trim().is_empty() {
+            return;
+        }
+        let Some(r) = crate::crew::role(&role) else { return };
+        let Some(project) = ed().path.clone() else {
+            self.toast.set(Some("Проект не сохранён — группе некуда писать".into()));
+            return;
+        };
+        self.ai_busy.set(true);
+        AI_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+        std::thread::spawn(move || {
+            let (n, st) = {
+                let e = ed();
+                let total = crate::cmd::crew::scene_count(&project).max(1);
+                (1..=total).map(|s| (s, crate::crew::stage(&project, s, Some(&e.project)))).find(|(_, st)| *st != crate::crew::Stage::Done).unwrap_or((total, crate::crew::Stage::Done))
+            };
+            let brief = format!("**Пользователь пишет тебе напрямую:** {text}\n\nОтветь ему и, если он просит, сделай это в своей зоне ответственности.\n\n{}", crate::crew::scene_brief(&project, r.id, n, st));
+            let r2 = crate::agent::run_role(shared(), &project, r, n, st, &brief, Vec::new());
+            syngui::async_runtime::run_on_main_thread(move || {
+                if let Err(e) = r2 {
+                    self.toast.set(Some(format!("{}: {e}", r.title)));
+                }
+                self.ai_busy.set(false);
+                self.rev.set(ed().revision);
+            });
+        });
     }
 
     /// Ход агента в фоне; события — в панель ИИ, правки — в окно.

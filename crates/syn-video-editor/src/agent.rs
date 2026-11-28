@@ -91,6 +91,15 @@ impl Tool for CmdTool {
         // ход роли съёмочной группы — отдельным агентом роли, без блокировки проекта
         if self.cmd.id == "crew.run" || self.cmd.id == "crew.review" {
             let a = cmd::Args::from_value(self.cmd, args)?;
+            // веха согласования: дальше — только с согласия пользователя (кнопка на доске)
+            let due = {
+                let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
+                ed.path.clone().and_then(|p| crate::crew::milestone_due(&p, Some(&ed.project)).map(|m| (p, m)))
+            };
+            if let Some((p, &(_, title, show))) = due {
+                crate::crew::journal(&p, &format!("веха «{title}»: ждёт согласия пользователя"));
+                return Ok(ToolOutput::text(format!("Веха согласования «{title}»: работа до неё сделана, дальше группа идёт только с согласия пользователя. Покажи ему {show}, коротко перечисли, что сделано, и закончи ход — он согласует кнопкой на доске группы (чип «Доска») или напишет, что исправить.")));
+            }
             let (p, n, st, due) = {
                 let ed = self.ed.lock().unwrap_or_else(|e| e.into_inner());
                 cmd::crew::review_target(&ed, &a, self.cmd.id == "crew.review")?

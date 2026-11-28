@@ -997,11 +997,39 @@ fn crew_chips(st: St) -> impl Widget {
         }
         let chip = |label: String, on: bool, busy: bool, v: Option<String>| -> Box<dyn Widget> {
             let text = if busy { format!("● {label}") } else { label };
-            Box::new(Button::new(text).on_click(move || st.ai_view.set(v.clone())).class(if on { "ai-chip ai-chip-on" } else { "ai-chip" }))
+            Box::new(GestureDetector::new().on_press(move |_| st.ai_view.set(v.clone())).child(DecoratedBox::new().class(if on { "ai-chip ai-chip-on" } else { "ai-chip" }).child(Text::new(text).max_lines(1).class(if on { "ai-chip-text-on" } else { "ai-chip-text" }))))
         };
         let mut chips: Vec<Box<dyn Widget>> = vec![chip("Режиссёр".into(), view.is_none(), st.ai_busy.get() && active.is_none(), None)];
-        for (id, title, _) in &roles {
-            chips.push(chip(title.clone(), view.as_deref() == Some(id.as_str()), active.as_deref() == Some(id.as_str()), Some(id.clone())));
+        // чей шаг следующий по доске (автор текущего шага или ждущий проверяющий)
+        let next_role: Option<&'static str> = project.as_deref().and_then(|p| {
+            let e = ed();
+            let n = crate::cmd::crew::scene_count(p);
+            (1..=n).map(|s| (s, crate::crew::stage(p, s, Some(&e.project)))).find(|(_, st)| *st != crate::crew::Stage::Done).map(|(s, st)| {
+                crate::crew::review_due(p, s, st).and_then(|w| crate::crew::REVIEWS.iter().find(|r| r.0 == w)).map(|r| r.2).unwrap_or(st.roles().0)
+            })
+        });
+        let notes = project.as_deref().map(crate::crew::notes).unwrap_or_default();
+        for (id, title, log) in &roles {
+            let busy = active.as_deref() == Some(id.as_str());
+            let to_me = notes.iter().filter(|x| &x.to == id && x.status != crate::crew::Status::Closed).count();
+            let state = if busy {
+                "думает".to_string()
+            } else if to_me > 0 {
+                format!("замечание {to_me}")
+            } else if matches!(log.last(), Some(AiLine::Error(_))) {
+                "ошибка".to_string()
+            } else if next_role == Some(id.as_str()) {
+                "ждёт".to_string()
+            } else {
+                "готово".to_string()
+            };
+            chips.push(chip(format!("{title} · {state}"), view.as_deref() == Some(id.as_str()), busy, Some(id.clone())));
+        }
+        // роли, которые ещё не работали, но чей шаг следующий, — тоже чипом
+        if let Some(nr) = next_role.filter(|nr| !roles.iter().any(|(id, _, _)| id == nr)) {
+            if let Some(r) = crate::crew::role(nr) {
+                chips.push(chip(format!("{} · ждёт", r.title), view.as_deref() == Some(nr), false, Some(nr.to_string())));
+            }
         }
         chips.push(chip("Доска".into(), view.as_deref() == Some("board"), false, Some("board".into())));
         chips.push(chip(if notes_open > 0 { format!("Записки · {notes_open}") } else { "Записки".into() }, view.as_deref() == Some("notes"), false, Some("notes".into())));
@@ -1021,6 +1049,7 @@ fn crew_board(st: St) -> Box<dyn Widget> {
     let project = ed().project.clone();
     let notes = crate::crew::notes(&p);
     let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("ai-log");
+
     let stages = crate::crew::Stage::ALL;
     let mut current_set = false;
     for s in 1..=n {
@@ -1035,16 +1064,76 @@ fn crew_board(st: St) -> Box<dyn Widget> {
         let current = !current_set && stg != crate::crew::Stage::Done;
         current_set |= current;
         let who = if stg == crate::crew::Stage::Done { "готово".to_string() } else { format!("{} · {} → {}", stg.title(), crate::crew::role(a).map(|r| r.title).unwrap_or(a), crate::crew::role(b).map(|r| r.title).unwrap_or(b)) };
+        let opened = st.board_open.get() == Some(s);
         let line = Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Text::new(format!("{s:>2}")).class(if current { "crew-scene crew-scene-now" } else { "crew-scene" }))
             .child(bar)
             .child(Text::new(if open > 0 { format!("{who} · записок {open}") } else { who }).max_lines(1).class("ai-result-text"));
-        col = col.child(line);
+        col = col.child(GestureDetector::new().on_press(move |_| st.board_open.update(|o| *o = if *o == Some(s) { None } else { Some(s) })).child(line));
+        if opened {
+            col = col.child(crew_scene_card(&p, s, &notes));
+        }
     }
     col = col.child(Text::new(format!("Шаги: {}", stages.iter().map(|s| s.title()).collect::<Vec<_>>().join(" → "))).class("ai-think-text"));
+    // вехи согласования: переключатель и согласие пользователя
+    let ms = crate::crew::milestones(&p);
+    let p2 = p.clone();
+    let mut mrow = Flex::new().gap(6.0).wrap().child(Button::new(if ms.enabled { "Вехи согласования: вкл" } else { "Вехи согласования: выкл" }).on_click(move || {
+        let mut m = crate::crew::milestones(&p2);
+        m.enabled = !m.enabled;
+        crate::crew::save_milestones(&p2, &m);
+        st.board_open.update(|_| {});
+    }).class("head-btn"));
+    if let Some(&(id, title, show)) = crate::crew::milestone_due(&p, Some(&project)) {
+        let p3 = p.clone();
+        mrow = mrow.child(Text::new(format!("Ждёт согласия: {title} — {show}")).max_lines(2).class("ai-result-text")).child(Button::new(format!("Согласовать «{title}»")).on_click(move || {
+            let mut m = crate::crew::milestones(&p3);
+            if !m.approved.iter().any(|a| a == id) {
+                m.approved.push(id.to_string());
+            }
+            crate::crew::save_milestones(&p3, &m);
+            crate::crew::journal(&p3, &format!("веха «{title}»: согласовано пользователем"));
+            st.board_open.update(|_| {});
+        }).class("head-btn"));
+    } else if ms.enabled {
+        let done: Vec<&str> = crate::crew::MILESTONES.iter().filter(|m| ms.approved.iter().any(|a| a == m.0)).map(|m| m.1).collect();
+        mrow = mrow.child(Text::new(if done.is_empty() { "Вехи: сценарий → лукбук → первая сцена".to_string() } else { format!("Согласовано: {}", done.join(", ")) }).class("ai-result-text"));
+    }
+    col = col.child(mrow);
     Box::new(col)
+}
+
+/// Материалы сцены на доске: документ, ассеты, проверки, записки, ролики.
+fn crew_scene_card(p: &std::path::Path, s: u32, notes: &[crate::crew::Note]) -> Box<dyn Widget> {
+    let dir = crate::store::media_dir(p);
+    let scene = std::fs::read_to_string(dir.join(format!("scene_{s:02}.md"))).unwrap_or_default();
+    let mut c = Column::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let head: String = scene.lines().find(|l| !l.trim().is_empty()).unwrap_or("документа сцены ещё нет").trim_start_matches('#').trim().to_string();
+    c = c.child(Text::new(format!("scene_{s:02}: {head}")).max_lines(2).class("ai-result-text"));
+    let cat = crate::cmd::doc::catalog(&std::fs::read_to_string(dir.join("04_ассеты.md")).unwrap_or_default());
+    let refs = crate::cmd::doc::asset_refs(&scene);
+    if !refs.is_empty() {
+        let v: Vec<String> = refs.iter().map(|id| format!("@{id}{}", if cat.iter().any(|a| &a.id == id && std::path::Path::new(&a.file).is_file()) { "" } else { " (нет)" })).collect();
+        c = c.child(Text::new(format!("Ассеты: {}", v.join(", "))).max_lines(3).class("ai-result-text"));
+    }
+    for &(what, title, _, _) in crate::crew::REVIEWS {
+        let mark = match crate::crew::review_ok(p, s, what) {
+            Some(true) => "✓",
+            Some(false) => "✗",
+            None => "—",
+        };
+        c = c.child(Text::new(format!("Проверка «{title}»: {mark}")).class("ai-result-text"));
+    }
+    let rolls = crate::crew::scene_rolls(p, s);
+    if !rolls.is_empty() {
+        c = c.child(Text::new(format!("Роликов: {} — {}", rolls.len(), rolls.iter().filter_map(|r| r.file_name().map(|x| x.to_string_lossy().into_owned())).collect::<Vec<_>>().join(", "))).max_lines(3).class("ai-result-text"));
+    }
+    for n in notes.iter().filter(|x| x.scene == s && x.status != crate::crew::Status::Closed) {
+        c = c.child(Text::new(crate::crew::note_line(n)).max_lines(3).class("ai-result-text"));
+    }
+    Box::new(DecoratedBox::new().class("ai-note").child(c))
 }
 
 /// Лента записок между ролями: открытые сверху, круги и эскалация.
@@ -1077,7 +1166,14 @@ fn ai(st: St) -> impl Widget {
         .class("ai-panel")
         .child(super::ai_chat::head(st))
         .child(crew_chips(st))
-        .child(DecoratedBox::new().class("grow").child(ScrollView::new().vertical().follow_end(true).child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        .child(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            // доска и записки — своя прокрутка с начала; чаты — следом за концом
+            match st.ai_view.get().as_deref() {
+                Some("board") => return vec![Box::new(ScrollView::new().vertical().child(crew_board(st)))],
+                Some("notes") => return vec![Box::new(ScrollView::new().vertical().child(crew_notes(st)))],
+                _ => {}
+            }
+            vec![Box::new(ScrollView::new().vertical().follow_end(true).child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             // чат роли, доска или записки группы — вместо главного чата
             let view = st.ai_view.get();
             let log = match view.as_deref() {
@@ -1200,7 +1296,8 @@ fn ai(st: St) -> impl Widget {
                 col = col.child(DecoratedBox::new().class(class).child(Text::new(text).selectable(true).class(format!("{class}-text"))));
             }
             vec![Box::new(col)]
-        }))))
+        })))]
+        })))
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();
             let busy = st.ai_busy.get();
@@ -1238,11 +1335,22 @@ fn ai(st: St) -> impl Widget {
                 TextField::new()
                     .text(draft.get_untracked())
                     .on_change(move |s: &str| draft.set(s.to_string()))
-                    .placeholder(if busy { "Агент работает…" } else { "Задача для агента… (Enter)" })
+                    .placeholder(if busy {
+                        "Агент работает…".to_string()
+                    } else {
+                        match st.ai_view.get().filter(|r| r != "board" && r != "notes").and_then(|r| crate::crew::role(&r)) {
+                            Some(r) => format!("Сообщение роли «{}»… (Enter)", r.title),
+                            None => "Задача для агента… (Enter)".to_string(),
+                        }
+                    })
                     .prefix_icon(icons::AI)
                     .disabled(busy)
                     .on_submit(move |q: &str| {
-                        st.ask_ai(q.to_string());
+                        // открыт чат роли — сообщение ей напрямую, иначе — режиссёру (главный агент)
+                        match st.ai_view.get_untracked() {
+                            Some(r) if r != "board" && r != "notes" => st.ask_role(r, q.to_string()),
+                            _ => st.ask_ai(q.to_string()),
+                        }
                         draft.set(String::new());
                         input_gen.update(|g| *g += 1);
                     })
