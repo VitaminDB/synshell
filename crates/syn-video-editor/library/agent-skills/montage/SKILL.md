@@ -13,7 +13,7 @@ description: Смонтировать ролик из своего матери�
    - инструкция, интервью, обзор, презентация → `skill_run calm_montage` (title, notes, music);
    - жанр неясен — спроси или возьми calm_montage.
    Отдельные переходы вручную — `transition_set` (`transition_list`; Fusion — навык fusion-templates).
-5. **Звук.** Музыка — навык music-for-video. Громкость клипов — `clip_set volume`, плавно — `effect_add audio_fade_in/out`.
+5. **Звук.** Музыка — своя тема под жанр: `music.make` (навык music-for-video), под речью тихо. Год в титрах — текущий (дата в системной подсказке); финальная надпись не закрывает действие. Громкость клипов — `clip_set volume`, плавно — `effect_add audio_fade_in/out`.
 6. **Титры.** `title_add` (стиль и анимация — навык motion-graphics), субтитры — навык subtitles.
 7. **Цвет.** Навык color-grade.
 8. **Проверка.** `project_dump`, затем `frame_check` 1–3 ключевых момента (титры читаются, ничего не обрезано, нет чёрных кадров) — исправь найденное.

@@ -339,12 +339,12 @@ pub fn skeleton(_shot: usize, tracks: &[Value], base: usize, continues: bool, ti
     }
     let who: Vec<String> = speakers.iter().enumerate().map(|(j, sp)| format!("{sp} = (S{})", j + 1)).collect();
     format!(
-        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус> <действие по битам с таймкодами «At 00:0X.X, …» по сценарию ({}): в окнах без речи — заметное действие (движение, перемещения, работа с предметами, падения, реакции), во время реплик герои тоже заняты делом; без глаголов речи>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
+        "{sd} summary: [reference generation]{} <суть ролика>. {ra} detailed_description: <стиль>.{} <камера по сценарию{}: крупность, где стоит, куда смотрит, движение>. [Shot 1] <постановка по сценарию: где каждый герой и куда направлены его взгляд и корпус> <действие по битам с таймкодами «At 00:0X.X, …» по сценарию ({}): в окнах без речи — заметное действие (движение, перемещения, работа с предметами, падения, реакции), во время реплик герои тоже заняты делом; без глаголов речи> <по раскадровке — следующие планы этого ролика: [Shot 2] At 00:0X.X, <другая крупность или ракурс: крупно реакция, через плечо, деталь реквизита> …; иначе убери>.{} All speech comes only from the audio tracks; outside them nobody speaks, hums or makes vocal sounds. overall_soundscape: <шумы>. non_diegetic_music: <музыка или N/A>.",
         if speakers.is_empty() { "" } else { " + [audio reuse]" },
         if continues { CONTINUES } else { "" },
         if continues { CAMERA_CONT } else { "" },
         timing,
-        if speakers.is_empty() { " No one speaks in this shot.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
+        if speakers.is_empty() { " No one speaks, shouts, hums or makes any vocal sound in this shot; all mouths stay closed or only breathe.".to_string() } else { format!(" Speakers ({}): each line as (Sk): <d>[Russian] <слова из диалогов></d>, in order of the audio; each character moves the mouth only while their own audio is audible.", who.join(", ")) }
     )
 }
 
@@ -370,7 +370,7 @@ pub fn check_continuation(storyboard: &str, first_continues: bool, n: u32) -> Re
         let cont = if i == 0 { first_continues } else { !l.starts_with("[CUT]") };
         if cont && !l.to_lowercase().contains("continues seamlessly") {
             return Err(format!(
-                "строка {} storyboard начинается с хвоста {} — нужна фраза из каркаса scene.plan «This shot continues seamlessly from the previous shot…» и начало кадра ровно как конец предыдущего ролика (ракурс, расстановка, позы, свет). Если это другая локация или время — начни строку с [CUT].",
+                "строка {} storyboard начинается с хвоста {} — нужна фраза из каркаса scene.plan «This shot continues seamlessly from the previous shot…» и начало кадра ровно как конец предыдущего ролика (ракурс, расстановка, позы, свет). Если это другая локация или время или новый план той же сцены (другая крупность, ракурс) — начни строку с [CUT] и убери фразу о продолжении.",
                 i + 1,
                 if i == 0 { format!("сцены {}", n.saturating_sub(1)) } else { "предыдущего ролика".into() }
             ));
@@ -379,7 +379,7 @@ pub fn check_continuation(storyboard: &str, first_continues: bool, n: u32) -> Re
     Ok(())
 }
 
-fn media_seconds(p: &Path) -> Result<f64, String> {
+pub fn media_seconds(p: &Path) -> Result<f64, String> {
     let o = std::process::Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]).arg(p).output().map_err(|e| format!("ffprobe: {e}"))?;
     String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().map_err(|_| format!("{}: не звук", p.display()))
 }
@@ -516,7 +516,7 @@ pub fn run_plan(a: &Args, project: Option<&Path>) -> Result<(String, Vec<PathBuf
     }
     Ok((
         format!(
-            "Каркасы строк storyboard по роликам (заполни <…>, остальное не меняй; герои — <Picture k> по порядку картинок в refs):\n{}\n\nНумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain (без [CUT] между ними); звук сцены — звук роликов H3 (речь в нём уже есть), отдельную дорожку речи на таймлайн не клади. План — в документе «раскадровка».{}",
+            "Каркасы строк storyboard по роликам (заполни <…>, остальное не меняй; герои — <Picture k> по порядку картинок в refs):\n{}\n\nНумерация звука, если в refs после картинок идут дорожки роликов по порядку: {}. В строке ролика упоминай ТОЛЬКО его <Audio k> (не больше 3). Сцена {n}: {total:.1} с, роликов {} ({}). Дорожки — в refs как <Audio k> fully_copy, по ролику; ролики сцены — строками одного ref-scenes с chain: продолжение по хвосту — для непрерывного действия, новый план той же сцены (другая крупность, ракурс) — строка с [CUT] без фразы о продолжении; внутри ролика планы меняй через [Shot 2] At 00:0X.X; звук сцены — звук роликов H3 (речь в нём уже есть), отдельную дорожку речи на таймлайн не клади. План — в документе «раскадровка».{}",
             skeletons.iter().enumerate().map(|(i, s)| format!("ролик {}: {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             numbering.join("; "),
             shots.len(),

@@ -15,10 +15,10 @@ use serde_json::{json, Value};
 use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&CAST, &VOICES, &SAY, &TRACK];
+pub static COMMANDS: &[&Cmd] = &[&CAST, &VOICES, &SAY, &TRACK, &MUSIC];
 
 /// Долгие команды (синтез минутами) — агент зовёт их без блокировки документа.
-pub const HEAVY: &[&str] = &["voice.cast", "voice.say", "voice.track"];
+pub const HEAVY: &[&str] = &["voice.cast", "voice.say", "voice.track", "music.make"];
 
 pub const TTS_MODEL: &str = "fish-drama-3";
 
@@ -124,6 +124,34 @@ pub fn word_match(expected: &str, heard: &str) -> f64 {
     hit as f64 / exp.len() as f64
 }
 
+/// Слоги реплики (гласные русского и латиницы) — мера её естественной длины.
+pub fn syllables(text: &str) -> usize {
+    text.to_lowercase().chars().filter(|c| "аеёиоуыэюяaeiouy".contains(*c)).count()
+}
+
+/// Сколько секунд реплика может звучать при живой игре: ~3 слога/с плюс
+/// запас на вступление, плюс по 1,5 с на каждое указание в [скобках]
+/// (вздох, пауза, смех — часть игры).
+pub fn max_speech_seconds(text_with_tags: &str) -> f64 {
+    let tags = text_with_tags.matches('[').count() as f64;
+    syllables(&plain_text(text_with_tags)) as f64 / 3.0 + 2.5 + tags * 1.5
+}
+
+/// Проверка дубля Drama 3 сверх совпадения слов: аномальная длина (модель
+/// тянет, повторяет, мычит) и лишние слова в распознанном. `None` — годен.
+pub fn take_problem(text_with_tags: &str, heard: &str, speech: f64) -> Option<String> {
+    let max = max_speech_seconds(text_with_tags);
+    if speech > max {
+        return Some(format!("дубль аномально длинный: звучит {speech:.1} с на {} слогов (живая игра — до {max:.1} с) — переозвучь другим seed", syllables(&plain_text(text_with_tags))));
+    }
+    let words = |s: &str| s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).count();
+    let (exp, got) = (words(&plain_text(text_with_tags)), words(heard));
+    if exp > 0 && got as f64 > exp as f64 * 1.3 + 1.0 {
+        return Some(format!("в дубле лишние слова или повторы (распознано {got} слов вместо {exp}) — переозвучь другим seed"));
+    }
+    None
+}
+
 /// Синтез службой: (pcm, частота, зерно).
 fn synth(model: &str, text: &str, params: &synaptixd::Params) -> Result<(Vec<f32>, u32, Option<u64>), String> {
     let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
@@ -193,6 +221,25 @@ static SAY: Cmd = Cmd {
     run: |ed, a| heavy(ed, "voice.say", a),
 };
 
+static MUSIC: Cmd = Cmd {
+    id: "music.make",
+    category: "Озвучка",
+    title: "Музыка к фильму",
+    shortcut: "",
+    keywords: "music музыка тема саундтрек score minimax песня",
+    help: "Сочинить музыку службой (модель музыки из настроек, по умолчанию MiniMax Music 3): `prompt` по-английски — жанр, настроение, инструменты, темп; `seconds` — длина (обычно длина фильма или его части); `lyrics` — слова песни (пусто — без слов, для фона под речь). Файл — в папку проекта music/ и в медиатеку; на таймлайн — clip_add на свою звуковую дорожку, под речью громкость 0.2–0.3, с нарастанием и затуханием.",
+    args: &[
+        req("prompt", Ty::Str, "описание музыки по-английски: жанр, настроение, инструменты, темп"),
+        arg("seconds", Ty::Num, "длина, с"),
+        arg("lyrics", Ty::Str, "слова песни (пусто — инструментал)"),
+        arg("name", Ty::Str, "имя файла (тема, финал…)"),
+        arg("model", Ty::Str, "модель музыки (пусто — из настроек)"),
+        arg("seed", Ty::Num, "зерно"),
+    ],
+    danger: false,
+    run: |ed, a| heavy(ed, "music.make", a),
+};
+
 static TRACK: Cmd = Cmd {
     id: "voice.track",
     category: "Озвучка",
@@ -245,6 +292,30 @@ pub fn import(ed: &mut Editor, files: &[PathBuf]) {
 pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Editor>) -> Result<(String, Vec<PathBuf>, Value), String> {
     let dir = base_dir(project);
     match id {
+        "music.make" => {
+            let prompt = a.need_str("prompt")?;
+            let lyrics = a.str("lyrics")?.unwrap_or_default();
+            let model = a.str("model")?.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("music")).unwrap_or_else(|| "minimax-music3".into());
+            let seconds = a.num("seconds")?.map(|s| s.clamp(5.0, 600.0).round() as u32);
+            let seed = a.num("seed")?.map(|s| s as u64);
+            syn_assist::tools::progress(0, 0, &format!("музыка ({model})"));
+            let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
+            let (reply, wav) = c
+                .music(&model, &prompt, &lyrics, seconds, seed, |s, t| syn_assist::tools::progress(s, t, "музыка"))
+                .map_err(|e| format!("{model}: {e}"))?;
+            let stem = a.str("name")?.filter(|n| !n.trim().is_empty()).map(|n| slug(&n)).unwrap_or_else(|| "музыка".into());
+            let out = free_path(&dir.join("music"), &stem);
+            if let Some(d) = out.parent() {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&out, &wav).map_err(|e| format!("{}: {e}", out.display()))?;
+            let secs = super::story::media_seconds(&out).unwrap_or(0.0);
+            Ok((
+                format!("Музыка: {} ({secs:.1} с, {model}). На таймлайн — clip_add на отдельную звуковую дорожку; под речью громкость 0.2–0.3, нарастание и затухание (effect_add audio_fade_in/audio_fade_out). Или передай путь в cinematic_montage параметром music.", out.display()),
+                vec![out.clone()],
+                json!({"path": out, "seconds": secs, "model": model, "seed": reply.seed}),
+            ))
+        }
         "voice.cast" => {
             let name = a.need_str("name")?;
             let text = crate::yo::yofy(&a.need_str("text")?);
@@ -318,8 +389,11 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             let speech = super::story::speech_span(&out).map(|(a0, b0, _)| b0 - a0).unwrap_or(secs);
             let heard = super::audio::transcribe_file(&out, Some("ru")).map(|t| t.text).unwrap_or_default();
             let score = word_match(&plain_text(&text), &heard);
+            let problem = if heard.is_empty() { None } else { take_problem(&text, &heard, speech) };
             let verdict = if heard.is_empty() {
                 "распознать не удалось — проверь на слух".to_string()
+            } else if let (Some(p), true) = (&problem, score >= 0.8) {
+                format!("распознано «{heard}» — слова совпадают, но {p}")
             } else if score >= 0.8 {
                 format!("распознано «{heard}» — совпадает ({:.0}%), дубль годен, переозвучивать не нужно", score * 100.0)
             } else {
@@ -347,7 +421,7 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             }
             Ok((
                 format!(
-                    "Реплика «{}» ({who}): {} — {secs:.1} с (звучит {speech:.1} с; вздохи, смех и паузы Drama 3 — часть игры, сохраняются; пустую тишину по краям обрежет scene.plan){}{}. {verdict}",
+                    "Реплика «{}» ({who}): {} — {secs:.1} с (звучит {speech:.1} с; вздохи, смех и паузы Drama 3 в пределах живой игры сохраняются; пустую тишину по краям обрежет scene.plan){}{}. {verdict}",
                     plain_text(&text),
                     out.display(),
                     seed.map(|s| format!(", зерно {s}")).unwrap_or_default(),
@@ -412,5 +486,23 @@ mod tests {
         assert!(super::word_match("Суп? У меня и без того полный набор…", "Суп у меня и без того полный набор") > 0.99);
         assert!(super::word_match("Ещё немного!", "еще немного") > 0.99);
         assert!(super::word_match("Король объявил конкурс", "Король объявил") < 0.8);
+    }
+}
+
+#[cfg(test)]
+mod take_tests {
+    use super::*;
+
+    #[test]
+    fn long_take_and_repeats_are_flagged() {
+        // две слова растянуты на 10,7 с — переозвучить
+        assert!(take_problem("Суп побеждает!", "суп побеждает суп побеждает", 10.7).is_some());
+        // нормальная длина и те же слова — годен
+        assert!(take_problem("Суп побеждает!", "суп побеждает", 1.6).is_none());
+        // вздох в скобках даёт запас
+        assert!(take_problem("Ну ладно. [sighs] Пошли.", "ну ладно пошли", 4.5).is_none());
+        // повторы слов при нормальной длине
+        assert!(take_problem("Вот оно!", "вот оно вот оно вот оно", 2.0).is_some());
+        assert_eq!(syllables("Самый вкусный"), 4);
     }
 }

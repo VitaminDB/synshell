@@ -349,8 +349,8 @@ static CHECK: Command = Command {
     title: "Проверить кадр глазами",
     shortcut: "",
     keywords: "проверить кадр посмотреть зрение vision самопроверка титр обрезан читается цвет",
-    help: "Самопроверка по кадру: кадр таймлайна в момент at (тот же композитор, что экспорт) показывается модели со зрением, ответ — что она видит. question — что проверить (по умолчанию: читаются ли титры, не обрезан ли текст или объект, нет ли пустого/чёрного кадра, пересвета, странного цвета). Использовать после монтажа титров, кадрирования, цветокоррекции: проверить 1–3 ключевых момента и исправить найденное.",
-    args: &[req("at", Ty::Time, "момент"), arg("question", Ty::Str, "что проверить на кадре"), arg("width", Ty::Num, "ширина кадра для модели (768)"), arg("model", Ty::Str, "модель со зрением (по умолчанию — из настроек или найдётся сама)")],
+    help: "Самопроверка по кадру: кадр таймлайна в момент at (тот же композитор, что экспорт) показывается модели со зрением, ответ — что она видит. question — что проверить (по умолчанию: читаются ли титры, не обрезан ли текст или объект, нет ли пустого/чёрного кадра, пересвета, странного цвета). Использовать после монтажа титров, кадрирования, цветокоррекции: проверить 1–3 ключевых момента и исправить найденное. С `file` — кадр самого ролика (сгенерированного, ещё не на таймлайне) в секунду `at` этого файла: проверка событий сценария после съёмки («произошло ли <событие>? видно ли лицо <героя>? тот ли <предмет>?»).",
+    args: &[req("at", Ty::Time, "момент (с file — секунда внутри файла)"), arg("question", Ty::Str, "что проверить на кадре"), arg("file", Ty::Str, "ролик или картинка вместо таймлайна"), arg("width", Ty::Num, "ширина кадра для модели (768)"), arg("model", Ty::Str, "модель со зрением (по умолчанию — из настроек или найдётся сама)")],
     danger: false,
     run: check,
 };
@@ -383,7 +383,24 @@ fn check(ed: &mut Editor, a: &Args) -> Res {
     let set = crate::settings::load();
     let width = a.num("width")?.unwrap_or(set.vision_width as f64).round().clamp(128.0, 1920.0) as u32;
     let path = std::env::temp_dir().join(format!("syn-video-editor-check-{}-{}.png", std::process::id(), (t * 1000.0).round() as i64));
-    crate::render::run_child(&ed.project, &["frame".into(), t.to_string(), path.display().to_string(), width.to_string()], |_, _| {})?;
+    match a.str("file")?.filter(|f| !f.trim().is_empty()) {
+        Some(f) => {
+            let f = crate::doc::expand(&f);
+            let o = std::process::Command::new("ffmpeg")
+                .args(["-v", "error", "-y", "-ss", &format!("{t:.3}"), "-i"])
+                .arg(&f)
+                .args(["-frames:v", "1", "-vf", &format!("scale={width}:-2")])
+                .arg(&path)
+                .output()
+                .map_err(|e| format!("ffmpeg: {e}"))?;
+            if !o.status.success() || !path.is_file() {
+                return Err(format!("кадр {} из {} не извлечён: {}", crate::doc::tc(t), f.display(), String::from_utf8_lossy(&o.stderr).trim()));
+            }
+        }
+        None => {
+            crate::render::run_child(&ed.project, &["frame".into(), t.to_string(), path.display().to_string(), width.to_string()], |_, _| {})?;
+        }
+    }
     syn_assist::tools::progress(0, 0, "смотрю кадр");
     let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
     let model = vision_model(&mut c, a.str("model")?)?;

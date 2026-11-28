@@ -61,6 +61,8 @@ pub struct Generated {
     /// Файлы узлов, показанные в медиатеке по ходу прогона (эталоны героев,
     /// локаций, ролики) — переносятся и в собранный проект.
     live: Vec<std::path::PathBuf>,
+    /// Проверка речи снятых роликов (распознавание) — для ответа агенту.
+    notes: String,
 }
 
 /// Долгая часть `recipe.run` — генерация службой и сборка проекта на диске.
@@ -202,7 +204,17 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
     crate::store::save(&built.project, &path)?;
-    Ok(Generated { g, report, built, path, live })
+    // ролики сцены: в звуке только реплики строки (в строке без реплик — тишина
+    // слов), без повторов и чужих фраз; проверка распознаванием — до блокировки документа
+    let notes = if g.name == "ref-scenes" {
+        let sb = params.get("storyboard").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let lang = params.get("lang").and_then(|v| v.as_str()).unwrap_or("Russian").to_string();
+        let shots: Vec<std::path::PathBuf> = report.nodes.get("shots").map(|o| o.files.iter().filter(|f| !is_tail(f) && f.is_file()).cloned().collect()).unwrap_or_default();
+        speech_notes(&sb, &shots, &lang)
+    } else {
+        String::new()
+    };
+    Ok(Generated { g, report, built, path, live, notes })
 }
 
 /// Строки раскадровки ссылаются только на существующие референсы, и у
@@ -341,9 +353,65 @@ fn asset_name(map: &mut std::collections::HashMap<std::path::PathBuf, std::path:
     out
 }
 
+/// Слова реплик строки storyboard: содержимое `<d>[язык] …</d>`.
+pub fn said_words(line: &str) -> String {
+    let mut out = Vec::new();
+    let mut rest = line;
+    while let Some(i) = rest.find("<d>") {
+        let after = &rest[i + 3..];
+        let end = after.find("</d>").unwrap_or(after.len());
+        let mut t = after[..end].trim();
+        if t.starts_with('[') {
+            t = t.split_once(']').map(|(_, r)| r.trim()).unwrap_or(t);
+        }
+        out.push(t.to_string());
+        rest = &after[end.min(after.len())..];
+    }
+    out.join(" ")
+}
+
+/// Что не так с речью ролика: `expected` — слова реплик строки (пусто — ролик без речи).
+pub fn speech_problem(expected: &str, heard: &str) -> Option<String> {
+    let words = |s: &str| s.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() > 1).count();
+    let (exp, got) = (words(expected), words(heard));
+    if exp == 0 {
+        return (got >= 2).then(|| format!("в ролике без реплик звучит речь «{}»", heard.trim()));
+    }
+    let score = super::voice::word_match(expected, heard);
+    if score < 0.6 {
+        return Some(format!("речь не совпадает с репликами ({:.0}%): слышно «{}»", score * 100.0, heard.trim()));
+    }
+    if got as f64 > exp as f64 * 1.3 + 1.0 {
+        return Some(format!("лишние слова или повторы ({got} слов вместо {exp}): слышно «{}»", heard.trim()));
+    }
+    None
+}
+
+/// Распознать речь каждого снятого ролика и сверить с его строкой.
+fn speech_notes(storyboard: &str, shots: &[std::path::PathBuf], lang: &str) -> String {
+    let lines: Vec<&str> = storyboard.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    if lines.is_empty() || shots.is_empty() {
+        return String::new();
+    }
+    let code = if lang.to_lowercase().starts_with("rus") { Some("ru") } else { None };
+    let mut bad = Vec::new();
+    for (i, (line, f)) in lines.iter().zip(shots).enumerate() {
+        let heard = super::audio::transcribe_file(f, code).map(|t| t.text).unwrap_or_default();
+        if let Some(p) = speech_problem(&said_words(line), &heard) {
+            bad.push(format!("ролик {} ({}): {p}", i + 1, f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+        }
+    }
+    let events = " Теперь проверь события сценария по кадрам каждого ролика: frame_check с file=<ролик> и at=<секунда события> — произошло ли событие, видно ли лицо героя, тот ли реквизит; чего нет — пересними ролик.";
+    if bad.is_empty() {
+        format!(" | речь роликов проверена распознаванием — лишних слов нет.{events}")
+    } else {
+        format!(" | ПРОВЕРКА РЕЧИ: {} — пересними эти ролики (ref-scenes с одной строкой; в строке без реплик — «No one speaks», в строке с репликами — только они).{events}", bad.join("; "))
+    }
+}
+
 /// Короткая часть: открыть собранный проект в редакторе и ответить агенту.
 pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
-    let Generated { g, report, built, path, live } = done;
+    let Generated { g, report, built, path, live, notes } = done;
     // ролики сцены сняты — когда сняты все ролики её плана, открыта следующая
     if g.name == "ref-scenes" {
         if let Some(n) = asset_of(a)?.and_then(|s| super::story::scene_number(&s)) {
@@ -405,7 +473,7 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
     let out_files_note = if files_str.is_empty() { String::new() } else { format!(" | файлы: {}", files_str.join(", ")) };
     Ok(Out::with(
         format!(
-            "Рецепт «{}»: проект {} ({clips} клипов){}{out_files_note}{refs_note}",
+            "Рецепт «{}»: проект {} ({clips} клипов){}{out_files_note}{refs_note}{notes}",
             g.name,
             path.display(),
             if opened { ", открыт" } else if into_current { " — результат добавлен в медиатеку текущего проекта (на таймлайн — clip_add)" } else if open { " — текущий проект не сохранён, откройте файл сами" } else { "" }
@@ -416,6 +484,17 @@ pub fn apply(ed: &mut Editor, a: &Args, done: Generated) -> Res {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn speech_of_shots() {
+        let line = "detailed_description: … (S1): <d>[Russian] Ну что, пошли?</d> (S2): <d>[Russian] Пошли.</d> overall_soundscape: wind.";
+        assert_eq!(super::said_words(line), "Ну что, пошли? Пошли.");
+        assert!(super::speech_problem("", "").is_none());
+        assert!(super::speech_problem("", "не опоздай").is_some());
+        assert!(super::speech_problem("Ну что, пошли? Пошли.", "ну что пошли пошли").is_none());
+        assert!(super::speech_problem("Вот оно!", "вот оно вот оно вот оно").is_some());
+        assert!(super::speech_problem("Вот оно!", "совсем другое").is_some());
+    }
+
     #[test]
     fn asset_names() {
         let d = tempfile::tempdir().unwrap();
@@ -452,5 +531,18 @@ mod tests {
         // без summary: (как в упавшем прогоне) — отказ с порядком полей
         let e = super::check_refs("[reference generation] subject_definitions: x retention_analysis: x detailed_description: x overall_soundscape: x non_diegetic_music: x", &refs).unwrap_err();
         assert!(e.contains("summary:"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod real_speech {
+    /// Ручная проверка: `SYN_REPORT=…/report.json cargo test -p syn-video-editor real_speech -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_speech() {
+        let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(std::env::var("SYN_REPORT").unwrap()).unwrap()).unwrap();
+        let sb = r["params"]["storyboard"].as_str().unwrap_or("");
+        let shots: Vec<std::path::PathBuf> = r["nodes"]["shots"]["files"].as_array().unwrap().iter().filter_map(|f| f.as_str()).filter(|f| f.ends_with(".mp4")).map(std::path::PathBuf::from).collect();
+        println!("{}", super::speech_notes(sb, &shots, "Russian"));
     }
 }

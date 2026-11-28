@@ -90,7 +90,8 @@ if params.music != () {
     let m = cmd("media.import", #{paths: [params.music]});
     let tr = cmd("track.add", #{kind: "audio", name: "Музыка"});
     let r = cmd("clip.add", #{media: list(m.data.ids)[0], track: tr.data.id, at: 0, duration: total});
-    cmd("clip.set", #{id: r.data.id, volume: 0.6});
+    // под речь героев — тихо: звук роликов H3 уже несёт речь и шумы
+    cmd("clip.set", #{id: r.data.id, volume: 0.3});
     cmd("effect.add", #{ids: [r.data.id], kind: "audio_fade_in", params: #{duration: 2.0}});
     cmd("effect.add", #{ids: [r.data.id], kind: "audio_fade_out", params: #{duration: 3.0}});
 }
@@ -103,7 +104,8 @@ if params.title != () {
     titles += 1;
 }
 if params.credits != () {
-    cmd("title.add", #{text: params.credits, at: max(0.0, total - 3.5), duration: 3.3, style: #{position: "center", size: num(s.height) * 0.065, "in": "fade", out: "fade", anim: 1.0, box: true}});
+    // финальная карточка внизу кадра, на затемнении — не закрывает действие
+    cmd("title.add", #{text: params.credits, at: max(0.0, total - 3.5), duration: 3.3, style: #{position: "bottom", size: num(s.height) * 0.05, "in": "fade", out: "fade", anim: 1.0, box: true}});
     titles += 1;
 }
 print(`Кинематографичный монтаж: прямых склеек ${clips.len() - 1 - soft}, наплывов ${soft}, каше ${bars > 0}, зерно ${grain > 0}, надписей ${titles}`);
