@@ -22,6 +22,9 @@ pub const HEAVY: &[&str] = &["voice.cast", "voice.say", "voice.track", "music.ma
 
 pub const TTS_MODEL: &str = "fish-drama-3";
 
+/// Модель музыки без слов (тема под речь).
+const INSTRUMENTAL_MODEL: &str = "acestep-v15-xl-turbo";
+
 /// Голос героя: проба и её текст (для клона), зерно.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Voice {
@@ -227,7 +230,7 @@ static MUSIC: Cmd = Cmd {
     title: "Музыка к фильму",
     shortcut: "",
     keywords: "music музыка тема саундтрек score minimax песня",
-    help: "Сочинить музыку службой (модель музыки из настроек, по умолчанию MiniMax Music 3): `prompt` по-английски — жанр, настроение, инструменты, темп; `seconds` — длина (обычно длина фильма или его части); `lyrics` — слова песни (пусто — без слов, для фона под речь). Файл — в папку проекта music/ и в медиатеку; на таймлайн — clip_add на свою звуковую дорожку, под речью громкость 0.2–0.3, с нарастанием и затуханием.",
+    help: "Сочинить музыку службой (модель музыки из настроек, по умолчанию MiniMax Music 3): `prompt` по-английски — жанр, настроение, инструменты, темп; `seconds` — длина (обычно длина фильма или его части); `lyrics` — слова песни (MiniMax Music 3); пусто — инструментал без слов для фона под речь (ACE-Step). Файл — в папку проекта music/ и в медиатеку; на таймлайн — clip_add на свою звуковую дорожку, под речью громкость 0.2–0.3, с нарастанием и затуханием.",
     args: &[
         req("prompt", Ty::Str, "описание музыки по-английски: жанр, настроение, инструменты, темп"),
         arg("seconds", Ty::Num, "длина, с"),
@@ -294,8 +297,16 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
     match id {
         "music.make" => {
             let prompt = a.need_str("prompt")?;
-            let lyrics = a.str("lyrics")?.unwrap_or_default();
-            let model = a.str("model")?.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("music")).unwrap_or_else(|| "minimax-music3".into());
+            let mut lyrics = a.str("lyrics")?.unwrap_or_default();
+            let mut model = a.str("model")?.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("music")).unwrap_or_else(|| "minimax-music3".into());
+            // инструментал (тема под речь): MiniMax Music 3 пишет только песни
+            // со словами — без слов берётся ACE-Step с пометкой [Instrumental]
+            if lyrics.trim().is_empty() {
+                if model.contains("minimax") {
+                    model = INSTRUMENTAL_MODEL.into();
+                }
+                lyrics = "[Instrumental]".into();
+            }
             let seconds = a.num("seconds")?.map(|s| s.clamp(5.0, 600.0).round() as u32);
             let seed = a.num("seed")?.map(|s| s as u64);
             syn_assist::tools::progress(0, 0, &format!("музыка ({model})"));
