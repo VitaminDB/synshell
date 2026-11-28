@@ -688,7 +688,7 @@ fn ace_generate(cx: &mut Cx) -> R {
     };
     let out = with_progress(cx, |_, stop| on_device(&m.id, m.dev, "ACE-Step", || m.m.generate(&req, src.as_deref(), stop.clone())))
         .map_err(|e| stopped(cx, e))?;
-    let path = wav_out(cx, &out.samples, out.sample_rate, 1)?;
+    let path = wav_out(cx, &out.samples, out.sample_rate, 2)?;
     cx.label = out.label.clone();
     cx.out("audio", Val::File(path));
     cx.out("latent", Val::Handle(Handle::new(out.label, out.latent)));
