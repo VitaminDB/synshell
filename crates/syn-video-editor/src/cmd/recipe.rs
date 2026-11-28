@@ -381,12 +381,55 @@ pub fn said_words(line: &str) -> String {
     out.join(" ")
 }
 
+/// Междометия и звуки без слов (смех, вздох, крик) — не речь.
+const NOT_WORDS: &[&str] = &["а", "аа", "ааа", "о", "оо", "у", "э", "ах", "ох", "эх", "ух", "ай", "ой", "уй", "хм", "мм", "м", "ха", "хаха", "хахаха", "хи", "хихи", "фу", "уф", "эй", "ну"];
+
+/// Слова распознанного (без междометий), в нижнем регистре.
+fn heard_words(s: &str) -> Vec<String> {
+    s.to_lowercase()
+        .replace('ё', "е")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty() && !NOT_WORDS.contains(w) && !w.chars().all(|c| "ахоуэиы".contains(c)))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Похожие слова (распознавание ошибается на буквах): общая основа или правка ≤ 2.
+fn close(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let pre = ac.iter().zip(&bc).take_while(|(x, y)| x == y).count();
+    if pre >= 4 || (pre >= 3 && ac.len().min(bc.len()) <= 4) {
+        return true;
+    }
+    // расстояние Левенштейна
+    let mut prev: Vec<usize> = (0..=bc.len()).collect();
+    for (i, x) in ac.iter().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, y) in bc.iter().enumerate() {
+            cur.push((prev[j] + usize::from(x != y)).min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[bc.len()] <= 2
+}
+
 /// Что не так с речью ролика: `expected` — слова реплик строки (пусто — ролик без речи).
 pub fn speech_problem(expected: &str, heard: &str) -> Option<String> {
     let words = |s: &str| s.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() > 1).count();
     let (exp, got) = (words(expected), words(heard));
     if exp == 0 {
-        return (got >= 2).then(|| format!("в ролике без реплик звучит речь «{}»", heard.trim()));
+        // немой ролик: любое слово — брак (смех, вздохи, крики без слов допустимы)
+        let w = heard_words(heard);
+        return (!w.is_empty()).then(|| format!("в ролике без реплик звучит речь «{}»", heard.trim()));
+    }
+    // сверх реплик — ни одного чужого слова (допуск — одно, на ошибку распознавания)
+    let exp_w = heard_words(expected);
+    let extra: Vec<String> = heard_words(heard).into_iter().filter(|h| !exp_w.iter().any(|e| close(e, h))).collect();
+    if extra.len() >= 2 {
+        return Some(format!("чужие слова сверх реплик ({}): слышно «{}»", extra.join(", "), heard.trim()));
     }
     let score = super::voice::word_match(expected, heard);
     if score < 0.6 {
@@ -396,6 +439,83 @@ pub fn speech_problem(expected: &str, heard: &str) -> Option<String> {
         return Some(format!("лишние слова или повторы ({got} слов вместо {exp}): слышно «{}»", heard.trim()));
     }
     None
+}
+
+/// Ожидаемые звуки строки: поле `overall_soundscape` (до `non_diegetic_music`), по пунктам.
+pub fn expected_sounds(line: &str) -> Vec<String> {
+    let low = line.to_lowercase();
+    let Some(i) = low.find("overall_soundscape:") else { return Vec::new() };
+    let rest = &line[i + "overall_soundscape:".len()..];
+    let end = rest.to_lowercase().find("non_diegetic_music:").unwrap_or(rest.len());
+    rest[..end]
+        .split([',', ';', '.'])
+        .flat_map(|p| p.split(" and "))
+        .map(|p| p.trim().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .filter(|p| p.chars().filter(|c| c.is_alphabetic()).count() >= 3 && !p.starts_with('<'))
+        .take(6)
+        .collect()
+}
+
+/// Средняя громкость звука ролика, дБ (None — звука нет).
+fn mean_volume(f: &std::path::Path) -> Option<f64> {
+    let o = std::process::Command::new("ffmpeg").args(["-v", "info", "-nostats", "-i"]).arg(f).args(["-vn", "-af", "volumedetect", "-f", "null", "-"]).output().ok()?;
+    let err = String::from_utf8_lossy(&o.stderr);
+    let l = err.lines().find(|l| l.contains("mean_volume:"))?;
+    l.split("mean_volume:").nth(1)?.trim().trim_end_matches(" dB").trim().parse().ok()
+}
+
+/// Модель описания звука из службы (с аудио-башней).
+fn sound_model(c: &mut synaptixd::Client) -> Option<String> {
+    let list = c.list().ok()?;
+    ["af-next-captioner", "qwen3-omni-30b-a3b-captioner"].iter().find(|id| list.iter().any(|m| m.id == **id)).map(|s| s.to_string())
+}
+
+/// Ответ модели по пунктам «<звук>: да/нет» → пропавшие звуки.
+pub fn missing_sounds(answer: &str, expected: &[String]) -> Vec<String> {
+    expected
+        .iter()
+        .filter(|e| {
+            let key = e.to_lowercase();
+            answer.lines().any(|l| {
+                let low = l.to_lowercase();
+                low.contains(&key) && (low.contains(": нет") || low.contains(":нет") || low.contains("— нет") || low.contains(": no"))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Фоновые звуки ролика: громкость и ожидаемые звуки окружения (модель описания звука).
+fn sound_problem(line: &str, clip: &std::path::Path) -> Option<String> {
+    let vol = mean_volume(clip);
+    match vol {
+        None => return Some("в ролике нет звуковой дорожки".into()),
+        Some(v) if v < -50.0 => return Some(format!("звук ролика почти пропал (средняя громкость {v:.0} дБ)")),
+        _ => {}
+    }
+    let expected = expected_sounds(line);
+    // SYN_SOUND_MODEL=0 — без модели описания звука (проверки без видеокарты)
+    if expected.is_empty() || std::env::var("SYN_SOUND_MODEL").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let wav = std::env::temp_dir().join(format!("syn-video-editor-sound-{}.wav", std::process::id()));
+    let ok = std::process::Command::new("ffmpeg").args(["-v", "error", "-y", "-i"]).arg(clip).args(["-vn", "-ac", "1", "-ar", "16000"]).arg(&wav).status().ok()?.success();
+    if !ok {
+        return None;
+    }
+    let mut c = synaptixd::Client::connect().ok()?;
+    let model = sound_model(&mut c)?;
+    let mut m = synaptixd::Message::user(format!(
+        "{}\nЭто звук видеоролика. Речь не описывай. Для каждого ожидаемого звука из списка ответь отдельной строкой «<звук>: да» или «<звук>: нет» — слышен ли он. Ожидаемые звуки:\n{}",
+        synaptixd::MEDIA_MARK,
+        expected.iter().map(|e| format!("- {e}")).collect::<Vec<_>>().join("\n")
+    ));
+    m.media.push(synaptixd::Media { kind: synaptixd::MediaKind::Audio, path: wav.display().to_string() });
+    let params = synaptixd::Params::new().with("temperature", 0.0).with("thinking", false).with("max_tokens", 300i64);
+    let answer = c.chat(&model, vec![m], Vec::new(), &params, |_| {}).ok()?.text;
+    let _ = std::fs::remove_file(&wav);
+    let miss = missing_sounds(&answer, &expected);
+    (!miss.is_empty()).then(|| format!("не слышно звуков окружения: {} — пересними ролик (звуки — явно в overall_soundscape и битами действия) или положи звук отдельной дорожкой", miss.join(", ")))
 }
 
 /// Распознать речь каждого снятого ролика и сверить с его строкой.
@@ -408,8 +528,12 @@ fn speech_notes(storyboard: &str, shots: &[std::path::PathBuf], lang: &str) -> S
     let mut bad = Vec::new();
     for (i, (line, f)) in lines.iter().zip(shots).enumerate() {
         let heard = super::audio::transcribe_file(f, code).map(|t| t.text).unwrap_or_default();
+        let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(p) = speech_problem(&said_words(line), &heard) {
-            bad.push(format!("ролик {} ({}): {p}", i + 1, f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+            bad.push(format!("ролик {} ({name}): {p}", i + 1));
+        }
+        if let Some(p) = sound_problem(line, f) {
+            bad.push(format!("ролик {} ({name}): {p}", i + 1));
         }
     }
     let events = " Теперь проверь события сценария по кадрам каждого ролика: frame_check с file=<ролик> и at=<секунда события> — произошло ли событие, видно ли лицо героя, тот ли реквизит; чего нет — пересними ролик.";
@@ -501,6 +625,22 @@ mod tests {
         assert_eq!(super::said_words(line), "Ну что, пошли? Пошли.");
         assert!(super::speech_problem("", "").is_none());
         assert!(super::speech_problem("", "не опоздай").is_some());
+        // немой: одно слово — уже брак; смех и вздохи — нет
+        assert!(super::speech_problem("", "Грымза").is_some());
+        assert!(super::speech_problem("", "ха-ха, ах").is_none());
+        // чужие слова сверх реплик; ошибка распознавания в букве — не чужое
+        assert!(super::speech_problem("Ну что, пошли?", "ну что пошли быстрее домой").is_some());
+        assert!(super::speech_problem("Грымза, мой друг!", "гримза мой друг").is_none());
+        // звуки окружения
+        let line = "detailed_description: x. overall_soundscape: kettle whistling, rain on the window; distant traffic. non_diegetic_music: N/A.";
+        assert_eq!(super::expected_sounds(line), vec!["kettle whistling", "rain on the window", "distant traffic"]);
+        let miss = super::missing_sounds("kettle whistling: да\nrain on the window: нет\ndistant traffic: да", &super::expected_sounds(line));
+        assert_eq!(miss, vec!["rain on the window".to_string()]);
+        // ролик без звука — замечание
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("q.mp4");
+        assert!(std::process::Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "1", "-shortest"]).arg(&f).status().unwrap().success());
+        assert!(super::sound_problem("overall_soundscape: rain. non_diegetic_music: N/A.", &f).unwrap().contains("почти пропал"));
         assert!(super::speech_problem("Ну что, пошли? Пошли.", "ну что пошли пошли").is_none());
         assert!(super::speech_problem("Вот оно!", "вот оно вот оно вот оно").is_some());
         assert!(super::speech_problem("Вот оно!", "совсем другое").is_some());

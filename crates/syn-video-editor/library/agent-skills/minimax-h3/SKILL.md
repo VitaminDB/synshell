@@ -16,7 +16,7 @@ H3 генерирует видео **со звуком** за один прох�
 2. `summary:` — префикс типа генерации и одна фраза сути: `[reference generation] + [audio reuse] <суть сцены одной фразой>.` Префиксы: `[reference generation]`, `[audio reuse]` (звук копируется), `[audio reference]` (только тембр).
 3. `retention_analysis:` — роль каждого референса: картинки `fully_preserved` | `partially_preserved` | `attribute_transfer` | `weak_reference`; звук `fully_copy` | `partially_copy` | `reference` | `weak_reference`. Пример: `<Picture 1>: fully_preserved - <герой A>'s appearance. <Picture 3>: partially_preserved - <локация>. <Audio 1>: fully_copy - <герой A>'s speech, copied exactly and lip-synced.` Здесь `(Sx)` не пишут.
 4. `detailed_description:` — 1–2 фразы стиля, затем `[Shot 1] …`; следующие планы — `[Shot 2] At 00:04.500, …`. Говорящие получают метки по первому слову: `<Picture 1> (S1) turns and says, <d>[Russian] …</d>`. Закадровый голос: `says in an off-screen voiceover, while his lips remain completely closed`.
-5. `overall_soundscape:` — только окружение и шумы действий (огонь трещит, ветер, шаги, дождь), **без реплик**.
+5. `overall_soundscape:` — только окружение и шумы действий, **без реплик**: фон места и звуки событий кадра по-английски, через запятую, каждый — конкретным звуком (`kettle whistling`, `distant street traffic`, `waterfall roar`, `door slams`), из раздела «Звук» документа сцены. Ответ `ref-scenes` сверяет, что эти звуки слышны в ролике.
 6. `non_diegetic_music:` — закадровая музыка (инструменты, темп, громкость) или `N/A`.
 
 ## Озвучка заранее и синхронизация губ (`<Audio N>` fully_copy)
