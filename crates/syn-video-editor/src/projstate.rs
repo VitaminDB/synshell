@@ -45,6 +45,15 @@ pub fn set_current(k: &str) {
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(k.to_string());
 }
 
+/// Забыть состояние окна по пути проекта (графы, раскладка, чаты ИИ): новый
+/// проект на месте удалённого не должен поднять его чаты и вкладки.
+pub fn forget(path: &Path) {
+    let k = key(Some(path));
+    let _ = std::fs::remove_file(graphs_file(&k));
+    let _ = std::fs::remove_file(ui_file(&k));
+    let _ = std::fs::remove_dir_all(dir().join(format!("{k}.chats")));
+}
+
 /// Файл открытых графов проекта.
 pub fn graphs_file(k: &str) -> PathBuf {
     dir().join(format!("{k}.graphs.json"))

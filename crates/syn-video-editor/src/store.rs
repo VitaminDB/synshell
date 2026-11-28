@@ -155,7 +155,10 @@ pub fn new_project_path() -> std::path::PathBuf {
         let name = if k == 1 { NEW_PROJECT.to_string() } else { format!("{NEW_PROJECT} {k}") };
         let folder = dir.join(&name);
         if !folder.exists() {
-            return folder.join(format!("{name}.{EXT}"));
+            let p = folder.join(format!("{name}.{EXT}"));
+            // папки нет — состояние окна по этому пути осталось от удалённого проекта
+            crate::projstate::forget(&p);
+            return p;
         }
         k += 1;
     }
