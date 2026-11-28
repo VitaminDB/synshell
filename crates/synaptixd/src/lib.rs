@@ -1246,6 +1246,24 @@ pub enum Request {
         model: String,
         text: String,
     },
+    /// Документ (PDF) файлом `file`: обзор до любой тяжёлой обработки
+    /// (страницы, сканы, токены текста по токенизатору `model` против её
+    /// окна, заголовки) и, по запросу, страницы `pages` в порядке чтения —
+    /// текст и картинки на своих местах; поиск `search` по тексту. Сканы
+    /// распознаются моделью со зрением (`ocr`) только у запрошенных страниц.
+    /// Ход — событиями `Progress`; клиент закрыл сокет — отмена. Кэш по
+    /// содержимому файла.
+    Document {
+        file: FdRef,
+        #[serde(default)]
+        model: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pages: Option<(u32, u32)>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        search: String,
+        #[serde(default)]
+        ocr: bool,
+    },
     /// Сведения о языковой модели: окно, зрение, пресеты сэмплинга и глубины
     /// размышлений. Модель загружается, если ещё не в памяти.
     LlmInfo {
@@ -1644,6 +1662,43 @@ pub struct Generated {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct TokenSpans {
     pub spans: Vec<(usize, usize)>,
+}
+
+/// Кусок документа в порядке чтения.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DocPart {
+    /// Начало страницы (номер с 1).
+    Page(u32),
+    Text(String),
+    /// Картинка (файл в кэше службы); `scan` — вся страница-скан, `text` —
+    /// её распознанный текст (если просили `ocr`).
+    Image { path: String, scan: bool, #[serde(default, skip_serializing_if = "Option::is_none")] text: Option<String> },
+}
+
+/// Ответ `Document`.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct DocumentReply {
+    /// Страниц всего.
+    pub pages: u32,
+    /// Размер файла, байт.
+    pub bytes: u64,
+    /// Страницы-сканы (без текстового слоя).
+    pub scan_pages: Vec<u32>,
+    /// Картинок (без украшений) во всём документе.
+    pub images: usize,
+    /// Токенов текстового слоя всего и по страницам (токенизатор `model`).
+    pub tokens: usize,
+    pub page_tokens: Vec<usize>,
+    /// Окно контекста `model` (0 — неизвестно) и чья это модель.
+    pub window: usize,
+    pub model: String,
+    /// Заголовки: (страница, строка).
+    pub outline: Vec<(u32, String)>,
+    /// Запрошенные страницы по порядку.
+    pub parts: Vec<DocPart>,
+    /// Найденное поиском: (страница, отрывок).
+    pub hits: Vec<(u32, String)>,
 }
 
 /// Ответ `Tokenize`: по числу на текст.
@@ -2299,6 +2354,18 @@ impl Client {
     }
 
     /// Число токенов текстов по токенизатору модели.
+    /// Документ: обзор (`pages` нет), страницы «с–по», поиск. `on_progress(шаг, всего)`.
+    pub fn document(&mut self, path: &std::path::Path, model: &str, pages: Option<(u32, u32)>, search: &str, ocr: bool, mut on_progress: impl FnMut(usize, usize)) -> Result<DocumentReply> {
+        let f = std::fs::File::open(path).map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", path.display())))?;
+        let req = Request::Document { file: FdRef { fd: 0 }, model: model.into(), pages, search: search.into(), ocr };
+        let (v, _) = self.call_events(req, &[f.as_fd()], |ev| {
+            if let Event::Progress { step, total } = ev {
+                on_progress(step, total);
+            }
+        })?;
+        serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
     pub fn count_tokens(&mut self, model: &str, texts: &[String]) -> Result<Vec<usize>> {
         let (v, _) = self.call(Request::Tokenize { model: model.into(), texts: texts.to_vec() }, &[])?;
         let r: TokenCounts = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;

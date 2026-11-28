@@ -4,6 +4,7 @@ mod defaults;
 mod library;
 mod lora;
 mod devices;
+mod document;
 mod federation;
 mod flow;
 mod gen;
@@ -131,6 +132,7 @@ fn req_name(req: &Request) -> &'static str {
         Request::Open { .. } => "open",
         Request::LlmInfo { .. } => "llm_info",
         Request::Tokenize { .. } => "tokenize",
+        Request::Document { .. } => "document",
         Request::TokenSpans { .. } => "token_spans",
         _ => "запрос",
     })
@@ -653,6 +655,11 @@ impl Conn {
                 let file = mgr.model_file(&id).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("{id}: нет такой модели")))?;
                 let spans = synaptix::facade::llm::token_spans(&file.path, &text).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
                 (data(crate::TokenSpans { spans }), none())
+            }
+            Request::Document { file, model, pages, search, ocr } => {
+                let fd = fds.get_mut(file.fd as usize).and_then(Option::take);
+                let r = document::serve(&mgr, self.sock.as_fd(), self.current, fd, model, pages, search, ocr)?;
+                (data(r), none())
             }
             Request::LlmInfo { model } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;

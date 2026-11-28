@@ -30,6 +30,7 @@ daemon = [
     "dep:synaptix-tts-silero",
     "dep:synaptix-llm-common",
     "dep:synaptix-gen",
+    "dep:synaptix-io",
     "dep:synaptix-bundle",
 ]
 # Поиск моделей видеофильтров (`vfx`) в библиотеках службы — для программ (плеер, видеоредактор).
@@ -72,6 +73,7 @@ synaptix-tts-f5 = { workspace = true, optional = true }
 synaptix-tts-silero = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
 synaptix-gen = { workspace = true, optional = true }
+synaptix-io = { workspace = true, optional = true, features = ["documents"] }
 synaptix-bundle = { workspace = true, optional = true }
 
 [dev-dependencies]
