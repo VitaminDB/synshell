@@ -296,19 +296,20 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
     let dir = base_dir(project);
     match id {
         "music.make" => {
-            let mut prompt = a.need_str("prompt")?;
+            let prompt = a.need_str("prompt")?;
             let mut lyrics = a.str("lyrics")?.unwrap_or_default();
             let mut model = a.str("model")?.filter(|m| !m.trim().is_empty()).or_else(|| crate::settings::load().model_opt("music")).unwrap_or_else(|| "minimax-music3".into());
             // инструментал (тема под речь): MiniMax Music 3 пишет только песни
-            // со словами, ACE-Step — слабо; без слов — YuE2 с пустым текстом и
-            // тегом «instrumental» в стиле
+            // со словами, ACE-Step — слабо; без слов — YuE2 с родным режимом
+            // vocals=off (партитура без голоса, запреты голоса служба допишет сама)
+            let mut mp = synaptixd::Params::new();
             if lyrics.trim().is_empty() {
                 if model.contains("minimax") || model.contains("acestep") {
                     model = INSTRUMENTAL_MODEL.into();
                 }
                 lyrics = String::new();
-                if !prompt.to_lowercase().contains("instrumental") {
-                    prompt.push_str(", instrumental, no vocals");
+                if model.contains("yue") {
+                    mp = mp.with("vocals", "off");
                 }
             }
             let seconds = a.num("seconds")?.map(|s| s.clamp(5.0, 600.0).round() as u32);
@@ -316,7 +317,7 @@ pub fn run_unlocked(id: &str, a: &Args, project: Option<&Path>, ed: Option<&Edit
             syn_assist::tools::progress(0, 0, &format!("музыка ({model})"));
             let mut c = synaptixd::Client::connect().map_err(|e| format!("служба нейросетей: {e}"))?;
             let (reply, wav) = c
-                .music(&model, &prompt, &lyrics, seconds, seed, |s, t| syn_assist::tools::progress(s, t, "музыка"))
+                .music_with(&model, &prompt, &lyrics, seconds, seed, &mp, |s, t| syn_assist::tools::progress(s, t, "музыка"))
                 .map_err(|e| format!("{model}: {e}"))?;
             let stem = a.str("name")?.filter(|n| !n.trim().is_empty()).map(|n| slug(&n)).unwrap_or_else(|| "музыка".into());
             let out = free_path(&dir.join("music"), &stem);
