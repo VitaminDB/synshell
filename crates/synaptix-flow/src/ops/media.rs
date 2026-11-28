@@ -189,3 +189,169 @@ pub fn decode_pcm(src: &str, rate: u32) -> Result<Vec<f32>, String> {
     }
     Ok(pcm)
 }
+
+/// Панель листа-референса: какую картинку, какой вырез (x, y, w, h в долях
+/// исходника) и куда (x, y, w, h в пикселях листа).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheetPanel {
+    pub src: usize,
+    pub crop: Option<(f64, f64, f64, f64)>,
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// Раскладка листа-референса LTX-2.5 Ingredients (правила Lightricks): чёрный
+/// холст `w×h`; сверху герои — у каждого лицо крупно (квадрат из верхней
+/// середины портрета в полный рост) и фигура целиком; снизу место (самая
+/// крупная панель) и предметы. Ряд, не влезающий по ширине, ужимается целиком.
+/// `sizes` — размеры картинок: сначала герои, потом место (если есть), потом предметы.
+pub fn sheet_layout(w: u32, h: u32, sizes: &[(u32, u32)], chars: usize, location: bool, face: bool) -> Vec<SheetPanel> {
+    let rest = sizes.len() - chars;
+    let rows = usize::from(chars > 0) + usize::from(rest > 0);
+    if rows == 0 {
+        return Vec::new();
+    }
+    let row_h = h as f64 / rows as f64;
+    // (источник, вырез, ширина при высоте ряда)
+    let mut top: Vec<(usize, Option<(f64, f64, f64, f64)>, f64)> = Vec::new();
+    for (i, &(iw, ih)) in sizes.iter().enumerate().take(chars) {
+        let (iw, ih) = (iw.max(1) as f64, ih.max(1) as f64);
+        if face && ih > iw {
+            // Голова портрета в полный рост — в верхней четверти по центру.
+            let side = (ih * 0.23).min(iw);
+            top.push((i, Some(((iw - side) / 2.0 / iw, ih * 0.03 / ih, side / iw, side / ih)), row_h));
+        }
+        top.push((i, None, row_h * iw / ih));
+    }
+    let bottom: Vec<(usize, Option<(f64, f64, f64, f64)>, f64)> = (chars..sizes.len())
+        .map(|i| {
+            let (iw, ih) = (sizes[i].0.max(1) as f64, sizes[i].1.max(1) as f64);
+            // Место — крупнее предметов: до половины ширины листа.
+            let cap = if location && i == chars { w as f64 * 0.5 } else { w as f64 * 0.3 };
+            (i, None, (row_h * iw / ih).min(cap))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (r, row) in [top, bottom].into_iter().filter(|r| !r.is_empty()).enumerate() {
+        let total: f64 = row.iter().map(|p| p.2).sum();
+        let s = (w as f64 / total).min(1.0);
+        let ph = row_h * s;
+        let mut x = (w as f64 - total * s) / 2.0;
+        let y = r as f64 * row_h + (row_h - ph) / 2.0;
+        for (src, crop, pw) in row {
+            let pw = pw * s;
+            let even = |v: f64| ((v / 2.0).floor() * 2.0).max(2.0) as u32;
+            out.push(SheetPanel { src, crop, x: x.round() as u32, y: y.round() as u32, w: even(pw), h: even(ph) });
+            x += pw;
+        }
+    }
+    out
+}
+
+/// Файлы со входа: провод-список или текст (по строке на путь — в путях бывают пробелы).
+fn input_files(cx: &Cx, name: &str) -> Vec<String> {
+    match cx.str(name) {
+        Some(t) if !t.contains('\n') && Path::new(t.trim()).is_file() => vec![t.trim().to_string()],
+        Some(t) if t.lines().all(|l| l.trim().is_empty() || Path::new(l.trim()).is_file()) => {
+            t.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
+        }
+        _ => cx.files(name),
+    }
+}
+
+/// Узел «Лист-референс»: картинки героев, места и предметов → один лист на
+/// чёрном фоне без текста (для IC-LoRA Ingredients LTX-2.5).
+pub fn ref_sheet(cx: &mut Cx) -> R {
+    let chars = input_files(cx, "characters");
+    let location = cx.file("location");
+    let props = input_files(cx, "props");
+    let mut files: Vec<String> = chars.clone();
+    files.extend(location.iter().cloned());
+    files.extend(props.iter().cloned());
+    if files.is_empty() {
+        return Err("нужны картинки героев, места или предметов".into());
+    }
+    let w = cx.pos("width").map(|v| v as u32).unwrap_or(960) / 2 * 2;
+    let h = cx.pos("height").map(|v| v as u32).unwrap_or(544) / 2 * 2;
+    let face = cx.str("face").as_deref() != Some("false");
+    let sizes: Vec<(u32, u32)> = files.iter().map(|f| video_size(Path::new(f)).ok_or_else(|| format!("{f}: не картинка"))).collect::<Result<_, _>>()?;
+    let panels = sheet_layout(w, h, &sizes, chars.len(), location.is_some(), face);
+    let mut args: Vec<String> = Vec::new();
+    for f in &files {
+        args.extend(["-i".to_string(), f.clone()]);
+    }
+    let mut graph = format!("color=black:s={w}x{h}:d=1[c0];");
+    for (k, p) in panels.iter().enumerate() {
+        let crop = match p.crop {
+            Some((x, y, cw, ch)) => format!("crop=iw*{cw:.4}:ih*{ch:.4}:iw*{x:.4}:ih*{y:.4},"),
+            None => String::new(),
+        };
+        graph.push_str(&format!("[{}:v]{crop}scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}[p{k}];", p.src, p.w, p.h, p.w, p.h));
+    }
+    for (k, p) in panels.iter().enumerate() {
+        let last = if k + 1 == panels.len() { "out".to_string() } else { format!("c{}", k + 1) };
+        graph.push_str(&format!("[c{k}][p{k}]overlay={}:{}[{last}];", p.x, p.y));
+    }
+    graph.pop();
+    let path = cx.out_path("png");
+    let ps = path.display().to_string();
+    let mut all: Vec<&str> = args.iter().map(String::as_str).collect();
+    all.extend(["-filter_complex", &graph, "-map", "[out]", "-frames:v", "1", &ps]);
+    ffmpeg(&all)?;
+    cx.label = format!("лист: героев {}, место {}, предметов {}", chars.len(), if location.is_some() { "есть" } else { "нет" }, props.len());
+    cx.out("image", Val::File(path));
+    Ok(())
+}
+
+#[cfg(test)]
+mod sheet_tests {
+    use super::sheet_layout;
+
+    #[test]
+    fn two_characters_location_and_prop() {
+        // Два портрета 768×1152, кухня 1344×768, предмет 1024×1024 на 960×544.
+        let p = sheet_layout(960, 544, &[(768, 1152), (768, 1152), (1344, 768), (1024, 1024)], 2, true, true);
+        assert_eq!(p.len(), 2 * 2 + 2);
+        // Верхний ряд: лицо, фигура, лицо, фигура; всё в пределах листа и в верхней половине.
+        assert!(p[..4].iter().all(|q| q.y + q.h <= 272 && q.x + q.w <= 960));
+        assert!(p[0].crop.is_some() && p[1].crop.is_none());
+        // Нижний ряд: место крупнее предмета, в нижней половине.
+        assert!(p[4].w > p[5].w && p[4].y >= 272 && p[4].y + p[4].h <= 544);
+        // Без пересечений по горизонтали в ряду.
+        for row in [&p[..4], &p[4..]] {
+            for w in row.windows(2) {
+                assert!(w[0].x + w[0].w <= w[1].x + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn only_characters_fill_height_and_shrink_to_width() {
+        let p = sheet_layout(960, 544, &[(768, 1152); 4], 4, false, true);
+        assert_eq!(p.len(), 8);
+        let right = p.iter().map(|q| q.x + q.w).max().unwrap();
+        assert!(right <= 960, "ряд ужат по ширине: {right}");
+    }
+}
+
+/// Живой прогон узла на настоящих картинках:
+/// `SHEET_CHARS="a.png\nb.png" SHEET_LOC=k.png SHEET_OUT=каталог cargo test -p synaptix-flow sheet_live -- --ignored`.
+#[cfg(test)]
+mod sheet_live {
+    #[test]
+    #[ignore]
+    fn sheet_live() {
+        use crate::doc::{Flow, FlowNode};
+        let (Ok(chars), Ok(out)) = (std::env::var("SHEET_CHARS"), std::env::var("SHEET_OUT")) else { return };
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert("characters".to_string(), serde_json::Value::String(chars.replace("\\n", "\n")));
+        if let Ok(l) = std::env::var("SHEET_LOC") {
+            fields.insert("location".to_string(), serde_json::Value::String(l));
+        }
+        let flow = Flow { nodes: vec![FlowNode { id: 1, kind: "ref_sheet".into(), fields, enabled: true, label: String::new() }], links: Vec::new(), outputs: vec![1] };
+        let r = crate::run::run(&flow, std::path::Path::new(&out), &crate::Cancel::new(), &mut |_| {}).expect("прогон");
+        eprintln!("{r:?}");
+    }
+}

@@ -357,6 +357,28 @@ pub static DIARIZE: NodeSpec = NodeSpec {
     stage: false,
 };
 
+pub static REF_SHEET: NodeSpec = NodeSpec {
+    kind: "ref_sheet",
+    title: n_!("Лист-референс"),
+    description: n_!("Собирает лист-референс для LTX-2.5 Ingredients: герои (лицо крупно и фигура целиком), место и предметы отдельными панелями на чёрном фоне без текста. Подайте лист в поле «Лист-референс» узла Видео (LTX-2.5), промпт — «Reference sheet: <панели> Generated video: <действие>»."),
+    category: EDIT,
+    inputs: &[
+        port("characters", n_!("Герои"), P::List).hint(n_!("Портреты героев в полный рост, по одному на героя (список или пути по строке)")),
+        port("location", n_!("Место"), P::Image).hint(n_!("Картинка места действия — самая крупная панель")),
+        port("props", n_!("Предметы"), P::List).hint(n_!("Важные предметы, по одной картинке на предмет")),
+    ],
+    outputs: &[port("image", n_!("Лист"), P::Image).hint(n_!("Лист-референс PNG в разрешении ролика"))],
+    fields: &[
+        field("characters", n_!("Герои"), F::LongText, "").hint(n_!("Пути к портретам героев, по одному на строку (если провод не подключён)")),
+        field("location", n_!("Место"), F::File, "").hint(n_!("Картинка места действия")),
+        field("props", n_!("Предметы"), F::LongText, "").hint(n_!("Пути к картинкам предметов, по одному на строку")),
+        field("width", n_!("Ширина"), F::Number, "960").hint(n_!("Ширина листа = ширина ролика")),
+        field("height", n_!("Высота"), F::Number, "544").hint(n_!("Высота листа = высота ролика")),
+        field("face", n_!("Лицо крупно"), F::Bool, "true").hint(n_!("Добавить к каждому герою панель лица (из верхней части портрета)")),
+    ],
+    stage: false,
+};
+
 pub static CONCAT: NodeSpec = NodeSpec {
     kind: "concat",
     title: n_!("Склейка"),
@@ -505,6 +527,7 @@ static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
     (&VIBEVOICE, None),
     (&DIARIZE, None),
     (&CONCAT, Some(media::concat)),
+    (&REF_SHEET, Some(media::ref_sheet)),
     (&MUX, Some(media::mux)),
     (&FRAME, Some(media::frame)),
     (&TRIM, Some(media::trim)),
