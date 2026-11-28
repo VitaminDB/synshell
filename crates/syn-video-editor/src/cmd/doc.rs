@@ -103,7 +103,9 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
     ed.revision += 1;
     let mut msg = format!("Документ {} ({} строк)", p.display(), body.lines().count());
     // полнота сцен — только у сценария (у диалогов другие разделы)
-    let is_script = p.file_stem().is_some_and(|s| s.to_string_lossy().to_lowercase().starts_with("сценарий"));
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+    // сценарий и диалоги под любым именем (агент мог назвать по-своему)
+    let is_script = ["сценари", "screenplay", "script"].iter().any(|k| stem.contains(k));
     let thin = if is_script { thin_scenes(&body) } else { Vec::new() };
     if !thin.is_empty() {
         msg.push_str(&format!(
@@ -119,7 +121,13 @@ fn write(ed: &mut Editor, a: &Args) -> Res {
             msg.push_str(&format!(". {w}"));
         }
     }
-    let is_dialog = p.file_stem().is_some_and(|s| s.to_string_lossy().to_lowercase().starts_with("диалог"));
+    let is_dialog = ["диалог", "dialog", "реплик"].iter().any(|k| stem.contains(k));
+    if is_dialog {
+        let (lat, all) = quoted_latin(&body);
+        if all >= 4 && lat * 2 > all {
+            msg.push_str(&format!(". Реплики не переведены: {lat} из {all} в «ёлочках» латиницей — переведи все реплики на язык фильма (адаптивный перевод по навыку screenplay) и перезапиши документ"));
+        }
+    }
     if is_dialog {
         let latin = latin_speakers(&body);
         if !latin.is_empty() {
@@ -484,6 +492,23 @@ pub fn cut_sends(low: &str) -> bool {
     false
 }
 
+/// Реплики в «ёлочках»: (сколько латиницей, сколько всего).
+pub fn quoted_latin(text: &str) -> (usize, usize) {
+    let (mut lat, mut all) = (0, 0);
+    for part in text.split('«').skip(1) {
+        let q = part.split('»').next().unwrap_or("");
+        let letters: Vec<char> = q.chars().filter(|c| c.is_alphabetic()).collect();
+        if letters.is_empty() {
+            continue;
+        }
+        all += 1;
+        if letters.iter().filter(|c| c.is_ascii_alphabetic()).count() * 2 > letters.len() {
+            lat += 1;
+        }
+    }
+    (lat, all)
+}
+
 /// Слова, где смешаны латиница и кириллица («Арrogant»).
 pub fn mixed_words(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -564,6 +589,7 @@ mod length_tests {
         assert!(w.iter().any(|x| x.contains("блин")), "{w:?}");
         assert!(super::names_and_profanity("КОФИ: «Сука.»\nАМАРА: «Нет.»", &src, true).is_empty());
         assert!(super::cut_sends("кофи: «иди ты!»"));
+        assert_eq!(super::quoted_latin("КОФИ: «Get out!»\nАМАРА: «Нет.»\nКОФИ: «Why?»"), (2, 3));
         assert!(super::cut_sends("кофи: «может быть… иди ты»"));
         assert!(!super::cut_sends("кофи: «иди ты нахуй!»"));
         assert!(!super::cut_sends("кофи: «пошёл ты на хуй, сука!»"));
