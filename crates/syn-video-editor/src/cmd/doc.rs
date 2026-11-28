@@ -314,12 +314,30 @@ pub fn structure_check(text: &str, src: &Source) -> Vec<String> {
     let mut out = Vec::new();
     let mut n = 0;
     let mut sum = 0.0;
+    // единица столбца из шапки таблицы («~сек», «длительность, мин»): в строках — только число
+    let mut unit: Option<f64> = None;
     for l in text.lines() {
         let low = l.to_lowercase();
-        if low.contains("сцена") || l.trim_start().starts_with('|') {
+        let row = l.trim_start().starts_with('|');
+        if row && !low.chars().any(|c| c.is_ascii_digit()) {
+            if low.contains("сек") || low.contains("| с ") || low.contains("(с)") {
+                unit = Some(1.0);
+            } else if low.contains("мин") {
+                unit = Some(60.0);
+            }
+            continue;
+        }
+        if low.contains("сцена") || row {
             if let Some((a, b)) = durations(l) {
                 n += 1;
                 sum += (a + b) / 2.0;
+            } else if let (true, Some(u)) = (row, unit) {
+                // последнее число вида «~N» или «N» в последней непустой ячейке
+                let cell = l.trim().trim_end_matches('|').rsplit('|').next().unwrap_or("").trim().trim_start_matches('~').replace(',', ".");
+                if let Ok(v) = cell.split(['–', '-']).next().unwrap_or("").trim().parse::<f64>() {
+                    n += 1;
+                    sum += v * u;
+                }
             }
         }
     }
@@ -998,6 +1016,9 @@ mod length_tests {
         assert_eq!(super::cyrillic("NDUMISO"), "Ндумисо");
         assert_eq!(super::cyrillic("BUHLE"), "Бухле");
         assert_eq!(super::cyrillic("NONTLE"), "Нонтле");
+        // длительность числом, единица — в шапке столбца
+        let w = super::structure_check("| N | место | ~сек |\n|---|---|---|\n| 1 | кухня | ~60 |\n| 2 | двор | ~60 |", &super::Source { pages: 2, ..src.clone() });
+        assert!(w.is_empty(), "{w:?}");
         let w = super::structure_check("| Сцена 1 | ~10 с |\n| Сцена 2 | ~10 с |", &super::Source { pages: 2, ..src.clone() });
         assert!(w.iter().any(|x| x.contains("Длина фильма")), "{w:?}");
         assert_eq!(super::quoted_latin("КОФИ: «Get out!»\nАМАРА: «Нет.»\nКОФИ: «Why?»"), (2, 3));
