@@ -1156,6 +1156,10 @@ pub enum Request {
         lora: Option<String>,
         #[serde(default)]
         lora_strength: Option<f32>,
+        /// LTX, полный (dev) чекпойнт: управляемая генерация Lightricks (полные
+        /// шаги с CFG/STG, половинное разрешение → апскейл); `None` — по модели.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        guided: Option<bool>,
     },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
@@ -1559,6 +1563,8 @@ pub struct VideoParams {
     /// H3: LoRA (путь; «off» — без неё; `None` — Turbo 8 шагов по умолчанию) и сила.
     pub lora: Option<String>,
     pub lora_strength: Option<f32>,
+    /// LTX dev: `Some(false)` — быстрый путь с дистилл-LoRA вместо управляемого.
+    pub guided: Option<bool>,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -2127,6 +2133,7 @@ impl Client {
             strength: p.strength,
             lora: p.lora.clone(),
             lora_strength: p.lora_strength,
+            guided: p.guided,
         };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {

@@ -638,6 +638,12 @@ fn video(cx: &mut Cx) -> R {
         // H3: LoRA узла (путь или «off»); не задана — Turbo 8 шагов по умолчанию
         lora: cx.file("lora").or_else(|| cx.str("lora")),
         lora_strength: cx.pos("lora_strength").map(|v| v as f32),
+        // LTX dev: управляемая генерация Lightricks (auto — по модели)
+        guided: match cx.str("guided").as_deref() {
+            Some("off") => Some(false),
+            Some("on") => Some(true),
+            _ => None,
+        },
     };
     let model = video_model(cx, &p, ctx.as_ref().map(|(_, t)| t.as_ref()))?;
     // Универсальные графы (например story-video) подключают и refs (для Ref2VA),
