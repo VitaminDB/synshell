@@ -286,7 +286,7 @@ fn h3_sample(cx: &mut Cx) -> R {
     let cond = cx.handle::<h3::H3Cond>("cond")?;
     let source = cx.file("source_video").map(PathBuf::from);
     let steps = cx.pos("steps").unwrap_or(20.0) as usize;
-    let cfg = cx.num("guidance").filter(|v| *v > 0.0).unwrap_or(5.0) as f32;
+    let cfg = cx.num("guidance").filter(|v| *v > 0.0).unwrap_or(1.0) as f32;
     let strength = cx.pos("strength").map(|v| v as f32);
     let ctx_frames = cx.pos("context_frames").map(|v| v as usize).unwrap_or(0);
     let seed = seed(cx);

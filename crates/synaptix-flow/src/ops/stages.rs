@@ -187,7 +187,7 @@ pub static H3_ENCODE: NodeSpec = NodeSpec {
     outputs: &[port("cond", n_!("Условие"), P::Cond).hint(n_!("Закодированное условие для «Сэмплер H3»"))],
     fields: &[
         field("prompt", n_!("Описание"), F::LongText, "").hint(n_!("Описание сцены, движения камеры и звука")),
-        field("negative", n_!("Исключить"), F::Text, "").hint(n_!("Негативный промпт")).advanced(),
+        field("negative", n_!("Исключить"), F::Text, "").hint(n_!("Негативный промпт; действует только при CFG больше 1 у «Сэмплера H3»")).advanced(),
         field("ref_size", n_!("Размер референсов"), F::Choice(REF_SIZES), "match").hint(n_!("match — под кадр, max — крупно (2048)")).advanced(),
     ],
     stage: true,
@@ -209,7 +209,7 @@ pub static H3_SAMPLE: NodeSpec = NodeSpec {
     ],
     fields: &[
         field("steps", n_!("Шагов"), F::Number, "20").hint(n_!("Обычно 20 (или 6 с Turbo LoRA)")),
-        field("guidance", "CFG", F::Number, "5").hint(n_!("Сила следования описанию (обычно 5; с Turbo LoRA — 1)")),
+        field("guidance", "CFG", F::Number, "1").hint(n_!("1 — как у эталона: CFG уже вшит в веса H3, второй проход не нужен. Больше 1 — только с негативом, вдвое дольше, экспериментально")).advanced(),
         field("seed", n_!("Сид"), F::Number, "0").hint(n_!("0 — случайное зерно")),
         field("context_frames", n_!("Кадров хвоста"), F::Number, "0").hint(n_!("0 — оптимум H3 (7 лат. ≈ 0.92 с); допустимо 2, 7, 12")).advanced(),
         field("strength", n_!("Сила перерисовки"), F::Number, "0.6").hint(n_!("Используется, только если подключён «Исходный ролик»")).advanced(),
