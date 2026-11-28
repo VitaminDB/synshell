@@ -456,7 +456,11 @@ pub fn run_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n
 pub fn resume_role(ed: &Shared, project: &std::path::Path, r: &crate::crew::Role, n: u32, st: crate::crew::Stage) -> Result<String, String> {
     let s = settings::load();
     let a = role_agent(ed, project, r, &s);
-    let mut chat = load_role_chat(project, r.id).ok_or_else(|| format!("разговор роли «{}» не сохранён — продолжить нечего", r.title))?;
+    let Some(mut chat) = load_role_chat(project, r.id) else {
+        // разговор не сохранён (ход начат старой версией) — то же задание заново, с места остановки
+        let task = crate::crew::pending(project, false).map(|p| p.task).unwrap_or_default();
+        return run_role(ed, project, r, n, st, &format!("**Продолжение после остановки.** Ты делал этот шаг, и тебя прервали. Сначала посмотри, что уже готово (файлы проекта, медиатека, журнал, снятые ролики), готовое не переделывай — доделай оставшееся.\n\n{task}"), Vec::new());
+    };
     prepare_chat(&mut chat, &s);
     chat.model = crate::crew::role_model(r, &s);
     role_emit(RoleEvent::Resume { role: r.id, title: r.title });

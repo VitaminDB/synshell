@@ -75,7 +75,8 @@
 .ai-input { padding: 8px; border-top-width: 1px; border-color: var(--border-soft); }
 .ai-field { flex-grow: 1; }
 .ai-queued { opacity: 0.75; border-width: 1px; border-color: var(--primary); }
-.ai-resume { padding: 6px 10px; border-top-width: 1px; border-color: var(--primary); background-color: var(--primary-soft); }
+.ai-resume { padding: 6px 10px; border-bottom-width: 1px; border-color: var(--primary); background-color: var(--primary-soft); }
+.ai-resume-text { color: var(--text); font-size: 12px; }
 .ai-ctx { padding: 4px 10px; border-top-width: 1px; border-color: var(--border-soft); }
 .ai-chips { padding: 6px 10px; border-bottom-width: 1px; border-color: var(--border-soft); }
 .ai-role { padding: 3px 10px; border-radius: 11px; background-color: var(--bg-panel-2); border-width: 1px; border-color: var(--border-soft); }

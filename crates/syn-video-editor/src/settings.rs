@@ -76,6 +76,10 @@ pub struct Settings {
     /// LoRA видео MiniMax-H3 для съёмки (ref-scenes, story-video): пусто или «off» —
     /// без LoRA (полные шаги, по умолчанию), иначе файл (Turbo — только явным выбором).
     pub video_lora: String,
+    /// Разрешение съёмки H3 (ref-scenes, story-video) поверх выбора агента:
+    /// «960x544» (540p, по умолчанию), «1344x768» (768p); пусто — как выбрал агент.
+    #[serde(default = "default_video_res")]
+    pub video_res: String,
     /// Съёмочная группа: свой системный промпт роли (id роли → текст); нет — по умолчанию.
     pub crew_prompts: BTreeMap<String, String>,
     /// Съёмочная группа: модель роли (id роли → модель службы); нет — модель агента.
@@ -103,6 +107,7 @@ impl Default for Settings {
             models: BTreeMap::new(),
             node_models: BTreeMap::new(),
             video_lora: String::new(),
+            video_res: default_video_res(),
             crew_prompts: BTreeMap::new(),
             crew_models: BTreeMap::new(),
             vision_width: 768,
@@ -275,6 +280,10 @@ pub fn override_model(model: &str) {
     let mut s = load();
     s.ai_model = model.trim().to_string();
     *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(s);
+}
+
+fn default_video_res() -> String {
+    "960x544".into()
 }
 
 pub fn load() -> Settings {

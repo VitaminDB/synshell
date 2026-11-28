@@ -989,8 +989,8 @@ fn resume_bar(st: St) -> impl Widget {
             return Vec::new();
         }
         let label = match (crate::crew::pending(&p, false), crate::crew::pending(&p, true)) {
-            (Some(r), _) => format!("Продолжить: {}{}", crate::crew::role(&r.role).map(|x| x.title).unwrap_or("роль"), if r.scene > 0 { format!(" — сцена {}, шаг «{}»", r.scene, r.stage) } else { String::new() }),
-            (None, Some(_)) => "Продолжить: режиссёр".to_string(),
+            (Some(r), _) => format!("Продолжает: {}{}", crate::crew::role(&r.role).map(|x| x.title).unwrap_or("роль"), if r.scene > 0 { format!(" — сцена {}, шаг «{}»", r.scene, r.stage) } else { String::new() }),
+            (None, Some(_)) => "Продолжает: Режиссёр".to_string(),
             _ => return Vec::new(),
         };
         vec![Box::new(
@@ -998,8 +998,8 @@ fn resume_bar(st: St) -> impl Widget {
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(DecoratedBox::new().class("grow").child(Text::new("Работа прервана — можно продолжить с того же места").max_lines(1).class("ai-status-text")))
-                    .child(Button::new(label).on_click(move || st.resume()).class("head-btn")),
+                    .child(DecoratedBox::new().class("grow").child(Text::new(label).max_lines(1).class("ai-resume-text")))
+                    .child(Button::new("Продолжить").on_click(move || st.resume()).class("head-btn")),
             ),
         )]
     })
@@ -1193,6 +1193,7 @@ fn ai(st: St) -> impl Widget {
         .class("ai-panel")
         .child(super::ai_chat::head(st))
         .child(crew_chips(st))
+        .child(resume_bar(st))
         .child(DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             // доска и записки — своя прокрутка с начала; чаты — следом за концом
             match st.ai_view.get().as_deref() {
@@ -1351,7 +1352,6 @@ fn ai(st: St) -> impl Widget {
             vec![Box::new(col)]
         })))]
         })))
-        .child(resume_bar(st))
         .child(super::ai_chat::context_bar(st))
         .child(DecoratedBox::new().class("ai-input").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let _ = input_gen.get();

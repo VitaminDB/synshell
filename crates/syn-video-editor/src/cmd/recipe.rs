@@ -120,6 +120,14 @@ pub fn generate(a: &Args, project: Option<&std::path::Path>, on_files: &mut dyn 
     let mut params = a.object("params")?.unwrap_or_default();
     params.remove("asset");
     params.remove("label");
+    // разрешение съёмки — из настроек приложения (поверх выбора агента)
+    if matches!(g.name.as_str(), "ref-scenes" | "story-video") {
+        let res = crate::settings::load().video_res;
+        if let Some((w, h)) = res.trim().split_once(['x', '×']).and_then(|(w, h)| Some((w.trim().parse::<i64>().ok()?, h.trim().parse::<i64>().ok()?))) {
+            params.insert("width".into(), json!(w));
+            params.insert("height".into(), json!(h));
+        }
+    }
     // LoRA съёмки — из настроек приложения, если агент её не задал явно
     if matches!(g.name.as_str(), "ref-scenes" | "story-video") && !params.get("lora").and_then(|v| v.as_str()).is_some_and(|v| !v.trim().is_empty()) {
         let l = crate::settings::load().video_lora;
