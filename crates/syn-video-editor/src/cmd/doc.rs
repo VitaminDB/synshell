@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{arg, req, Args, Command as Cmd, Out, Res, Ty};
 use crate::editor::Editor;
 
-pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST];
+pub static COMMANDS: &[&Cmd] = &[&WRITE, &READ, &LIST, &DOCUMENT];
 
 /// Папка документов проекта (папка проекта; без файла — нет).
 pub fn dir(project: Option<&Path>) -> Option<PathBuf> {
@@ -57,6 +57,22 @@ static READ: Cmd = Cmd {
     args: &[req("name", Ty::Str, "имя документа (без .md)")],
     danger: false,
     run: read,
+};
+
+static DOCUMENT: Cmd = Cmd {
+    id: "document.read",
+    category: "Проект",
+    title: "Читать документ (PDF)",
+    shortcut: "",
+    keywords: "pdf документ читать страницы поиск сценарий книга",
+    help: "Читать документ (PDF) по частям через службу: без pages и search — обзор (страниц, сканы, токены, оглавление); pages «a-b» — страницы по порядку, текст и картинки на своих местах (до 40 за вызов; ocr — распознать сканы); search — найти слова и страницы. Большой документ во вложении показан обзором — дочитывай им.",
+    args: &[req("path", Ty::Str, "путь к документу"), arg("pages", Ty::Str, "страницы «a-b»"), arg("search", Ty::Str, "что найти"), arg("ocr", Ty::Bool, "распознать сканы")],
+    danger: false,
+    run: |_, a| {
+        use syn_assist::tools::Tool;
+        let o = syn_assist::builtin::document::DocumentTool.run(&a.all_value())?;
+        Ok(Out::with(o.text, json!({"files": o.files})))
+    },
 };
 
 static LIST: Cmd = Cmd {

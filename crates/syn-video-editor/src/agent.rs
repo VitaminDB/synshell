@@ -88,6 +88,11 @@ impl Tool for CmdTool {
         // команды окна (графы панели «Граф», действия окна) идут в главный поток и
         // ждут его — без блокировки документа, иначе главный поток, ждущий её для
         // отрисовки, и агент ждали бы друг друга
+        // документ — службой, без блокировки; картинки страниц — в ответе (модель их видит)
+        if self.cmd.id == "document.read" {
+            use syn_assist::tools::Tool as _;
+            return syn_assist::builtin::document::DocumentTool.run(args);
+        }
         if self.cmd.id.starts_with("nodes.") || self.cmd.id.starts_with("ui.") {
             let mut scratch = crate::editor::Editor::new();
             return cmd::run_cmd(&mut scratch, self.cmd, args).map(|o| ToolOutput::text(o.text));

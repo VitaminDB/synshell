@@ -7,11 +7,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-# PDF: текст и картинки страниц своим кодом (без pdftotext/poppler)
-pdf-extract = "0.7.12"
-lopdf = "0.34"
-png = "0.17"
-encoding_rs = "0.8"
 syn-notes-proto.workspace = true
 synshell-tr.workspace = true
 serde.workspace = true

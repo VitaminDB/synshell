@@ -9,10 +9,6 @@ use std::path::{Path, PathBuf};
 use synaptixd::{Media, MediaKind};
 
 const TEXT_LIMIT: usize = 16_000;
-/// PDF (сценарий, договор, статья) нужен целиком — предел больше.
-const PDF_LIMIT: usize = 120_000;
-/// Картинок одного PDF в сообщении — не больше (остальные — путём к файлу).
-const PDF_IMAGES: usize = 24;
 /// Сколько звука расшифровывать (секунд) — длинные записи обрезаются.
 const AUDIO_LIMIT_SEC: u32 = 900;
 
@@ -41,6 +37,11 @@ pub fn kind(p: &Path) -> Kind {
 /// Текст и медиа вложений сообщения (текст — после реплики, медиа служба
 /// ставит перед ней).
 pub fn describe(files: &[PathBuf]) -> (String, Vec<Media>) {
+    describe_for(files, "")
+}
+
+/// То же для модели `model` (её окно и токенизатор — бюджет документов).
+pub fn describe_for(files: &[PathBuf], model: &str) -> (String, Vec<Media>) {
     let mut s = String::new();
     let mut media = Vec::new();
     for f in files {
@@ -66,10 +67,8 @@ pub fn describe(files: &[PathBuf]) -> (String, Vec<Media>) {
                 Ok(_) => s.push_str(&format!("\n\nАудио {shown} — речи не распознано.")),
                 Err(e) => s.push_str(&format!("\n\nАудио {shown} ({size} байт) — расшифровать не удалось: {e}.")),
             },
-            Kind::Pdf => match crate::pdf::sequence(f) {
-                Ok(parts) => s.push_str(&pdf_block(f, &parts, &mut media)),
-                Err(e) => s.push_str(&format!("\n\nДокумент {shown} ({size} байт) — текст не извлечён: {e}.")),
-            },
+            // PDF — через службу: целиком в долю окна модели или обзор + чтение инструментом
+            Kind::Pdf => s.push_str(&crate::pdf::attachment(f, model, &mut media)),
             Kind::Text => match std::fs::read_to_string(f) {
                 Ok(c) => s.push_str(&format!("\n\nФайл {shown}:\n```\n{}\n```", crate::tools::truncate(&c, TEXT_LIMIT))),
                 Err(e) => s.push_str(&format!("\n\nФайл {shown}: не прочитан ({e})")),
@@ -82,48 +81,6 @@ pub fn describe(files: &[PathBuf]) -> (String, Vec<Media>) {
 
 /// Маркер места медиа в тексте сообщения (служба ставит блок картинки сюда).
 const MARK: char = synaptixd::MEDIA_MARK;
-
-/// PDF в порядке документа: страницы, текстовые блоки и картинки на своих
-/// местах (маркер + медиа по порядку); у скана — сама страница.
-fn pdf_block(f: &Path, parts: &[crate::pdf::Part], media: &mut Vec<Media>) -> String {
-    use crate::pdf::Part;
-    let shown = f.display();
-    let mut s = format!("\n\nДокумент {shown} — по порядку, как в PDF: текст страниц и картинки на своих местах.\n");
-    let (mut used, mut images, mut skipped) = (0usize, 0usize, 0usize);
-    let mut cut = false;
-    for p in parts {
-        if used > PDF_LIMIT {
-            cut = true;
-            break;
-        }
-        match p {
-            Part::Page(n) => s.push_str(&format!("\n--- страница {n} ---\n")),
-            Part::Text(t) => {
-                let t = crate::tools::truncate(t, PDF_LIMIT.saturating_sub(used).max(200));
-                used += t.len();
-                s.push_str(&t);
-                s.push('\n');
-            }
-            Part::Image { path, scan } => {
-                if images >= PDF_IMAGES {
-                    skipped += 1;
-                    s.push_str(&format!("[картинка: {}]\n", path.display()));
-                    continue;
-                }
-                images += 1;
-                media.push(Media { kind: MediaKind::Image, path: path.to_string_lossy().into_owned() });
-                s.push_str(&format!("[{}: {}]\n{MARK}\n", if *scan { "страница-скан" } else { "картинка" }, path.display()));
-            }
-        }
-    }
-    if cut {
-        s.push_str(&format!("\n[документ длиннее — показано начало; весь текст: {}]\n", crate::pdf::text(f).map(|_| crate::pdf::cache_file(f).display().to_string()).unwrap_or_default()));
-    }
-    if skipped > 0 {
-        s.push_str(&format!("[ещё {skipped} картинок показаны путями — открой нужные инструментом]\n"));
-    }
-    s
-}
 
 /// Только медиа (результаты инструментов: снимки экрана, сгенерированные картинки).
 pub fn media_of(files: &[PathBuf]) -> Vec<Media> {

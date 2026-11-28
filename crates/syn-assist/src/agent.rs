@@ -271,7 +271,7 @@ impl Agent {
         for (i, m) in chat.messages.iter().enumerate().filter(|(_, m)| !m.compacted) {
             match m.role {
                 Role::User => {
-                    let (extra, media) = crate::attach::describe(&m.files);
+                    let (extra, media) = crate::attach::describe_for(&m.files, &chat.model);
                     let mut text = m.text.clone();
                     if !extra.is_empty() {
                         text.push_str("\n\n[Вложения пользователя]");

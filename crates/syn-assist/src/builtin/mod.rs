@@ -1,3 +1,4 @@
+pub mod document;
 pub mod files;
 pub mod media;
 pub mod notes;
@@ -20,6 +21,7 @@ pub fn all() -> Vec<Arc<dyn Tool>> {
         Arc::new(crate::tools::web::WebTool::new()),
         Arc::new(media::MediaTool),
         Arc::new(view_media::ViewMediaTool),
+        Arc::new(document::DocumentTool),
     ];
     if notes::available() {
         tools.push(Arc::new(notes::NotesTool));

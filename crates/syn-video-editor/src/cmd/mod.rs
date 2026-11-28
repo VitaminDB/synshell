@@ -216,6 +216,11 @@ impl Args {
         self.raw(name).cloned()
     }
 
+    /// Все аргументы объектом (для передачи инструменту как есть).
+    pub fn all_value(&self) -> Value {
+        Value::Object(self.v.clone())
+    }
+
     pub fn raw(&self, name: &str) -> Option<&Value> {
         self.v.get(name).filter(|v| !v.is_null())
     }
