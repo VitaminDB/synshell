@@ -454,12 +454,34 @@ pub fn names_and_profanity(text: &str, src: &Source, is_dialog: bool) -> Vec<Str
     }
     if is_dialog && src.profanity > 0 {
         let low = text.to_lowercase();
-        let soft: Vec<&str> = SOFT.iter().copied().filter(|w| low.contains(*w)).collect();
+        let mut soft: Vec<&str> = SOFT.iter().copied().filter(|w| low.contains(*w)).collect();
+        if cut_sends(&low) {
+            soft.push("недосказанный посыл");
+        }
         if !soft.is_empty() {
             out.push(format!("В источнике грубая брань ({} мест), а в переводе мягкие замены ({}) — брань переводится не слабее оригинала (а если пользователь разрешил мат — матом); исправь и перезапиши", src.profanity, soft.join(", ")));
         }
     }
     out
+}
+
+/// Посыл без продолжения («иди ты!», «пошёл ты…», «катись») — смягчённый
+/// перевод грубого посыла оригинала.
+pub fn cut_sends(low: &str) -> bool {
+    const SENDS: &[&str] = &["иди ты", "пошёл ты", "пошел ты", "пошла ты", "идите вы", "катись", "иди к чёрту", "иди к черту", "иди в ад"];
+    const STRONG_RU: &[&str] = &["нах", "хуй", "хуе", "хер", "пизд", "ебан", "ебл", "ёб", "еб", "жоп", "бляд", "сук"];
+    for s in SENDS {
+        let mut from = 0;
+        while let Some(i) = low[from..].find(s).map(|i| i + from) {
+            let tail: String = low[i + s.len()..].chars().take(24).collect();
+            let next: String = tail.split(|c: char| c == '!' || c == '.' || c == '»' || c == '?' || c == '\n').next().unwrap_or("").to_string();
+            if !STRONG_RU.iter().any(|m| next.contains(m)) {
+                return true;
+            }
+            from = i + s.len();
+        }
+    }
+    false
 }
 
 /// Слова, где смешаны латиница и кириллица («Арrogant»).
@@ -541,6 +563,10 @@ mod length_tests {
         assert!(w.iter().any(|x| x.contains("АРАМА")), "{w:?}");
         assert!(w.iter().any(|x| x.contains("блин")), "{w:?}");
         assert!(super::names_and_profanity("КОФИ: «Сука.»\nАМАРА: «Нет.»", &src, true).is_empty());
+        assert!(super::cut_sends("кофи: «иди ты!»"));
+        assert!(super::cut_sends("кофи: «может быть… иди ты»"));
+        assert!(!super::cut_sends("кофи: «иди ты нахуй!»"));
+        assert!(!super::cut_sends("кофи: «пошёл ты на хуй, сука!»"));
         // формат реплик
         assert!(super::bad_lines("КОФИ [зло]: «Пошла вон!»\nАМАРА (за кадром): «Нет.»").is_empty());
         assert_eq!(super::bad_lines("**КОФИ:** — Пошла вон!\n3. АМАРА: «Нет.»\nАМАРА — да").len(), 3);
